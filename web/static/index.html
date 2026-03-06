@@ -6,7 +6,7 @@
 <title>AEGIS</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css"/>
 <script id="tailwind-config">
     tailwind.config = {
@@ -45,6 +45,8 @@
      MAIN LAYOUT
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="flex flex-1 overflow-hidden relative">
+
+<div id="mobile-overlay" onclick="closeMobileSidebar()"></div>
 
   <!-- ─── LEFT SIDEBAR ──────────────────────────────────────────────────── -->
   <aside class="w-[280px] bg-surface border-r border-border-color flex flex-col shrink-0 h-full transition-all duration-300 ease-in-out relative" id="left-sidebar" style="z-index: 100;">
@@ -149,17 +151,23 @@
   <main class="flex-1 flex flex-col bg-background-dark min-w-0 transition-all duration-300">
 
     <!-- Header -->
-    <header class="h-[60px] bg-surface border-b border-border-color px-8 flex items-center justify-between shrink-0">
-      <div class="flex items-center gap-3">
-        <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-        <span class="font-display font-bold text-sm tracking-widest uppercase">Agent Active</span>
+    <header class="h-[60px] bg-surface border-b border-border-color px-4 md:px-8 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-2 md:gap-3">
+        <button id="mobile-hamburger" onclick="toggleMobileSidebar()" class="w-9 h-9 flex items-center justify-center text-secondary-text hover:text-primary transition-colors shrink-0">
+          <span class="material-symbols-outlined text-[22px]">menu</span>
+        </button>
+        <div class="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0"></div>
+        <span class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline">Agent Active</span>
       </div>
-      <div class="flex items-center gap-4">
-        <button class="border border-danger text-danger font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
+      <div class="flex items-center gap-2 md:gap-4">
+        <button class="hidden md:flex border border-danger text-danger font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
           Emergency Stop
         </button>
-        <button class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
-          <span class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors">dark_mode</span>
+        <button class="md:hidden border border-danger text-danger font-display font-bold text-[9px] py-1 px-2.5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
+          Stop
+        </button>
+        <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
+          <span id="theme-toggle-icon" class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors">dark_mode</span>
         </button>
         <div class="w-8 h-8 rounded-full border border-border-color flex items-center justify-center cursor-pointer hover:border-primary transition-colors">
           <span class="material-symbols-outlined text-lg">person</span>
@@ -171,8 +179,8 @@
     <div id="view-agent" class="flex-1 flex flex-col min-h-0">
 
       <!-- Phase progress bar -->
-      <div class="px-8 py-3 bg-surface border-b border-border-color shrink-0">
-        <div class="max-w-4xl mx-auto flex items-center gap-0">
+      <div class="px-4 md:px-8 py-3 bg-surface border-b border-border-color shrink-0 overflow-x-auto scrollbar-hide">
+        <div class="max-w-4xl mx-auto flex items-center gap-0 min-w-[480px]">
 
           <div class="phase-step flex items-center gap-2 flex-1" data-phase="1">
             <div class="w-5 h-5 rounded-full border-2 border-primary bg-primary flex items-center justify-center shrink-0">
@@ -221,7 +229,7 @@
       </div>
 
       <!-- Message stream -->
-      <div class="flex-1 overflow-y-auto p-8 scrollbar-hide">
+      <div class="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide">
         <div class="max-w-4xl mx-auto flex flex-col gap-10">
 
           <!-- Session divider -->
@@ -297,7 +305,7 @@
       </div>
 
       <!-- Instruction input -->
-      <div class="p-8 shrink-0">
+      <div class="p-4 md:p-8 pb-[72px] md:pb-8 shrink-0">
         <div class="max-w-4xl mx-auto relative">
           <div class="absolute left-4 top-1/2 -translate-y-1/2 text-secondary-text">
             <span class="material-symbols-outlined">chevron_right</span>
@@ -2600,6 +2608,32 @@
     </svg>
   </div>
 </div>
+
+<!-- ─── Mobile Bottom Nav ──────────────────────────────────────────────────── -->
+<nav id="mobile-bottom-nav" class="hidden fixed bottom-0 left-0 right-0 h-14 bg-surface border-t border-border-color z-[160]">
+  <div class="flex items-center justify-around h-full px-1">
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-primary flex-1 py-2" data-view="agent">
+      <span class="material-symbols-outlined text-[20px]" style='font-variation-settings:"FILL" 1;'>psychology</span>
+      <span class="text-[7px] font-bold uppercase tracking-wider">Agent</span>
+    </button>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="console">
+      <span class="material-symbols-outlined text-[20px]">terminal</span>
+      <span class="text-[7px] font-bold uppercase tracking-wider">Console</span>
+    </button>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="audit">
+      <span class="material-symbols-outlined text-[20px]">description</span>
+      <span class="text-[7px] font-bold uppercase tracking-wider">Logs</span>
+    </button>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="report">
+      <span class="material-symbols-outlined text-[20px]">summarize</span>
+      <span class="text-[7px] font-bold uppercase tracking-wider">Report</span>
+    </button>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="config">
+      <span class="material-symbols-outlined text-[20px]">settings</span>
+      <span class="text-[7px] font-bold uppercase tracking-wider">Config</span>
+    </button>
+  </div>
+</nav>
 
 <script src="app.js"></script>
 </body>
