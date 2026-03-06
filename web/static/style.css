@@ -1,0 +1,50 @@
+body {
+    background-color: #000000;
+    color: #FFFFFF;
+    font-family: 'Inter', sans-serif;
+}
+
+.mono-text {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Hide scrollbars cross-browser */
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+/* Input/select focus override */
+input:focus,
+select:focus {
+    outline: none !important;
+    border-color: #ccff00 !important;
+    box-shadow: none !important;
+}
+
+/* Sidebar collapse transitions */
+.sidebar-collapsed-left {
+    margin-left: -280px;
+}
+
+.sidebar-collapsed-right {
+    margin-right: -280px;
+}
+
+/* Terminal cursor blink */
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+.cursor-blink {
+    animation: blink 1s step-end infinite;
+}
+
+/* Select arrow override for dark theme */
+select {
+    background-image: none;
+}
