@@ -28,7 +28,7 @@ function initSidebars() {
 let currentView = 'agent';
 let previousView = 'agent';
 
-const ALL_VIEWS = ['agent', 'console', 'audit', 'config', 'intel'];
+const ALL_VIEWS = ['agent', 'console', 'audit', 'config', 'report', 'intel'];
 
 function switchView(viewName) {
     if (!viewName) return;
@@ -127,7 +127,7 @@ function initModeToggle() {
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
 
-const ALL_INTEL_PANELS = ['analysis', 'network', 'shield', 'history', 'nodes'];
+const ALL_INTEL_PANELS = ['analysis', 'network', 'shield', 'history', 'nodes', 'kb'];
 
 function switchIntelPanel(panelName) {
     // Hide all panels
@@ -169,6 +169,7 @@ const INTEL_TAB_ICONS = {
     shield: 'security',
     history: 'history',
     nodes: 'account_tree',
+    kb: 'auto_stories',
 };
 
 function switchIntelTab(tabName) {
