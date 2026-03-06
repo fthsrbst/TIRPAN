@@ -152,7 +152,11 @@ function initIntelNav() {
             item.classList.add('text-primary');
 
             const panel = item.dataset.panel;
-            if (panel) switchIntelPanel(panel);
+            if (panel) {
+                switchIntelPanel(panel);
+                switchView('intel');
+                switchIntelTab(panel);
+            }
         });
     });
 }
