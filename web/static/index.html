@@ -49,7 +49,7 @@
 <div id="mobile-overlay" onclick="closeMobileSidebar()"></div>
 
   <!-- ─── LEFT SIDEBAR ──────────────────────────────────────────────────── -->
-  <aside class="w-[280px] bg-surface border-r border-border-color flex flex-col shrink-0 h-full transition-all duration-300 ease-in-out relative" id="left-sidebar" style="z-index: 100;">
+  <aside class="w-[280px] bg-surface border-r border-border-color flex flex-col shrink-0 h-full transition-all duration-300 ease-in-out relative" id="left-sidebar">
 
     <!-- Collapse button -->
     <button id="left-collapse-btn"
@@ -2610,27 +2610,31 @@
 </div>
 
 <!-- ─── Mobile Bottom Nav ──────────────────────────────────────────────────── -->
-<nav id="mobile-bottom-nav" class="hidden fixed bottom-0 left-0 right-0 h-14 bg-surface border-t border-border-color z-[160]">
-  <div class="flex items-center justify-around h-full px-1">
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-primary flex-1 py-2" data-view="agent">
-      <span class="material-symbols-outlined text-[20px]" style='font-variation-settings:"FILL" 1;'>psychology</span>
-      <span class="text-[7px] font-bold uppercase tracking-wider">Agent</span>
+<nav id="mobile-bottom-nav" class="hidden fixed bottom-0 left-0 right-0 h-[58px] bg-surface border-t border-border-color z-[160]">
+  <div class="flex items-center justify-around h-full">
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-primary flex-1 h-full justify-center" data-view="agent">
+      <span class="material-symbols-outlined text-[22px]" style='font-variation-settings:"FILL" 1;'>psychology</span>
+      <span class="text-[9px] font-bold uppercase tracking-wider">Agent</span>
     </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="console">
-      <span class="material-symbols-outlined text-[20px]">terminal</span>
-      <span class="text-[7px] font-bold uppercase tracking-wider">Console</span>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="console">
+      <span class="material-symbols-outlined text-[22px]">terminal</span>
+      <span class="text-[9px] font-bold uppercase tracking-wider">Console</span>
     </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="audit">
-      <span class="material-symbols-outlined text-[20px]">description</span>
-      <span class="text-[7px] font-bold uppercase tracking-wider">Logs</span>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="audit">
+      <span class="material-symbols-outlined text-[22px]">description</span>
+      <span class="text-[9px] font-bold uppercase tracking-wider">Logs</span>
     </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="report">
-      <span class="material-symbols-outlined text-[20px]">summarize</span>
-      <span class="text-[7px] font-bold uppercase tracking-wider">Report</span>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="report">
+      <span class="material-symbols-outlined text-[22px]">summarize</span>
+      <span class="text-[9px] font-bold uppercase tracking-wider">Report</span>
     </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 py-2" data-view="config">
-      <span class="material-symbols-outlined text-[20px]">settings</span>
-      <span class="text-[7px] font-bold uppercase tracking-wider">Config</span>
+    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="config">
+      <span class="material-symbols-outlined text-[22px]">settings</span>
+      <span class="text-[9px] font-bold uppercase tracking-wider">Config</span>
+    </button>
+    <button class="flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" onclick="toggleMobileRightSidebar()">
+      <span class="material-symbols-outlined text-[22px]">monitoring</span>
+      <span class="text-[9px] font-bold uppercase tracking-wider">Intel</span>
     </button>
   </div>
 </nav>

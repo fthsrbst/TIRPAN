@@ -230,7 +230,23 @@ html.light #view-console .bg-primary {
     }
 
     #right-sidebar {
-        display: none !important;
+        display: flex !important;
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100%;
+        z-index: 200;
+        transform: translateX(100%);
+        transition: transform 0.3s ease-in-out;
+        margin-right: 0 !important;
+    }
+
+    #right-sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    #right-collapse-btn {
+        display: none;
     }
 
     #mobile-overlay {
@@ -251,6 +267,11 @@ html.light #view-console .bg-primary {
 
     footer {
         display: none;
+    }
+
+    /* Input area padding for bottom nav */
+    #view-agent .p-4.md\:p-8.pb-\[72px\] {
+        padding-bottom: 70px;
     }
 }
 
