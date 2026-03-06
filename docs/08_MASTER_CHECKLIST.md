@@ -1,4 +1,4 @@
-# PenTestAI — Master Checklist (Per Phase, Eksiksiz)
+# AEGIS — Master Checklist (Per Phase, Eksiksiz)
 
 > Her aşama için ayrı, detaylı görev listesi. Tamamlandığında ✅ işaretle.
 >
@@ -7,7 +7,7 @@
 
 ---
 
-## 🔵 BÖLÜM A: PenTestAI Örnek Kalıbı (V1 Pentest Bot)
+## 🔵 BÖLÜM A: AEGIS Örnek Kalıbı (V1 Pentest Bot)
 
 ---
 

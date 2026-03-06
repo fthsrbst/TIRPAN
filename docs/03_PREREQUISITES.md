@@ -1,4 +1,4 @@
-# PenTestAI — Prerequisites & Setup Guide
+# AEGIS — Prerequisites & Setup Guide
 
 ## System Requirements
 

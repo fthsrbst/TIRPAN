@@ -1,4 +1,4 @@
-# PenTestAI vs XBOW — Full Comparison
+# AEGIS vs XBOW — Full Comparison
 
 ## What XBOW Has That We Don't (Yet)
 
@@ -8,7 +8,7 @@ XBOW is built by a well-funded company with a large team. Our architecture is in
 
 ## Architecture Model
 
-| Aspect | XBOW | PenTestAI V1 | Gap Closes In |
+| Aspect | XBOW | AEGIS V1 | Gap Closes In |
 |--------|------|-------------|---------------|
 | **Agent Model** | Coordinator spawns multiple Solvers | Single ReAct agent | V3 |
 | **Parallelism** | Hundreds of solvers run simultaneously | Sequential, one target at a time | V2 (basic), V3 (full) |
@@ -44,7 +44,7 @@ XBOW:
 │ VM]  ││ VM]  ││ VM]  │
 └──────┘└──────┘└──────┘
 
-PenTestAI V1:
+AEGIS V1:
 ┌─────────────────────────┐
 │     SINGLE AGENT         │
 │  (One AI Brain)          │
@@ -59,7 +59,7 @@ PenTestAI V1:
 
 ## Testing Capabilities
 
-| Capability | XBOW | PenTestAI V1 | Gap Closes In |
+| Capability | XBOW | AEGIS V1 | Gap Closes In |
 |-----------|------|-------------|---------------|
 | **Port/Service Scanning** | ✅ | ✅ | — |
 | **Exploit Search** | ✅ Custom + DB | ✅ SearchSploit | — |
@@ -107,7 +107,7 @@ XBOW detects blind vulnerabilities by:
 
 ## AI & Decision Making
 
-| Aspect | XBOW | PenTestAI V1 | Gap Closes In |
+| Aspect | XBOW | AEGIS V1 | Gap Closes In |
 |--------|------|-------------|---------------|
 | **LLM Provider** | Custom (likely fine-tuned) | OpenRouter (Claude) + Ollama | — |
 | **Reasoning Pattern** | Autonomous multi-step | ReAct loop | — (same pattern) |
@@ -121,7 +121,7 @@ XBOW detects blind vulnerabilities by:
 
 **Self-Correction (V2 addition)**
 ```
-XBOW:                              PenTestAI V1:
+XBOW:                              AEGIS V1:
 Exploit fails →                     Exploit fails →
   Try different payload →             Try next exploit in list
     Generate custom script →
@@ -146,7 +146,7 @@ Reviewer: "That's a false positive — the output is encoded."
 
 ## Infrastructure & Operations
 
-| Aspect | XBOW | PenTestAI V1 | Gap Closes In |
+| Aspect | XBOW | AEGIS V1 | Gap Closes In |
 |--------|------|-------------|---------------|
 | **Network Monitoring** | Full traffic proxying for scope enforcement | IP-based scope check only | V2 |
 | **Isolated Environments** | Per-solver VM/container | Shared host | V2 (Docker) |
@@ -159,7 +159,7 @@ Reviewer: "That's a false positive — the output is encoded."
 
 ## Reporting & Output
 
-| Aspect | XBOW | PenTestAI V1 | Gap Closes In |
+| Aspect | XBOW | AEGIS V1 | Gap Closes In |
 |--------|------|-------------|---------------|
 | **Real-time Output** | ✅ | ✅ WebSocket stream | — |
 | **PDF Report** | ✅ Professional | ✅ Basic | — |

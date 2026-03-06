@@ -1,4 +1,4 @@
-# PenTestAI — Öğrenme Yol Haritası
+# AEGIS — Öğrenme Yol Haritası
 
 Projeyi yaparken öğreneceğin konular ve her konuda odaklanman gereken spesifik başlıklar.
 Sıra önemli — her konu bir sonrakinin temeli.

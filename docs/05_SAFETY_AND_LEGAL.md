@@ -1,4 +1,4 @@
-# PenTestAI — Safety & Legal Guidelines
+# AEGIS — Safety & Legal Guidelines
 
 ## Legal Requirements
 
