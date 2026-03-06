@@ -1,4 +1,4 @@
-# PenTestAI — Network Defense Module (Blue Team Extension)
+# AEGIS — Network Defense Module (Blue Team Extension)
 
 > 🛡️ An LLM-powered **active defense** layer that monitors the local network, detects attacks in real-time, and autonomously responds using AI-driven decision making.
 
@@ -6,10 +6,10 @@
 
 ## 1. Overview & Vision
 
-PenTestAI V1 is a **Red Team** (offensive) tool. This module adds a **Blue Team** (defensive) counterpart. Together they form a full security loop:
+AEGIS V1 is a **Red Team** (offensive) tool. This module adds a **Blue Team** (defensive) counterpart. Together they form a full security loop:
 
 ```
-RED  → PenTestAI attacks target network  → finds vulnerabilities
+RED  → AEGIS attacks target network  → finds vulnerabilities
 BLUE → DefenseAI monitors YOUR network   → detects & stops attacks
 ```
 
@@ -343,7 +343,7 @@ class LLMHoneypot:
 
 ---
 
-## 6. Integration with Existing PenTestAI
+## 6. Integration with Existing AEGIS
 
 ### 6.1 Dual-Mode Operation
 

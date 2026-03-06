@@ -1,6 +1,7 @@
-# PenTestAI
+# AEGIS
+### Autonomous Ethical Guardrailed Intelligence System
 
-> 🔒 An autonomous AI-powered penetration testing bot inspired by [XBOW](https://xbow.com).
+> An autonomous AI-powered penetration testing bot inspired by [XBOW](https://xbow.com).
 > Give it a target and limits — it scans, finds vulnerabilities, and runs exploits. All decisions made by LLMs.
 
 ⚠️ **For authorized security testing only. Never test systems without explicit written permission.**
@@ -39,7 +40,7 @@ Single-agent **ReAct loop** (Reason → Act → Observe → Reflect) powered by:
 ```bash
 # Clone
 git clone <repo-url>
-cd PenTestAI
+cd AEGIS
 
 # Setup
 python3.11 -m venv venv

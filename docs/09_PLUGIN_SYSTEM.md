@@ -1,4 +1,4 @@
-# PenTestAI — Plugin Sistemi Spesifikasyonu
+# AEGIS — Plugin Sistemi Spesifikasyonu
 
 > **Amaç:** Core'a dokunmadan yeni saldırı capabilityleri ekleyebilmek.  
 > V1'de 3 built-in tool var, geri her şey plugin ile gelecek.

@@ -1,4 +1,4 @@
-# PenTestAI — Version Roadmap v2
+# AEGIS — Version Roadmap v2
 
 ## Vizyon
 
@@ -182,7 +182,7 @@ Plugin Altyapı  →      + Plugin Ekosistemi  →    + Plugin Marketplace
 ### Depo Yapısı (yayınlandığında)
 
 ```
-PenTestAI/
+AEGIS/
 ├── README.md
 ├── LICENSE
 ├── CONTRIBUTING.md

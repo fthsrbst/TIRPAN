@@ -1,4 +1,5 @@
-# PenTestAI — Full Architecture v2 (Plugin-Aware)
+# AEGIS — Full Architecture v2 (Plugin-Aware)
+> *Autonomous Ethical Guardrailed Intelligence System*
 
 ## Tasarım İlkesi
 
@@ -13,7 +14,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                          PenTestAI                                    │
+│                          AEGIS                                    │
 │                                                                      │
 │  ┌──────────┐    ┌────────────────────────────────────────────────┐  │
 │  │  Web UI  │───▶│             FastAPI Backend                    │  │
@@ -419,7 +420,7 @@ Action → [1] Kill switch aktif mi?
 ## Klasör Yapısı (Tam)
 
 ```
-PenTestAI/
+AEGIS/
 │
 ├── main.py                      # CLI entry point
 ├── config.py                    # AppConfig, SafetyConfig, LLMConfig
