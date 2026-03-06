@@ -809,6 +809,565 @@
       </div>
     </div>
 
+    <!-- ── VIEW: INTEL (expanded intelligence) ───────────────────────────── -->
+    <div id="view-intel" class="hidden flex-1 flex flex-col min-h-0">
+
+      <!-- Intel header -->
+      <div class="px-6 py-3 bg-surface border-b border-border-color flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-4">
+          <button id="intel-back-btn" class="flex items-center gap-1.5 text-secondary-text hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[18px]">arrow_back</span>
+            <span class="text-[10px] font-bold uppercase tracking-widest">Back</span>
+          </button>
+          <div class="w-px h-4 bg-border-color"></div>
+          <span class="material-symbols-outlined text-primary text-[18px]" id="intel-view-icon">monitoring</span>
+          <span class="font-display font-bold text-sm tracking-widest uppercase" id="intel-view-title">Analysis</span>
+        </div>
+        <div class="flex border border-border-color">
+          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase bg-primary text-black" data-intel-tab="analysis">Analysis</button>
+          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="network">Network</button>
+          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="shield">Shield</button>
+          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="history">History</button>
+          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="nodes">Nodes</button>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto scrollbar-hide">
+
+        <!-- ── Analysis expanded ──────────────────────────────────────────── -->
+        <div class="intel-tab-body p-8" data-intel-tab="analysis">
+          <div class="max-w-6xl mx-auto flex flex-col gap-8">
+
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Threat Score</p>
+                <p class="mono-text text-3xl font-bold text-danger">82%</p>
+                <p class="text-[9px] text-secondary-text mt-1">HIGH RISK</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Critical CVEs</p>
+                <p class="mono-text text-3xl font-bold text-danger">3</p>
+                <p class="text-[9px] text-secondary-text mt-1">CVSS ≥ 9.0</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">High CVEs</p>
+                <p class="mono-text text-3xl font-bold text-orange-400">6</p>
+                <p class="text-[9px] text-secondary-text mt-1">CVSS 7.0–8.9</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Exploit Chains</p>
+                <p class="mono-text text-3xl font-bold text-primary">2</p>
+                <p class="text-[9px] text-secondary-text mt-1">High confidence</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-[1fr_240px] gap-6">
+              <div class="bg-card border border-border-color">
+                <div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
+                  <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">CVE Findings</p>
+                  <span class="mono-text text-[9px] text-secondary-text">12 total</span>
+                </div>
+                <table class="w-full border-collapse">
+                  <thead>
+                    <tr class="border-b border-border-color">
+                      <th class="text-left px-5 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">CVE ID</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">CVSS</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Service</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Host</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Type</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody class="mono-text text-xs">
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-primary font-bold">CVE-2023-44487</td>
+                      <td class="px-4 py-2.5"><span class="text-danger font-bold">9.8</span></td>
+                      <td class="px-4 py-2.5 text-slate-300">Apache 2.4.41</td>
+                      <td class="px-4 py-2.5 text-slate-400">192.168.1.14</td>
+                      <td class="px-4 py-2.5 text-slate-400">RCE</td>
+                      <td class="px-4 py-2.5"><span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[7px] font-bold uppercase">Confirmed</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-primary font-bold">CVE-2016-6210</td>
+                      <td class="px-4 py-2.5"><span class="text-danger font-bold">7.5</span></td>
+                      <td class="px-4 py-2.5 text-slate-300">OpenSSH 7.2p2</td>
+                      <td class="px-4 py-2.5 text-slate-400">192.168.1.55</td>
+                      <td class="px-4 py-2.5 text-slate-400">Info Leak</td>
+                      <td class="px-4 py-2.5"><span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[7px] font-bold uppercase">Exploited</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-primary font-bold">CVE-2021-41773</td>
+                      <td class="px-4 py-2.5"><span class="text-danger font-bold">9.8</span></td>
+                      <td class="px-4 py-2.5 text-slate-300">Apache 2.4.49</td>
+                      <td class="px-4 py-2.5 text-slate-400">192.168.1.14</td>
+                      <td class="px-4 py-2.5 text-slate-400">Path Trav</td>
+                      <td class="px-4 py-2.5"><span class="px-2 py-0.5 bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[7px] font-bold uppercase">Testing</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-primary font-bold">CVE-2020-0796</td>
+                      <td class="px-4 py-2.5"><span class="text-danger font-bold">10.0</span></td>
+                      <td class="px-4 py-2.5 text-slate-300">SMBv3</td>
+                      <td class="px-4 py-2.5 text-slate-400">192.168.1.102</td>
+                      <td class="px-4 py-2.5 text-slate-400">RCE</td>
+                      <td class="px-4 py-2.5"><span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Scanning</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-primary font-bold">CVE-2017-0144</td>
+                      <td class="px-4 py-2.5"><span class="text-danger font-bold">8.1</span></td>
+                      <td class="px-4 py-2.5 text-slate-300">SMBv1</td>
+                      <td class="px-4 py-2.5 text-slate-400">192.168.1.102</td>
+                      <td class="px-4 py-2.5 text-slate-400">EternalBlue</td>
+                      <td class="px-4 py-2.5"><span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Scanning</span></td>
+                    </tr>
+                    <tr class="hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-primary font-bold">CVE-2019-0708</td>
+                      <td class="px-4 py-2.5"><span class="text-danger font-bold">9.8</span></td>
+                      <td class="px-4 py-2.5 text-slate-300">RDP 3389</td>
+                      <td class="px-4 py-2.5 text-slate-400">192.168.1.102</td>
+                      <td class="px-4 py-2.5 text-slate-400">BlueKeep</td>
+                      <td class="px-4 py-2.5"><span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Pending</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="flex flex-col gap-4">
+                <div class="bg-card border border-border-color p-4 flex flex-col items-center">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Criticality Score</p>
+                  <div class="relative flex items-center justify-center">
+                    <svg class="w-28 h-28 transform -rotate-90">
+                      <circle cx="56" cy="56" fill="transparent" r="50" stroke="#1A1A1A" stroke-width="8"/>
+                      <circle cx="56" cy="56" fill="transparent" r="50" stroke="#FF3B3B" stroke-dasharray="314.2" stroke-dashoffset="56.6" stroke-linecap="butt" stroke-width="8"/>
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                      <span class="mono-text text-2xl font-bold text-white">82%</span>
+                      <span class="text-[8px] text-secondary-text uppercase">High</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">CVSS Distribution</p>
+                  <div class="flex flex-col gap-1.5 mt-1">
+                    <div class="flex items-center gap-2">
+                      <span class="text-[8px] text-secondary-text w-14 shrink-0">Critical</span>
+                      <div class="flex-1 h-1.5 bg-border-color overflow-hidden"><div class="h-full bg-danger" style="width:25%"></div></div>
+                      <span class="mono-text text-[8px] text-danger w-4 text-right">3</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-[8px] text-secondary-text w-14 shrink-0">High</span>
+                      <div class="flex-1 h-1.5 bg-border-color overflow-hidden"><div class="h-full bg-orange-500" style="width:50%"></div></div>
+                      <span class="mono-text text-[8px] text-orange-400 w-4 text-right">6</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-[8px] text-secondary-text w-14 shrink-0">Medium</span>
+                      <div class="flex-1 h-1.5 bg-border-color overflow-hidden"><div class="h-full bg-yellow-500" style="width:25%"></div></div>
+                      <span class="mono-text text-[8px] text-yellow-400 w-4 text-right">3</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-[8px] text-secondary-text w-14 shrink-0">Low</span>
+                      <div class="flex-1 h-1.5 bg-border-color overflow-hidden"><div class="h-full bg-primary/50" style="width:8%"></div></div>
+                      <span class="mono-text text-[8px] text-secondary-text w-4 text-right">1</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
+              <div class="flex items-center gap-3 mb-3">
+                <span class="material-symbols-outlined text-primary text-[18px]">psychology</span>
+                <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Attack Chain Analysis</p>
+              </div>
+              <p class="text-sm leading-relaxed text-slate-300 mb-4">High-confidence exploit chain: <span class="text-primary mono-text">192.168.1.55 SSH</span> → CVE-2016-6210 user enum → brute-force → lateral move to <span class="text-primary mono-text">192.168.1.102 SMB</span> via EternalBlue → RCE.</p>
+              <div class="flex items-center gap-3 mono-text text-xs flex-wrap">
+                <span class="px-3 py-1 border border-border-color text-secondary-text">.55 SSH</span>
+                <span class="material-symbols-outlined text-primary text-[16px]">arrow_forward</span>
+                <span class="px-3 py-1 border border-primary/40 text-primary">User Enum</span>
+                <span class="material-symbols-outlined text-primary text-[16px]">arrow_forward</span>
+                <span class="px-3 py-1 border border-primary/40 text-primary">Brute Force</span>
+                <span class="material-symbols-outlined text-primary text-[16px]">arrow_forward</span>
+                <span class="px-3 py-1 border border-danger/40 text-danger">.102 EternalBlue</span>
+                <span class="material-symbols-outlined text-danger text-[16px]">arrow_forward</span>
+                <span class="px-3 py-1 bg-danger/10 border border-danger/40 text-danger font-bold">RCE</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── Network expanded ───────────────────────────────────────────── -->
+        <div class="intel-tab-body hidden p-8" data-intel-tab="network">
+          <div class="max-w-6xl mx-auto flex flex-col gap-8">
+
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Subnet</p>
+                <p class="mono-text text-lg font-bold text-primary">192.168.1.0/24</p>
+                <p class="text-[9px] text-secondary-text mt-1">256 addresses</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Hosts Up</p>
+                <p class="mono-text text-3xl font-bold text-primary">4</p>
+                <p class="text-[9px] text-secondary-text mt-1">of 256 scanned</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Open Ports</p>
+                <p class="mono-text text-3xl font-bold">28</p>
+                <p class="text-[9px] text-secondary-text mt-1">across all hosts</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Avg Latency</p>
+                <p class="mono-text text-3xl font-bold text-primary">1.2ms</p>
+                <p class="text-[9px] text-secondary-text mt-1">response time</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-6">
+              <div class="bg-card border border-border-color p-5">
+                <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-4">Network Topology</p>
+                <svg viewBox="0 0 400 280" class="w-full" xmlns="http://www.w3.org/2000/svg">
+                  <line x1="200" y1="60" x2="60" y2="200" stroke="#2a2a2a" stroke-width="1.5"/>
+                  <line x1="200" y1="60" x2="140" y2="200" stroke="#FF3B3B" stroke-width="1.5" opacity="0.6"/>
+                  <line x1="200" y1="60" x2="260" y2="200" stroke="#ccff00" stroke-width="1" stroke-dasharray="6 3" opacity="0.7"/>
+                  <line x1="200" y1="60" x2="340" y2="200" stroke="#2a2a2a" stroke-width="1.5"/>
+                  <rect x="155" y="20" width="90" height="40" rx="1" fill="#111111" stroke="#333333" stroke-width="1.5"/>
+                  <text x="200" y="37" text-anchor="middle" fill="#888" font-family="monospace" font-size="9" font-weight="bold">GATEWAY</text>
+                  <text x="200" y="52" text-anchor="middle" fill="#555" font-family="monospace" font-size="9">192.168.1.1</text>
+                  <circle cx="60" cy="220" r="28" fill="#111111" stroke="#333333" stroke-width="1.5"/>
+                  <text x="60" y="215" text-anchor="middle" fill="#aaa" font-family="monospace" font-size="9" font-weight="bold">.14</text>
+                  <text x="60" y="227" text-anchor="middle" fill="#555" font-family="monospace" font-size="8">Apache</text>
+                  <circle cx="78" cy="196" r="5" fill="#888"/>
+                  <text x="60" y="258" text-anchor="middle" fill="#555" font-family="monospace" font-size="8">UP</text>
+                  <circle cx="140" cy="220" r="28" fill="#1a0000" stroke="#FF3B3B" stroke-width="2"/>
+                  <text x="140" y="215" text-anchor="middle" fill="#ff6666" font-family="monospace" font-size="9" font-weight="bold">.55</text>
+                  <text x="140" y="227" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="8">SSH</text>
+                  <circle cx="158" cy="196" r="5" fill="#FF3B3B"/>
+                  <text x="140" y="258" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="8">VULN</text>
+                  <circle cx="260" cy="220" r="28" fill="#0a1100" stroke="#ccff00" stroke-width="2"/>
+                  <text x="260" y="215" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="9" font-weight="bold">.102</text>
+                  <text x="260" y="227" text-anchor="middle" fill="#99cc00" font-family="monospace" font-size="8">SMB</text>
+                  <circle cx="278" cy="196" r="5" fill="#ccff00"/>
+                  <text x="260" y="258" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="8">SCANNING</text>
+                  <circle cx="340" cy="220" r="28" fill="#111111" stroke="#333333" stroke-width="1.5"/>
+                  <text x="340" y="215" text-anchor="middle" fill="#aaa" font-family="monospace" font-size="9" font-weight="bold">.200</text>
+                  <text x="340" y="227" text-anchor="middle" fill="#555" font-family="monospace" font-size="8">UNKNOWN</text>
+                  <circle cx="358" cy="196" r="5" fill="#555"/>
+                  <text x="340" y="258" text-anchor="middle" fill="#555" font-family="monospace" font-size="8">UP</text>
+                  <circle cx="20" cy="275" r="4" fill="#ccff00"/><text x="30" y="279" fill="#666" font-family="monospace" font-size="7">Scanning</text>
+                  <circle cx="95" cy="275" r="4" fill="#FF3B3B"/><text x="105" y="279" fill="#666" font-family="monospace" font-size="7">Vulnerable</text>
+                  <circle cx="175" cy="275" r="4" fill="#888"/><text x="185" y="279" fill="#666" font-family="monospace" font-size="7">Online</text>
+                </svg>
+              </div>
+
+              <div class="bg-card border border-border-color">
+                <div class="px-5 py-3 border-b border-border-color">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Host Details</p>
+                </div>
+                <table class="w-full border-collapse">
+                  <thead>
+                    <tr class="border-b border-border-color">
+                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">IP</th>
+                      <th class="text-left px-3 py-2 text-[8px] font-bold text-secondary-text uppercase">OS</th>
+                      <th class="text-left px-3 py-2 text-[8px] font-bold text-secondary-text uppercase">Ports</th>
+                      <th class="text-left px-3 py-2 text-[8px] font-bold text-secondary-text uppercase">Ping</th>
+                      <th class="text-left px-3 py-2 text-[8px] font-bold text-secondary-text uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody class="mono-text text-xs">
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-4 py-2.5 text-slate-300">192.168.1.1</td><td class="px-3 py-2.5 text-secondary-text text-[9px]">Linux</td><td class="px-3 py-2.5">1</td><td class="px-3 py-2.5 text-secondary-text">1.0ms</td>
+                      <td class="px-3 py-2.5"><span class="text-[7px] text-secondary-text uppercase px-1.5 py-0.5 border border-border-color">GW</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-4 py-2.5 text-slate-300">192.168.1.14</td><td class="px-3 py-2.5 text-secondary-text text-[9px]">Ubuntu</td><td class="px-3 py-2.5 text-primary">2</td><td class="px-3 py-2.5 text-secondary-text">1.2ms</td>
+                      <td class="px-3 py-2.5"><span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30">UP</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors bg-danger/5">
+                      <td class="px-4 py-2.5 text-danger font-bold">192.168.1.55</td><td class="px-3 py-2.5 text-secondary-text text-[9px]">Ubuntu</td><td class="px-3 py-2.5 text-danger">2</td><td class="px-3 py-2.5 text-secondary-text">0.9ms</td>
+                      <td class="px-3 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30 bg-danger/10">VULN</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-4 py-2.5 text-primary font-bold">192.168.1.102</td><td class="px-3 py-2.5 text-secondary-text text-[9px]">Win 10</td><td class="px-3 py-2.5 text-primary">3</td><td class="px-3 py-2.5 text-secondary-text">1.5ms</td>
+                      <td class="px-3 py-2.5"><span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30 bg-primary/10">SCAN</span></td>
+                    </tr>
+                    <tr class="hover:bg-surface transition-colors">
+                      <td class="px-4 py-2.5 text-slate-400">192.168.1.200</td><td class="px-3 py-2.5 text-secondary-text text-[9px]">Unknown</td><td class="px-3 py-2.5 text-slate-400">?</td><td class="px-3 py-2.5 text-secondary-text">1.8ms</td>
+                      <td class="px-3 py-2.5"><span class="text-[7px] text-secondary-text uppercase px-1.5 py-0.5 border border-border-color">UP</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="bg-card border border-border-color p-5">
+              <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-4">Detected Services</p>
+              <div class="flex flex-wrap gap-3">
+                <div class="flex items-center gap-2 px-4 py-2 bg-surface border border-border-color mono-text text-[10px]"><span class="w-2 h-2 bg-primary rounded-full"></span><span>22/tcp SSH</span><span class="text-secondary-text ml-2">1 host</span></div>
+                <div class="flex items-center gap-2 px-4 py-2 bg-surface border border-border-color mono-text text-[10px]"><span class="w-2 h-2 bg-primary rounded-full"></span><span>80/tcp HTTP</span><span class="text-secondary-text ml-2">3 hosts</span></div>
+                <div class="flex items-center gap-2 px-4 py-2 bg-surface border border-border-color mono-text text-[10px]"><span class="w-2 h-2 bg-primary/60 rounded-full"></span><span>443/tcp HTTPS</span><span class="text-secondary-text ml-2">1 host</span></div>
+                <div class="flex items-center gap-2 px-4 py-2 bg-surface border border-border-color mono-text text-[10px]"><span class="w-2 h-2 bg-primary/60 rounded-full"></span><span>135/tcp MSRPC</span><span class="text-secondary-text ml-2">1 host</span></div>
+                <div class="flex items-center gap-2 px-4 py-2 bg-surface border border-border-color mono-text text-[10px]"><span class="w-2 h-2 bg-primary/60 rounded-full"></span><span>139/tcp NetBIOS</span><span class="text-secondary-text ml-2">1 host</span></div>
+                <div class="flex items-center gap-2 px-4 py-2 bg-surface border border-danger/30 mono-text text-[10px]"><span class="w-2 h-2 bg-danger rounded-full animate-pulse"></span><span class="text-danger">445/tcp SMB</span><span class="text-danger ml-2">1 host ⚠</span></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── Shield expanded ────────────────────────────────────────────── -->
+        <div class="intel-tab-body hidden p-8" data-intel-tab="shield">
+          <div class="max-w-6xl mx-auto flex flex-col gap-8">
+
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Alerts Today</p><p class="mono-text text-3xl font-bold text-danger">7</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Blocked IPs</p><p class="mono-text text-3xl font-bold text-primary">3</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Detectors</p><p class="mono-text text-3xl font-bold">4</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Packets/s</p><p class="mono-text text-3xl font-bold text-primary">1.2K</p></div>
+            </div>
+
+            <div class="grid grid-cols-[260px_1fr] gap-6">
+              <div class="flex flex-col gap-4">
+                <div class="bg-card border border-border-color p-4">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Detector Status</p>
+                  <div class="flex flex-col gap-2">
+                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">Port Scan</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
+                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">ARP Spoof</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
+                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">DoS / DDoS</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
+                    <div class="flex items-center justify-between py-2"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full" style="background:#555"></div><span class="text-xs mono-text text-secondary-text">Brute Force</span></div><span class="text-[8px] text-secondary-text uppercase font-bold">Idle</span></div>
+                  </div>
+                </div>
+                <div class="bg-card border border-border-color p-4">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Blocked Connections</p>
+                  <div class="flex flex-col gap-2 mono-text text-[10px]">
+                    <div class="flex justify-between py-1 border-b border-border-color"><span class="text-secondary-text">10.0.0.1</span><span class="text-danger">iptables DROP</span></div>
+                    <div class="flex justify-between py-1 border-b border-border-color"><span class="text-secondary-text">172.16.0.5</span><span class="text-danger">iptables DROP</span></div>
+                    <div class="flex justify-between py-1"><span class="text-secondary-text">192.168.5.99</span><span class="text-orange-400">REDIRECT</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bg-card border border-border-color">
+                <div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Alert Log</p>
+                  <span class="mono-text text-[9px] text-danger">7 alerts</span>
+                </div>
+                <table class="w-full border-collapse">
+                  <thead>
+                    <tr class="border-b border-border-color">
+                      <th class="text-left px-5 py-2 text-[8px] font-bold text-secondary-text uppercase">Time</th>
+                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Type</th>
+                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Source</th>
+                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Target</th>
+                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody class="mono-text text-xs">
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors bg-danger/5">
+                      <td class="px-5 py-2.5 text-secondary-text">14:42:01</td><td class="px-4 py-2.5 text-danger font-bold">PORT_SCAN</td><td class="px-4 py-2.5 text-slate-300">192.168.1.55</td><td class="px-4 py-2.5 text-slate-400">192.168.1.102</td>
+                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-secondary-text">14:40:33</td><td class="px-4 py-2.5 text-orange-400 font-bold">BRUTE_FORCE</td><td class="px-4 py-2.5 text-slate-300">10.0.0.1</td><td class="px-4 py-2.5 text-slate-400">192.168.1.55:22</td>
+                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-secondary-text">14:38:44</td><td class="px-4 py-2.5 text-orange-400 font-bold">BRUTE_FORCE</td><td class="px-4 py-2.5 text-slate-300">172.16.0.5</td><td class="px-4 py-2.5 text-slate-400">192.168.1.1:80</td>
+                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
+                    </tr>
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-secondary-text">14:35:12</td><td class="px-4 py-2.5 text-secondary-text font-bold">ARP_SPOOF</td><td class="px-4 py-2.5 text-slate-300">192.168.5.99</td><td class="px-4 py-2.5 text-slate-400">Broadcast</td>
+                      <td class="px-4 py-2.5"><span class="text-[7px] text-orange-400 uppercase px-1.5 py-0.5 border border-orange-400/30">ALERT</span></td>
+                    </tr>
+                    <tr class="hover:bg-surface transition-colors">
+                      <td class="px-5 py-2.5 text-secondary-text">14:32:08</td><td class="px-4 py-2.5 text-secondary-text font-bold">PORT_SCAN</td><td class="px-4 py-2.5 text-slate-300">192.168.1.55</td><td class="px-4 py-2.5 text-slate-400">192.168.1.0/24</td>
+                      <td class="px-4 py-2.5"><span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30">LOG</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── History expanded ───────────────────────────────────────────── -->
+        <div class="intel-tab-body hidden p-8" data-intel-tab="history">
+          <div class="max-w-6xl mx-auto flex flex-col gap-8">
+
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Sessions</p><p class="mono-text text-3xl font-bold text-primary">3</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulns Found</p><p class="mono-text text-3xl font-bold text-danger">22</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Avg Duration</p><p class="mono-text text-3xl font-bold">01:32</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Exploit Rate</p><p class="mono-text text-3xl font-bold text-primary">78%</p></div>
+            </div>
+
+            <div class="bg-card border border-border-color">
+              <div class="px-6 py-3 border-b border-border-color flex items-center justify-between">
+                <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Session History</p>
+                <button class="flex items-center gap-1.5 text-secondary-text hover:text-primary transition-colors text-[10px] uppercase font-bold">
+                  <span class="material-symbols-outlined text-[14px]">download</span>Export
+                </button>
+              </div>
+              <table class="w-full border-collapse">
+                <thead>
+                  <tr class="border-b border-border-color">
+                    <th class="text-left px-6 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Session</th>
+                    <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Target</th>
+                    <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Mode</th>
+                    <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Start</th>
+                    <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Duration</th>
+                    <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Hosts</th>
+                    <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Vulns</th>
+                    <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody class="mono-text text-xs">
+                  <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                    <td class="px-6 py-3 text-primary font-bold">ABC-123</td>
+                    <td class="px-4 py-3 text-slate-300">192.168.1.0/24</td>
+                    <td class="px-4 py-3 text-slate-400">AUTOMATED_DISCOVERY</td>
+                    <td class="px-4 py-3 text-secondary-text">2025-01-15 10:32</td>
+                    <td class="px-4 py-3 text-slate-300">02:14 ▶</td>
+                    <td class="px-4 py-3 text-primary">4</td>
+                    <td class="px-4 py-3 text-danger font-bold">12</td>
+                    <td class="px-4 py-3"><span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span></td>
+                  </tr>
+                  <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                    <td class="px-6 py-3 text-slate-300 font-bold">XYZ-456</td>
+                    <td class="px-4 py-3 text-slate-300">10.0.0.0/8</td>
+                    <td class="px-4 py-3 text-slate-400">STEALTH_RECON</td>
+                    <td class="px-4 py-3 text-secondary-text">2025-01-14 09:15</td>
+                    <td class="px-4 py-3 text-slate-400">01:48</td>
+                    <td class="px-4 py-3 text-slate-300">12</td>
+                    <td class="px-4 py-3 text-orange-400 font-bold">7</td>
+                    <td class="px-4 py-3"><span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Done</span></td>
+                  </tr>
+                  <tr class="hover:bg-surface transition-colors">
+                    <td class="px-6 py-3 text-slate-300 font-bold">DEF-789</td>
+                    <td class="px-4 py-3 text-slate-300">172.16.0.0/16</td>
+                    <td class="px-4 py-3 text-slate-400">AUTOMATED_DISCOVERY</td>
+                    <td class="px-4 py-3 text-secondary-text">2025-01-13 14:00</td>
+                    <td class="px-4 py-3 text-slate-400">00:54</td>
+                    <td class="px-4 py-3 text-slate-300">8</td>
+                    <td class="px-4 py-3 text-slate-400 font-bold">3</td>
+                    <td class="px-4 py-3"><span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Done</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="bg-card border border-border-color p-5">
+              <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-4">Vulns by Session</p>
+              <div class="flex items-end gap-8 h-20 px-4">
+                <div class="flex flex-col items-center gap-2 flex-1">
+                  <div class="w-full bg-primary/50 rounded-sm" style="height:27%"></div>
+                  <span class="mono-text text-[8px] text-secondary-text">DEF-789</span>
+                  <span class="mono-text text-[9px] text-slate-400 font-bold">3</span>
+                </div>
+                <div class="flex flex-col items-center gap-2 flex-1">
+                  <div class="w-full bg-primary/70 rounded-sm" style="height:64%"></div>
+                  <span class="mono-text text-[8px] text-secondary-text">XYZ-456</span>
+                  <span class="mono-text text-[9px] text-slate-400 font-bold">7</span>
+                </div>
+                <div class="flex flex-col items-center gap-2 flex-1">
+                  <div class="w-full bg-danger rounded-sm" style="height:100%"></div>
+                  <span class="mono-text text-[8px] text-primary">ABC-123</span>
+                  <span class="mono-text text-[9px] text-primary font-bold">12</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── Nodes expanded ─────────────────────────────────────────────── -->
+        <div class="intel-tab-body hidden p-8" data-intel-tab="nodes">
+          <div class="max-w-6xl mx-auto flex flex-col gap-8">
+
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Hosts</p><p class="mono-text text-3xl font-bold text-primary">4</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulnerable</p><p class="mono-text text-3xl font-bold text-danger">1</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Open Ports</p><p class="mono-text text-3xl font-bold">28</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Scanning</p><p class="mono-text text-3xl font-bold text-primary animate-pulse">1</p></div>
+            </div>
+
+            <div class="flex flex-col gap-4">
+              <div class="bg-card border border-border-color">
+                <div class="px-6 py-4 flex items-center gap-4">
+                  <div class="w-3 h-3 rounded-full shrink-0" style="background:#555"></div>
+                  <div class="flex-1 grid grid-cols-[220px_140px_80px_100px_1fr] items-center gap-4 mono-text">
+                    <span class="text-sm font-bold text-slate-300">192.168.1.1</span>
+                    <span class="text-xs text-secondary-text">Linux / Gateway</span>
+                    <span class="text-xs text-secondary-text">1 port</span>
+                    <span class="text-xs text-secondary-text">1.0ms</span>
+                    <span class="text-[7px] text-secondary-text uppercase px-2 py-0.5 border border-border-color w-fit">GW</span>
+                  </div>
+                </div>
+                <div class="border-t border-border-color px-6 py-3 flex gap-3">
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-color mono-text text-[10px]"><span class="text-secondary-text">80/tcp</span><span class="text-primary ml-1">open</span><span class="text-slate-400 ml-2">http</span></div>
+                </div>
+              </div>
+
+              <div class="bg-card border border-border-color">
+                <div class="px-6 py-4 flex items-center gap-4">
+                  <div class="w-3 h-3 rounded-full bg-primary shrink-0"></div>
+                  <div class="flex-1 grid grid-cols-[220px_140px_80px_100px_1fr] items-center gap-4 mono-text">
+                    <span class="text-sm font-bold text-slate-200">192.168.1.14</span>
+                    <span class="text-xs text-secondary-text">Ubuntu 20.04</span>
+                    <span class="text-xs text-primary">2 ports</span>
+                    <span class="text-xs text-secondary-text">1.2ms</span>
+                    <span class="text-[7px] text-primary uppercase px-2 py-0.5 border border-primary/30 w-fit">UP</span>
+                  </div>
+                </div>
+                <div class="border-t border-border-color px-6 py-3 flex gap-3 flex-wrap">
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-color mono-text text-[10px]"><span class="text-secondary-text">80/tcp</span><span class="text-primary ml-1">open</span><span class="text-slate-400 ml-2">Apache 2.4.41</span></div>
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-color mono-text text-[10px]"><span class="text-secondary-text">443/tcp</span><span class="text-primary ml-1">open</span><span class="text-slate-400 ml-2">https</span></div>
+                </div>
+              </div>
+
+              <div class="bg-card border border-danger/40">
+                <div class="px-6 py-4 flex items-center gap-4">
+                  <div class="w-3 h-3 rounded-full bg-danger shrink-0 animate-pulse"></div>
+                  <div class="flex-1 grid grid-cols-[220px_140px_80px_100px_1fr] items-center gap-4 mono-text">
+                    <span class="text-sm font-bold text-danger">192.168.1.55</span>
+                    <span class="text-xs text-secondary-text">Ubuntu 16.04</span>
+                    <span class="text-xs text-danger">2 ports</span>
+                    <span class="text-xs text-secondary-text">0.9ms</span>
+                    <span class="text-[7px] text-danger uppercase px-2 py-0.5 border border-danger/30 bg-danger/10 w-fit">VULNERABLE</span>
+                  </div>
+                </div>
+                <div class="border-t border-danger/20 px-6 py-3 flex gap-3 flex-wrap">
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-danger/5 border border-danger/20 mono-text text-[10px]"><span class="text-secondary-text">22/tcp</span><span class="text-danger ml-1">open</span><span class="text-danger ml-2">OpenSSH 7.2p2</span></div>
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-color mono-text text-[10px]"><span class="text-secondary-text">80/tcp</span><span class="text-primary ml-1">open</span><span class="text-slate-400 ml-2">http</span></div>
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-danger/10 border border-danger/30 mono-text text-[10px]"><span class="material-symbols-outlined text-[12px] text-danger">warning</span><span class="text-danger ml-1">CVE-2016-6210 — CVSS 7.5 — User Enumeration</span></div>
+                </div>
+              </div>
+
+              <div class="bg-card border border-primary/30">
+                <div class="px-6 py-4 flex items-center gap-4">
+                  <div class="w-3 h-3 rounded-full bg-primary shrink-0 animate-pulse"></div>
+                  <div class="flex-1 grid grid-cols-[220px_140px_80px_100px_1fr] items-center gap-4 mono-text">
+                    <span class="text-sm font-bold text-primary">192.168.1.102</span>
+                    <span class="text-xs text-secondary-text">Windows 10</span>
+                    <span class="text-xs text-primary">3 ports</span>
+                    <span class="text-xs text-secondary-text">1.5ms</span>
+                    <span class="text-[7px] text-primary uppercase px-2 py-0.5 border border-primary/30 bg-primary/10 w-fit">SCANNING</span>
+                  </div>
+                </div>
+                <div class="border-t border-border-color px-6 py-3 flex gap-3 flex-wrap">
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-color mono-text text-[10px]"><span class="text-secondary-text">445/tcp</span><span class="text-primary ml-1">open</span><span class="text-slate-400 ml-2">smb</span></div>
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-color mono-text text-[10px]"><span class="text-secondary-text">135/tcp</span><span class="text-primary ml-1">open</span><span class="text-slate-400 ml-2">msrpc</span></div>
+                  <div class="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-color mono-text text-[10px]"><span class="text-secondary-text">139/tcp</span><span class="text-primary ml-1">open</span><span class="text-slate-400 ml-2">netbios-ssn</span></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+
   </main>
 
   <!-- ─── RIGHT SIDEBAR ─────────────────────────────────────────────────── -->
@@ -825,95 +1384,514 @@
 
       <!-- Intel nav -->
       <div class="flex flex-col gap-6 mb-8">
-        <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-primary">
+        <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-primary" data-panel="analysis">
           <span class="material-symbols-outlined text-[22px]">monitoring</span>
           <span class="text-[13px] font-medium uppercase tracking-wider">Analysis</span>
         </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors">
+        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="network">
           <span class="material-symbols-outlined text-[22px]">hub</span>
           <span class="text-[13px] font-medium uppercase tracking-wider">Network</span>
         </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors">
+        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="shield">
           <span class="material-symbols-outlined text-[22px]">security</span>
           <span class="text-[13px] font-medium uppercase tracking-wider">Shield</span>
         </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors">
+        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="history">
           <span class="material-symbols-outlined text-[22px]">history</span>
           <span class="text-[13px] font-medium uppercase tracking-wider">History</span>
         </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors">
+        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="nodes">
           <span class="material-symbols-outlined text-[22px]">account_tree</span>
           <span class="text-[13px] font-medium uppercase tracking-wider">Nodes</span>
         </div>
       </div>
 
-      <!-- Threat Level Gauge -->
-      <div class="bg-card border border-border-color p-4 mb-6">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Threat Level</h3>
-          <span class="mono-text text-[10px] text-danger">HIGH RISK</span>
+      <!-- ─── PANEL: ANALYSIS (default) ──────────────────────────────────── -->
+      <div id="intel-panel-analysis" class="intel-panel flex flex-col gap-6">
+
+        <div class="flex items-center justify-between -mt-1">
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Analysis</span>
+          <button class="intel-expand-btn text-secondary-text hover:text-primary transition-colors" data-intel-expand="analysis" title="Expand">
+            <span class="material-symbols-outlined text-[15px]">open_in_full</span>
+          </button>
         </div>
-        <div class="relative flex items-center justify-center py-2">
-          <svg class="w-32 h-32 transform -rotate-90">
-            <circle cx="64" cy="64" fill="transparent" r="58" stroke="#1A1A1A" stroke-width="8"></circle>
-            <circle cx="64" cy="64" fill="transparent" r="58" stroke="#FF3B3B" stroke-dasharray="364.4" stroke-dashoffset="65.6" stroke-linecap="butt" stroke-width="8"></circle>
-          </svg>
-          <div class="absolute inset-0 flex flex-col items-center justify-center">
-            <span class="mono-text text-2xl font-bold text-white">82%</span>
-            <span class="text-[8px] text-secondary-text uppercase">Criticality</span>
+
+        <!-- Threat Level Gauge -->
+        <div class="bg-card border border-border-color p-4">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Threat Level</h3>
+            <span class="mono-text text-[10px] text-danger">HIGH RISK</span>
+          </div>
+          <div class="relative flex items-center justify-center py-2">
+            <svg class="w-32 h-32 transform -rotate-90">
+              <circle cx="64" cy="64" fill="transparent" r="58" stroke="#1A1A1A" stroke-width="8"></circle>
+              <circle cx="64" cy="64" fill="transparent" r="58" stroke="#FF3B3B" stroke-dasharray="364.4" stroke-dashoffset="65.6" stroke-linecap="butt" stroke-width="8"></circle>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <span class="mono-text text-2xl font-bold text-white">82%</span>
+              <span class="text-[8px] text-secondary-text uppercase">Criticality</span>
+            </div>
           </div>
         </div>
+
+        <!-- Active Findings -->
+        <div class="flex flex-col gap-3">
+          <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Active Findings</h3>
+          <div class="flex flex-col gap-2">
+            <div class="bg-surface border border-border-color p-2 flex items-center justify-between">
+              <div class="flex flex-col">
+                <span class="mono-text text-[10px] text-slate-200">CVE-2023-44487</span>
+                <span class="text-[9px] text-secondary-text">RCE Exploit Path</span>
+              </div>
+              <span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">Critical</span>
+            </div>
+            <div class="bg-surface border border-border-color p-2 flex items-center justify-between">
+              <div class="flex flex-col">
+                <span class="mono-text text-[10px] text-slate-200">SSH_AUTH_FAIL</span>
+                <span class="text-[9px] text-secondary-text">Brute Force Activity</span>
+              </div>
+              <span class="px-2 py-0.5 bg-orange-500/10 border border-orange-500/20 text-orange-500 text-[8px] font-bold uppercase">High</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scan Activity graph -->
+        <div class="bg-card border border-border-color p-4">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Scan Activity</h3>
+            <span class="flex items-center gap-1">
+              <span class="w-1 h-1 rounded-full bg-primary animate-pulse"></span>
+              <span class="mono-text text-[9px] text-primary">LIVE</span>
+            </span>
+          </div>
+          <div class="h-12 w-full flex items-end gap-0.5">
+            <div class="bg-primary/20 w-full h-[20%] transition-all"></div>
+            <div class="bg-primary/40 w-full h-[45%] transition-all"></div>
+            <div class="bg-primary/30 w-full h-[30%] transition-all"></div>
+            <div class="bg-primary/60 w-full h-[75%] transition-all"></div>
+            <div class="bg-primary/80 w-full h-[90%] transition-all"></div>
+            <div class="bg-primary w-full h-[60%] transition-all"></div>
+            <div class="bg-primary/50 w-full h-[40%] transition-all"></div>
+            <div class="bg-primary/70 w-full h-[85%] transition-all"></div>
+          </div>
+        </div>
+
+        <!-- AI Summary -->
+        <div class="bg-surface border-l-2 border-l-primary border border-border-color p-3">
+          <h3 class="text-[9px] font-bold text-secondary-text uppercase mb-2">Analysis Summary</h3>
+          <p class="mono-text text-[10px] leading-relaxed text-slate-400">
+            Vulnerability correlation engine suggests high-confidence exploit chain on 192.168.1.55. Recommend immediate payload generation.
+          </p>
+        </div>
+
       </div>
 
-      <!-- Active Findings -->
-      <div class="flex flex-col gap-3 mb-6">
-        <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Active Findings</h3>
-        <div class="flex flex-col gap-2">
-          <div class="bg-surface border border-border-color p-2 flex items-center justify-between">
-            <div class="flex flex-col">
-              <span class="mono-text text-[10px] text-slate-200">CVE-2023-44487</span>
-              <span class="text-[9px] text-secondary-text">RCE Exploit Path</span>
-            </div>
-            <span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">Critical</span>
-          </div>
-          <div class="bg-surface border border-border-color p-2 flex items-center justify-between">
-            <div class="flex flex-col">
-              <span class="mono-text text-[10px] text-slate-200">SSH_AUTH_FAIL</span>
-              <span class="text-[9px] text-secondary-text">Brute Force Activity</span>
-            </div>
-            <span class="px-2 py-0.5 bg-orange-500/10 border border-orange-500/20 text-orange-500 text-[8px] font-bold uppercase">High</span>
-          </div>
-        </div>
-      </div>
+      <!-- ─── PANEL: NETWORK ─────────────────────────────────────────────── -->
+      <div id="intel-panel-network" class="intel-panel hidden flex flex-col gap-4">
 
-      <!-- Scan Activity graph -->
-      <div class="bg-card border border-border-color p-4 mb-6">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Scan Activity</h3>
-          <span class="flex items-center gap-1">
-            <span class="w-1 h-1 rounded-full bg-primary animate-pulse"></span>
-            <span class="mono-text text-[9px] text-primary">LIVE</span>
+        <div class="flex items-center justify-between -mt-1">
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Network</span>
+          <button class="intel-expand-btn text-secondary-text hover:text-primary transition-colors" data-intel-expand="network" title="Expand">
+            <span class="material-symbols-outlined text-[15px]">open_in_full</span>
+          </button>
+        </div>
+
+        <!-- Subnet header -->
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Subnet</p>
+            <p class="mono-text text-xs text-primary mt-0.5">192.168.1.0/24</p>
+          </div>
+          <span class="flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+            <span class="text-[9px] mono-text text-primary uppercase">Scanning</span>
           </span>
         </div>
-        <div class="h-12 w-full flex items-end gap-0.5">
-          <div class="bg-primary/20 w-full h-[20%] transition-all"></div>
-          <div class="bg-primary/40 w-full h-[45%] transition-all"></div>
-          <div class="bg-primary/30 w-full h-[30%] transition-all"></div>
-          <div class="bg-primary/60 w-full h-[75%] transition-all"></div>
-          <div class="bg-primary/80 w-full h-[90%] transition-all"></div>
-          <div class="bg-primary w-full h-[60%] transition-all"></div>
-          <div class="bg-primary/50 w-full h-[40%] transition-all"></div>
-          <div class="bg-primary/70 w-full h-[85%] transition-all"></div>
+
+        <!-- Topology map -->
+        <div class="bg-card border border-border-color p-3">
+          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Topology Map</p>
+          <svg viewBox="0 0 220 168" class="w-full" xmlns="http://www.w3.org/2000/svg">
+            <line x1="110" y1="34" x2="28" y2="122" stroke="#2a2a2a" stroke-width="1.5"/>
+            <line x1="110" y1="34" x2="83" y2="122" stroke="#FF3B3B" stroke-width="1" opacity="0.5"/>
+            <line x1="110" y1="34" x2="137" y2="122" stroke="#ccff00" stroke-width="1" stroke-dasharray="4 2" opacity="0.7"/>
+            <line x1="110" y1="34" x2="192" y2="122" stroke="#2a2a2a" stroke-width="1.5"/>
+            <!-- Gateway -->
+            <rect x="80" y="8" width="60" height="26" rx="1" fill="#111111" stroke="#333333"/>
+            <text x="110" y="20" text-anchor="middle" fill="#666" font-family="monospace" font-size="7" font-weight="bold">GATEWAY</text>
+            <text x="110" y="30" text-anchor="middle" fill="#444" font-family="monospace" font-size="7">.1</text>
+            <!-- Host .14 UP -->
+            <circle cx="28" cy="134" r="16" fill="#111111" stroke="#333333" stroke-width="1"/>
+            <text x="28" y="131" text-anchor="middle" fill="#aaa" font-family="monospace" font-size="7">.14</text>
+            <text x="28" y="141" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">HTTP</text>
+            <circle cx="39" cy="120" r="3" fill="#888888"/>
+            <text x="28" y="157" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">UP</text>
+            <!-- Host .55 VULNERABLE -->
+            <circle cx="83" cy="134" r="16" fill="#1a0000" stroke="#FF3B3B" stroke-width="1.5"/>
+            <text x="83" y="131" text-anchor="middle" fill="#ff6666" font-family="monospace" font-size="7">.55</text>
+            <text x="83" y="141" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="6">SSH</text>
+            <circle cx="94" cy="120" r="3" fill="#FF3B3B"/>
+            <text x="83" y="157" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="6">VULN</text>
+            <!-- Host .102 SCANNING -->
+            <circle cx="137" cy="134" r="16" fill="#0a1100" stroke="#ccff00" stroke-width="1.5"/>
+            <text x="137" y="131" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="7">.102</text>
+            <text x="137" y="141" text-anchor="middle" fill="#99cc00" font-family="monospace" font-size="6">SMB</text>
+            <circle cx="148" cy="120" r="3" fill="#ccff00"/>
+            <text x="137" y="157" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6">SCAN</text>
+            <!-- Host .200 UNKNOWN -->
+            <circle cx="192" cy="134" r="16" fill="#111111" stroke="#333333" stroke-width="1"/>
+            <text x="192" y="131" text-anchor="middle" fill="#aaa" font-family="monospace" font-size="7">.200</text>
+            <text x="192" y="141" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">UNK</text>
+            <circle cx="203" cy="120" r="3" fill="#555555"/>
+            <text x="192" y="157" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">UP</text>
+          </svg>
         </div>
+
+        <!-- Network stats -->
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Hosts</span>
+            <span class="mono-text text-sm font-bold text-primary">04</span>
+          </div>
+          <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Ports</span>
+            <span class="mono-text text-sm font-bold">28</span>
+          </div>
+          <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Vulns</span>
+            <span class="mono-text text-sm font-bold text-danger">12</span>
+          </div>
+        </div>
+
+        <!-- Traffic chart -->
+        <div class="bg-card border border-border-color p-3">
+          <div class="flex justify-between items-center mb-2">
+            <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Traffic</p>
+            <span class="mono-text text-[9px] text-secondary-text">pkt/s</span>
+          </div>
+          <div class="flex items-end gap-0.5 h-8">
+            <div class="bg-primary/20 w-full h-[30%]"></div>
+            <div class="bg-primary/30 w-full h-[50%]"></div>
+            <div class="bg-primary/50 w-full h-[70%]"></div>
+            <div class="bg-primary/70 w-full h-[90%]"></div>
+            <div class="bg-primary/90 w-full h-[60%]"></div>
+            <div class="bg-primary w-full h-[100%]"></div>
+            <div class="bg-primary/80 w-full h-[80%]"></div>
+            <div class="bg-primary/60 w-full h-[65%]"></div>
+            <div class="bg-primary/50 w-full h-[55%]"></div>
+            <div class="bg-primary/70 w-full h-[75%]"></div>
+          </div>
+        </div>
+
+        <!-- Protocol breakdown -->
+        <div class="flex flex-col gap-2">
+          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Protocols</p>
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center gap-2">
+              <span class="mono-text text-[9px] text-secondary-text w-9 shrink-0">TCP</span>
+              <div class="flex-1 h-1 bg-border-color overflow-hidden">
+                <div class="h-full bg-primary" style="width:72%"></div>
+              </div>
+              <span class="mono-text text-[9px] text-primary w-7 text-right">72%</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="mono-text text-[9px] text-secondary-text w-9 shrink-0">UDP</span>
+              <div class="flex-1 h-1 bg-border-color overflow-hidden">
+                <div class="h-full bg-primary/50" style="width:18%"></div>
+              </div>
+              <span class="mono-text text-[9px] text-secondary-text w-7 text-right">18%</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="mono-text text-[9px] text-secondary-text w-9 shrink-0">ICMP</span>
+              <div class="flex-1 h-1 bg-border-color overflow-hidden">
+                <div class="h-full bg-primary/30" style="width:10%"></div>
+              </div>
+              <span class="mono-text text-[9px] text-secondary-text w-7 text-right">10%</span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <!-- AI Summary -->
-      <div class="bg-surface border-l-2 border-l-primary border border-border-color p-3">
-        <h3 class="text-[9px] font-bold text-secondary-text uppercase mb-2">Analysis Summary</h3>
-        <p class="mono-text text-[10px] leading-relaxed text-slate-400">
-          Vulnerability correlation engine suggests high-confidence exploit chain on 192.168.1.55. Recommend immediate payload generation.
-        </p>
+      <!-- ─── PANEL: SHIELD ──────────────────────────────────────────────── -->
+      <div id="intel-panel-shield" class="intel-panel hidden flex flex-col gap-4">
+
+        <div class="flex items-center justify-between -mt-1">
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Shield</span>
+          <button class="intel-expand-btn text-secondary-text hover:text-primary transition-colors" data-intel-expand="shield" title="Expand">
+            <span class="material-symbols-outlined text-[15px]">open_in_full</span>
+          </button>
+        </div>
+
+        <!-- Status header -->
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 border border-primary flex items-center justify-center shrink-0">
+            <span class="material-symbols-outlined text-primary text-[20px]">security</span>
+          </div>
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider">Defense Module</p>
+            <p class="text-[9px] text-secondary-text mt-0.5">Optional — separate process</p>
+          </div>
+        </div>
+
+        <!-- Detectors -->
+        <div class="flex flex-col gap-2">
+          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Detectors</p>
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
+              <span class="text-[10px] mono-text">Port Scan</span>
+              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
+            </div>
+            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
+              <span class="text-[10px] mono-text">ARP Spoof</span>
+              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
+            </div>
+            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
+              <span class="text-[10px] mono-text">DoS / DDoS</span>
+              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
+            </div>
+            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
+              <span class="text-[10px] mono-text">Brute Force</span>
+              <span class="px-1.5 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Idle</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent alerts -->
+        <div class="flex flex-col gap-2">
+          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Recent Alerts</p>
+          <div class="bg-surface border-l-2 border-l-danger border border-border-color p-2">
+            <p class="text-[9px] text-danger font-bold mono-text">PORT_SCAN_DETECTED</p>
+            <p class="text-[8px] text-secondary-text mt-0.5">192.168.1.55 → .102 • 14:42:01</p>
+          </div>
+          <div class="bg-surface border-l-2 border-l-orange-500 border border-border-color p-2">
+            <p class="text-[9px] text-orange-400 font-bold mono-text">BRUTE_FORCE_SSH</p>
+            <p class="text-[8px] text-secondary-text mt-0.5">192.168.1.55:22 • 14:38:44</p>
+          </div>
+        </div>
+
+        <!-- Blocked connections -->
+        <div class="bg-card border border-border-color p-3">
+          <div class="flex justify-between mb-3">
+            <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Blocked</p>
+            <span class="mono-text text-[9px] text-danger">3 total</span>
+          </div>
+          <div class="flex flex-col gap-1.5 mono-text text-[9px]">
+            <div class="flex justify-between">
+              <span class="text-secondary-text">10.0.0.1</span>
+              <span class="text-danger">iptables DROP</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-secondary-text">172.16.0.5</span>
+              <span class="text-danger">iptables DROP</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-secondary-text">192.168.5.99</span>
+              <span class="text-orange-400">REDIRECT</span>
+            </div>
+          </div>
+        </div>
+
       </div>
+
+      <!-- ─── PANEL: HISTORY ─────────────────────────────────────────────── -->
+      <div id="intel-panel-history" class="intel-panel hidden flex flex-col gap-3">
+
+        <div class="flex items-center justify-between -mt-1">
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">History</span>
+          <button class="intel-expand-btn text-secondary-text hover:text-primary transition-colors" data-intel-expand="history" title="Expand">
+            <span class="material-symbols-outlined text-[15px]">open_in_full</span>
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Past Sessions</p>
+          <span class="mono-text text-[9px] text-secondary-text">3 total</span>
+        </div>
+
+        <!-- Current session -->
+        <div class="bg-card border border-primary/30 p-3 flex flex-col gap-2 cursor-pointer hover:border-primary transition-colors">
+          <div class="flex items-center justify-between">
+            <span class="mono-text text-[10px] font-bold text-primary">ABC-123</span>
+            <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
+          </div>
+          <p class="mono-text text-[9px] text-secondary-text">192.168.1.0/24 — Full Auto</p>
+          <div class="flex items-center gap-1 mt-1">
+            <div class="h-0.5 bg-primary" style="width:60%"></div>
+            <div class="h-0.5 flex-1 bg-border-color"></div>
+          </div>
+          <div class="flex items-center justify-between text-[8px] text-secondary-text">
+            <span>Phase 3/5 — Exploit</span>
+            <span class="mono-text">02:14</span>
+          </div>
+          <div class="flex items-center justify-between text-[8px]">
+            <span class="text-secondary-text">2025-01-15 10:32</span>
+            <span class="mono-text text-danger">12 vulns</span>
+          </div>
+        </div>
+
+        <!-- Past session XYZ-456 -->
+        <div class="bg-card border border-border-color p-3 flex flex-col gap-1.5 cursor-pointer hover:border-primary/40 transition-colors opacity-75">
+          <div class="flex items-center justify-between">
+            <span class="mono-text text-[10px] font-bold text-slate-300">XYZ-456</span>
+            <span class="px-1.5 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Done</span>
+          </div>
+          <p class="mono-text text-[9px] text-secondary-text">10.0.0.0/8 — Stealth Recon</p>
+          <div class="flex items-center justify-between text-[8px] text-secondary-text mt-0.5">
+            <span>2025-01-14 09:15</span>
+            <span class="mono-text">01:48 • 7 vulns</span>
+          </div>
+        </div>
+
+        <!-- Past session DEF-789 -->
+        <div class="bg-card border border-border-color p-3 flex flex-col gap-1.5 cursor-pointer hover:border-primary/40 transition-colors opacity-75">
+          <div class="flex items-center justify-between">
+            <span class="mono-text text-[10px] font-bold text-slate-300">DEF-789</span>
+            <span class="px-1.5 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Done</span>
+          </div>
+          <p class="mono-text text-[9px] text-secondary-text">172.16.0.0/16 — Discovery</p>
+          <div class="flex items-center justify-between text-[8px] text-secondary-text mt-0.5">
+            <span>2025-01-13 14:00</span>
+            <span class="mono-text">00:54 • 3 vulns</span>
+          </div>
+        </div>
+
+        <!-- New session button -->
+        <button class="w-full border border-dashed border-border-color hover:border-primary text-secondary-text hover:text-primary transition-colors py-2.5 flex items-center justify-center gap-2 mt-1">
+          <span class="material-symbols-outlined text-[16px]">add</span>
+          <span class="text-[10px] font-bold uppercase tracking-widest">New Session</span>
+        </button>
+
+      </div>
+
+      <!-- ─── PANEL: NODES ───────────────────────────────────────────────── -->
+      <div id="intel-panel-nodes" class="intel-panel hidden flex flex-col gap-3">
+
+        <div class="flex items-center justify-between -mt-1">
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Nodes</span>
+          <button class="intel-expand-btn text-secondary-text hover:text-primary transition-colors" data-intel-expand="nodes" title="Expand">
+            <span class="material-symbols-outlined text-[15px]">open_in_full</span>
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Discovered Hosts</p>
+          <span class="mono-text text-[9px] text-primary">4 online</span>
+        </div>
+
+        <!-- Node: .1 Gateway -->
+        <div class="bg-card border border-border-color">
+          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
+            <div class="w-2 h-2 rounded-full bg-secondary-text shrink-0" style="background:#555"></div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1">
+                <span class="mono-text text-[10px] font-bold truncate">192.168.1.1</span>
+                <span class="text-[7px] text-secondary-text uppercase px-1.5 py-0.5 border border-border-color shrink-0">GW</span>
+              </div>
+              <p class="text-[9px] text-secondary-text mt-0.5">Gateway • 1 port open</p>
+            </div>
+            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
+          </div>
+          <div class="node-detail hidden border-t border-border-color px-3 py-2 flex flex-col gap-1">
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">80/tcp</span>
+              <span class="text-primary">open</span>
+              <span class="text-slate-400">http</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Node: .14 HTTP -->
+        <div class="bg-card border border-border-color">
+          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
+            <div class="w-2 h-2 rounded-full bg-primary shrink-0"></div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1">
+                <span class="mono-text text-[10px] font-bold truncate">192.168.1.14</span>
+                <span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30 shrink-0">UP</span>
+              </div>
+              <p class="text-[9px] text-secondary-text mt-0.5">Apache 2.4.41 • 2 ports</p>
+            </div>
+            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
+          </div>
+          <div class="node-detail hidden border-t border-border-color px-3 py-2 flex flex-col gap-1">
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">80/tcp</span>
+              <span class="text-primary">open</span>
+              <span class="text-slate-400">Apache 2.4.41</span>
+            </div>
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">443/tcp</span>
+              <span class="text-primary">open</span>
+              <span class="text-slate-400">https</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Node: .55 VULNERABLE -->
+        <div class="bg-card border border-danger/40">
+          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
+            <div class="w-2 h-2 rounded-full bg-danger shrink-0 animate-pulse"></div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1">
+                <span class="mono-text text-[10px] font-bold text-danger truncate">192.168.1.55</span>
+                <span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30 bg-danger/10 shrink-0">VULN</span>
+              </div>
+              <p class="text-[9px] text-secondary-text mt-0.5">OpenSSH 7.2p2 • 2 ports</p>
+            </div>
+            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
+          </div>
+          <div class="node-detail hidden border-t border-danger/20 px-3 py-2 flex flex-col gap-1.5">
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">22/tcp</span>
+              <span class="text-danger">open</span>
+              <span class="text-danger">OpenSSH 7.2p2</span>
+            </div>
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">80/tcp</span>
+              <span class="text-primary">open</span>
+              <span class="text-slate-400">http</span>
+            </div>
+            <div class="px-2 py-1 bg-danger/10 border border-danger/20 text-[8px] text-danger mono-text">
+              CVE-2016-6210 — CVSS 7.5
+            </div>
+          </div>
+        </div>
+
+        <!-- Node: .102 Scanning -->
+        <div class="bg-card border border-primary/30">
+          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
+            <div class="w-2 h-2 rounded-full bg-primary shrink-0 animate-pulse"></div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1">
+                <span class="mono-text text-[10px] font-bold text-primary truncate">192.168.1.102</span>
+                <span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30 bg-primary/10 shrink-0">Scan</span>
+              </div>
+              <p class="text-[9px] text-secondary-text mt-0.5">Windows 10 • 3 ports</p>
+            </div>
+            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
+          </div>
+          <div class="node-detail hidden border-t border-border-color px-3 py-2 flex flex-col gap-1">
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">445/tcp</span>
+              <span class="text-primary">open</span>
+              <span class="text-slate-400">smb</span>
+            </div>
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">135/tcp</span>
+              <span class="text-primary">open</span>
+              <span class="text-slate-400">msrpc</span>
+            </div>
+            <div class="grid grid-cols-3 mono-text text-[9px]">
+              <span class="text-secondary-text">139/tcp</span>
+              <span class="text-primary">open</span>
+              <span class="text-slate-400">netbios</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
     </div>
   </aside>
 

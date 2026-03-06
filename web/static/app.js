@@ -26,11 +26,13 @@ function initSidebars() {
 // ─── View Switching (Agent ↔ Console) ───────────────────────────────────────
 
 let currentView = 'agent';
+let previousView = 'agent';
 
-const ALL_VIEWS = ['agent', 'console', 'audit', 'config'];
+const ALL_VIEWS = ['agent', 'console', 'audit', 'config', 'intel'];
 
 function switchView(viewName) {
     if (!viewName) return;
+    if (currentView !== 'intel') previousView = currentView;
 
     // Hide all views, show target
     ALL_VIEWS.forEach(v => {
@@ -125,6 +127,19 @@ function initModeToggle() {
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
 
+const ALL_INTEL_PANELS = ['analysis', 'network', 'shield', 'history', 'nodes'];
+
+function switchIntelPanel(panelName) {
+    // Hide all panels
+    ALL_INTEL_PANELS.forEach(p => {
+        const el = document.getElementById(`intel-panel-${p}`);
+        if (el) el.classList.add('hidden');
+    });
+    // Show target
+    const target = document.getElementById(`intel-panel-${panelName}`);
+    if (target) target.classList.remove('hidden');
+}
+
 function initIntelNav() {
     const items = document.querySelectorAll('.intel-nav-item');
     items.forEach(item => {
@@ -135,6 +150,79 @@ function initIntelNav() {
             });
             item.classList.remove('text-secondary-text');
             item.classList.add('text-primary');
+
+            const panel = item.dataset.panel;
+            if (panel) switchIntelPanel(panel);
+        });
+    });
+}
+
+// ─── Intel Tab Switching (within view-intel) ─────────────────────────────────
+
+const INTEL_TAB_ICONS = {
+    analysis: 'monitoring',
+    network: 'hub',
+    shield: 'security',
+    history: 'history',
+    nodes: 'account_tree',
+};
+
+function switchIntelTab(tabName) {
+    document.querySelectorAll('.intel-tab-body').forEach(body => {
+        body.classList.toggle('hidden', body.dataset.intelTab !== tabName);
+    });
+    document.querySelectorAll('.intel-tab').forEach(btn => {
+        const active = btn.dataset.intelTab === tabName;
+        btn.classList.toggle('bg-primary', active);
+        btn.classList.toggle('text-black', active);
+        btn.classList.toggle('text-secondary-text', !active);
+    });
+    const icon = document.getElementById('intel-view-icon');
+    const title = document.getElementById('intel-view-title');
+    if (icon) icon.textContent = INTEL_TAB_ICONS[tabName] || 'monitoring';
+    if (title) title.textContent = tabName.charAt(0).toUpperCase() + tabName.slice(1);
+}
+
+function initIntelTabs() {
+    document.querySelectorAll('.intel-tab').forEach(btn => {
+        btn.addEventListener('click', () => switchIntelTab(btn.dataset.intelTab));
+    });
+}
+
+function initExpandButtons() {
+    document.querySelectorAll('.intel-expand-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const panel = btn.dataset.intelExpand;
+            switchView('intel');
+            switchIntelTab(panel);
+        });
+    });
+
+    const backBtn = document.getElementById('intel-back-btn');
+    if (backBtn) {
+        backBtn.addEventListener('click', () => switchView(previousView));
+    }
+}
+
+// ─── Node Toggle (Nodes panel expand/collapse) ───────────────────────────────
+
+function initNodeToggles() {
+    document.querySelectorAll('.node-toggle').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            // The node-toggle sits inside the direct parent card div
+            const card = toggle.parentElement;
+            const detail = card ? card.querySelector('.node-detail') : null;
+            const chevron = toggle.querySelector('.node-chevron');
+            if (!detail) return;
+
+            const isOpen = !detail.classList.contains('hidden');
+            if (isOpen) {
+                detail.classList.add('hidden');
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
+            } else {
+                detail.classList.remove('hidden');
+                if (chevron) chevron.style.transform = 'rotate(180deg)';
+            }
         });
     });
 }
@@ -197,6 +285,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initConsoleTabs();
     initModeToggle();
     initIntelNav();
+    initIntelTabs();
+    initExpandButtons();
+    initNodeToggles();
     initClock();
     initAuditFilters();
     initApiKeyToggle();
