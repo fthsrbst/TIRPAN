@@ -14,7 +14,21 @@ function toggleMobileSidebar() {
 
 function closeMobileSidebar() {
     document.getElementById('left-sidebar').classList.remove('mobile-open');
+    document.getElementById('right-sidebar').classList.remove('mobile-open');
     document.getElementById('mobile-overlay').classList.remove('active');
+}
+
+function toggleMobileRightSidebar() {
+    const sb = document.getElementById('right-sidebar');
+    const overlay = document.getElementById('mobile-overlay');
+    if (sb.classList.contains('mobile-open')) {
+        sb.classList.remove('mobile-open');
+        overlay.classList.remove('active');
+    } else {
+        document.getElementById('left-sidebar').classList.remove('mobile-open');
+        sb.classList.add('mobile-open');
+        overlay.classList.add('active');
+    }
 }
 
 // ─── Sidebar Collapse ───────────────────────────────────────────────────────
