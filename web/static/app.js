@@ -1,3 +1,22 @@
+// ─── Mobile Sidebar ──────────────────────────────────────────────────────────
+
+function toggleMobileSidebar() {
+    const sb = document.getElementById('left-sidebar');
+    const overlay = document.getElementById('mobile-overlay');
+    if (sb.classList.contains('mobile-open')) {
+        sb.classList.remove('mobile-open');
+        overlay.classList.remove('active');
+    } else {
+        sb.classList.add('mobile-open');
+        overlay.classList.add('active');
+    }
+}
+
+function closeMobileSidebar() {
+    document.getElementById('left-sidebar').classList.remove('mobile-open');
+    document.getElementById('mobile-overlay').classList.remove('active');
+}
+
 // ─── Sidebar Collapse ───────────────────────────────────────────────────────
 
 function initSidebars() {
@@ -65,7 +84,10 @@ function initBottomNav() {
     navItems.forEach(item => {
         item.addEventListener('click', () => {
             const view = item.dataset.view;
-            if (view) switchView(view);
+            if (view) {
+                switchView(view);
+                closeMobileSidebar();
+            }
         });
     });
 }
@@ -306,6 +328,45 @@ function initTopoFullscreen() {
     }
 }
 
+// ─── Theme Toggle (Dark / Light) ─────────────────────────────────────────────
+
+function initThemeToggle() {
+    const btn = document.getElementById('theme-toggle-btn');
+    const icon = document.getElementById('theme-toggle-icon');
+    if (!btn || !icon) return;
+
+    const stored = localStorage.getItem('aegis-theme');
+    if (stored === 'light') {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+        icon.textContent = 'light_mode';
+    }
+
+    btn.addEventListener('click', () => {
+        const isLight = document.documentElement.classList.contains('light');
+
+        const applyToggle = () => {
+            if (isLight) {
+                document.documentElement.classList.remove('light');
+                document.documentElement.classList.add('dark');
+                icon.textContent = 'dark_mode';
+                localStorage.setItem('aegis-theme', 'dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+                document.documentElement.classList.add('light');
+                icon.textContent = 'light_mode';
+                localStorage.setItem('aegis-theme', 'light');
+            }
+        };
+
+        if (document.startViewTransition) {
+            document.startViewTransition(applyToggle);
+        } else {
+            applyToggle();
+        }
+    });
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -321,4 +382,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initAuditFilters();
     initApiKeyToggle();
     initTopoFullscreen();
+    initThemeToggle();
 });

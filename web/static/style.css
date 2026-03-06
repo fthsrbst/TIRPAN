@@ -49,3 +49,221 @@ select:focus {
 select {
     background-image: none;
 }
+
+/* Icons: prevent text selection when copied */
+.material-symbols-outlined {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ─── Light Mode ─────────────────────────────────────────────────────────── */
+
+html.light body {
+    background-color: #f4f4f5;
+    color: #18181b;
+}
+
+html.light .bg-background-dark {
+    background-color: #f4f4f5 !important;
+}
+
+html.light .bg-surface {
+    background-color: #ffffff !important;
+}
+
+html.light .bg-card {
+    background-color: #f0f0f1 !important;
+}
+
+html.light .border-border-color {
+    border-color: #d4d4d8 !important;
+}
+
+html.light .text-slate-100,
+html.light .text-slate-200,
+html.light .text-slate-300,
+html.light .text-slate-400 {
+    color: #18181b !important;
+}
+
+html.light .text-white {
+    color: #18181b !important;
+}
+
+html.light .text-secondary-text {
+    color: #71717a !important;
+}
+
+/* Fallback: any element that still inherits white/near-white */
+html.light pre,
+html.light code {
+    color: #18181b;
+}
+
+html.light input,
+html.light select {
+    background-color: #f4f4f5 !important;
+    color: #18181b !important;
+    border-color: #d4d4d8 !important;
+}
+
+html.light input::placeholder {
+    color: #a1a1aa !important;
+}
+
+html.light .bg-surface.border-r {
+    border-color: #d4d4d8 !important;
+}
+
+html.light #theme-toggle-btn {
+    background-color: #e4e4e7 !important;
+    border-color: #d4d4d8 !important;
+}
+
+html.light #theme-toggle-icon {
+    color: #18181b !important;
+}
+
+html.light .hover\:bg-white\/5:hover {
+    background-color: rgba(0,0,0,0.05) !important;
+}
+
+html.light .bg-primary.text-black {
+    background-color: #ccff00 !important;
+    color: #000000 !important;
+}
+
+/* Lime text → dark green in light mode for readability */
+html.light .text-primary {
+    color: #4a7c00 !important;
+}
+
+/* ─── Light Mode: Terminal / Console ─────────────────────────────────────── */
+
+html.light #view-console {
+    background-color: #f8f8f8 !important;
+}
+
+/* Tab bar */
+html.light #view-console .bg-surface {
+    background-color: #ebebeb !important;
+}
+
+/* Active tab */
+html.light #view-console .console-tab.bg-black {
+    background-color: #ffffff !important;
+    color: #4a7c00 !important;
+}
+
+/* Console body */
+html.light #view-console .console-body {
+    background-color: #f8f8f8 !important;
+    color: #4a7c00 !important;
+}
+
+/* Override bg-black inside console (code blocks etc.) */
+html.light #view-console .bg-black {
+    background-color: #efefef !important;
+}
+
+/* Secondary text inside terminal */
+html.light #view-console .text-secondary-text {
+    color: #71717a !important;
+}
+
+/* Danger text stays red but darker */
+html.light #view-console .text-danger {
+    color: #cc1f1f !important;
+}
+
+/* Cursor blink stays green */
+html.light #view-console .bg-primary {
+    background-color: #4a7c00 !important;
+}
+
+/* ─── Theme Transition Animation ─────────────────────────────────────────── */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 0.45s;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+::view-transition-old(root) {
+    animation-name: theme-fade-out;
+}
+
+::view-transition-new(root) {
+    animation-name: theme-fade-in;
+}
+
+@keyframes theme-fade-out {
+    from { opacity: 1; filter: blur(0px); }
+    to   { opacity: 0; filter: blur(4px); }
+}
+
+@keyframes theme-fade-in {
+    from { opacity: 0; filter: blur(4px); }
+    to   { opacity: 1; filter: blur(0px); }
+}
+
+/* ─── Mobile Responsive ──────────────────────────────────────────────────── */
+
+@media (max-width: 767px) {
+    #left-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        z-index: 200;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease-in-out;
+        margin-left: 0 !important;
+    }
+
+    #left-sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    #left-collapse-btn {
+        display: none;
+    }
+
+    #right-sidebar {
+        display: none !important;
+    }
+
+    #mobile-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 150;
+    }
+
+    #mobile-overlay.active {
+        display: block;
+    }
+
+    #mobile-bottom-nav {
+        display: flex;
+    }
+
+    footer {
+        display: none;
+    }
+}
+
+@media (min-width: 768px) {
+    #mobile-hamburger {
+        display: none;
+    }
+
+    #mobile-bottom-nav {
+        display: none !important;
+    }
+
+    #mobile-overlay {
+        display: none !important;
+    }
+}
