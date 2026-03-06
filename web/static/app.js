@@ -282,6 +282,30 @@ function initApiKeyToggle() {
     });
 }
 
+// ─── Network Topology Fullscreen ─────────────────────────────────────────────
+
+function openTopoFullscreen() {
+    const overlay = document.getElementById('topo-fullscreen-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+}
+
+function closeTopoFullscreen() {
+    const overlay = document.getElementById('topo-fullscreen-overlay');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+function initTopoFullscreen() {
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeTopoFullscreen();
+    });
+    const overlay = document.getElementById('topo-fullscreen-overlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeTopoFullscreen();
+        });
+    }
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -296,4 +320,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initClock();
     initAuditFilters();
     initApiKeyToggle();
+    initTopoFullscreen();
 });
