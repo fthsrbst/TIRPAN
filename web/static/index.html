@@ -1454,7 +1454,12 @@
 
             <div class="grid grid-cols-2 gap-6">
               <div class="bg-card border border-border-color p-5">
-                <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-4">Network Topology</p>
+                <div class="flex items-center justify-between mb-4">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Network Topology</p>
+                  <button onclick="openTopoFullscreen()" class="flex items-center gap-1 text-secondary-text hover:text-primary transition-colors" title="Fullscreen">
+                    <span class="material-symbols-outlined text-[16px]">fullscreen</span>
+                  </button>
+                </div>
                 <svg viewBox="0 0 560 290" class="w-full" xmlns="http://www.w3.org/2000/svg">
                   <!-- PenTestAI Agent -->
                   <rect x="8" y="50" width="80" height="46" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1.5"/>
@@ -2085,7 +2090,12 @@
 
         <!-- Topology map -->
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Topology Map</p>
+          <div class="flex items-center justify-between mb-3">
+            <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Topology Map</p>
+            <button onclick="openTopoFullscreen()" class="text-secondary-text hover:text-primary transition-colors" title="Fullscreen">
+              <span class="material-symbols-outlined text-[14px]">fullscreen</span>
+            </button>
+          </div>
           <svg viewBox="0 0 220 178" class="w-full" xmlns="http://www.w3.org/2000/svg">
             <!-- PenTestAI Agent (top-left, compact) -->
             <rect x="2" y="4" width="44" height="22" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1"/>
@@ -2506,6 +2516,90 @@
     </div>
   </div>
 </footer>
+
+<!-- ─── Network Topology Fullscreen Modal ───────────────────────────────── -->
+<div id="topo-fullscreen-overlay" class="hidden fixed inset-0 z-[9999] bg-black/95 flex flex-col">
+  <!-- Header -->
+  <div class="flex items-center justify-between px-6 py-3 border-b border-border-color shrink-0">
+    <div class="flex items-center gap-3">
+      <span class="material-symbols-outlined text-[18px] text-primary">hub</span>
+      <span class="text-[11px] font-bold text-secondary-text uppercase tracking-widest">Network Topology</span>
+      <span class="mono-text text-[11px] text-primary ml-2">192.168.1.0/24</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-[9px] text-secondary-text mono-text">ESC to close</span>
+      <button onclick="closeTopoFullscreen()" class="flex items-center gap-1 text-secondary-text hover:text-primary transition-colors">
+        <span class="material-symbols-outlined text-[20px]">fullscreen_exit</span>
+      </button>
+    </div>
+  </div>
+  <!-- SVG container -->
+  <div class="flex-1 flex items-center justify-center p-8 overflow-hidden">
+    <svg viewBox="0 0 860 420" class="w-full h-full max-h-full" style="max-width:min(100%,120vh)" xmlns="http://www.w3.org/2000/svg">
+      <!-- PenTestAI Agent -->
+      <rect x="20" y="80" width="120" height="66" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="2"/>
+      <text x="80" y="104" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="12" font-weight="bold">PenTestAI</text>
+      <text x="80" y="120" text-anchor="middle" fill="#99cc00" font-family="monospace" font-size="10">Agent v1</text>
+      <text x="80" y="136" text-anchor="middle" fill="#556600" font-family="monospace" font-size="9">ATTACKING</text>
+      <circle cx="132" cy="84" r="5" fill="#ccff00"/>
+      <!-- Attacker → Gateway -->
+      <line x1="140" y1="113" x2="244" y2="113" stroke="#ccff00" stroke-width="1.5" stroke-dasharray="6 3" opacity="0.5"/>
+      <polygon points="242,109 252,113 242,117" fill="#ccff00" opacity="0.5"/>
+      <text x="194" y="107" text-anchor="middle" fill="#556600" font-family="monospace" font-size="9">SCAN</text>
+      <!-- Gateway -->
+      <rect x="252" y="80" width="120" height="66" rx="1" fill="#111111" stroke="#444444" stroke-width="2"/>
+      <text x="312" y="104" text-anchor="middle" fill="#777" font-family="monospace" font-size="12" font-weight="bold">GATEWAY</text>
+      <text x="312" y="120" text-anchor="middle" fill="#555" font-family="monospace" font-size="10">192.168.1.1</text>
+      <text x="312" y="136" text-anchor="middle" fill="#444" font-family="monospace" font-size="9">Linux Router</text>
+      <!-- Gateway → .14 -->
+      <line x1="272" y1="146" x2="120" y2="290" stroke="#333" stroke-width="2"/>
+      <!-- Gateway → .55 -->
+      <line x1="300" y1="146" x2="310" y2="290" stroke="#FF3B3B" stroke-width="2" opacity="0.6"/>
+      <!-- Gateway → .200 -->
+      <line x1="352" y1="146" x2="740" y2="290" stroke="#333" stroke-width="2"/>
+      <!-- Lateral movement: .55 → .102 -->
+      <path d="M 348 316 Q 480 360 528 316" stroke="#FF8C00" stroke-width="2" fill="none" stroke-dasharray="8 4"/>
+      <polygon points="525,311 535,316 525,321" fill="#FF8C00"/>
+      <text x="438" y="375" text-anchor="middle" fill="#FF8C00" font-family="monospace" font-size="10" font-weight="bold">LATERAL MOVEMENT</text>
+      <text x="438" y="390" text-anchor="middle" fill="#995500" font-family="monospace" font-size="9">T1021 · SSH User Enum → SMB EternalBlue</text>
+      <!-- Host .14 — SCANNED -->
+      <circle cx="120" cy="316" r="40" fill="#111111" stroke="#333333" stroke-width="2"/>
+      <text x="120" y="308" text-anchor="middle" fill="#aaa" font-family="monospace" font-size="14" font-weight="bold">.14</text>
+      <text x="120" y="323" text-anchor="middle" fill="#666" font-family="monospace" font-size="10">80/HTTP</text>
+      <text x="120" y="336" text-anchor="middle" fill="#555" font-family="monospace" font-size="9">Ubuntu</text>
+      <circle cx="150" cy="282" r="6" fill="#888"/>
+      <text x="120" y="370" text-anchor="middle" fill="#555" font-family="monospace" font-size="9">SCANNED</text>
+      <!-- Host .55 — VULNERABLE / PIVOT -->
+      <circle cx="310" cy="316" r="40" fill="#1a0000" stroke="#FF3B3B" stroke-width="2.5"/>
+      <text x="310" y="308" text-anchor="middle" fill="#ff5555" font-family="monospace" font-size="14" font-weight="bold">.55</text>
+      <text x="310" y="323" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="10">22/SSH</text>
+      <text x="310" y="336" text-anchor="middle" fill="#aa3333" font-family="monospace" font-size="9">Ubuntu</text>
+      <circle cx="340" cy="282" r="6" fill="#FF3B3B"/>
+      <text x="310" y="370" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="9">PIVOT</text>
+      <!-- Host .102 — EXPLOITING -->
+      <circle cx="568" cy="316" r="40" fill="#0a1100" stroke="#ccff00" stroke-width="2.5"/>
+      <text x="568" y="308" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="14" font-weight="bold">.102</text>
+      <text x="568" y="323" text-anchor="middle" fill="#99cc00" font-family="monospace" font-size="10">445/SMB</text>
+      <text x="568" y="336" text-anchor="middle" fill="#778800" font-family="monospace" font-size="9">Win 10</text>
+      <circle cx="598" cy="282" r="6" fill="#ccff00"/>
+      <text x="568" y="370" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="9">EXPLOITING</text>
+      <!-- Host .200 — ONLINE -->
+      <circle cx="740" cy="316" r="40" fill="#111111" stroke="#333333" stroke-width="2"/>
+      <text x="740" y="308" text-anchor="middle" fill="#777" font-family="monospace" font-size="14" font-weight="bold">.200</text>
+      <text x="740" y="323" text-anchor="middle" fill="#555" font-family="monospace" font-size="10">UNKNOWN</text>
+      <text x="740" y="336" text-anchor="middle" fill="#444" font-family="monospace" font-size="9">?</text>
+      <circle cx="770" cy="282" r="6" fill="#555"/>
+      <text x="740" y="370" text-anchor="middle" fill="#555" font-family="monospace" font-size="9">ONLINE</text>
+      <!-- Legend -->
+      <line x1="20" y1="408" x2="840" y2="408" stroke="#1a1a1a" stroke-width="1"/>
+      <circle cx="28" cy="416" r="5" fill="#ccff00"/><text x="40" y="420" fill="#555" font-family="monospace" font-size="9">Exploiting</text>
+      <circle cx="120" cy="416" r="5" fill="#FF3B3B"/><text x="132" y="420" fill="#555" font-family="monospace" font-size="9">Pivot / Vulnerable</text>
+      <line x1="252" y1="414" x2="278" y2="414" stroke="#FF8C00" stroke-width="2" stroke-dasharray="5 2"/><text x="284" y="420" fill="#555" font-family="monospace" font-size="9">Lateral Movement</text>
+      <circle cx="400" cy="416" r="5" fill="#888"/><text x="412" y="420" fill="#555" font-family="monospace" font-size="9">Online</text>
+      <circle cx="470" cy="416" r="5" fill="#444"/><text x="482" y="420" fill="#555" font-family="monospace" font-size="9">Unknown</text>
+    </svg>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
