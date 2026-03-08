@@ -91,7 +91,9 @@ python main.py
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+This project is licensed under the **AEGIS Non-Commercial License** — see [LICENSE](LICENSE) for full terms.
+
+**In short:** Free to use, modify, and distribute for personal, educational, and research purposes. Commercial use of any kind requires explicit written permission from the maintainers.
 
 ---
 
