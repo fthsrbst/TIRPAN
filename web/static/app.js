@@ -381,9 +381,588 @@ function initThemeToggle() {
     });
 }
 
+// ─── Markdown & Code ─────────────────────────────────────────────────────────
+
+function initMarkdown() {
+    if (typeof marked === 'undefined') return;
+
+    const renderer = new marked.Renderer();
+
+    renderer.code = function(token) {
+        const code = typeof token === 'object' ? token.text : token;
+        const lang = (typeof token === 'object' ? token.lang : '') || '';
+        const validLang = lang && typeof hljs !== 'undefined' && hljs.getLanguage(lang) ? lang : '';
+        const highlighted = (typeof hljs !== 'undefined')
+            ? (validLang ? hljs.highlight(code, { language: validLang }).value : hljs.highlightAuto(code).value)
+            : escapeHtml(code);
+        const id = 'cb-' + Math.random().toString(36).substr(2, 8);
+        const displayLang = validLang || (lang || 'code');
+        return `<div class="code-block">
+  <div class="code-header">
+    <span class="code-lang">${escapeHtml(displayLang)}</span>
+    <button class="copy-btn" data-target="${id}" title="Copy">
+      <span class="material-symbols-outlined">content_copy</span>
+    </button>
+  </div>
+  <pre id="${id}"><code class="hljs">${highlighted}</code></pre>
+</div>`;
+    };
+
+    marked.use({ renderer, breaks: true, gfm: true });
+}
+
+function renderMarkdown(text) {
+    if (typeof marked === 'undefined') return escapeHtml(text).replace(/\n/g, '<br>');
+    return marked.parse(text);
+}
+
+function attachCopyButtons(container) {
+    container.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.target;
+            const pre = document.getElementById(id);
+            if (!pre) return;
+            const text = pre.querySelector('code')?.textContent ?? pre.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const icon = btn.querySelector('.material-symbols-outlined');
+                if (icon) { icon.textContent = 'check'; setTimeout(() => { icon.textContent = 'content_copy'; }, 1500); }
+            });
+        });
+    });
+}
+
+// ─── Scroll Control ───────────────────────────────────────────────────────────
+
+let autoScroll = true;
+
+function initScrollTracking() {
+    const container = document.querySelector('#view-agent .overflow-y-auto');
+    if (!container) return;
+    container.addEventListener('scroll', () => {
+        const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+        autoScroll = atBottom;
+    });
+}
+
+// ─── Conversations (localStorage) ────────────────────────────────────────────
+
+let conversations = [];
+let activeConvId = null;
+
+function convKey() { return 'aegis_conversations'; }
+
+function loadConversationsFromStorage() {
+    try {
+        conversations = JSON.parse(localStorage.getItem(convKey()) || '[]');
+        activeConvId = localStorage.getItem('aegis_active_conv') || null;
+    } catch { conversations = []; activeConvId = null; }
+}
+
+function saveConversationsToStorage() {
+    localStorage.setItem(convKey(), JSON.stringify(conversations));
+    localStorage.setItem('aegis_active_conv', activeConvId || '');
+}
+
+function getActiveConv() {
+    return conversations.find(c => c.id === activeConvId) || null;
+}
+
+function createNewConversation() {
+    const id = 'conv_' + Date.now();
+    conversations.unshift({ id, title: 'New Chat', createdAt: Date.now(), messages: [] });
+    activeConvId = id;
+    saveConversationsToStorage();
+    renderConversationList();
+    resetMessageStream();
+}
+
+function resetMessageStream() {
+    const stream = getMessageStream();
+    if (!stream) return;
+    stream.innerHTML = `
+      <div id="chat-empty-state" class="flex flex-col items-center justify-center flex-1 py-24 gap-5 select-none pointer-events-none">
+        <span class="material-symbols-outlined text-[48px]" style="color:#1A1A1A; font-variation-settings:'FILL' 1;">psychology</span>
+        <div class="flex flex-col items-center gap-1">
+          <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">AEGIS Ready</p>
+          <p class="text-[11px] mono-text" style="color:#333;">Ask anything or configure a mission target →</p>
+        </div>
+      </div>`;
+    autoScroll = true;
+}
+
+function loadConversation(convId) {
+    activeConvId = convId;
+    saveConversationsToStorage();
+    renderConversationList();
+    const conv = conversations.find(c => c.id === convId);
+    const stream = getMessageStream();
+    if (!stream) return;
+    stream.innerHTML = '';
+    if (!conv || !conv.messages.length) { resetMessageStream(); return; }
+    conv.messages.forEach(msg => {
+        if (msg.role === 'user') appendUserMessageDOM(msg.content);
+        else appendAssistantMessageDOM(msg.content);
+    });
+    autoScroll = true;
+    forceScrollToBottom();
+}
+
+function renderConversationList() {
+    const list = document.getElementById('conversation-list');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!conversations.length) {
+        list.innerHTML = '<div class="text-[9px] mono-text text-secondary-text px-2 py-2 opacity-50">No chats yet</div>';
+        return;
+    }
+    conversations.forEach(conv => {
+        const btn = document.createElement('button');
+        const isActive = conv.id === activeConvId;
+        btn.className = [
+            'w-full text-left px-2 py-1.5 text-[10px] mono-text truncate transition-colors leading-tight',
+            isActive
+                ? 'text-primary border-l border-primary bg-primary/5 pl-1.5'
+                : 'text-secondary-text hover:text-slate-200 hover:bg-white/5',
+        ].join(' ');
+        btn.title = conv.title;
+        btn.textContent = conv.title;
+        btn.addEventListener('click', () => loadConversation(conv.id));
+        list.appendChild(btn);
+    });
+}
+
+function addMessageToConv(role, content) {
+    const conv = getActiveConv();
+    if (!conv) return;
+    conv.messages.push({ role, content });
+    // Set title from first user message
+    if (role === 'user' && conv.title === 'New Chat') {
+        conv.title = content.length > 32 ? content.substring(0, 32) + '…' : content;
+        renderConversationList();
+    }
+    saveConversationsToStorage();
+}
+
+function initConversations() {
+    loadConversationsFromStorage();
+    if (!conversations.length) {
+        createNewConversation();
+    } else {
+        renderConversationList();
+        if (activeConvId && conversations.find(c => c.id === activeConvId)) {
+            loadConversation(activeConvId);
+        } else {
+            resetMessageStream();
+        }
+    }
+    const btn = document.getElementById('new-chat-btn');
+    if (btn) btn.addEventListener('click', createNewConversation);
+}
+
+// ─── WebSocket Chat ───────────────────────────────────────────────────────────
+
+let ws = null;
+let wsReady = false;
+let currentAssistantEl = null;  // streaming message bubble
+let currentAssistantText = '';   // accumulated text for the current stream
+
+function wsConnect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+    ws.onopen = () => {
+        wsReady = true;
+        setConnectionBadge(true);
+    };
+
+    ws.onclose = () => {
+        wsReady = false;
+        setConnectionBadge(false);
+        // Reconnect after 3 s
+        setTimeout(wsConnect, 3000);
+    };
+
+    ws.onerror = () => {
+        wsReady = false;
+        setConnectionBadge(false);
+    };
+
+    ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+
+        if (msg.type === 'token') {
+            appendToken(msg.content, msg.msg_id);
+        } else if (msg.type === 'message_end') {
+            finalizeAssistantMessage();
+        } else if (msg.type === 'error') {
+            appendErrorMessage(msg.content);
+            finalizeAssistantMessage();
+        }
+    };
+}
+
+function setConnectionBadge(online) {
+    const dot = document.querySelector('header .animate-pulse');
+    const label = document.querySelector('header .tracking-widest.uppercase');
+    if (!dot || !label) return;
+    if (online) {
+        dot.classList.remove('bg-danger');
+        dot.classList.add('bg-primary');
+        label.textContent = 'Agent Active';
+    } else {
+        dot.classList.remove('bg-primary');
+        dot.classList.add('bg-danger');
+        label.textContent = 'Connecting...';
+    }
+}
+
+function getMessageStream() {
+    return document.getElementById('message-stream');
+}
+
+function hideEmptyState() {
+    const es = document.getElementById('chat-empty-state');
+    if (es) es.remove();
+}
+
+function buildUserMessageEl(text) {
+    const el = document.createElement('div');
+    el.className = 'flex gap-4 justify-end';
+    el.innerHTML = `
+        <div class="flex flex-col gap-2 max-w-[80%]">
+          <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest text-right">You</div>
+          <div class="bg-card border border-border-color p-4 text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">${escapeHtml(text)}</div>
+        </div>
+        <div class="shrink-0 w-8 h-8 border border-border-color flex items-center justify-center bg-surface">
+          <span class="material-symbols-outlined text-secondary-text text-xl">person</span>
+        </div>`;
+    return el;
+}
+
+function appendUserMessage(text) {
+    hideEmptyState();
+    const stream = getMessageStream();
+    if (!stream) return;
+    stream.appendChild(buildUserMessageEl(text));
+    autoScroll = true;
+    forceScrollToBottom();
+}
+
+function appendUserMessageDOM(text) {
+    const stream = getMessageStream();
+    if (!stream) return;
+    stream.appendChild(buildUserMessageEl(text));
+}
+
+function buildAssistantMessageEl(htmlContent) {
+    const el = document.createElement('div');
+    el.className = 'flex gap-4';
+    el.innerHTML = `
+        <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface">
+          <span class="material-symbols-outlined text-primary text-xl">psychology</span>
+        </div>
+        <div class="flex flex-col gap-2 flex-1 min-w-0">
+          <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Chat</div>
+          <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
+            <div class="msg-text markdown-content text-sm leading-relaxed text-slate-200">${htmlContent}</div>
+          </div>
+        </div>`;
+    return el;
+}
+
+function appendAssistantMessageDOM(markdownText) {
+    const stream = getMessageStream();
+    if (!stream) return;
+    const el = buildAssistantMessageEl(renderMarkdown(markdownText));
+    stream.appendChild(el);
+    attachCopyButtons(el);
+}
+
+function startAssistantMessage() {
+    const stream = getMessageStream();
+    if (!stream) return null;
+
+    currentAssistantText = '';
+    const el = document.createElement('div');
+    el.className = 'flex gap-4';
+    el.innerHTML = `
+        <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface">
+          <span class="material-symbols-outlined text-primary text-xl">psychology</span>
+        </div>
+        <div class="flex flex-col gap-2 flex-1 min-w-0">
+          <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Chat</div>
+          <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
+            <p class="msg-text text-sm leading-relaxed text-slate-200 whitespace-pre-wrap"></p>
+            <span class="cursor-blink inline-block w-2 h-4 bg-primary ml-0.5 align-middle"></span>
+          </div>
+        </div>`;
+    stream.appendChild(el);
+    currentAssistantEl = el;
+    scrollToBottom();
+    return el;
+}
+
+function appendToken(token, msgId) {
+    if (!currentAssistantEl) startAssistantMessage();
+    const p = currentAssistantEl.querySelector('.msg-text');
+    if (!p) return;
+    currentAssistantText += token;
+    p.textContent = currentAssistantText;
+    scrollToBottom();
+}
+
+function finalizeAssistantMessage() {
+    if (!currentAssistantEl) return;
+
+    // Remove streaming cursor
+    const cursor = currentAssistantEl.querySelector('.cursor-blink');
+    if (cursor) cursor.remove();
+
+    // Render markdown in place
+    const p = currentAssistantEl.querySelector('.msg-text');
+    if (p && currentAssistantText) {
+        p.innerHTML = renderMarkdown(currentAssistantText);
+        p.className = 'msg-text markdown-content';
+        attachCopyButtons(p);
+    }
+
+    // Save to conversation history
+    if (currentAssistantText) addMessageToConv('assistant', currentAssistantText);
+
+    currentAssistantEl = null;
+    currentAssistantText = '';
+}
+
+function appendErrorMessage(text) {
+    const stream = getMessageStream();
+    if (!stream) return;
+    const el = document.createElement('div');
+    el.className = 'flex gap-4';
+    el.innerHTML = `
+        <div class="shrink-0 w-8 h-8 border border-danger flex items-center justify-center bg-surface">
+          <span class="material-symbols-outlined text-danger text-xl">error</span>
+        </div>
+        <div class="flex flex-col gap-2 flex-1">
+          <div class="text-[10px] font-bold text-danger uppercase tracking-widest">Error</div>
+          <div class="bg-surface border-l-2 border-l-danger border border-border-color p-5">
+            <p class="text-sm leading-relaxed text-danger">${escapeHtml(text)}</p>
+          </div>
+        </div>`;
+    stream.appendChild(el);
+    scrollToBottom();
+}
+
+function scrollToBottom() {
+    if (!autoScroll) return;
+    forceScrollToBottom();
+}
+
+function forceScrollToBottom() {
+    const container = document.querySelector('#view-agent .overflow-y-auto');
+    if (container) container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(text) {
+    return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function sendChatMessage(text) {
+    if (!text.trim()) return;
+    if (!wsReady) {
+        appendErrorMessage('Not connected to backend. Retrying...');
+        return;
+    }
+    addMessageToConv('user', text);
+    appendUserMessage(text);
+    startAssistantMessage();
+    ws.send(JSON.stringify({ type: 'chat', content: text }));
+}
+
+function initChatInput() {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+    if (!input) return;
+
+    const doSend = () => {
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        sendChatMessage(text);
+    };
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSend();
+    });
+
+    if (sendBtn) sendBtn.addEventListener('click', doSend);
+}
+
+// ─── Ollama Status & Model Selector ──────────────────────────────────────────
+
+let availableModels = [];
+let activeModel = '';
+
+async function fetchOllamaStatus() {
+    try {
+        const res = await fetch('/api/v1/ollama/status');
+        const data = await res.json();
+
+        const dot = document.getElementById('ollama-dot');
+        const label = document.getElementById('ollama-status-text');
+        const cfgDot = document.getElementById('cfg-ollama-status-dot');
+
+        if (data.online) {
+            availableModels = data.models || [];
+            activeModel = data.current || (availableModels[0] ?? '');
+
+            if (dot) { dot.classList.remove('bg-border-color', 'bg-danger'); dot.classList.add('bg-primary'); }
+            if (label) label.textContent = `Ollama online · ${availableModels.length} model${availableModels.length !== 1 ? 's' : ''}`;
+            if (cfgDot) { cfgDot.classList.remove('bg-border-color', 'bg-danger'); cfgDot.classList.add('bg-primary'); }
+        } else {
+            availableModels = [];
+            if (dot) { dot.classList.remove('bg-primary', 'bg-border-color'); dot.classList.add('bg-danger'); }
+            if (label) label.textContent = 'Ollama offline';
+            if (cfgDot) { cfgDot.classList.remove('bg-primary', 'bg-border-color'); cfgDot.classList.add('bg-danger'); }
+        }
+
+        updateModelLabel();
+        populateModelDropdown();
+
+        // Sync config inputs
+        const cfgModel = document.getElementById('cfg-ollama-model');
+        if (cfgModel && activeModel) cfgModel.value = activeModel;
+
+    } catch {
+        const dot = document.getElementById('ollama-dot');
+        if (dot) { dot.classList.remove('bg-primary', 'bg-border-color'); dot.classList.add('bg-danger'); }
+    }
+}
+
+function updateModelLabel() {
+    const lbl = document.getElementById('model-label');
+    if (lbl) lbl.textContent = activeModel || '—';
+}
+
+function populateModelDropdown() {
+    const list = document.getElementById('model-dropdown-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    if (!availableModels.length) {
+        list.innerHTML = '<div class="px-4 py-2 text-[10px] mono-text text-secondary-text">No models found</div>';
+        return;
+    }
+
+    availableModels.forEach(model => {
+        const item = document.createElement('button');
+        item.className = [
+            'w-full text-left px-4 py-2 text-[11px] mono-text',
+            'hover:bg-primary/10 hover:text-primary transition-colors',
+            model === activeModel ? 'text-primary' : 'text-slate-300',
+        ].join(' ');
+        item.textContent = model;
+        if (model === activeModel) {
+            item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
+        }
+        item.addEventListener('click', () => selectModel(model));
+        list.appendChild(item);
+    });
+}
+
+function selectModel(model) {
+    activeModel = model;
+    updateModelLabel();
+    populateModelDropdown();
+    closeModelDropdown();
+    // Persist to backend
+    fetch('/api/v1/config/ollama', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base_url: document.getElementById('cfg-ollama-url')?.value || 'http://localhost:11434', model }),
+    });
+    // Sync config input
+    const cfgModel = document.getElementById('cfg-ollama-model');
+    if (cfgModel) cfgModel.value = model;
+}
+
+function openModelDropdown() {
+    const dd = document.getElementById('model-dropdown');
+    const chevron = document.getElementById('model-chevron');
+    if (dd) dd.classList.remove('hidden');
+    if (chevron) chevron.textContent = 'expand_less';
+}
+
+function closeModelDropdown() {
+    const dd = document.getElementById('model-dropdown');
+    const chevron = document.getElementById('model-chevron');
+    if (dd) dd.classList.add('hidden');
+    if (chevron) chevron.textContent = 'expand_more';
+}
+
+function initModelSelector() {
+    const btn = document.getElementById('model-selector-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dd = document.getElementById('model-dropdown');
+        if (dd && dd.classList.contains('hidden')) {
+            openModelDropdown();
+        } else {
+            closeModelDropdown();
+        }
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+        const wrapper = document.getElementById('model-selector-wrapper');
+        if (wrapper && !wrapper.contains(e.target)) closeModelDropdown();
+    });
+}
+
+// ─── Config Save ─────────────────────────────────────────────────────────────
+
+function initConfigSave() {
+    const saveBtn = document.getElementById('save-config-btn');
+    if (!saveBtn) return;
+
+    saveBtn.addEventListener('click', async () => {
+        const url = document.getElementById('cfg-ollama-url')?.value?.trim() || 'http://localhost:11434';
+        const model = document.getElementById('cfg-ollama-model')?.value?.trim() || 'llama3:8b';
+
+        saveBtn.textContent = 'Saving...';
+        saveBtn.disabled = true;
+
+        try {
+            await fetch('/api/v1/config/ollama', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base_url: url, model }),
+            });
+            activeModel = model;
+            updateModelLabel();
+            saveBtn.textContent = 'Saved!';
+            setTimeout(() => {
+                saveBtn.textContent = 'Save Config';
+                saveBtn.disabled = false;
+            }, 1500);
+            // Re-check status with new settings
+            await fetchOllamaStatus();
+        } catch {
+            saveBtn.textContent = 'Error';
+            setTimeout(() => {
+                saveBtn.textContent = 'Save Config';
+                saveBtn.disabled = false;
+            }, 1500);
+        }
+    });
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    initMarkdown();
     initSidebars();
     initBottomNav();
     initConsoleTabs();
@@ -397,4 +976,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initApiKeyToggle();
     initTopoFullscreen();
     initThemeToggle();
+    initChatInput();
+    initModelSelector();
+    initConfigSave();
+    initScrollTracking();
+    initConversations();
+    wsConnect();
+    fetchOllamaStatus();
+    setInterval(fetchOllamaStatus, 30000);
 });

@@ -288,3 +288,136 @@ html.light #view-console .bg-primary {
         display: none !important;
     }
 }
+
+/* Model dropdown scroll */
+#model-dropdown-list {
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+/* Chat empty state fills available space */
+#chat-empty-state {
+    min-height: 300px;
+}
+
+/* ─── Markdown Content ─────────────────────────────────────────────────────── */
+
+.markdown-content {
+    line-height: 1.7;
+    word-break: break-word;
+}
+
+.markdown-content p { margin-bottom: 0.75em; }
+.markdown-content p:last-child { margin-bottom: 0; }
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    color: #ccff00;
+    margin: 1em 0 0.4em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.markdown-content h1 { font-size: 1rem; }
+.markdown-content h2 { font-size: 0.875rem; }
+.markdown-content h3 { font-size: 0.8rem; }
+
+.markdown-content strong { color: #e2e8f0; font-weight: 700; }
+.markdown-content em { color: #94a3b8; font-style: italic; }
+
+.markdown-content a {
+    color: #ccff00;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+    padding-left: 1.25em;
+    margin-bottom: 0.75em;
+}
+.markdown-content li { margin-bottom: 0.25em; }
+
+.markdown-content blockquote {
+    border-left: 2px solid #ccff00;
+    padding-left: 0.875em;
+    color: #888;
+    margin: 0.75em 0;
+    font-style: italic;
+}
+
+.markdown-content code:not(pre code) {
+    background: #111;
+    border: 1px solid #1A1A1A;
+    padding: 0.1em 0.35em;
+    border-radius: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    color: #ccff00;
+}
+
+.markdown-content hr {
+    border: none;
+    border-top: 1px solid #1A1A1A;
+    margin: 1em 0;
+}
+
+/* ─── Code Block ───────────────────────────────────────────────────────────── */
+
+.code-block {
+    background: #050505;
+    border: 1px solid #1A1A1A;
+    margin: 0.75em 0;
+    overflow: hidden;
+}
+
+.code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    background: #0A0A0A;
+    border-bottom: 1px solid #1A1A1A;
+}
+
+.code-lang {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.copy-btn {
+    display: flex;
+    align-items: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #555;
+    padding: 2px;
+    transition: color 0.15s;
+}
+.copy-btn:hover { color: #ccff00; }
+.copy-btn .material-symbols-outlined { font-size: 14px; }
+
+.code-block pre {
+    margin: 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    background: transparent !important;
+}
+
+.code-block code {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 12px !important;
+    background: transparent !important;
+    padding: 0 !important;
+    border: none !important;
+    color: inherit !important;
+}
+
+/* Override hljs background to match theme */
+.hljs { background: transparent !important; }
