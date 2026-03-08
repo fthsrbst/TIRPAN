@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 class OllamaConfig(BaseSettings):
-    base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    base_url: str = Field(default="http://127.0.0.1:11434", alias="OLLAMA_BASE_URL")
     model: str = Field(default="llama3:8b", alias="OLLAMA_MODEL")
     timeout: float = Field(default=120.0)
 
