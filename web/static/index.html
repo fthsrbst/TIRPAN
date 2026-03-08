@@ -106,19 +106,19 @@
       <div class="grid grid-cols-2 gap-2 mt-4">
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Vulns</p>
-          <p class="mono-text text-2xl font-bold text-danger">12</p>
+          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Hosts</p>
-          <p class="mono-text text-2xl font-bold text-primary">04</p>
+          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Ports</p>
-          <p class="mono-text text-2xl font-bold">28</p>
+          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Uptime</p>
-          <p class="mono-text text-2xl font-bold">02:14</p>
+          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
       </div>
     </div>
@@ -175,8 +175,8 @@
         <button id="mobile-hamburger" onclick="toggleMobileSidebar()" class="w-9 h-9 flex items-center justify-center text-secondary-text hover:text-primary transition-colors shrink-0">
           <span class="material-symbols-outlined text-[22px]">menu</span>
         </button>
-        <div class="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0"></div>
-        <span class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline">Agent Active</span>
+        <div class="w-2 h-2 rounded-full bg-border-color shrink-0"></div>
+        <span class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline text-secondary-text">No Mission</span>
       </div>
       <div class="flex items-center gap-2 md:gap-4">
         <button class="hidden md:flex border border-danger text-danger font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
@@ -202,28 +202,28 @@
         <div class="max-w-4xl mx-auto flex items-center gap-0 min-w-[480px]">
 
           <div class="phase-step flex items-center gap-2 flex-1" data-phase="1">
-            <div class="w-5 h-5 rounded-full border-2 border-primary bg-primary flex items-center justify-center shrink-0">
-              <span class="material-symbols-outlined text-black text-[10px]" style='font-variation-settings:"FILL" 1;'>check</span>
+            <div class="w-5 h-5 rounded-full border-2 border-border-color bg-surface flex items-center justify-center shrink-0">
+              <span class="mono-text text-[8px] font-bold text-secondary-text">1</span>
             </div>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-primary whitespace-nowrap">Discovery</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-secondary-text whitespace-nowrap">Discovery</span>
           </div>
 
-          <div class="h-px flex-1 bg-primary mx-1"></div>
+          <div class="h-px flex-1 bg-border-color mx-1"></div>
 
           <div class="phase-step flex items-center gap-2 flex-1" data-phase="2">
-            <div class="w-5 h-5 rounded-full border-2 border-primary bg-primary flex items-center justify-center shrink-0">
-              <span class="material-symbols-outlined text-black text-[10px]" style='font-variation-settings:"FILL" 1;'>check</span>
+            <div class="w-5 h-5 rounded-full border-2 border-border-color bg-surface flex items-center justify-center shrink-0">
+              <span class="mono-text text-[8px] font-bold text-secondary-text">2</span>
             </div>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-primary whitespace-nowrap">Port Scan</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-secondary-text whitespace-nowrap">Port Scan</span>
           </div>
 
-          <div class="h-px flex-1 bg-primary mx-1"></div>
+          <div class="h-px flex-1 bg-border-color mx-1"></div>
 
           <div class="phase-step flex items-center gap-2 flex-1" data-phase="3">
-            <div class="w-5 h-5 rounded-full border-2 border-primary bg-surface flex items-center justify-center shrink-0 animate-pulse">
-              <span class="mono-text text-[8px] font-bold text-primary">3</span>
+            <div class="w-5 h-5 rounded-full border-2 border-border-color bg-surface flex items-center justify-center shrink-0">
+              <span class="mono-text text-[8px] font-bold text-secondary-text">3</span>
             </div>
-            <span class="text-[9px] font-bold uppercase tracking-wider text-primary whitespace-nowrap">Exploit Search</span>
+            <span class="text-[9px] font-bold uppercase tracking-wider text-secondary-text whitespace-nowrap">Exploit Search</span>
           </div>
 
           <div class="h-px flex-1 bg-border-color mx-1"></div>
@@ -2013,15 +2013,15 @@
         <div class="bg-card border border-border-color p-4">
           <div class="flex justify-between items-center mb-4">
             <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Threat Level</h3>
-            <span class="mono-text text-[10px] text-danger">HIGH RISK</span>
+            <span class="mono-text text-[10px] text-secondary-text">NO DATA</span>
           </div>
           <div class="relative flex items-center justify-center py-2">
             <svg class="w-32 h-32 transform -rotate-90">
               <circle cx="64" cy="64" fill="transparent" r="58" stroke="#1A1A1A" stroke-width="8"></circle>
-              <circle cx="64" cy="64" fill="transparent" r="58" stroke="#FF3B3B" stroke-dasharray="364.4" stroke-dashoffset="65.6" stroke-linecap="butt" stroke-width="8"></circle>
+              <circle cx="64" cy="64" fill="transparent" r="58" stroke="#1A1A1A" stroke-dasharray="364.4" stroke-dashoffset="0" stroke-linecap="butt" stroke-width="8"></circle>
             </svg>
             <div class="absolute inset-0 flex flex-col items-center justify-center">
-              <span class="mono-text text-2xl font-bold text-white">82%</span>
+              <span class="mono-text text-2xl font-bold text-secondary-text">—</span>
               <span class="text-[8px] text-secondary-text uppercase">Criticality</span>
             </div>
           </div>
@@ -2031,20 +2031,7 @@
         <div class="flex flex-col gap-3">
           <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Active Findings</h3>
           <div class="flex flex-col gap-2">
-            <div class="bg-surface border border-border-color p-2 flex items-center justify-between">
-              <div class="flex flex-col">
-                <span class="mono-text text-[10px] text-slate-200">CVE-2023-44487</span>
-                <span class="text-[9px] text-secondary-text">RCE Exploit Path</span>
-              </div>
-              <span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">Critical</span>
-            </div>
-            <div class="bg-surface border border-border-color p-2 flex items-center justify-between">
-              <div class="flex flex-col">
-                <span class="mono-text text-[10px] text-slate-200">SSH_AUTH_FAIL</span>
-                <span class="text-[9px] text-secondary-text">Brute Force Activity</span>
-              </div>
-              <span class="px-2 py-0.5 bg-orange-500/10 border border-orange-500/20 text-orange-500 text-[8px] font-bold uppercase">High</span>
-            </div>
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No findings yet</p>
           </div>
         </div>
 
@@ -2053,27 +2040,27 @@
           <div class="flex justify-between items-center mb-4">
             <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Scan Activity</h3>
             <span class="flex items-center gap-1">
-              <span class="w-1 h-1 rounded-full bg-primary animate-pulse"></span>
-              <span class="mono-text text-[9px] text-primary">LIVE</span>
+              <span class="w-1 h-1 rounded-full bg-border-color"></span>
+              <span class="mono-text text-[9px] text-secondary-text">IDLE</span>
             </span>
           </div>
           <div class="h-12 w-full flex items-end gap-0.5">
-            <div class="bg-primary/20 w-full h-[20%] transition-all"></div>
-            <div class="bg-primary/40 w-full h-[45%] transition-all"></div>
-            <div class="bg-primary/30 w-full h-[30%] transition-all"></div>
-            <div class="bg-primary/60 w-full h-[75%] transition-all"></div>
-            <div class="bg-primary/80 w-full h-[90%] transition-all"></div>
-            <div class="bg-primary w-full h-[60%] transition-all"></div>
-            <div class="bg-primary/50 w-full h-[40%] transition-all"></div>
-            <div class="bg-primary/70 w-full h-[85%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
+            <div class="bg-border-color/30 w-full h-[4%] transition-all"></div>
           </div>
         </div>
 
         <!-- AI Summary -->
-        <div class="bg-surface border-l-2 border-l-primary border border-border-color p-3">
+        <div class="bg-surface border-l-2 border-l-border-color border border-border-color p-3">
           <h3 class="text-[9px] font-bold text-secondary-text uppercase mb-2">Analysis Summary</h3>
-          <p class="mono-text text-[10px] leading-relaxed text-slate-400">
-            Vulnerability correlation engine suggests high-confidence exploit chain on 192.168.1.55. Recommend immediate payload generation.
+          <p class="mono-text text-[10px] leading-relaxed text-secondary-text">
+            No mission active. Configure a target and start a mission to see analysis results.
           </p>
         </div>
 
@@ -2090,11 +2077,11 @@
         <div class="flex items-center justify-between">
           <div>
             <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Subnet</p>
-            <p class="mono-text text-xs text-primary mt-0.5">192.168.1.0/24</p>
+            <p class="mono-text text-xs text-secondary-text mt-0.5">—</p>
           </div>
           <span class="flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-            <span class="text-[9px] mono-text text-primary uppercase">Scanning</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-border-color"></span>
+            <span class="text-[9px] mono-text text-secondary-text uppercase">Idle</span>
           </span>
         </div>
 
@@ -2157,15 +2144,15 @@
         <div class="grid grid-cols-3 gap-2">
           <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
             <span class="text-[8px] text-secondary-text uppercase tracking-widest">Hosts</span>
-            <span class="mono-text text-sm font-bold text-primary">04</span>
+            <span class="mono-text text-sm font-bold text-secondary-text">—</span>
           </div>
           <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
             <span class="text-[8px] text-secondary-text uppercase tracking-widest">Ports</span>
-            <span class="mono-text text-sm font-bold">28</span>
+            <span class="mono-text text-sm font-bold text-secondary-text">—</span>
           </div>
           <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
             <span class="text-[8px] text-secondary-text uppercase tracking-widest">Vulns</span>
-            <span class="mono-text text-sm font-bold text-danger">12</span>
+            <span class="mono-text text-sm font-bold text-secondary-text">—</span>
           </div>
         </div>
 
@@ -2263,36 +2250,16 @@
         <!-- Recent alerts -->
         <div class="flex flex-col gap-2">
           <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Recent Alerts</p>
-          <div class="bg-surface border-l-2 border-l-danger border border-border-color p-2">
-            <p class="text-[9px] text-danger font-bold mono-text">PORT_SCAN_DETECTED</p>
-            <p class="text-[8px] text-secondary-text mt-0.5">192.168.1.55 → .102 • 14:42:01</p>
-          </div>
-          <div class="bg-surface border-l-2 border-l-orange-500 border border-border-color p-2">
-            <p class="text-[9px] text-orange-400 font-bold mono-text">BRUTE_FORCE_SSH</p>
-            <p class="text-[8px] text-secondary-text mt-0.5">192.168.1.55:22 • 14:38:44</p>
-          </div>
+          <p class="text-[10px] text-secondary-text mono-text text-center py-3">No alerts</p>
         </div>
 
         <!-- Blocked connections -->
         <div class="bg-card border border-border-color p-3">
           <div class="flex justify-between mb-3">
             <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Blocked</p>
-            <span class="mono-text text-[9px] text-danger">3 total</span>
+            <span class="mono-text text-[9px] text-secondary-text">0 total</span>
           </div>
-          <div class="flex flex-col gap-1.5 mono-text text-[9px]">
-            <div class="flex justify-between">
-              <span class="text-secondary-text">10.0.0.1</span>
-              <span class="text-danger">iptables DROP</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-secondary-text">172.16.0.5</span>
-              <span class="text-danger">iptables DROP</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-secondary-text">192.168.5.99</span>
-              <span class="text-orange-400">REDIRECT</span>
-            </div>
-          </div>
+          <p class="text-[10px] text-secondary-text mono-text text-center py-2">No blocked connections</p>
         </div>
 
       </div>
@@ -2306,55 +2273,10 @@
 
         <div class="flex items-center justify-between">
           <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Past Sessions</p>
-          <span class="mono-text text-[9px] text-secondary-text">3 total</span>
+          <span class="mono-text text-[9px] text-secondary-text">0 total</span>
         </div>
 
-        <!-- Current session -->
-        <div class="bg-card border border-primary/30 p-3 flex flex-col gap-2 cursor-pointer hover:border-primary transition-colors">
-          <div class="flex items-center justify-between">
-            <span class="mono-text text-[10px] font-bold text-primary">ABC-123</span>
-            <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
-          </div>
-          <p class="mono-text text-[9px] text-secondary-text">192.168.1.0/24 — Full Auto</p>
-          <div class="flex items-center gap-1 mt-1">
-            <div class="h-0.5 bg-primary" style="width:60%"></div>
-            <div class="h-0.5 flex-1 bg-border-color"></div>
-          </div>
-          <div class="flex items-center justify-between text-[8px] text-secondary-text">
-            <span>Phase 3/5 — Exploit</span>
-            <span class="mono-text">02:14</span>
-          </div>
-          <div class="flex items-center justify-between text-[8px]">
-            <span class="text-secondary-text">2025-01-15 10:32</span>
-            <span class="mono-text text-danger">12 vulns</span>
-          </div>
-        </div>
-
-        <!-- Past session XYZ-456 -->
-        <div class="bg-card border border-border-color p-3 flex flex-col gap-1.5 cursor-pointer hover:border-primary/40 transition-colors opacity-75">
-          <div class="flex items-center justify-between">
-            <span class="mono-text text-[10px] font-bold text-slate-300">XYZ-456</span>
-            <span class="px-1.5 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Done</span>
-          </div>
-          <p class="mono-text text-[9px] text-secondary-text">10.0.0.0/8 — Stealth Recon</p>
-          <div class="flex items-center justify-between text-[8px] text-secondary-text mt-0.5">
-            <span>2025-01-14 09:15</span>
-            <span class="mono-text">01:48 • 7 vulns</span>
-          </div>
-        </div>
-
-        <!-- Past session DEF-789 -->
-        <div class="bg-card border border-border-color p-3 flex flex-col gap-1.5 cursor-pointer hover:border-primary/40 transition-colors opacity-75">
-          <div class="flex items-center justify-between">
-            <span class="mono-text text-[10px] font-bold text-slate-300">DEF-789</span>
-            <span class="px-1.5 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Done</span>
-          </div>
-          <p class="mono-text text-[9px] text-secondary-text">172.16.0.0/16 — Discovery</p>
-          <div class="flex items-center justify-between text-[8px] text-secondary-text mt-0.5">
-            <span>2025-01-13 14:00</span>
-            <span class="mono-text">00:54 • 3 vulns</span>
-          </div>
-        </div>
+        <p class="text-[10px] text-secondary-text mono-text text-center py-4">No sessions yet</p>
 
         <!-- New session button -->
         <button class="w-full border border-dashed border-border-color hover:border-primary text-secondary-text hover:text-primary transition-colors py-2.5 flex items-center justify-center gap-2 mt-1">
@@ -2373,119 +2295,10 @@
 
         <div class="flex items-center justify-between">
           <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Discovered Hosts</p>
-          <span class="mono-text text-[9px] text-primary">4 online</span>
+          <span class="mono-text text-[9px] text-secondary-text">0 online</span>
         </div>
 
-        <!-- Node: .1 Gateway -->
-        <div class="bg-card border border-border-color">
-          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
-            <div class="w-2 h-2 rounded-full bg-secondary-text shrink-0" style="background:#555"></div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-1">
-                <span class="mono-text text-[10px] font-bold truncate">192.168.1.1</span>
-                <span class="text-[7px] text-secondary-text uppercase px-1.5 py-0.5 border border-border-color shrink-0">GW</span>
-              </div>
-              <p class="text-[9px] text-secondary-text mt-0.5">Gateway • 1 port open</p>
-            </div>
-            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
-          </div>
-          <div class="node-detail hidden border-t border-border-color px-3 py-2 flex flex-col gap-1">
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">80/tcp</span>
-              <span class="text-primary">open</span>
-              <span class="text-slate-400">http</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Node: .14 HTTP -->
-        <div class="bg-card border border-border-color">
-          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
-            <div class="w-2 h-2 rounded-full bg-primary shrink-0"></div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-1">
-                <span class="mono-text text-[10px] font-bold truncate">192.168.1.14</span>
-                <span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30 shrink-0">UP</span>
-              </div>
-              <p class="text-[9px] text-secondary-text mt-0.5">Apache 2.4.41 • 2 ports</p>
-            </div>
-            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
-          </div>
-          <div class="node-detail hidden border-t border-border-color px-3 py-2 flex flex-col gap-1">
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">80/tcp</span>
-              <span class="text-primary">open</span>
-              <span class="text-slate-400">Apache 2.4.41</span>
-            </div>
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">443/tcp</span>
-              <span class="text-primary">open</span>
-              <span class="text-slate-400">https</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Node: .55 VULNERABLE -->
-        <div class="bg-card border border-danger/40">
-          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
-            <div class="w-2 h-2 rounded-full bg-danger shrink-0 animate-pulse"></div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-1">
-                <span class="mono-text text-[10px] font-bold text-danger truncate">192.168.1.55</span>
-                <span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30 bg-danger/10 shrink-0">VULN</span>
-              </div>
-              <p class="text-[9px] text-secondary-text mt-0.5">OpenSSH 7.2p2 • 2 ports</p>
-            </div>
-            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
-          </div>
-          <div class="node-detail hidden border-t border-danger/20 px-3 py-2 flex flex-col gap-1.5">
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">22/tcp</span>
-              <span class="text-danger">open</span>
-              <span class="text-danger">OpenSSH 7.2p2</span>
-            </div>
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">80/tcp</span>
-              <span class="text-primary">open</span>
-              <span class="text-slate-400">http</span>
-            </div>
-            <div class="px-2 py-1 bg-danger/10 border border-danger/20 text-[8px] text-danger mono-text">
-              CVE-2016-6210 — CVSS 7.5
-            </div>
-          </div>
-        </div>
-
-        <!-- Node: .102 Scanning -->
-        <div class="bg-card border border-primary/30">
-          <div class="p-3 flex items-center gap-3 cursor-pointer hover:bg-surface transition-colors node-toggle">
-            <div class="w-2 h-2 rounded-full bg-primary shrink-0 animate-pulse"></div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-1">
-                <span class="mono-text text-[10px] font-bold text-primary truncate">192.168.1.102</span>
-                <span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30 bg-primary/10 shrink-0">Scan</span>
-              </div>
-              <p class="text-[9px] text-secondary-text mt-0.5">Windows 10 • 3 ports</p>
-            </div>
-            <span class="material-symbols-outlined text-[14px] text-secondary-text shrink-0 node-chevron transition-transform duration-200">expand_more</span>
-          </div>
-          <div class="node-detail hidden border-t border-border-color px-3 py-2 flex flex-col gap-1">
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">445/tcp</span>
-              <span class="text-primary">open</span>
-              <span class="text-slate-400">smb</span>
-            </div>
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">135/tcp</span>
-              <span class="text-primary">open</span>
-              <span class="text-slate-400">msrpc</span>
-            </div>
-            <div class="grid grid-cols-3 mono-text text-[9px]">
-              <span class="text-secondary-text">139/tcp</span>
-              <span class="text-primary">open</span>
-              <span class="text-slate-400">netbios</span>
-            </div>
-          </div>
-        </div>
+        <p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>
 
       </div>
 
