@@ -89,6 +89,20 @@ python main.py
 - Full audit log of every agent action
 - Two operational modes: Full Auto and Ask Before Exploit
 
+## Legal Disclaimer
+
+This software is provided strictly for use in **authorized security testing environments** — including penetration testing engagements with explicit written permission, controlled lab environments, CTF competitions, and academic research.
+
+**By using this software, you agree to the following:**
+
+- You will only operate AEGIS against systems you own or have received explicit written authorization to test.
+- You are solely responsible for ensuring your use complies with all applicable local, national, and international laws.
+- Unauthorized use against systems you do not own or lack permission to test may constitute a criminal offense under laws such as the Computer Fraud and Abuse Act (CFAA), the Computer Misuse Act (CMA), and equivalent legislation in other jurisdictions.
+
+**The authors and contributors of AEGIS accept no liability for any damage, data loss, legal consequences, or other harm resulting from the use or misuse of this software.** Use is entirely at your own risk.
+
+If you are unsure whether your intended use is authorized, do not proceed.
+
 ## License
 
 This project is licensed under the **AEGIS Non-Commercial License** — see [LICENSE](LICENSE) for full terms.
