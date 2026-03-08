@@ -29,8 +29,8 @@ async def ollama_status():
                 models = [m["name"] for m in resp.json().get("models", [])]
                 return {"online": True, "models": models, "current": settings.ollama.model}
             return {"online": False, "models": [], "current": settings.ollama.model}
-    except Exception:
-        return {"online": False, "models": [], "current": settings.ollama.model}
+    except Exception as e:
+        return {"online": False, "models": [], "current": settings.ollama.model, "error": str(e)}
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -50,6 +50,7 @@ async def get_ollama_config():
 
 @router.post("/config/ollama")
 async def set_ollama_config(body: OllamaSettings):
-    settings.ollama.base_url = body.base_url
+    if body.base_url.startswith("http"):
+        settings.ollama.base_url = body.base_url
     settings.ollama.model = body.model
     return {"ok": True}
