@@ -9,6 +9,12 @@ class OllamaConfig(BaseSettings):
     timeout: float = Field(default=120.0)
 
 
+class LMStudioConfig(BaseSettings):
+    base_url: str = Field(default="http://127.0.0.1:1234", alias="LMSTUDIO_BASE_URL")
+    model: str = Field(default="", alias="LMSTUDIO_MODEL")
+    timeout: float = Field(default=120.0)
+
+
 class LLMConfig(BaseSettings):
     provider: str = Field(default="ollama", alias="LLM_PROVIDER")  # "ollama" | "openrouter"
     api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
@@ -29,6 +35,7 @@ class AppConfig(BaseSettings):
     data_dir: Path = Path(__file__).parent / "data"
 
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    lmstudio: LMStudioConfig = Field(default_factory=LMStudioConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
 
