@@ -431,6 +431,71 @@ function attachCopyButtons(container) {
     });
 }
 
+function attachMsgActions(el, rawText, _isUser) {
+    const copyBtn  = el.querySelector('.action-copy');
+    const editBtn  = el.querySelector('.action-edit');
+    const retryBtn = el.querySelector('.action-retry');
+    const infoBtn  = el.querySelector('.action-info');
+
+    if (copyBtn) {
+        // Avoid duplicate listeners
+        const newBtn = copyBtn.cloneNode(true);
+        copyBtn.replaceWith(newBtn);
+        newBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(rawText || '').then(() => {
+                const icon = newBtn.querySelector('.material-symbols-outlined');
+                if (icon) {
+                    icon.textContent = 'check';
+                    newBtn.style.color = '#ccff00';
+                    setTimeout(() => { icon.textContent = 'content_copy'; newBtn.style.color = ''; }, 1500);
+                }
+            });
+        });
+    }
+
+    if (editBtn) {
+        editBtn.addEventListener('click', () => {
+            const input = document.getElementById('chat-input');
+            if (input) { input.value = rawText; input.focus(); input.dispatchEvent(new Event('input')); }
+        });
+    }
+
+    if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+            const stream = el.parentElement;
+            if (!stream) return;
+            const all = Array.from(stream.children);
+            const idx = all.indexOf(el);
+            for (let i = idx - 1; i >= 0; i--) {
+                const uEl = all[i].querySelector('.user-msg-text');
+                if (uEl) { sendChatMessage(uEl.textContent); return; }
+            }
+        });
+    }
+
+    if (infoBtn) {
+        infoBtn.addEventListener('click', () => {
+            const text = rawText || '';
+            const words = text.trim().split(/\s+/).filter(Boolean).length;
+            showToast(`~${words} words · ${text.length} chars`);
+        });
+    }
+}
+
+function showToast(msg) {
+    let toast = document.getElementById('aegis-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'aegis-toast';
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-card border border-border-color text-secondary-text text-[11px] font-display uppercase tracking-widest px-4 py-2 z-50 pointer-events-none transition-opacity duration-300';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+}
+
 // ─── Scroll Control ───────────────────────────────────────────────────────────
 
 let autoScroll = true;
@@ -524,27 +589,45 @@ function showPrompt({ title = 'Name', label = 'Name', icon = 'edit', defaultValu
     document.addEventListener('keydown', onKey);
 }
 
-// ─── Conversations & Projects (localStorage) ──────────────────────────────────
+// ─── Conversations & Projects ──────────────────────────────────────────────────
 
 let conversations = [];
 let projects = [];
 let activeConvId = null;
 let draggedConvId = null;
+let _pendingProjectId = null;
 
-function loadConversationsFromStorage() {
+// Projects stay in localStorage (client-side folders only)
+function loadProjectsFromStorage() {
     try {
-        conversations = JSON.parse(localStorage.getItem('aegis_conversations') || '[]');
-        projects     = JSON.parse(localStorage.getItem('aegis_projects') || '[]');
-        activeConvId = localStorage.getItem('aegis_active_conv') || null;
+        projects = JSON.parse(localStorage.getItem('aegis_projects') || '[]');
     } catch {
-        conversations = []; projects = []; activeConvId = null;
+        projects = [];
     }
 }
 
-function saveConversationsToStorage() {
-    localStorage.setItem('aegis_conversations', JSON.stringify(conversations));
-    localStorage.setItem('aegis_projects',      JSON.stringify(projects));
-    localStorage.setItem('aegis_active_conv',   activeConvId || '');
+function saveProjectsToStorage() {
+    localStorage.setItem('aegis_projects', JSON.stringify(projects));
+    // Save conversation → project mappings separately
+    const mappings = {};
+    conversations.forEach(c => { if (c.projectId) mappings[c.id] = c.projectId; });
+    localStorage.setItem('aegis_conv_projects', JSON.stringify(mappings));
+}
+
+async function loadConversationsFromAPI() {
+    try {
+        const res = await fetch('/api/v1/conversations');
+        const data = await res.json();
+        const mappings = JSON.parse(localStorage.getItem('aegis_conv_projects') || '{}');
+        conversations = data.map(c => ({
+            id: c.id,
+            title: c.title,
+            projectId: mappings[c.id] || null,
+            createdAt: c.created_at * 1000,
+        }));
+    } catch {
+        conversations = [];
+    }
 }
 
 function getActiveConv() {
@@ -554,10 +637,9 @@ function getActiveConv() {
 // ── Conversation actions ───────────────────────────────────────────────────────
 
 function createNewConversation(projectId = null) {
-    const id = 'conv_' + Date.now();
-    conversations.unshift({ id, title: 'New Chat', projectId: projectId || null, createdAt: Date.now(), messages: [] });
-    activeConvId = id;
-    saveConversationsToStorage();
+    activeConvId = null;
+    _pendingProjectId = projectId || null;
+    if (ws && wsReady) ws.send(JSON.stringify({ type: 'new_conversation' }));
     renderConversationList();
     resetMessageStream();
 }
@@ -568,21 +650,24 @@ function deleteConversation(id) {
     showConfirm({
         title: 'Delete Chat',
         message: `"${name}" will be permanently deleted. This cannot be undone.`,
-        onConfirm: () => {
+        onConfirm: async () => {
+            try {
+                await fetch(`/api/v1/conversations/${id}`, { method: 'DELETE' });
+            } catch { /* ignore */ }
             conversations = conversations.filter(c => c.id !== id);
             if (activeConvId === id) {
                 const next = conversations[0];
                 if (next) { activeConvId = next.id; loadConversation(next.id); }
                 else       { activeConvId = null; resetMessageStream(); }
             }
-            saveConversationsToStorage();
+            saveProjectsToStorage();
             renderConversationList();
         },
     });
 }
 
 function startRenameConversation(id) {
-    renderConversationList(id);   // re-render with inline input for this id
+    renderConversationList(id);
 }
 
 function resetMessageStream() {
@@ -599,32 +684,40 @@ function resetMessageStream() {
     autoScroll = true;
 }
 
-function loadConversation(convId) {
+async function loadConversation(convId) {
     activeConvId = convId;
-    saveConversationsToStorage();
     renderConversationList();
-    const conv = conversations.find(c => c.id === convId);
     const stream = getMessageStream();
     if (!stream) return;
     stream.innerHTML = '';
-    if (!conv || !conv.messages.length) { resetMessageStream(); return; }
-    conv.messages.forEach(msg => {
-        if (msg.role === 'user') appendUserMessageDOM(msg.content);
-        else appendAssistantMessageDOM(msg.content);
-    });
-    autoScroll = true;
-    forceScrollToBottom();
+
+    try {
+        const res = await fetch(`/api/v1/conversations/${convId}`);
+        if (!res.ok) { resetMessageStream(); return; }
+        const data = await res.json();
+        const messages = data.messages || [];
+        if (!messages.length) { resetMessageStream(); return; }
+        messages.forEach(msg => {
+            if (msg.role === 'user') appendUserMessageDOM(msg.content);
+            else if (msg.role === 'assistant') appendAssistantMessageDOM(msg.content);
+        });
+        autoScroll = true;
+        forceScrollToBottom();
+    } catch {
+        resetMessageStream();
+    }
+
+    // Sync backend context
+    if (ws && wsReady) ws.send(JSON.stringify({ type: 'load_conversation', conversation_id: convId }));
 }
 
 function addMessageToConv(role, content) {
+    // Backend handles persistence — only update sidebar title optimistically
+    if (role !== 'user') return;
     const conv = getActiveConv();
-    if (!conv) return;
-    conv.messages.push({ role, content });
-    if (role === 'user' && conv.title === 'New Chat') {
-        conv.title = content.length > 32 ? content.substring(0, 32) + '…' : content;
-        renderConversationList();
-    }
-    saveConversationsToStorage();
+    if (!conv || conv.title !== 'New Chat') return;
+    conv.title = content.length > 32 ? content.substring(0, 32) + '…' : content;
+    renderConversationList();
 }
 
 // ── Project actions ────────────────────────────────────────────────────────────
@@ -637,7 +730,7 @@ function createProject() {
         defaultValue: '',
         onConfirm: (name) => {
             projects.push({ id: 'proj_' + Date.now(), name, expanded: true });
-            saveConversationsToStorage();
+            saveProjectsToStorage();
             renderConversationList();
         },
     });
@@ -654,7 +747,7 @@ function deleteProject(projId) {
         onConfirm: () => {
             conversations.forEach(c => { if (c.projectId === projId) c.projectId = null; });
             projects = projects.filter(p => p.id !== projId);
-            saveConversationsToStorage();
+            saveProjectsToStorage();
             renderConversationList();
         },
     });
@@ -670,7 +763,7 @@ function startRenameProject(projId) {
         defaultValue: proj.name,
         onConfirm: (name) => {
             proj.name = name;
-            saveConversationsToStorage();
+            saveProjectsToStorage();
             renderConversationList();
         },
     });
@@ -680,7 +773,7 @@ function toggleProject(projId) {
     const proj = projects.find(p => p.id === projId);
     if (!proj) return;
     proj.expanded = !proj.expanded;
-    saveConversationsToStorage();
+    saveProjectsToStorage();
     renderConversationList();
 }
 
@@ -714,10 +807,18 @@ function buildChatRow(conv, renamingId) {
         input.type = 'text';
         input.value = conv.title;
         input.className = 'flex-1 bg-transparent border border-primary/40 outline-none text-[10px] mono-text text-primary px-2 py-1.5 min-w-0';
-        const commit = () => {
+        const commit = async () => {
             const v = input.value.trim();
-            if (v) conv.title = v;
-            saveConversationsToStorage();
+            if (v && v !== conv.title) {
+                conv.title = v;
+                try {
+                    await fetch(`/api/v1/conversations/${conv.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title: v }),
+                    });
+                } catch { /* ignore */ }
+            }
             renderConversationList();
         };
         input.addEventListener('keydown', (e) => {
@@ -774,7 +875,7 @@ function addDropZone(target, targetProjectId) {
         const conv = conversations.find(c => c.id === draggedConvId);
         if (conv) {
             conv.projectId = targetProjectId;
-            saveConversationsToStorage();
+            saveProjectsToStorage();
             renderConversationList();
         }
     });
@@ -866,18 +967,16 @@ function renderConversationList(renamingId = null) {
     }
 }
 
-function initConversations() {
-    loadConversationsFromStorage();
+async function initConversations() {
+    loadProjectsFromStorage();
+    await loadConversationsFromAPI();
+
     if (!conversations.length) {
-        createNewConversation();
+        renderConversationList();
+        resetMessageStream();
     } else {
         renderConversationList();
-        if (activeConvId && conversations.find(c => c.id === activeConvId)) {
-            loadConversation(activeConvId);
-        } else {
-            activeConvId = conversations[0].id;
-            loadConversation(activeConvId);
-        }
+        loadConversation(conversations[0].id);
     }
 
     const newChatBtn = document.getElementById('new-chat-btn');
@@ -941,6 +1040,20 @@ function wsConnect() {
         } else if (msg.type === 'error') {
             appendErrorMessage(msg.content);
             finalizeAssistantMessage();
+        } else if (msg.type === 'conversation_created') {
+            const c = msg.conversation;
+            conversations.unshift({
+                id: c.id,
+                title: c.title,
+                projectId: _pendingProjectId,
+                createdAt: c.created_at * 1000,
+            });
+            activeConvId = c.id;
+            _pendingProjectId = null;
+            saveProjectsToStorage();
+            renderConversationList();
+        } else if (msg.type === 'conversation_reset') {
+            // UI already reset by createNewConversation()
         }
     };
 }
@@ -971,15 +1084,24 @@ function hideEmptyState() {
 
 function buildUserMessageEl(text) {
     const el = document.createElement('div');
-    el.className = 'flex gap-4 justify-end';
+    el.className = 'flex gap-4 justify-end group';
     el.innerHTML = `
-        <div class="flex flex-col gap-2 max-w-[80%]">
+        <div class="flex flex-col gap-1 max-w-[80%] items-end">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest text-right">You</div>
           <div class="user-msg-text bg-card border border-border-color p-4 text-sm leading-relaxed whitespace-pre-wrap" style="color:#d1d5db;font-family:'Inter',sans-serif;">${escapeHtml(text)}</div>
+          <div class="msg-actions flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <button class="action-copy msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">content_copy</span><span>Copy</span>
+            </button>
+            <button class="action-edit msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">edit</span><span>Edit</span>
+            </button>
+          </div>
         </div>
-        <div class="shrink-0 w-8 h-8 border border-border-color flex items-center justify-center bg-surface">
+        <div class="shrink-0 w-8 h-8 border border-border-color flex items-center justify-center bg-surface self-start mt-5">
           <span class="material-symbols-outlined text-secondary-text text-xl">person</span>
         </div>`;
+    attachMsgActions(el, text, true);
     return el;
 }
 
@@ -998,26 +1120,38 @@ function appendUserMessageDOM(text) {
     stream.appendChild(buildUserMessageEl(text));
 }
 
-function buildAssistantMessageEl(htmlContent) {
+function buildAssistantMessageEl(htmlContent, rawText = '') {
     const el = document.createElement('div');
-    el.className = 'flex gap-4';
+    el.className = 'flex gap-4 group';
     el.innerHTML = `
-        <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface">
+        <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface self-start mt-5">
           <span class="material-symbols-outlined text-primary text-xl">psychology</span>
         </div>
-        <div class="flex flex-col gap-2 flex-1 min-w-0">
+        <div class="flex flex-col gap-1 flex-1 min-w-0">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Chat</div>
           <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
             <div class="msg-text markdown-content text-sm leading-relaxed text-slate-200">${htmlContent}</div>
           </div>
+          <div class="msg-actions flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <button class="action-copy msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">content_copy</span><span>Copy</span>
+            </button>
+            <button class="action-retry msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">refresh</span><span>Retry</span>
+            </button>
+            <button class="action-info msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">info</span><span>Info</span>
+            </button>
+          </div>
         </div>`;
+    attachMsgActions(el, rawText, false);
     return el;
 }
 
 function appendAssistantMessageDOM(markdownText) {
     const stream = getMessageStream();
     if (!stream) return;
-    const el = buildAssistantMessageEl(renderMarkdown(markdownText));
+    const el = buildAssistantMessageEl(renderMarkdown(markdownText), markdownText);
     stream.appendChild(el);
     attachCopyButtons(el);
 }
@@ -1028,16 +1162,27 @@ function startAssistantMessage() {
 
     currentAssistantText = '';
     const el = document.createElement('div');
-    el.className = 'flex gap-4';
+    el.className = 'flex gap-4 group';
     el.innerHTML = `
-        <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface">
+        <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface self-start mt-5">
           <span class="material-symbols-outlined text-primary text-xl">psychology</span>
         </div>
-        <div class="flex flex-col gap-2 flex-1 min-w-0">
+        <div class="flex flex-col gap-1 flex-1 min-w-0">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Chat</div>
           <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
             <div class="msg-text markdown-content text-sm leading-relaxed"></div>
             <span class="cursor-blink inline-block w-2 h-4 bg-primary ml-0.5 align-middle"></span>
+          </div>
+          <div class="msg-actions hidden flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <button class="action-copy msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">content_copy</span><span>Copy</span>
+            </button>
+            <button class="action-retry msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">refresh</span><span>Retry</span>
+            </button>
+            <button class="action-info msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
+              <span class="material-symbols-outlined text-[13px]">info</span><span>Info</span>
+            </button>
           </div>
         </div>`;
     stream.appendChild(el);
@@ -1070,8 +1215,12 @@ function finalizeAssistantMessage() {
         attachCopyButtons(p);
     }
 
-    // Save to conversation history
-    if (currentAssistantText) addMessageToConv('assistant', currentAssistantText);
+    // Reveal action bar and wire up handlers
+    const actions = currentAssistantEl.querySelector('.msg-actions');
+    if (actions) {
+        actions.classList.remove('hidden');
+        attachMsgActions(currentAssistantEl, currentAssistantText, false);
+    }
 
     currentAssistantEl = null;
     currentAssistantText = '';
@@ -1118,11 +1267,8 @@ function sendChatMessage(text) {
         appendErrorMessage('Not connected to backend. Retrying...');
         return;
     }
-    // Auto-create a conversation if none is active
-    if (!getActiveConv()) createNewConversation();
     isStreaming = true;
     updateSendBtn();
-    addMessageToConv('user', text);
     appendUserMessage(text);
     startAssistantMessage();
     ws.send(JSON.stringify({ type: 'chat', content: text }));
@@ -1279,27 +1425,64 @@ function updateModelLabel() {
 }
 
 function populateModelDropdown() {
+    // Header dropdown
     const list = document.getElementById('model-dropdown-list');
+    if (list) {
+        list.innerHTML = '';
+        if (!availableModels.length) {
+            list.innerHTML = '<div class="px-4 py-2 text-[10px] mono-text text-secondary-text">No models found</div>';
+        } else {
+            availableModels.forEach(model => {
+                const item = document.createElement('button');
+                item.className = [
+                    'w-full text-left px-4 py-2 text-[11px] mono-text',
+                    'hover:bg-primary/10 hover:text-primary transition-colors',
+                    model === activeModel ? 'text-primary' : 'text-slate-300',
+                ].join(' ');
+                item.textContent = model;
+                if (model === activeModel) {
+                    item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
+                }
+                item.addEventListener('click', () => selectModel(model));
+                list.appendChild(item);
+            });
+        }
+    }
+
+    // Config dropdown
+    populateCfgModelDropdown();
+}
+
+function populateCfgModelDropdown() {
+    const list = document.getElementById('cfg-model-list');
+    const label = document.getElementById('cfg-model-label');
+    const hidden = document.getElementById('cfg-ollama-model');
     if (!list) return;
+
     list.innerHTML = '';
 
     if (!availableModels.length) {
-        list.innerHTML = '<div class="px-4 py-2 text-[10px] mono-text text-secondary-text">No models found</div>';
+        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is Ollama running?</div>';
+        if (label) label.textContent = '—';
         return;
     }
 
+    if (label) label.textContent = activeModel || availableModels[0] || '—';
+    if (hidden) hidden.value = activeModel || '';
+
     availableModels.forEach(model => {
         const item = document.createElement('button');
+        item.type = 'button';
         item.className = [
-            'w-full text-left px-4 py-2 text-[11px] mono-text',
+            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
             'hover:bg-primary/10 hover:text-primary transition-colors',
             model === activeModel ? 'text-primary' : 'text-slate-300',
         ].join(' ');
-        item.textContent = model;
-        if (model === activeModel) {
-            item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-        }
-        item.addEventListener('click', () => selectModel(model));
+        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === activeModel ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
+        item.addEventListener('click', () => {
+            selectModel(model);
+            closeCfgModelDropdown();
+        });
         list.appendChild(item);
     });
 }
@@ -1315,9 +1498,44 @@ function selectModel(model) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base_url: ollamaBaseUrl, model }),
     });
-    // Sync config input
+    // Sync config hidden input + label
     const cfgModel = document.getElementById('cfg-ollama-model');
     if (cfgModel) cfgModel.value = model;
+    const cfgLabel = document.getElementById('cfg-model-label');
+    if (cfgLabel) cfgLabel.textContent = model;
+}
+
+function openCfgModelDropdown() {
+    const dd = document.getElementById('cfg-model-dropdown');
+    const chevron = document.getElementById('cfg-model-chevron');
+    const btn = document.getElementById('cfg-model-btn');
+    if (dd) dd.classList.remove('hidden');
+    if (chevron) chevron.textContent = 'expand_less';
+    if (btn) btn.classList.add('border-primary');
+}
+
+function closeCfgModelDropdown() {
+    const dd = document.getElementById('cfg-model-dropdown');
+    const chevron = document.getElementById('cfg-model-chevron');
+    const btn = document.getElementById('cfg-model-btn');
+    if (dd) dd.classList.add('hidden');
+    if (chevron) chevron.textContent = 'expand_more';
+    if (btn) btn.classList.remove('border-primary');
+}
+
+function initCfgModelDropdown() {
+    const btn = document.getElementById('cfg-model-btn');
+    if (!btn) return;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dd = document.getElementById('cfg-model-dropdown');
+        if (dd && dd.classList.contains('hidden')) openCfgModelDropdown();
+        else closeCfgModelDropdown();
+    });
+    document.addEventListener('click', (e) => {
+        const wrapper = document.getElementById('cfg-model-wrapper');
+        if (wrapper && !wrapper.contains(e.target)) closeCfgModelDropdown();
+    });
 }
 
 function openModelDropdown() {
@@ -1355,15 +1573,40 @@ function initModelSelector() {
     });
 }
 
-// ─── Config Save ─────────────────────────────────────────────────────────────
+// ─── Config Save & Persistent Settings ───────────────────────────────────────
+
+async function loadPersistedSettings() {
+    try {
+        const res = await fetch('/api/v1/settings');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.ollama_base_url) {
+            ollamaBaseUrl = data.ollama_base_url;
+            const cfgUrl = document.getElementById('cfg-ollama-url');
+            if (cfgUrl) cfgUrl.value = ollamaBaseUrl;
+        }
+        if (data.ollama_model) {
+            activeModel = data.ollama_model;
+            updateModelLabel();
+            const cfgModel = document.getElementById('cfg-ollama-model');
+            if (cfgModel) cfgModel.value = activeModel;
+        }
+        if (data.openrouter_api_key) {
+            const keyInput = document.getElementById('cfg-openrouter-key');
+            if (keyInput) keyInput.value = data.openrouter_api_key;
+        }
+    } catch { /* ignore */ }
+}
 
 function initConfigSave() {
     const saveBtn = document.getElementById('save-config-btn');
     if (!saveBtn) return;
 
     saveBtn.addEventListener('click', async () => {
-        const url = document.getElementById('cfg-ollama-url')?.value?.trim() || ollamaBaseUrl;
-        const model = document.getElementById('cfg-ollama-model')?.value?.trim() || activeModel;
+        const url   = document.getElementById('cfg-ollama-url')?.value?.trim()    || ollamaBaseUrl;
+        const model = document.getElementById('cfg-ollama-model')?.value?.trim()  || activeModel;
+        const apiKey = document.getElementById('cfg-openrouter-key')?.value?.trim() || '';
 
         saveBtn.textContent = 'Saving...';
         saveBtn.disabled = true;
@@ -1374,21 +1617,22 @@ function initConfigSave() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ base_url: url, model }),
             });
+            if (apiKey) {
+                await fetch('/api/v1/settings/openrouter_api_key', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: apiKey }),
+                });
+            }
             activeModel = model;
+            ollamaBaseUrl = url;
             updateModelLabel();
             saveBtn.textContent = 'Saved!';
-            setTimeout(() => {
-                saveBtn.textContent = 'Save Config';
-                saveBtn.disabled = false;
-            }, 1500);
-            // Re-check status with new settings
+            setTimeout(() => { saveBtn.textContent = 'Save Config'; saveBtn.disabled = false; }, 1500);
             await fetchOllamaStatus();
         } catch {
             saveBtn.textContent = 'Error';
-            setTimeout(() => {
-                saveBtn.textContent = 'Save Config';
-                saveBtn.disabled = false;
-            }, 1500);
+            setTimeout(() => { saveBtn.textContent = 'Save Config'; saveBtn.disabled = false; }, 1500);
         }
     });
 }
@@ -1438,8 +1682,10 @@ document.addEventListener('DOMContentLoaded', () => {
     initThemeToggle();
     initChatInput();
     initModelSelector();
+    initCfgModelDropdown();
     initConfigSave();
     initScrollTracking();
+    loadPersistedSettings();
     initConversations();
     wsConnect();
     fetchOllamaStatus();
