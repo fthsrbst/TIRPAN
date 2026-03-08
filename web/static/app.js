@@ -444,36 +444,145 @@ function initScrollTracking() {
     });
 }
 
-// ─── Conversations (localStorage) ────────────────────────────────────────────
+// ─── Confirm Dialog ───────────────────────────────────────────────────────────
+
+function showConfirm({ title = 'Are you sure?', message = '', onConfirm }) {
+    const overlay  = document.getElementById('confirm-overlay');
+    const backdrop = document.getElementById('confirm-backdrop');
+    const titleEl  = document.getElementById('confirm-title');
+    const msgEl    = document.getElementById('confirm-message');
+    const okBtn    = document.getElementById('confirm-ok');
+    const cancelBtn = document.getElementById('confirm-cancel');
+    if (!overlay) return;
+
+    titleEl.textContent = title;
+    msgEl.textContent   = message;
+    overlay.classList.remove('hidden');
+
+    const close = () => {
+        overlay.classList.add('hidden');
+        okBtn.removeEventListener('click', doOk);
+        cancelBtn.removeEventListener('click', close);
+        backdrop.removeEventListener('click', close);
+        document.removeEventListener('keydown', onKey);
+    };
+    const doOk = () => { close(); onConfirm(); };
+    const onKey = (e) => {
+        if (e.key === 'Enter')  doOk();
+        if (e.key === 'Escape') close();
+    };
+
+    okBtn.addEventListener('click', doOk);
+    cancelBtn.addEventListener('click', close);
+    backdrop.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+}
+
+// ─── Custom Prompt Modal ──────────────────────────────────────────────────────
+
+function showPrompt({ title = 'Name', label = 'Name', icon = 'edit', defaultValue = '', onConfirm }) {
+    const overlay = document.getElementById('custom-prompt-overlay');
+    const input   = document.getElementById('custom-prompt-input');
+    const titleEl = document.getElementById('custom-prompt-title');
+    const labelEl = document.getElementById('custom-prompt-label');
+    const iconEl  = document.getElementById('custom-prompt-icon');
+    const confirmBtn = document.getElementById('custom-prompt-confirm');
+    const cancelBtn  = document.getElementById('custom-prompt-cancel');
+    const backdrop   = document.getElementById('custom-prompt-backdrop');
+    if (!overlay || !input) return;
+
+    titleEl.textContent = title;
+    labelEl.textContent = label;
+    iconEl.textContent  = icon;
+    input.value = defaultValue;
+
+    overlay.classList.remove('hidden');
+    setTimeout(() => { input.focus(); input.select(); }, 50);
+
+    const close = () => {
+        overlay.classList.add('hidden');
+        confirmBtn.removeEventListener('click', doConfirm);
+        cancelBtn.removeEventListener('click', close);
+        backdrop.removeEventListener('click', close);
+        document.removeEventListener('keydown', onKey);
+    };
+
+    const doConfirm = () => {
+        const val = input.value.trim();
+        close();
+        if (val) onConfirm(val);
+    };
+
+    const onKey = (e) => {
+        if (e.key === 'Enter')  doConfirm();
+        if (e.key === 'Escape') close();
+    };
+
+    confirmBtn.addEventListener('click', doConfirm);
+    cancelBtn.addEventListener('click', close);
+    backdrop.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+}
+
+// ─── Conversations & Projects (localStorage) ──────────────────────────────────
 
 let conversations = [];
+let projects = [];
 let activeConvId = null;
-
-function convKey() { return 'aegis_conversations'; }
+let draggedConvId = null;
 
 function loadConversationsFromStorage() {
     try {
-        conversations = JSON.parse(localStorage.getItem(convKey()) || '[]');
+        conversations = JSON.parse(localStorage.getItem('aegis_conversations') || '[]');
+        projects     = JSON.parse(localStorage.getItem('aegis_projects') || '[]');
         activeConvId = localStorage.getItem('aegis_active_conv') || null;
-    } catch { conversations = []; activeConvId = null; }
+    } catch {
+        conversations = []; projects = []; activeConvId = null;
+    }
 }
 
 function saveConversationsToStorage() {
-    localStorage.setItem(convKey(), JSON.stringify(conversations));
-    localStorage.setItem('aegis_active_conv', activeConvId || '');
+    localStorage.setItem('aegis_conversations', JSON.stringify(conversations));
+    localStorage.setItem('aegis_projects',      JSON.stringify(projects));
+    localStorage.setItem('aegis_active_conv',   activeConvId || '');
 }
 
 function getActiveConv() {
     return conversations.find(c => c.id === activeConvId) || null;
 }
 
-function createNewConversation() {
+// ── Conversation actions ───────────────────────────────────────────────────────
+
+function createNewConversation(projectId = null) {
     const id = 'conv_' + Date.now();
-    conversations.unshift({ id, title: 'New Chat', createdAt: Date.now(), messages: [] });
+    conversations.unshift({ id, title: 'New Chat', projectId: projectId || null, createdAt: Date.now(), messages: [] });
     activeConvId = id;
     saveConversationsToStorage();
     renderConversationList();
     resetMessageStream();
+}
+
+function deleteConversation(id) {
+    const conv = conversations.find(c => c.id === id);
+    const name = conv ? conv.title : 'this chat';
+    showConfirm({
+        title: 'Delete Chat',
+        message: `"${name}" will be permanently deleted. This cannot be undone.`,
+        onConfirm: () => {
+            conversations = conversations.filter(c => c.id !== id);
+            if (activeConvId === id) {
+                const next = conversations[0];
+                if (next) { activeConvId = next.id; loadConversation(next.id); }
+                else       { activeConvId = null; resetMessageStream(); }
+            }
+            saveConversationsToStorage();
+            renderConversationList();
+        },
+    });
+}
+
+function startRenameConversation(id) {
+    renderConversationList(id);   // re-render with inline input for this id
 }
 
 function resetMessageStream() {
@@ -507,38 +616,118 @@ function loadConversation(convId) {
     forceScrollToBottom();
 }
 
-function deleteConversation(id) {
-    conversations = conversations.filter(c => c.id !== id);
-    if (activeConvId === id) {
-        if (conversations.length) {
-            activeConvId = conversations[0].id;
-            loadConversation(activeConvId);
-        } else {
-            activeConvId = null;
-            resetMessageStream();
-        }
+function addMessageToConv(role, content) {
+    const conv = getActiveConv();
+    if (!conv) return;
+    conv.messages.push({ role, content });
+    if (role === 'user' && conv.title === 'New Chat') {
+        conv.title = content.length > 32 ? content.substring(0, 32) + '…' : content;
+        renderConversationList();
     }
+    saveConversationsToStorage();
+}
+
+// ── Project actions ────────────────────────────────────────────────────────────
+
+function createProject() {
+    showPrompt({
+        title: 'New Project',
+        label: 'Project name',
+        icon: 'create_new_folder',
+        defaultValue: '',
+        onConfirm: (name) => {
+            projects.push({ id: 'proj_' + Date.now(), name, expanded: true });
+            saveConversationsToStorage();
+            renderConversationList();
+        },
+    });
+}
+
+function deleteProject(projId) {
+    const proj = projects.find(p => p.id === projId);
+    const name = proj ? proj.name : 'this project';
+    const chatCount = conversations.filter(c => c.projectId === projId).length;
+    const extra = chatCount ? ` ${chatCount} chat(s) inside will be moved to unfiled.` : '';
+    showConfirm({
+        title: 'Delete Project',
+        message: `"${name}" will be permanently deleted.${extra}`,
+        onConfirm: () => {
+            conversations.forEach(c => { if (c.projectId === projId) c.projectId = null; });
+            projects = projects.filter(p => p.id !== projId);
+            saveConversationsToStorage();
+            renderConversationList();
+        },
+    });
+}
+
+function startRenameProject(projId) {
+    const proj = projects.find(p => p.id === projId);
+    if (!proj) return;
+    showPrompt({
+        title: 'Rename Project',
+        label: 'Project name',
+        icon: 'drive_file_rename_outline',
+        defaultValue: proj.name,
+        onConfirm: (name) => {
+            proj.name = name;
+            saveConversationsToStorage();
+            renderConversationList();
+        },
+    });
+}
+
+function toggleProject(projId) {
+    const proj = projects.find(p => p.id === projId);
+    if (!proj) return;
+    proj.expanded = !proj.expanded;
     saveConversationsToStorage();
     renderConversationList();
 }
 
-function renderConversationList() {
-    const list = document.getElementById('conversation-list');
-    if (!list) return;
-    list.innerHTML = '';
-    if (!conversations.length) {
-        list.innerHTML = '<div class="text-[9px] mono-text text-secondary-text px-2 py-2 opacity-50">No chats yet</div>';
-        return;
-    }
-    conversations.forEach(conv => {
-        const isActive = conv.id === activeConvId;
+// ── Render ─────────────────────────────────────────────────────────────────────
 
-        const row = document.createElement('div');
-        row.className = [
-            'group flex items-center gap-1 transition-colors',
-            isActive ? 'bg-primary/5 border-l border-primary' : 'hover:bg-white/5',
-        ].join(' ');
+function buildChatRow(conv, renamingId) {
+    const isActive   = conv.id === activeConvId;
+    const isRenaming = conv.id === renamingId;
 
+    const row = document.createElement('div');
+    row.className = [
+        'group flex items-center gap-0.5 transition-colors',
+        isActive ? 'bg-primary/5 border-l border-primary' : 'hover:bg-white/5',
+    ].join(' ');
+    row.draggable = true;
+    row.dataset.convId = conv.id;
+
+    // Drag events
+    row.addEventListener('dragstart', (e) => {
+        draggedConvId = conv.id;
+        e.dataTransfer.effectAllowed = 'move';
+        setTimeout(() => row.classList.add('opacity-40'), 0);
+    });
+    row.addEventListener('dragend', () => {
+        draggedConvId = null;
+        row.classList.remove('opacity-40');
+    });
+
+    if (isRenaming) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = conv.title;
+        input.className = 'flex-1 bg-transparent border border-primary/40 outline-none text-[10px] mono-text text-primary px-2 py-1.5 min-w-0';
+        const commit = () => {
+            const v = input.value.trim();
+            if (v) conv.title = v;
+            saveConversationsToStorage();
+            renderConversationList();
+        };
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') renderConversationList();
+        });
+        input.addEventListener('blur', commit);
+        row.appendChild(input);
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+    } else {
         const btn = document.createElement('button');
         btn.className = [
             'flex-1 text-left px-2 py-1.5 text-[10px] mono-text truncate leading-tight transition-colors min-w-0',
@@ -548,31 +737,133 @@ function renderConversationList() {
         btn.textContent = conv.title;
         btn.addEventListener('click', () => loadConversation(conv.id));
 
+        const renBtn = document.createElement('button');
+        renBtn.className = 'shrink-0 w-5 h-5 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-primary transition-all';
+        renBtn.title = 'Rename';
+        renBtn.innerHTML = '<span class="material-symbols-outlined text-[12px]">edit</span>';
+        renBtn.addEventListener('click', (e) => { e.stopPropagation(); startRenameConversation(conv.id); });
+
         const delBtn = document.createElement('button');
-        delBtn.className = 'shrink-0 w-5 h-5 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-danger transition-all mr-1';
-        delBtn.title = 'Sil';
-        delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
-        delBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteConversation(conv.id);
-        });
+        delBtn.className = 'shrink-0 w-5 h-5 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-danger transition-all mr-0.5';
+        delBtn.title = 'Delete';
+        delBtn.innerHTML = '<span class="material-symbols-outlined text-[12px]">delete</span>';
+        delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteConversation(conv.id); });
 
         row.appendChild(btn);
+        row.appendChild(renBtn);
         row.appendChild(delBtn);
-        list.appendChild(row);
+    }
+
+    return row;
+}
+
+function addDropZone(target, targetProjectId) {
+    target.addEventListener('dragover', (e) => {
+        if (!draggedConvId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        target.classList.add('outline', 'outline-1', 'outline-primary/30');
+    });
+    target.addEventListener('dragleave', () => {
+        target.classList.remove('outline', 'outline-1', 'outline-primary/30');
+    });
+    target.addEventListener('drop', (e) => {
+        e.preventDefault();
+        target.classList.remove('outline', 'outline-1', 'outline-primary/30');
+        if (!draggedConvId) return;
+        const conv = conversations.find(c => c.id === draggedConvId);
+        if (conv) {
+            conv.projectId = targetProjectId;
+            saveConversationsToStorage();
+            renderConversationList();
+        }
     });
 }
 
-function addMessageToConv(role, content) {
-    const conv = getActiveConv();
-    if (!conv) return;
-    conv.messages.push({ role, content });
-    // Set title from first user message
-    if (role === 'user' && conv.title === 'New Chat') {
-        conv.title = content.length > 32 ? content.substring(0, 32) + '…' : content;
-        renderConversationList();
+function renderConversationList(renamingId = null) {
+    const list = document.getElementById('conversation-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    // ── Project folders (always first) ──
+    projects.forEach(proj => {
+        const projConvs = conversations.filter(c => c.projectId === proj.id);
+
+        const folder = document.createElement('div');
+        folder.className = 'mt-1';
+
+        // Folder header
+        const hdr = document.createElement('div');
+        hdr.className = 'group flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-white/5 transition-colors select-none';
+        hdr.innerHTML = `
+          <span class="material-symbols-outlined text-[13px] text-secondary-text transition-transform duration-150" style="transform:rotate(${proj.expanded ? '0' : '-90'}deg)">${proj.expanded ? 'folder_open' : 'folder'}</span>
+          <span class="flex-1 text-[9px] font-bold text-secondary-text uppercase tracking-wider truncate">${escapeHtml(proj.name)}</span>
+          <button class="btn-add-chat shrink-0 w-4 h-4 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-primary transition-all" title="Add chat to folder">
+            <span class="material-symbols-outlined text-[12px]">add</span>
+          </button>
+          <button class="btn-ren-proj shrink-0 w-4 h-4 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-primary transition-all" title="Rename">
+            <span class="material-symbols-outlined text-[12px]">edit</span>
+          </button>
+          <button class="btn-del-proj shrink-0 w-4 h-4 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-danger transition-all" title="Delete folder">
+            <span class="material-symbols-outlined text-[12px]">delete</span>
+          </button>`;
+
+        hdr.querySelector('.btn-add-chat').addEventListener('click', (e) => { e.stopPropagation(); createNewConversation(proj.id); });
+        hdr.querySelector('.btn-ren-proj').addEventListener('click', (e) => { e.stopPropagation(); startRenameProject(proj.id); });
+        hdr.querySelector('.btn-del-proj').addEventListener('click', (e) => { e.stopPropagation(); deleteProject(proj.id); });
+        hdr.addEventListener('click', () => toggleProject(proj.id));
+
+        // Drop onto folder header → move to this project
+        addDropZone(hdr, proj.id);
+
+        folder.appendChild(hdr);
+
+        // Chat rows inside folder
+        if (proj.expanded) {
+            const inner = document.createElement('div');
+            inner.className = 'flex flex-col pl-3 border-l border-border-color ml-3';
+            if (projConvs.length === 0) {
+                const hint = document.createElement('div');
+                hint.className = 'text-[9px] mono-text text-secondary-text px-2 py-1 opacity-40';
+                hint.textContent = 'Empty — drag chats here';
+                inner.appendChild(hint);
+            } else {
+                projConvs.forEach(conv => inner.appendChild(buildChatRow(conv, renamingId)));
+            }
+            addDropZone(inner, proj.id);
+            folder.appendChild(inner);
+        }
+
+        list.appendChild(folder);
+    });
+
+    // ── Unfiled chats (below projects) ──
+    const unfiled = conversations.filter(c => !c.projectId);
+    if (!conversations.length) {
+        const empty = document.createElement('div');
+        empty.className = 'text-[9px] mono-text text-secondary-text px-2 py-2 opacity-50';
+        empty.textContent = 'No chats yet';
+        list.appendChild(empty);
+    } else {
+        if (projects.length) {
+            const sep = document.createElement('div');
+            sep.className = 'mt-1 mb-0.5 px-2';
+            sep.innerHTML = '<div class="border-t border-border-color"></div>';
+            list.appendChild(sep);
+        }
+        const unfiledWrap = document.createElement('div');
+        unfiledWrap.className = 'flex flex-col min-h-[24px]';
+        if (unfiled.length) {
+            unfiled.forEach(conv => unfiledWrap.appendChild(buildChatRow(conv, renamingId)));
+        } else if (projects.length) {
+            const hint = document.createElement('div');
+            hint.className = 'text-[9px] mono-text text-secondary-text px-2 py-1 opacity-40';
+            hint.textContent = 'Drop here to unfile';
+            unfiledWrap.appendChild(hint);
+        }
+        addDropZone(unfiledWrap, null);
+        list.appendChild(unfiledWrap);
     }
-    saveConversationsToStorage();
 }
 
 function initConversations() {
@@ -584,13 +875,16 @@ function initConversations() {
         if (activeConvId && conversations.find(c => c.id === activeConvId)) {
             loadConversation(activeConvId);
         } else {
-            // No valid active conv — select the most recent one
             activeConvId = conversations[0].id;
             loadConversation(activeConvId);
         }
     }
-    const btn = document.getElementById('new-chat-btn');
-    if (btn) btn.addEventListener('click', createNewConversation);
+
+    const newChatBtn = document.getElementById('new-chat-btn');
+    if (newChatBtn) newChatBtn.addEventListener('click', () => createNewConversation());
+
+    const newFolderBtn = document.getElementById('new-folder-btn');
+    if (newFolderBtn) newFolderBtn.addEventListener('click', createProject);
 }
 
 // ─── WebSocket Chat ───────────────────────────────────────────────────────────
