@@ -507,6 +507,21 @@ function loadConversation(convId) {
     forceScrollToBottom();
 }
 
+function deleteConversation(id) {
+    conversations = conversations.filter(c => c.id !== id);
+    if (activeConvId === id) {
+        if (conversations.length) {
+            activeConvId = conversations[0].id;
+            loadConversation(activeConvId);
+        } else {
+            activeConvId = null;
+            resetMessageStream();
+        }
+    }
+    saveConversationsToStorage();
+    renderConversationList();
+}
+
 function renderConversationList() {
     const list = document.getElementById('conversation-list');
     if (!list) return;
@@ -516,18 +531,35 @@ function renderConversationList() {
         return;
     }
     conversations.forEach(conv => {
-        const btn = document.createElement('button');
         const isActive = conv.id === activeConvId;
+
+        const row = document.createElement('div');
+        row.className = [
+            'group flex items-center gap-1 transition-colors',
+            isActive ? 'bg-primary/5 border-l border-primary' : 'hover:bg-white/5',
+        ].join(' ');
+
+        const btn = document.createElement('button');
         btn.className = [
-            'w-full text-left px-2 py-1.5 text-[10px] mono-text truncate transition-colors leading-tight',
-            isActive
-                ? 'text-primary border-l border-primary bg-primary/5 pl-1.5'
-                : 'text-secondary-text hover:text-slate-200 hover:bg-white/5',
+            'flex-1 text-left px-2 py-1.5 text-[10px] mono-text truncate leading-tight transition-colors min-w-0',
+            isActive ? 'text-primary pl-1.5' : 'text-secondary-text hover:text-slate-200',
         ].join(' ');
         btn.title = conv.title;
         btn.textContent = conv.title;
         btn.addEventListener('click', () => loadConversation(conv.id));
-        list.appendChild(btn);
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'shrink-0 w-5 h-5 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-danger transition-all mr-1';
+        delBtn.title = 'Sil';
+        delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteConversation(conv.id);
+        });
+
+        row.appendChild(btn);
+        row.appendChild(delBtn);
+        list.appendChild(row);
     });
 }
 
@@ -552,7 +584,9 @@ function initConversations() {
         if (activeConvId && conversations.find(c => c.id === activeConvId)) {
             loadConversation(activeConvId);
         } else {
-            resetMessageStream();
+            // No valid active conv — select the most recent one
+            activeConvId = conversations[0].id;
+            loadConversation(activeConvId);
         }
     }
     const btn = document.getElementById('new-chat-btn');
@@ -565,6 +599,21 @@ let ws = null;
 let wsReady = false;
 let currentAssistantEl = null;  // streaming message bubble
 let currentAssistantText = '';   // accumulated text for the current stream
+let isStreaming = false;
+
+function updateSendBtn() {
+    const btn = document.getElementById('chat-send-btn');
+    if (!btn) return;
+    if (isStreaming) {
+        btn.textContent = 'stop_circle';
+        btn.classList.add('text-primary', 'opacity-70');
+        btn.classList.remove('text-danger');
+    } else {
+        btn.textContent = 'send';
+        btn.classList.remove('text-danger', 'opacity-70');
+        btn.classList.add('text-primary');
+    }
+}
 
 function wsConnect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -632,7 +681,7 @@ function buildUserMessageEl(text) {
     el.innerHTML = `
         <div class="flex flex-col gap-2 max-w-[80%]">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest text-right">You</div>
-          <div class="bg-card border border-border-color p-4 text-sm leading-relaxed whitespace-pre-wrap" style="color:#d1d5db;font-family:'Inter',sans-serif;">${escapeHtml(text)}</div>
+          <div class="user-msg-text bg-card border border-border-color p-4 text-sm leading-relaxed whitespace-pre-wrap" style="color:#d1d5db;font-family:'Inter',sans-serif;">${escapeHtml(text)}</div>
         </div>
         <div class="shrink-0 w-8 h-8 border border-border-color flex items-center justify-center bg-surface">
           <span class="material-symbols-outlined text-secondary-text text-xl">person</span>
@@ -704,6 +753,7 @@ function startAssistantMessage() {
 }
 
 function appendToken(token, msgId) {
+    if (!isStreaming) return;
     if (!currentAssistantEl) startAssistantMessage();
     const p = currentAssistantEl.querySelector('.msg-text');
     if (!p) return;
@@ -731,6 +781,8 @@ function finalizeAssistantMessage() {
 
     currentAssistantEl = null;
     currentAssistantText = '';
+    isStreaming = false;
+    updateSendBtn();
 }
 
 function appendErrorMessage(text) {
@@ -772,10 +824,52 @@ function sendChatMessage(text) {
         appendErrorMessage('Not connected to backend. Retrying...');
         return;
     }
+    // Auto-create a conversation if none is active
+    if (!getActiveConv()) createNewConversation();
+    isStreaming = true;
+    updateSendBtn();
     addMessageToConv('user', text);
     appendUserMessage(text);
     startAssistantMessage();
     ws.send(JSON.stringify({ type: 'chat', content: text }));
+}
+
+function autoResizeTextarea(el) {
+    el.style.height = 'auto';
+    const newH = Math.min(el.scrollHeight, 200);
+    el.style.height = newH + 'px';
+    const expandBtn = document.getElementById('chat-expand-btn');
+    if (expandBtn) {
+        expandBtn.classList.toggle('hidden', el.scrollHeight <= 200);
+    }
+}
+
+function openFullscreenInput(initialText) {
+    const overlay = document.getElementById('input-fullscreen-overlay');
+    const ta = document.getElementById('input-fullscreen-textarea');
+    if (!overlay || !ta) return;
+    ta.value = initialText;
+    overlay.classList.remove('hidden');
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+function closeFullscreenInput(doSend) {
+    const overlay = document.getElementById('input-fullscreen-overlay');
+    const ta = document.getElementById('input-fullscreen-textarea');
+    const input = document.getElementById('chat-input');
+    if (!overlay || !ta) return;
+    if (doSend) {
+        const text = ta.value.trim();
+        overlay.classList.add('hidden');
+        if (text) {
+            if (input) { input.value = ''; autoResizeTextarea(input); }
+            sendChatMessage(text);
+        }
+    } else {
+        if (input) { input.value = ta.value; autoResizeTextarea(input); }
+        overlay.classList.add('hidden');
+    }
 }
 
 function initChatInput() {
@@ -784,17 +878,53 @@ function initChatInput() {
     if (!input) return;
 
     const doSend = () => {
+        if (isStreaming) {
+            isStreaming = false;
+            finalizeAssistantMessage();
+            return;
+        }
         const text = input.value.trim();
         if (!text) return;
         input.value = '';
+        autoResizeTextarea(input);
         sendChatMessage(text);
     };
 
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') doSend();
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            doSend();
+        }
     });
 
+    input.addEventListener('input', () => autoResizeTextarea(input));
+
     if (sendBtn) sendBtn.addEventListener('click', doSend);
+
+    const expandBtn = document.getElementById('chat-expand-btn');
+    if (expandBtn) {
+        expandBtn.addEventListener('click', () => openFullscreenInput(input.value));
+    }
+
+    // Fullscreen overlay buttons & keyboard
+    const fsOverlay = document.getElementById('input-fullscreen-overlay');
+    const fsCancelBtn = document.getElementById('fs-cancel-btn');
+    const fsSendBtn = document.getElementById('fs-send-btn');
+    const fsTa = document.getElementById('input-fullscreen-textarea');
+
+    if (fsCancelBtn) fsCancelBtn.addEventListener('click', () => closeFullscreenInput(false));
+    if (fsSendBtn) fsSendBtn.addEventListener('click', () => closeFullscreenInput(true));
+    if (fsOverlay) {
+        fsOverlay.addEventListener('click', (e) => {
+            if (e.target === fsOverlay) closeFullscreenInput(false);
+        });
+    }
+    if (fsTa) {
+        fsTa.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) closeFullscreenInput(true);
+            if (e.key === 'Escape') closeFullscreenInput(false);
+        });
+    }
 }
 
 // ─── Ollama Status & Model Selector ──────────────────────────────────────────
