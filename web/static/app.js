@@ -1015,6 +1015,10 @@ function wsConnect() {
     ws.onopen = () => {
         wsReady = true;
         setConnectionBadge(true);
+        // Re-sync server context after connect/reconnect
+        if (activeConvId) {
+            ws.send(JSON.stringify({ type: 'load_conversation', conversation_id: activeConvId }));
+        }
     };
 
     ws.onclose = () => {
@@ -1271,7 +1275,7 @@ function sendChatMessage(text) {
     updateSendBtn();
     appendUserMessage(text);
     startAssistantMessage();
-    ws.send(JSON.stringify({ type: 'chat', content: text }));
+    ws.send(JSON.stringify({ type: 'chat', content: text, provider: activeProvider, model: activeModel }));
 }
 
 function autoResizeTextarea(el) {
@@ -1371,7 +1375,125 @@ function initChatInput() {
 
 let availableModels = [];
 let activeModel = '';
+let activeProvider = 'ollama';  // 'ollama' | 'lmstudio'
 let ollamaBaseUrl = 'http://127.0.0.1:11434';
+
+// ─── LM Studio Status & Model Selector ───────────────────────────────────────
+
+let lmStudioModels = [];
+let lmStudioModel = '';
+let lmStudioBaseUrl = 'http://127.0.0.1:1234';
+
+async function fetchLMStudioStatus() {
+    try {
+        const res = await fetch('/api/v1/lmstudio/status');
+        const data = await res.json();
+
+        const dot = document.getElementById('cfg-lmstudio-status-dot');
+
+        if (data.online) {
+            lmStudioModels = data.models || [];
+            // Only set lmStudioModel on first load
+            if (!lmStudioModel) {
+                lmStudioModel = data.current || (lmStudioModels[0] ?? '');
+            }
+            if (dot) { dot.classList.remove('bg-border-color', 'bg-danger'); dot.classList.add('bg-primary'); }
+        } else {
+            lmStudioModels = [];
+            if (dot) { dot.classList.remove('bg-primary', 'bg-border-color'); dot.classList.add('bg-danger'); }
+        }
+
+        populateLMStudioModelDropdown();
+        populateModelDropdown(); // refresh header dropdown to include LM Studio models
+
+        // Sync config panel input (doesn't affect active selection)
+        const cfgModel = document.getElementById('cfg-lmstudio-model');
+        if (cfgModel && lmStudioModel) cfgModel.value = lmStudioModel;
+
+        // Load base URL from backend
+        try {
+            const cfgRes = await fetch('/api/v1/config/lmstudio');
+            const cfgData = await cfgRes.json();
+            lmStudioBaseUrl = cfgData.base_url || lmStudioBaseUrl;
+            const cfgUrl = document.getElementById('cfg-lmstudio-url');
+            if (cfgUrl) cfgUrl.value = lmStudioBaseUrl;
+            if (cfgData.model && !lmStudioModel) {
+                lmStudioModel = cfgData.model;
+                populateLMStudioModelDropdown();
+            }
+        } catch { /* ignore */ }
+
+    } catch { /* ignore */ }
+}
+
+function populateLMStudioModelDropdown() {
+    const list = document.getElementById('cfg-lmstudio-model-list');
+    const label = document.getElementById('cfg-lmstudio-model-label');
+    const hidden = document.getElementById('cfg-lmstudio-model');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    if (!lmStudioModels.length) {
+        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is LM Studio running?</div>';
+        if (label) label.textContent = lmStudioModel || '—';
+        if (hidden && lmStudioModel) hidden.value = lmStudioModel;
+        return;
+    }
+
+    if (label) label.textContent = lmStudioModel || lmStudioModels[0] || '—';
+    if (hidden) hidden.value = lmStudioModel || '';
+
+    lmStudioModels.forEach(model => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = [
+            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
+            'hover:bg-primary/10 hover:text-primary transition-colors',
+            model === lmStudioModel ? 'text-primary' : 'text-slate-300',
+        ].join(' ');
+        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === lmStudioModel ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
+        item.addEventListener('click', () => {
+            lmStudioModel = model;
+            closeLMStudioModelDropdown();
+            populateLMStudioModelDropdown();
+        });
+        list.appendChild(item);
+    });
+}
+
+function openLMStudioModelDropdown() {
+    const dd = document.getElementById('cfg-lmstudio-model-dropdown');
+    const chevron = document.getElementById('cfg-lmstudio-model-chevron');
+    const btn = document.getElementById('cfg-lmstudio-model-btn');
+    if (dd) dd.classList.remove('hidden');
+    if (chevron) chevron.textContent = 'expand_less';
+    if (btn) btn.classList.add('border-primary');
+}
+
+function closeLMStudioModelDropdown() {
+    const dd = document.getElementById('cfg-lmstudio-model-dropdown');
+    const chevron = document.getElementById('cfg-lmstudio-model-chevron');
+    const btn = document.getElementById('cfg-lmstudio-model-btn');
+    if (dd) dd.classList.add('hidden');
+    if (chevron) chevron.textContent = 'expand_more';
+    if (btn) btn.classList.remove('border-primary');
+}
+
+function initLMStudioModelDropdown() {
+    const btn = document.getElementById('cfg-lmstudio-model-btn');
+    if (!btn) return;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dd = document.getElementById('cfg-lmstudio-model-dropdown');
+        if (dd && dd.classList.contains('hidden')) openLMStudioModelDropdown();
+        else closeLMStudioModelDropdown();
+    });
+    document.addEventListener('click', (e) => {
+        const wrapper = document.getElementById('cfg-lmstudio-model-wrapper');
+        if (wrapper && !wrapper.contains(e.target)) closeLMStudioModelDropdown();
+    });
+}
 
 async function fetchOllamaStatus() {
     try {
@@ -1384,8 +1506,11 @@ async function fetchOllamaStatus() {
 
         if (data.online) {
             availableModels = data.models || [];
-            activeModel = data.current || (availableModels[0] ?? '');
-            if (!activeModel && availableModels.length) activeModel = availableModels[0];
+            // Only set activeModel on first load (when nothing selected yet)
+            if (!activeModel) {
+                activeModel = data.current || (availableModels[0] ?? '');
+                activeProvider = 'ollama';
+            }
 
             if (dot) { dot.classList.remove('bg-border-color', 'bg-danger'); dot.classList.add('bg-primary'); }
             if (label) label.textContent = `Ollama online · ${availableModels.length} model${availableModels.length !== 1 ? 's' : ''}`;
@@ -1400,9 +1525,9 @@ async function fetchOllamaStatus() {
         updateModelLabel();
         populateModelDropdown();
 
-        // Sync config inputs
+        // Sync config panel's Ollama model dropdown (doesn't affect active selection)
         const cfgModel = document.getElementById('cfg-ollama-model');
-        if (cfgModel && activeModel) cfgModel.value = activeModel;
+        if (cfgModel && activeProvider === 'ollama' && activeModel) cfgModel.value = activeModel;
 
         // Load base URL from backend
         try {
@@ -1421,7 +1546,8 @@ async function fetchOllamaStatus() {
 
 function updateModelLabel() {
     const lbl = document.getElementById('model-label');
-    if (lbl) lbl.textContent = activeModel || '—';
+    const prefix = activeProvider === 'lmstudio' ? '[LMS] ' : '';
+    if (lbl) lbl.textContent = activeModel ? prefix + activeModel : '—';
 }
 
 function populateModelDropdown() {
@@ -1429,23 +1555,60 @@ function populateModelDropdown() {
     const list = document.getElementById('model-dropdown-list');
     if (list) {
         list.innerHTML = '';
-        if (!availableModels.length) {
+
+        const hasOllama = availableModels.length > 0;
+        const hasLMS = lmStudioModels.length > 0;
+
+        if (!hasOllama && !hasLMS) {
             list.innerHTML = '<div class="px-4 py-2 text-[10px] mono-text text-secondary-text">No models found</div>';
         } else {
-            availableModels.forEach(model => {
-                const item = document.createElement('button');
-                item.className = [
-                    'w-full text-left px-4 py-2 text-[11px] mono-text',
-                    'hover:bg-primary/10 hover:text-primary transition-colors',
-                    model === activeModel ? 'text-primary' : 'text-slate-300',
-                ].join(' ');
-                item.textContent = model;
-                if (model === activeModel) {
-                    item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                }
-                item.addEventListener('click', () => selectModel(model));
-                list.appendChild(item);
-            });
+            // Ollama section
+            if (hasOllama) {
+                const sep = document.createElement('div');
+                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-border-color';
+                sep.textContent = 'Ollama';
+                list.appendChild(sep);
+
+                availableModels.forEach(model => {
+                    const item = document.createElement('button');
+                    const isActive = activeProvider === 'ollama' && model === activeModel;
+                    item.className = [
+                        'w-full text-left px-4 py-2 text-[11px] mono-text',
+                        'hover:bg-primary/10 hover:text-primary transition-colors',
+                        isActive ? 'text-primary' : 'text-slate-300',
+                    ].join(' ');
+                    item.textContent = model;
+                    if (isActive) {
+                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
+                    }
+                    item.addEventListener('click', () => selectModel(model, 'ollama'));
+                    list.appendChild(item);
+                });
+            }
+
+            // LM Studio section
+            if (hasLMS) {
+                const sep = document.createElement('div');
+                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
+                sep.textContent = 'LM Studio';
+                list.appendChild(sep);
+
+                lmStudioModels.forEach(model => {
+                    const item = document.createElement('button');
+                    const isActive = activeProvider === 'lmstudio' && model === activeModel;
+                    item.className = [
+                        'w-full text-left px-4 py-2 text-[11px] mono-text',
+                        'hover:bg-primary/10 hover:text-primary transition-colors',
+                        isActive ? 'text-primary' : 'text-slate-300',
+                    ].join(' ');
+                    item.textContent = model;
+                    if (isActive) {
+                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
+                    }
+                    item.addEventListener('click', () => selectModel(model, 'lmstudio'));
+                    list.appendChild(item);
+                });
+            }
         }
     }
 
@@ -1487,22 +1650,38 @@ function populateCfgModelDropdown() {
     });
 }
 
-function selectModel(model) {
+function selectModel(model, provider = 'ollama') {
     activeModel = model;
+    activeProvider = provider;
     updateModelLabel();
     populateModelDropdown();
     closeModelDropdown();
-    // Persist to backend
-    fetch('/api/v1/config/ollama', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_url: ollamaBaseUrl, model }),
-    });
-    // Sync config hidden input + label
-    const cfgModel = document.getElementById('cfg-ollama-model');
-    if (cfgModel) cfgModel.value = model;
-    const cfgLabel = document.getElementById('cfg-model-label');
-    if (cfgLabel) cfgLabel.textContent = model;
+    // Persist active selection so it survives page reload
+    fetch('/api/v1/settings/active_provider', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: provider }) });
+    fetch('/api/v1/settings/active_model',   { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: model }) });
+
+    if (provider === 'lmstudio') {
+        lmStudioModel = model;
+        fetch('/api/v1/config/lmstudio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base_url: lmStudioBaseUrl, model }),
+        });
+        const cfgLabel = document.getElementById('cfg-lmstudio-model-label');
+        if (cfgLabel) cfgLabel.textContent = model;
+        const cfgHidden = document.getElementById('cfg-lmstudio-model');
+        if (cfgHidden) cfgHidden.value = model;
+    } else {
+        fetch('/api/v1/config/ollama', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base_url: ollamaBaseUrl, model }),
+        });
+        const cfgModel = document.getElementById('cfg-ollama-model');
+        if (cfgModel) cfgModel.value = model;
+        const cfgLabel = document.getElementById('cfg-model-label');
+        if (cfgLabel) cfgLabel.textContent = model;
+    }
 }
 
 function openCfgModelDropdown() {
@@ -1586,55 +1765,87 @@ async function loadPersistedSettings() {
             const cfgUrl = document.getElementById('cfg-ollama-url');
             if (cfgUrl) cfgUrl.value = ollamaBaseUrl;
         }
-        if (data.ollama_model) {
-            activeModel = data.ollama_model;
+        // Restore last active selection (provider + model)
+        if (data.active_provider && data.active_model) {
+            activeProvider = data.active_provider;
+            activeModel = data.active_model;
             updateModelLabel();
-            const cfgModel = document.getElementById('cfg-ollama-model');
-            if (cfgModel) cfgModel.value = activeModel;
+        } else if (data.ollama_model) {
+            activeModel = data.ollama_model;
+            activeProvider = 'ollama';
+            updateModelLabel();
         }
+        const cfgModel = document.getElementById('cfg-ollama-model');
+        if (cfgModel && data.ollama_model) cfgModel.value = data.ollama_model;
         if (data.openrouter_api_key) {
             const keyInput = document.getElementById('cfg-openrouter-key');
             if (keyInput) keyInput.value = data.openrouter_api_key;
         }
+        if (data.lmstudio_base_url) {
+            lmStudioBaseUrl = data.lmstudio_base_url;
+            const cfgUrl = document.getElementById('cfg-lmstudio-url');
+            if (cfgUrl) cfgUrl.value = lmStudioBaseUrl;
+        }
+        if (data.lmstudio_model) {
+            lmStudioModel = data.lmstudio_model;
+            populateLMStudioModelDropdown();
+        }
     } catch { /* ignore */ }
 }
 
-function initConfigSave() {
-    const saveBtn = document.getElementById('save-config-btn');
-    if (!saveBtn) return;
+async function saveConfig() {
+    const btns = [
+        document.getElementById('save-config-btn'),
+        document.getElementById('save-config-btn-bottom'),
+    ].filter(Boolean);
 
-    saveBtn.addEventListener('click', async () => {
-        const url   = document.getElementById('cfg-ollama-url')?.value?.trim()    || ollamaBaseUrl;
-        const model = document.getElementById('cfg-ollama-model')?.value?.trim()  || activeModel;
-        const apiKey = document.getElementById('cfg-openrouter-key')?.value?.trim() || '';
+    const url      = document.getElementById('cfg-ollama-url')?.value?.trim()    || ollamaBaseUrl;
+    const model    = document.getElementById('cfg-ollama-model')?.value?.trim()  || activeModel;
+    const apiKey   = document.getElementById('cfg-openrouter-key')?.value?.trim() || '';
+    const lmsUrl   = document.getElementById('cfg-lmstudio-url')?.value?.trim()   || lmStudioBaseUrl;
+    const lmsModel = document.getElementById('cfg-lmstudio-model')?.value?.trim() || lmStudioModel;
 
-        saveBtn.textContent = 'Saving...';
-        saveBtn.disabled = true;
+    btns.forEach(b => { b.textContent = 'Saving...'; b.disabled = true; });
 
-        try {
-            await fetch('/api/v1/config/ollama', {
-                method: 'POST',
+    try {
+        await fetch('/api/v1/config/ollama', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base_url: url, model }),
+        });
+        await fetch('/api/v1/config/lmstudio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base_url: lmsUrl, model: lmsModel }),
+        });
+        if (apiKey) {
+            await fetch('/api/v1/settings/openrouter_api_key', {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base_url: url, model }),
+                body: JSON.stringify({ value: apiKey }),
             });
-            if (apiKey) {
-                await fetch('/api/v1/settings/openrouter_api_key', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ value: apiKey }),
-                });
-            }
-            activeModel = model;
-            ollamaBaseUrl = url;
-            updateModelLabel();
-            saveBtn.textContent = 'Saved!';
-            setTimeout(() => { saveBtn.textContent = 'Save Config'; saveBtn.disabled = false; }, 1500);
-            await fetchOllamaStatus();
-        } catch {
-            saveBtn.textContent = 'Error';
-            setTimeout(() => { saveBtn.textContent = 'Save Config'; saveBtn.disabled = false; }, 1500);
         }
-    });
+        ollamaBaseUrl = url;
+        lmStudioBaseUrl = lmsUrl;
+        lmStudioModel = lmsModel;
+        if (activeProvider === 'ollama') activeModel = model;
+        updateModelLabel();
+        // Persist active selection
+        fetch('/api/v1/settings/active_provider', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: activeProvider }) });
+        fetch('/api/v1/settings/active_model',   { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: activeModel }) });
+        btns.forEach(b => { b.textContent = 'Saved!'; });
+        setTimeout(() => btns.forEach(b => { b.textContent = 'Save Config'; b.disabled = false; }), 1500);
+        await fetchOllamaStatus();
+        await fetchLMStudioStatus();
+    } catch {
+        btns.forEach(b => { b.textContent = 'Error'; });
+        setTimeout(() => btns.forEach(b => { b.textContent = 'Save Config'; b.disabled = false; }), 1500);
+    }
+}
+
+function initConfigSave() {
+    document.getElementById('save-config-btn')?.addEventListener('click', saveConfig);
+    document.getElementById('save-config-btn-bottom')?.addEventListener('click', saveConfig);
 }
 
 // ─── Footer System Stats ─────────────────────────────────────────────────────
@@ -1683,6 +1894,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initChatInput();
     initModelSelector();
     initCfgModelDropdown();
+    initLMStudioModelDropdown();
     initConfigSave();
     initScrollTracking();
     loadPersistedSettings();
@@ -1690,6 +1902,8 @@ document.addEventListener('DOMContentLoaded', () => {
     wsConnect();
     fetchOllamaStatus();
     setInterval(fetchOllamaStatus, 30000);
+    fetchLMStudioStatus();
+    setInterval(fetchLMStudioStatus, 30000);
     fetchSystemStats();
     setInterval(fetchSystemStats, 3000);
 });
