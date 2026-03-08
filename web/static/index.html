@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"/>
 <script id="tailwind-config">
     tailwind.config = {
         darkMode: "class",
@@ -122,8 +123,20 @@
       </div>
     </div>
 
+    <!-- Conversation history -->
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden px-4 mt-4">
+      <div class="flex items-center justify-between mb-2 shrink-0">
+        <span class="text-[9px] font-bold text-secondary-text uppercase tracking-[0.2em]">Chats</span>
+        <button id="new-chat-btn" title="New Conversation"
+          class="w-5 h-5 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
+          <span class="material-symbols-outlined text-[13px]">add</span>
+        </button>
+      </div>
+      <div id="conversation-list" class="overflow-y-auto flex flex-col scrollbar-hide flex-1"></div>
+    </div>
+
     <!-- Bottom nav -->
-    <div class="mt-auto p-6 flex flex-col gap-3">
+    <div class="p-6 flex flex-col gap-3 shrink-0">
       <div class="bottom-nav-item flex items-center gap-3 text-primary cursor-pointer hover:text-primary transition-colors" data-view="agent">
         <span class="material-symbols-outlined text-sm" style='font-variation-settings: "FILL" 1;'>psychology</span>
         <span class="text-xs font-medium uppercase tracking-wider">Agent</span>
@@ -230,74 +243,14 @@
 
       <!-- Message stream -->
       <div class="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide">
-        <div class="max-w-4xl mx-auto flex flex-col gap-10">
+        <div id="message-stream" class="max-w-4xl mx-auto flex flex-col gap-10 min-h-full">
 
-          <!-- Session divider -->
-          <div class="flex items-center gap-4">
-            <div class="h-[1px] flex-1 bg-border-color"></div>
-            <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Session ABC-123 Initialized • 3 Plugins Loaded</span>
-            <div class="h-[1px] flex-1 bg-border-color"></div>
-          </div>
-
-          <!-- AI Reasoning block -->
-          <div class="flex gap-4">
-            <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface">
-              <span class="material-symbols-outlined text-primary text-xl">psychology</span>
-            </div>
-            <div class="flex flex-col gap-2 flex-1">
-              <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Reasoning</div>
-              <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
-                <p class="text-sm leading-relaxed text-slate-200">
-                  I need to discover active hosts within the specified range to begin the enumeration phase. I will initiate a broad sweep using NMAP to identify responsive IP addresses and open common service ports.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Tool call block -->
-          <div class="flex gap-4">
-            <div class="shrink-0 w-8 h-8 border border-border-color flex items-center justify-center bg-surface">
-              <span class="material-symbols-outlined text-secondary-text text-xl">terminal</span>
-            </div>
-            <div class="flex flex-col gap-2 flex-1">
-              <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">Tool • NMAP_SCAN</div>
-              <div class="bg-card border border-border-color p-5 mono-text text-xs text-primary leading-tight">
-<pre class="whitespace-pre-wrap">{
-  "command": "nmap",
-  "args": ["-sn", "192.168.1.0/24"],
-  "target": "Local Network",
-  "priority": "HIGH",
-  "flags": "--privileged"
-}</pre>
-              </div>
-            </div>
-          </div>
-
-          <!-- Execution divider -->
-          <div class="flex items-center gap-4">
-            <div class="h-[1px] flex-1 bg-border-color"></div>
-            <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Nmap Executed • 2.4s</span>
-            <div class="h-[1px] flex-1 bg-border-color"></div>
-          </div>
-
-          <!-- AI Observe block -->
-          <div class="flex gap-4">
-            <div class="shrink-0 w-8 h-8 border border-primary flex items-center justify-center bg-surface">
-              <span class="material-symbols-outlined text-primary text-xl">visibility</span>
-            </div>
-            <div class="flex flex-col gap-2 flex-1">
-              <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Observing</div>
-              <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
-                <p class="text-sm leading-relaxed text-slate-200 mb-4">
-                  Scan completed. Found 4 live hosts. Analyzing individual service fingerprints for potential vulnerability entry points.
-                </p>
-                <div class="bg-black border border-border-color p-4 mono-text text-xs text-primary leading-normal">
-                  <div class="mb-1">192.168.1.1 [UP] - Gateway Service</div>
-                  <div class="mb-1">192.168.1.14 [UP] - HTTP/80 Apache 2.4.41</div>
-                  <div class="mb-1 text-danger">192.168.1.55 [UP] - SSH/22 OpenSSH 7.2p2 (VULNERABLE)</div>
-                  <div class="mb-1">192.168.1.102 [UP] - SMB/445 Windows 10</div>
-                </div>
-              </div>
+          <!-- Empty state — hidden once messages appear -->
+          <div id="chat-empty-state" class="flex flex-col items-center justify-center flex-1 py-24 gap-5 select-none pointer-events-none">
+            <span class="material-symbols-outlined text-[48px]" style="color:#1A1A1A; font-variation-settings:'FILL' 1;">psychology</span>
+            <div class="flex flex-col items-center gap-1">
+              <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">AEGIS Ready</p>
+              <p class="text-[11px] mono-text" style="color:#333;">Ask anything or configure a mission target →</p>
             </div>
           </div>
 
@@ -306,15 +259,42 @@
 
       <!-- Instruction input -->
       <div class="p-4 md:p-8 pb-[72px] md:pb-8 shrink-0">
-        <div class="max-w-4xl mx-auto relative">
-          <div class="absolute left-4 top-1/2 -translate-y-1/2 text-secondary-text">
-            <span class="material-symbols-outlined">chevron_right</span>
+        <div class="max-w-4xl mx-auto flex flex-col gap-2">
+
+          <!-- Input row -->
+          <div class="relative">
+            <div class="absolute left-4 top-1/2 -translate-y-1/2 text-secondary-text">
+              <span class="material-symbols-outlined">chevron_right</span>
+            </div>
+            <input id="chat-input" class="w-full bg-surface border border-border-color px-12 py-4 text-xs mono-text focus:border-primary transition-all" placeholder="Give instruction or ask for reasoning..." type="text"/>
+            <div class="absolute right-4 top-1/2 -translate-y-1/2 flex gap-3">
+              <span class="material-symbols-outlined text-secondary-text cursor-pointer hover:text-primary transition-colors">attach_file</span>
+              <span id="chat-send-btn" class="material-symbols-outlined text-primary cursor-pointer hover:scale-110 transition-transform">send</span>
+            </div>
           </div>
-          <input class="w-full bg-surface border border-border-color px-12 py-4 text-xs mono-text uppercase tracking-widest focus:border-primary transition-all" placeholder="GIVE INSTRUCTION OR ASK FOR REASONING..." type="text"/>
-          <div class="absolute right-4 top-1/2 -translate-y-1/2 flex gap-3">
-            <span class="material-symbols-outlined text-secondary-text cursor-pointer hover:text-primary transition-colors">attach_file</span>
-            <span class="material-symbols-outlined text-primary cursor-pointer hover:scale-110 transition-transform">send</span>
+
+          <!-- Model selector row -->
+          <div class="flex items-center gap-3">
+            <div id="model-selector-wrapper" class="relative">
+              <button id="model-selector-btn"
+                class="flex items-center gap-1.5 border border-border-color px-2.5 py-1 text-[10px] mono-text text-secondary-text hover:border-primary hover:text-primary transition-colors group">
+                <span class="material-symbols-outlined text-[13px] group-hover:text-primary transition-colors">smart_toy</span>
+                <span id="model-label">—</span>
+                <span class="material-symbols-outlined text-[12px]" id="model-chevron">expand_more</span>
+              </button>
+              <!-- Dropdown -->
+              <div id="model-dropdown"
+                class="hidden absolute bottom-full left-0 mb-1 bg-surface border border-border-color z-50 min-w-[220px] shadow-lg">
+                <div id="model-dropdown-list" class="flex flex-col py-1">
+                  <div class="px-4 py-2 text-[10px] mono-text text-secondary-text">Loading models...</div>
+                </div>
+              </div>
+            </div>
+            <!-- Ollama status indicator -->
+            <div id="ollama-dot" class="w-1.5 h-1.5 rounded-full bg-border-color transition-colors"></div>
+            <span id="ollama-status-text" class="text-[10px] mono-text text-secondary-text">—</span>
           </div>
+
         </div>
       </div>
     </div>
@@ -597,7 +577,7 @@
           <button class="border border-border-color px-5 py-1.5 text-secondary-text hover:border-primary hover:text-primary transition-colors text-[11px] font-bold uppercase tracking-wider">
             Reset Defaults
           </button>
-          <button class="bg-primary text-black font-display font-bold text-xs py-1.5 px-6 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
+          <button id="save-config-btn" class="bg-primary text-black font-display font-bold text-xs py-1.5 px-6 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
             Save Config
           </button>
         </div>
@@ -796,12 +776,15 @@
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Local LLM (Ollama)</label>
-                <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" placeholder="http://localhost:11434" value="http://localhost:11434"/>
+                <input id="cfg-ollama-url" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" placeholder="http://localhost:11434" value="http://localhost:11434"/>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Local Model</label>
-                <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" placeholder="llama3:8b" value="llama3:8b"/>
+                <div class="relative">
+                  <input id="cfg-ollama-model" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-8" type="text" placeholder="llama3:8b" value="llama3:8b"/>
+                  <span id="cfg-ollama-status-dot" class="absolute right-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-border-color"></span>
+                </div>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex items-center gap-4 col-span-2">
@@ -2639,6 +2622,8 @@
   </div>
 </nav>
 
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
