@@ -106,6 +106,85 @@ async def stream_ollama(
     return full_response
 
 
+async def stream_lmstudio(
+    websocket: WebSocket,
+    user_message: str,
+    history: list[dict],
+    model: str,
+    conversation_id: str | None = None,
+) -> str:
+    """Stream LM Studio response tokens (OpenAI-compatible API) to the websocket client."""
+    msg_id = str(uuid.uuid4())[:8]
+    messages = history + [{"role": "user", "content": user_message}]
+    full_response = ""
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.lmstudio.timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{settings.lmstudio.base_url}/v1/chat/completions",
+                json=payload,
+            ) as response:
+                if response.status_code != 200:
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": f"LM Studio returned HTTP {response.status_code}. Is it running?"
+                    })
+                    return full_response
+
+                async for line in response.aiter_lines():
+                    if not line.strip() or line.strip() == "data: [DONE]":
+                        continue
+                    if line.startswith("data: "):
+                        line = line[6:]
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    token = delta.get("content", "")
+                    if token:
+                        full_response += token
+                        await websocket.send_json({
+                            "type": "token",
+                            "content": token,
+                            "msg_id": msg_id,
+                        })
+
+                    finish = chunk.get("choices", [{}])[0].get("finish_reason")
+                    if finish is not None and finish != "null":
+                        if conversation_id:
+                            await database.add_message(conversation_id, "user", user_message)
+                            await database.add_message(conversation_id, "assistant", full_response)
+                        await websocket.send_json({
+                            "type": "message_end",
+                            "msg_id": msg_id,
+                            "tokens_in": 0,
+                            "tokens_out": 0,
+                        })
+                        break
+
+    except httpx.ConnectError:
+        await websocket.send_json({
+            "type": "error",
+            "content": (
+                f"Cannot connect to LM Studio at {settings.lmstudio.base_url}. "
+                "Make sure LM Studio is running and the server is started."
+            ),
+        })
+    except Exception as e:
+        await websocket.send_json({"type": "error", "content": str(e)})
+
+    return full_response
+
+
 async def handle_websocket(websocket: WebSocket) -> None:
     """Main WebSocket connection handler."""
     await websocket.accept()
@@ -149,7 +228,15 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "user_echo", "content": content})
 
                 # Stream AI response (also saves to DB)
-                assistant_text = await stream_ollama(websocket, content, chat_history, conversation_id)
+                provider = msg.get("provider", "ollama")
+                model_override = msg.get("model", "")
+                if provider == "lmstudio":
+                    lms_model = model_override or settings.lmstudio.model
+                    assistant_text = await stream_lmstudio(websocket, content, chat_history, lms_model, conversation_id)
+                else:
+                    if model_override:
+                        settings.ollama.model = model_override
+                    assistant_text = await stream_ollama(websocket, content, chat_history, conversation_id)
 
                 # Update in-memory history for context
                 chat_history.append({"role": "user", "content": content})

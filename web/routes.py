@@ -153,3 +153,43 @@ async def set_ollama_config_persisted(body: OllamaSettings):
     await database.set_setting("ollama_base_url", body.base_url)
     await database.set_setting("ollama_model", body.model)
     return {"ok": True}
+
+
+# ── LM Studio ─────────────────────────────────────────────────────────────────
+
+class LMStudioSettings(BaseModel):
+    base_url: str
+    model: str
+
+
+@router.get("/lmstudio/status")
+async def lmstudio_status():
+    """Check if LM Studio is reachable and list available models."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{settings.lmstudio.base_url}/v1/models")
+            if resp.status_code == 200:
+                data = resp.json()
+                models = [m["id"] for m in data.get("data", [])]
+                return {"online": True, "models": models, "current": settings.lmstudio.model}
+            return {"online": False, "models": [], "current": settings.lmstudio.model}
+    except Exception as e:
+        return {"online": False, "models": [], "current": settings.lmstudio.model, "error": str(e)}
+
+
+@router.get("/config/lmstudio")
+async def get_lmstudio_config():
+    return {
+        "base_url": settings.lmstudio.base_url,
+        "model": settings.lmstudio.model,
+    }
+
+
+@router.post("/config/lmstudio")
+async def set_lmstudio_config(body: LMStudioSettings):
+    if body.base_url.startswith("http"):
+        settings.lmstudio.base_url = body.base_url
+    settings.lmstudio.model = body.model
+    await database.set_setting("lmstudio_base_url", body.base_url)
+    await database.set_setting("lmstudio_model", body.model)
+    return {"ok": True}

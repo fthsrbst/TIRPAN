@@ -1,41 +1,48 @@
 # AEGIS
 ### Autonomous Ethical Guardrailed Intelligence System
 
-> An autonomous AI-powered penetration testing bot inspired by [XBOW](https://xbow.com).
-> Give it a target and limits — it scans, finds vulnerabilities, and runs exploits. All decisions made by LLMs.
+> An autonomous AI-powered penetration testing agent.
+> Provide a target and define the scope — AEGIS plans the attack surface, identifies vulnerabilities, and determines exploitation paths. Every decision is made by the LLM.
 
-⚠️ **For authorized security testing only. Never test systems without explicit written permission.**
+**For authorized security testing only. Never test systems without explicit written permission.**
 
 ---
 
-## 🎯 What It Does
+![AEGIS Dashboard](docs/screenshot.png)
 
-1. **You provide**: Target IP/range + safety limits
-2. **AI decides**: What to scan, what's vulnerable, which exploit to run
-3. **Bot executes**: Port scanning → Exploit search → Exploitation
-4. **You get**: Real-time updates + PDF report with CVSS scores
+---
 
-## 🏗️ Architecture
+## What It Does
+
+1. **You provide** — Target IP or range, operational scope, and safety limits
+2. **The agent decides** — What to scan, what is exploitable, and which exploit path to pursue
+3. **The agent executes** — Host discovery, port enumeration, exploit search, and exploitation
+4. **You receive** — Real-time reasoning output and a structured report with CVSS scores
+
+## Architecture
 
 Single-agent **ReAct loop** (Reason → Act → Observe → Reflect) powered by:
-- **LLM**: OpenRouter (Claude) for reasoning + Ollama for local tasks
-- **Tools**: Nmap, SearchSploit, Metasploit RPC
-- **Safety**: 10 guardrails + kill switch + full audit log
-- **Storage**: SQLite (sessions, findings, exploit knowledge base)
-- **UI**: Basic web dashboard with real-time chat
 
-## 📚 Documentation
+| Component | Technology |
+|-----------|-----------|
+| Reasoning engine | OpenRouter (Claude) for complex reasoning, Ollama / LM Studio for local inference |
+| Offensive tools | Nmap, SearchSploit, Metasploit RPC |
+| Safety layer | 10 configurable guardrails, kill switch, full audit log |
+| Storage | SQLite — sessions, findings, exploit knowledge base |
+| Interface | Web dashboard with real-time streaming chat |
+
+## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [XBOW Comparison](docs/01_XBOW_COMPARISON.md) | How we compare to XBOW, feature by feature |
-| [Architecture](docs/02_ARCHITECTURE.md) | Full technical architecture |
-| [Prerequisites](docs/03_PREREQUISITES.md) | What to install, setup guide |
-| [Roadmap](docs/04_ROADMAP.md) | V1 → V2 → V3 (XBOW level) evolution plan |
-| [Safety & Legal](docs/05_SAFETY_AND_LEGAL.md) | Safety rules, legal requirements |
-| [Learning Curriculum](docs/06_LEARNING_CURRICULUM.md) | What you learn in each build phase |
+| [XBOW Comparison](docs/01_XBOW_COMPARISON.md) | Feature-by-feature comparison with XBOW |
+| [Architecture](docs/02_ARCHITECTURE.md) | Full technical architecture and design decisions |
+| [Prerequisites](docs/03_PREREQUISITES.md) | Installation and setup guide |
+| [Roadmap](docs/04_ROADMAP.md) | V1 through V3 evolution plan |
+| [Safety & Legal](docs/05_SAFETY_AND_LEGAL.md) | Guardrail rules and legal requirements |
+| [Learning Curriculum](docs/06_LEARNING_CURRICULUM.md) | What each build phase teaches |
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Clone
@@ -52,41 +59,40 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # Run
-python main.py --target 192.168.1.0/24 --mode full_auto
-
-# Or start web UI
-python -m web.app
+python main.py
 # Open http://localhost:8000
 ```
 
-## 📋 Project Status
+## Project Status
 
-- [ ] Phase 1: Config & data models
-- [ ] Phase 2: LLM client
-- [ ] Phase 3: Nmap tool
-- [ ] Phase 4: SearchSploit tool
-- [ ] Phase 5: Metasploit RPC tool
-- [ ] Phase 6: Safety system
-- [ ] Phase 7: Session memory
-- [ ] Phase 8: Agent core (ReAct loop)
-- [ ] Phase 9: Prompt engineering
-- [ ] Phase 10: Database
-- [ ] Phase 11: Reporting
-- [ ] Phase 12: Web UI
-- [ ] Phase 13: CLI entry point
-- [ ] Phase 14: Testing & polish
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Config and data models | pending |
+| 2 | LLM client (Ollama + OpenRouter) | pending |
+| 3 | Nmap tool | pending |
+| 4 | SearchSploit tool | pending |
+| 5 | Metasploit RPC tool | pending |
+| 6 | Safety guardrail system | pending |
+| 7 | Session memory | pending |
+| 8 | Agent core — ReAct loop | pending |
+| 9 | Prompt engineering | pending |
+| 10 | Database layer | done |
+| 11 | Reporting | pending |
+| 12 | Web UI | in progress |
+| 13 | CLI entry point | pending |
+| 14 | Testing and polish | pending |
 
-## 🛡️ Safety
+## Safety
 
-- 10 configurable guardrails (scope, ports, exploit limits, rate limits, time limits)
-- Kill switch (stop everything instantly)
-- Full audit logging of every action
-- Two modes: Full Auto or Ask Before Exploit
+- 10 configurable guardrails covering scope, port limits, exploit caps, rate limits, and time limits
+- Kill switch to halt all activity immediately
+- Full audit log of every agent action
+- Two operational modes: Full Auto and Ask Before Exploit
 
-## 📄 License
+## License
 
-MIT License — See [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE)
 
 ---
 
-> Built as a capstone project with the goal of growing into an XBOW-level open-source tool.
+> Built as a capstone project with the goal of growing into an XBOW-level open-source autonomous security agent.
