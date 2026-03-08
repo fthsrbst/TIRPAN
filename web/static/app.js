@@ -802,6 +802,7 @@ function initChatInput() {
 
 let availableModels = [];
 let activeModel = '';
+let ollamaBaseUrl = 'http://127.0.0.1:11434';
 
 async function fetchOllamaStatus() {
     try {
@@ -815,6 +816,7 @@ async function fetchOllamaStatus() {
         if (data.online) {
             availableModels = data.models || [];
             activeModel = data.current || (availableModels[0] ?? '');
+            if (!activeModel && availableModels.length) activeModel = availableModels[0];
 
             if (dot) { dot.classList.remove('bg-border-color', 'bg-danger'); dot.classList.add('bg-primary'); }
             if (label) label.textContent = `Ollama online · ${availableModels.length} model${availableModels.length !== 1 ? 's' : ''}`;
@@ -832,6 +834,15 @@ async function fetchOllamaStatus() {
         // Sync config inputs
         const cfgModel = document.getElementById('cfg-ollama-model');
         if (cfgModel && activeModel) cfgModel.value = activeModel;
+
+        // Load base URL from backend
+        try {
+            const cfgRes = await fetch('/api/v1/config/ollama');
+            const cfgData = await cfgRes.json();
+            ollamaBaseUrl = cfgData.base_url || ollamaBaseUrl;
+            const cfgUrl = document.getElementById('cfg-ollama-url');
+            if (cfgUrl) cfgUrl.value = ollamaBaseUrl;
+        } catch { /* ignore */ }
 
     } catch {
         const dot = document.getElementById('ollama-dot');
@@ -879,7 +890,7 @@ function selectModel(model) {
     fetch('/api/v1/config/ollama', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_url: document.getElementById('cfg-ollama-url')?.value || 'http://localhost:11434', model }),
+        body: JSON.stringify({ base_url: ollamaBaseUrl, model }),
     });
     // Sync config input
     const cfgModel = document.getElementById('cfg-ollama-model');
@@ -928,8 +939,8 @@ function initConfigSave() {
     if (!saveBtn) return;
 
     saveBtn.addEventListener('click', async () => {
-        const url = document.getElementById('cfg-ollama-url')?.value?.trim() || 'http://localhost:11434';
-        const model = document.getElementById('cfg-ollama-model')?.value?.trim() || 'llama3:8b';
+        const url = document.getElementById('cfg-ollama-url')?.value?.trim() || ollamaBaseUrl;
+        const model = document.getElementById('cfg-ollama-model')?.value?.trim() || activeModel;
 
         saveBtn.textContent = 'Saving...';
         saveBtn.disabled = true;
