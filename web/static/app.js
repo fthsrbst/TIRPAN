@@ -632,7 +632,7 @@ function buildUserMessageEl(text) {
     el.innerHTML = `
         <div class="flex flex-col gap-2 max-w-[80%]">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest text-right">You</div>
-          <div class="bg-card border border-border-color p-4 text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">${escapeHtml(text)}</div>
+          <div class="bg-card border border-border-color p-4 text-sm leading-relaxed whitespace-pre-wrap" style="color:#d1d5db;font-family:'Inter',sans-serif;">${escapeHtml(text)}</div>
         </div>
         <div class="shrink-0 w-8 h-8 border border-border-color flex items-center justify-center bg-surface">
           <span class="material-symbols-outlined text-secondary-text text-xl">person</span>
@@ -693,7 +693,7 @@ function startAssistantMessage() {
         <div class="flex flex-col gap-2 flex-1 min-w-0">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Chat</div>
           <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
-            <p class="msg-text text-sm leading-relaxed text-slate-200 whitespace-pre-wrap"></p>
+            <div class="msg-text markdown-content text-sm leading-relaxed"></div>
             <span class="cursor-blink inline-block w-2 h-4 bg-primary ml-0.5 align-middle"></span>
           </div>
         </div>`;
@@ -708,7 +708,7 @@ function appendToken(token, msgId) {
     const p = currentAssistantEl.querySelector('.msg-text');
     if (!p) return;
     currentAssistantText += token;
-    p.textContent = currentAssistantText;
+    p.innerHTML = renderMarkdown(currentAssistantText);
     scrollToBottom();
 }
 
@@ -719,11 +719,10 @@ function finalizeAssistantMessage() {
     const cursor = currentAssistantEl.querySelector('.cursor-blink');
     if (cursor) cursor.remove();
 
-    // Render markdown in place
+    // Re-render markdown & attach copy buttons
     const p = currentAssistantEl.querySelector('.msg-text');
     if (p && currentAssistantText) {
         p.innerHTML = renderMarkdown(currentAssistantText);
-        p.className = 'msg-text markdown-content';
         attachCopyButtons(p);
     }
 

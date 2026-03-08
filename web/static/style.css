@@ -303,7 +303,10 @@ html.light #view-console .bg-primary {
 /* ─── Markdown Content ─────────────────────────────────────────────────────── */
 
 .markdown-content {
-    line-height: 1.7;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.75;
+    color: #d1d5db;
     word-break: break-word;
 }
 
@@ -333,12 +336,18 @@ html.light #view-console .bg-primary {
     text-underline-offset: 2px;
 }
 
-.markdown-content ul,
-.markdown-content ol {
-    padding-left: 1.25em;
+.markdown-content ul {
+    list-style-type: disc;
+    padding-left: 1.4em;
     margin-bottom: 0.75em;
 }
-.markdown-content li { margin-bottom: 0.25em; }
+.markdown-content ol {
+    list-style-type: decimal;
+    padding-left: 1.4em;
+    margin-bottom: 0.75em;
+}
+.markdown-content li { margin-bottom: 0.3em; }
+.markdown-content li::marker { color: #ccff00; }
 
 .markdown-content blockquote {
     border-left: 2px solid #ccff00;
@@ -362,6 +371,42 @@ html.light #view-console .bg-primary {
     border: none;
     border-top: 1px solid #1A1A1A;
     margin: 1em 0;
+}
+
+.markdown-content table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82em;
+    margin: 0.75em 0;
+}
+.markdown-content th {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #ccff00;
+    border-bottom: 1px solid #ccff00;
+    padding: 6px 10px;
+    text-align: left;
+}
+.markdown-content td {
+    border-bottom: 1px solid #1A1A1A;
+    padding: 5px 10px;
+    color: #d1d5db;
+}
+
+/* Light mode overrides */
+html.light .markdown-content { color: #1c1c1c; }
+html.light [style*="color:#d1d5db"] { color: #1c1c1c !important; }
+html.light .markdown-content strong { color: #111; }
+html.light .markdown-content em { color: #555; }
+html.light .markdown-content blockquote { color: #555; }
+html.light .markdown-content td { color: #1c1c1c; }
+html.light .markdown-content code:not(pre code) {
+    background: #f0f0f0;
+    border-color: #ddd;
+    color: #4a7c00;
 }
 
 /* ─── Code Block ───────────────────────────────────────────────────────────── */
