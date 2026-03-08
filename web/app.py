@@ -6,6 +6,7 @@ Serves static frontend and provides:
   - WebSocket at /ws
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -14,8 +15,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from web.routes import router
 from web.websocket_handler import handle_websocket
+from database.db import init_db
 
-app = FastAPI(title="AEGIS", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+
+app = FastAPI(title="AEGIS", version="0.1.0", lifespan=lifespan)
 
 # CORS — allow frontend dev server if needed
 app.add_middleware(
