@@ -127,12 +127,18 @@
     <div class="flex flex-col flex-1 min-h-0 overflow-hidden px-4 mt-4">
       <div class="flex items-center justify-between mb-2 shrink-0">
         <span class="text-[9px] font-bold text-secondary-text uppercase tracking-[0.2em]">Chats</span>
-        <button id="new-chat-btn" title="New Conversation"
-          class="w-5 h-5 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
-          <span class="material-symbols-outlined text-[13px]">add</span>
-        </button>
+        <div class="flex items-center gap-1">
+          <button id="new-folder-btn" title="New Folder"
+            class="w-5 h-5 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[13px]">create_new_folder</span>
+          </button>
+          <button id="new-chat-btn" title="New Conversation"
+            class="w-5 h-5 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[13px]">add</span>
+          </button>
+        </div>
       </div>
-      <div id="conversation-list" class="overflow-y-auto flex flex-col scrollbar-hide flex-1"></div>
+      <div id="conversation-list" class="overflow-y-auto flex flex-col scrollbar-hide flex-1 min-h-0"></div>
     </div>
 
     <!-- Bottom nav -->
@@ -2632,17 +2638,79 @@
     </div>
     <textarea id="input-fullscreen-textarea" class="w-full bg-background-dark border border-border-color text-slate-100 p-4 text-sm mono-text focus:border-primary transition-all resize-none leading-relaxed" rows="14" placeholder="Scan target, analyze CVEs, run recon, build exploit chain..."></textarea>
     <div class="flex items-center justify-between">
-      <span class="text-[10px] mono-text text-secondary-text">Ctrl+Enter göndermek için · Esc kapatmak için</span>
+      <span class="text-[10px] mono-text text-secondary-text">Ctrl+Enter to send · Esc to close</span>
       <div class="flex gap-2">
-        <button id="fs-cancel-btn-2" onclick="closeFullscreenInput(false)" class="border border-border-color text-secondary-text text-xs font-display font-bold py-2 px-4 hover:border-primary hover:text-primary transition-all">İptal</button>
-        <button id="fs-send-btn" class="bg-primary text-black text-xs font-display font-bold py-2 px-5 hover:brightness-90 transition-all uppercase tracking-wider">Gönder</button>
+        <button id="fs-cancel-btn-2" onclick="closeFullscreenInput(false)" class="border border-border-color text-secondary-text text-xs font-display font-bold py-2 px-4 hover:border-primary hover:text-primary transition-all">Cancel</button>
+        <button id="fs-send-btn" class="bg-primary text-black text-xs font-display font-bold py-2 px-5 hover:brightness-90 transition-all uppercase tracking-wider">Send</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Custom Prompt Modal ───────────────────────────────────────────────── -->
+<div id="custom-prompt-overlay" class="hidden fixed inset-0 z-[500] flex items-center justify-center">
+  <!-- Backdrop -->
+  <div id="custom-prompt-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <!-- Dialog -->
+  <div class="relative z-10 bg-surface border border-border-color w-[360px] shadow-2xl">
+    <!-- Header bar -->
+    <div class="flex items-center gap-2 px-4 py-3 border-b border-border-color bg-card">
+      <span id="custom-prompt-icon" class="material-symbols-outlined text-primary text-[16px]">create_new_folder</span>
+      <span id="custom-prompt-title" class="font-display font-bold text-[11px] uppercase tracking-widest text-slate-200">Proje Adı</span>
+    </div>
+    <!-- Body -->
+    <div class="px-4 pt-4 pb-3">
+      <label id="custom-prompt-label" class="block text-[10px] font-bold text-secondary-text uppercase tracking-widest mb-2">İsim</label>
+      <div class="relative flex items-center">
+        <span class="absolute left-3 text-secondary-text pointer-events-none">
+          <span class="material-symbols-outlined text-[15px]">chevron_right</span>
+        </span>
+        <input id="custom-prompt-input"
+          type="text"
+          class="w-full bg-background-dark border border-border-color focus:border-primary text-slate-100 pl-8 pr-3 py-2.5 text-xs mono-text outline-none transition-colors"
+          autocomplete="off" spellcheck="false"/>
+      </div>
+    </div>
+    <!-- Footer -->
+    <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-color">
+      <button id="custom-prompt-cancel"
+        class="px-4 py-1.5 text-[10px] font-display font-bold uppercase tracking-widest text-secondary-text border border-border-color hover:border-primary hover:text-primary transition-colors">
+        Cancel
+      </button>
+      <button id="custom-prompt-confirm"
+        class="px-4 py-1.5 text-[10px] font-display font-bold uppercase tracking-widest bg-primary text-black hover:brightness-90 transition-all">
+        Confirm
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Confirm Dialog ────────────────────────────────────────────────────── -->
+<div id="confirm-overlay" class="hidden fixed inset-0 z-[600] flex items-center justify-center">
+  <div id="confirm-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="relative z-10 bg-surface border border-border-color w-[320px] shadow-2xl">
+    <div class="flex items-center gap-2 px-4 py-3 border-b border-border-color bg-card">
+      <span class="material-symbols-outlined text-danger text-[16px]">warning</span>
+      <span id="confirm-title" class="font-display font-bold text-[11px] uppercase tracking-widest text-slate-200">Emin misin?</span>
+    </div>
+    <div class="px-4 py-4">
+      <p id="confirm-message" class="text-[11px] mono-text text-secondary-text leading-relaxed"></p>
+    </div>
+    <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-color">
+      <button id="confirm-cancel"
+        class="px-4 py-1.5 text-[10px] font-display font-bold uppercase tracking-widest text-secondary-text border border-border-color hover:border-primary hover:text-primary transition-colors">
+        Cancel
+      </button>
+      <button id="confirm-ok"
+        class="px-4 py-1.5 text-[10px] font-display font-bold uppercase tracking-widest bg-danger text-white hover:brightness-90 transition-all">
+        Delete
+      </button>
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
