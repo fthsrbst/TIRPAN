@@ -18,9 +18,10 @@ body {
     display: none;
 }
 
-/* Input/select focus override */
+/* Input/select/textarea focus override */
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
     outline: none !important;
     border-color: #ccff00 !important;
     box-shadow: none !important;
@@ -101,13 +102,15 @@ html.light code {
 }
 
 html.light input,
-html.light select {
+html.light select,
+html.light textarea {
     background-color: #f4f4f5 !important;
     color: #18181b !important;
     border-color: #d4d4d8 !important;
 }
 
-html.light input::placeholder {
+html.light input::placeholder,
+html.light textarea::placeholder {
     color: #a1a1aa !important;
 }
 
@@ -401,13 +404,31 @@ html.light .markdown-content { color: #1c1c1c; }
 html.light [style*="color:#d1d5db"] { color: #1c1c1c !important; }
 html.light .markdown-content strong { color: #111; }
 html.light .markdown-content em { color: #555; }
-html.light .markdown-content blockquote { color: #555; }
-html.light .markdown-content td { color: #1c1c1c; }
+html.light .markdown-content blockquote { color: #555; border-left-color: #4a7c00; }
+html.light .markdown-content td { color: #1c1c1c; border-bottom-color: #e4e4e7; }
 html.light .markdown-content code:not(pre code) {
     background: #f0f0f0;
     border-color: #ddd;
     color: #4a7c00;
 }
+html.light .markdown-content h1,
+html.light .markdown-content h2,
+html.light .markdown-content h3 { color: #2d5a00; }
+html.light .markdown-content a { color: #4a7c00; }
+html.light .markdown-content li::marker { color: #4a7c00; }
+html.light .markdown-content th { color: #2d5a00; border-bottom-color: #4a7c00; }
+html.light .markdown-content hr { border-top-color: #e4e4e7; }
+html.light .markdown-content tr { border-bottom-color: #e4e4e7; }
+
+/* Code block light mode */
+html.light .code-block { background: #f4f4f5; border-color: #d4d4d8; }
+html.light .code-header { background: #e4e4e7; border-bottom-color: #d4d4d8; }
+html.light .code-lang { color: #71717a; }
+html.light .copy-btn { color: #71717a; }
+html.light .copy-btn:hover { color: #4a7c00; }
+
+/* User message text override (inline style) */
+html.light .user-msg-text { color: #18181b !important; }
 
 /* ─── Code Block ───────────────────────────────────────────────────────────── */
 
@@ -466,3 +487,10 @@ html.light .markdown-content code:not(pre code) {
 
 /* Override hljs background to match theme */
 .hljs { background: transparent !important; }
+
+/* ─── Light mode: hljs (code syntax) ────────────────────────────────────── */
+html.light .hljs { color: #1c1c1c !important; }
+
+/* ─── Fullscreen input overlay light mode ───────────────────────────────── */
+html.light #input-fullscreen-overlay { background: rgba(0,0,0,0.5); }
+html.light #input-fullscreen-textarea { color: #18181b !important; }
