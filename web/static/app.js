@@ -1393,6 +1393,32 @@ function initConfigSave() {
     });
 }
 
+// ─── Footer System Stats ─────────────────────────────────────────────────────
+
+function formatTokens(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+}
+
+async function fetchSystemStats() {
+    try {
+        const res = await fetch('/api/v1/system/stats');
+        if (!res.ok) return;
+        const d = await res.json();
+
+        const cpuEl = document.getElementById('footer-cpu');
+        const gpuEl = document.getElementById('footer-gpu');
+        const ramEl = document.getElementById('footer-ram');
+        const tokEl = document.getElementById('footer-tokens');
+
+        if (cpuEl) cpuEl.textContent = d.cpu + '%';
+        if (ramEl) ramEl.textContent = d.ram_used_gb.toFixed(1) + 'GB';
+        if (gpuEl) gpuEl.textContent = d.gpu !== null ? d.gpu + '%' : 'N/A';
+        if (tokEl) tokEl.textContent = formatTokens(d.tokens);
+    } catch (_) {}
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1418,4 +1444,6 @@ document.addEventListener('DOMContentLoaded', () => {
     wsConnect();
     fetchOllamaStatus();
     setInterval(fetchOllamaStatus, 30000);
+    fetchSystemStats();
+    setInterval(fetchSystemStats, 3000);
 });
