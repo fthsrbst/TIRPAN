@@ -1,95 +1,95 @@
 # AEGIS — Full Architecture v2 (Plugin-Aware)
 > *Autonomous Ethical Guardrailed Intelligence System*
 
-## Tasarım İlkesi
+## Design Principle
 
-> **"Core küçük, plugin'ler büyük."**
+> **"Small core, big plugins."**
 >
-> Core: sadece Agent loop + LLM + Safety + DB + UI.  
-> Her attack capability bir **Tool Plugin**'dir — core'a dokunmadan eklenip çıkarılır.
+> Core: only the Agent loop + LLM + Safety + DB + UI.
+> Every attack capability is a **Tool Plugin** — added or removed without touching the core.
 
 ---
 
-## Büyük Resim
+## Big Picture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                          AEGIS                                    │
-│                                                                      │
-│  ┌──────────┐    ┌────────────────────────────────────────────────┐  │
-│  │  Web UI  │───▶│             FastAPI Backend                    │  │
-│  │          │◀───│  REST + WebSocket                              │  │
+│                          AEGIS                                        │
+│                                                                       │
+│  ┌──────────┐    ┌────────────────────────────────────────────────┐   │
+│  │  Web UI  │───▶│             FastAPI Backend                    │   │
+│  │          │◀───│  REST + WebSocket                              │   │
 │  └──────────┘    └──────────────────┬─────────────────────────────┘  │
-│                                     │                                │
-│                         ┌───────────▼───────────┐                   │
-│                         │    ReAct Agent Core    │                   │
-│                         │                        │                   │
-│                         │  Reason → Act →        │                   │
-│                         │  Observe → Reflect     │                   │
-│                         │                        │                   │
-│                         │  ┌──────────────────┐  │                   │
-│                         │  │  Safety Guard     │  │                   │
-│                         │  │  (every action)   │  │                   │
-│                         │  └──────────────────┘  │                   │
-│                         └───────────┬────────────┘                   │
-│                                     │                                │
-│                         ┌───────────▼────────────┐                   │
-│                         │    Tool Registry        │ ← KİLİT NOKTA   │
-│                         │                         │                   │
-│                         │  Core Tools (built-in): │                   │
-│                         │  ├── NmapTool           │                   │
-│                         │  ├── SearchSploitTool   │                   │
-│                         │  └── MetasploitTool     │                   │
-│                         │                         │                   │
-│                         │  Plugin Tools (loaded): │                   │
-│                         │  ├── [boş — V1]         │                   │
-│                         │  ├── WebScanPlugin (V2) │                   │
-│                         │  ├── NucleiPlugin (V2)  │                   │
-│                         │  └── ...                │                   │
-│                         └─────────────────────────┘                   │
-│                                                                      │
-│  ┌──────────────────────────┐   ┌──────────────────────────────────┐ │
-│  │    LLM Layer             │   │       SQLite Database             │ │
-│  │  OpenRouter + Ollama     │   │  Sessions / Findings / Audit     │ │
-│  └──────────────────────────┘   └──────────────────────────────────┘ │
+│                                     │                                 │
+│                         ┌───────────▼───────────┐                    │
+│                         │    ReAct Agent Core    │                    │
+│                         │                        │                    │
+│                         │  Reason → Act →        │                    │
+│                         │  Observe → Reflect     │                    │
+│                         │                        │                    │
+│                         │  ┌──────────────────┐  │                    │
+│                         │  │  Safety Guard     │  │                    │
+│                         │  │  (every action)   │  │                    │
+│                         │  └──────────────────┘  │                    │
+│                         └───────────┬────────────┘                    │
+│                                     │                                 │
+│                         ┌───────────▼────────────┐                    │
+│                         │    Tool Registry        │ ← KEY POINT       │
+│                         │                         │                    │
+│                         │  Core Tools (built-in): │                    │
+│                         │  ├── NmapTool           │                    │
+│                         │  ├── SearchSploitTool   │                    │
+│                         │  └── MetasploitTool     │                    │
+│                         │                         │                    │
+│                         │  Plugin Tools (loaded): │                    │
+│                         │  ├── [empty — V1]       │                    │
+│                         │  ├── WebScanPlugin (V2) │                    │
+│                         │  ├── NucleiPlugin (V2)  │                    │
+│                         │  └── ...                │                    │
+│                         └─────────────────────────┘                    │
+│                                                                       │
+│  ┌──────────────────────────┐   ┌──────────────────────────────────┐  │
+│  │    LLM Layer             │   │       SQLite Database             │  │
+│  │  OpenRouter + Ollama     │   │  Sessions / Findings / Audit     │  │
+│  └──────────────────────────┘   └──────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
 
-[OPSİYONEL MODÜL]
+[OPTIONAL MODULE]
 ┌─────────────────────────────────────┐
-│         Defense Module              │  ← Ayrı process, aynı DB
+│         Defense Module              │  ← Separate process, same DB
 │  Sniffer → Detectors → LLM → Block  │
 └─────────────────────────────────────┘
 ```
 
 ---
 
-## Katmanlar (V1 Scope — Kesin)
+## Layers (V1 Scope — Definitive)
 
-### Katman 1: Core Infrastructure (değişmez temel)
+### Layer 1: Core Infrastructure (immutable foundation)
 
 ```
 core/
-├── agent.py          # ReAct loop — tool isimlerini tool registry'den alır
+├── agent.py          # ReAct loop — gets tool names from tool registry
 ├── llm_client.py     # OpenRouter + Ollama abstraction
-├── safety.py         # 10 guardrail — her action'dan önce çalışır
+├── safety.py         # 10 guardrails — runs before every action
 ├── memory.py         # Session memory (sliding window)
 ├── prompts.py        # Prompt builder
-└── tool_registry.py  # ← YENİ: Plugin loader & tool catalog  [CORE]
+└── tool_registry.py  # ← NEW: Plugin loader & tool catalog  [CORE]
 ```
 
-### Katman 2: Core Tools (V1'de built-in, core gibi davranır)
+### Layer 2: Core Tools (built-in in V1, behave like core)
 
 ```
 tools/
-├── base_tool.py          # Abstract base — her tool buna uyar
+├── base_tool.py          # Abstract base — every tool conforms to this
 ├── nmap_tool.py          # Port scan + host discovery
 ├── searchsploit_tool.py  # Exploit search
 └── metasploit_tool.py    # Exploit execution via RPC
 ```
 
-**V1'de ShellTool YOKTUR.** Güvenlik riski olduğu için scope dışına alındı.
+**ShellTool is NOT in V1.** Excluded from scope due to security risk.
 
-### Katman 3: Plugin Tools (V1'de boş — sonradan yüklenir)
+### Layer 3: Plugin Tools (empty in V1 — loaded later)
 
 ```
 plugins/
@@ -108,17 +108,17 @@ plugins/
     └── tool.py
 ```
 
-### Katman 4: Data Layer
+### Layer 4: Data Layer
 
 ```
 database/
 ├── db.py                 # aiosqlite connection manager
 ├── repositories.py       # CRUD per entity
 ├── knowledge_base.py     # "What worked where" lookup
-└── schema.sql            # 7 tablo (pentest) + 4 tablo (defense)
+└── schema.sql            # 7 tables (pentest) + 4 tables (defense)
 ```
 
-### Katman 5: Web & Reporting
+### Layer 5: Web & Reporting
 
 ```
 web/
@@ -134,7 +134,7 @@ reporting/
     └── report.html       # Jinja2 report template
 ```
 
-### Katman 6: Defense Module (Opsiyonel, ayrı başlatılır)
+### Layer 6: Defense Module (Optional, started separately)
 
 ```
 defense/
@@ -152,26 +152,26 @@ defense/
 
 ---
 
-## Tool Registry — Plugin Sistemi Detayı
+## Tool Registry — Plugin System Details
 
-### Nasıl Çalışır
+### How It Works
 
 ```
-Başlangıçta:
-1. ToolRegistry başlatılır
-2. Core tools (Nmap, SearchSploit, MSF) otomatik register edilir
-3. /plugins/ klasörü taranır
-4. Her plugin.json okunur (metadata)
-5. Enabled plugin'ler importlib ile yüklenir ve register edilir
+At startup:
+1. ToolRegistry is initialized
+2. Core tools (Nmap, SearchSploit, MSF) are auto-registered
+3. /plugins/ directory is scanned
+4. Each plugin.json is read (metadata)
+5. Enabled plugins are imported via importlib and registered
 
-Agent çalışırken:
-6. Agent, LLM'e "şu andaki araçlar" listesini gönderir
-   → Tool ismi + açıklaması + parametre şeması
-7. LLM, hangi tool'u çağıracağına karar verir
-8. Agent, ToolRegistry'den tool'u alır ve execute eder
+While agent is running:
+6. Agent sends the LLM the "current tools" list
+   → Tool name + description + parameter schema
+7. LLM decides which tool to call
+8. Agent retrieves the tool from ToolRegistry and executes it
 ```
 
-### Tool Arayüzü (Değişmez Kontrat)
+### Tool Interface (Immutable Contract)
 
 ```python
 # tools/base_tool.py
@@ -179,9 +179,9 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
 class ToolMetadata(BaseModel):
-    name: str           # Agent'ın LLM'e söylediği isim: "nmap_scan"
-    description: str    # LLM'in ne zaman kullanacağını anlaması için
-    parameters: dict    # JSON Schema — LLM bu şemaya göre parametre üretir
+    name: str           # Name the agent tells the LLM: "nmap_scan"
+    description: str    # Helps the LLM understand when to use it
+    parameters: dict    # JSON Schema — LLM generates params from this schema
     category: str       # "recon" | "exploit" | "web" | "report"
     version: str        # Semver: "1.0.0"
 
@@ -189,21 +189,21 @@ class BaseTool(ABC):
     @property
     @abstractmethod
     def metadata(self) -> ToolMetadata:
-        """Tool hakkında tüm bilgi burada."""
+        """All information about the tool lives here."""
 
     @abstractmethod
     async def execute(self, params: dict) -> dict:
         """
-        Tool'u çalıştır.
+        Execute the tool.
         Returns: {"success": bool, "output": any, "error": str|None}
         """
 
     async def validate(self, params: dict) -> tuple[bool, str]:
-        """Params doğrula. Override edilebilir."""
+        """Validate params. Can be overridden."""
         return True, ""
 ```
 
-### Plugin `plugin.json` Şeması
+### Plugin `plugin.json` Schema
 
 ```json
 {
@@ -221,7 +221,7 @@ class BaseTool(ABC):
 }
 ```
 
-### Tool Registry Implementasyonu (Özet)
+### Tool Registry Implementation (Summary)
 
 ```python
 # core/tool_registry.py
@@ -242,7 +242,7 @@ class ToolRegistry:
         return self._tools[name]
 
     def list_for_llm(self) -> list[dict]:
-        """LLM'e gönderilecek tool açıklamaları."""
+        """Tool descriptions to send to the LLM."""
         return [
             {
                 "name": t.metadata.name,
@@ -253,7 +253,7 @@ class ToolRegistry:
         ]
 
     def load_plugins(self, plugins_dir: Path) -> None:
-        """Plugin klasörünü tara, yüklenebilir plugin'leri import et."""
+        """Scan plugin directory, import loadable plugins."""
         for plugin_dir in plugins_dir.iterdir():
             manifest_path = plugin_dir / "plugin.json"
             if not manifest_path.exists():
@@ -261,7 +261,7 @@ class ToolRegistry:
             manifest = json.loads(manifest_path.read_text())
             if not manifest.get("enabled", False):
                 continue
-            # Dinamik import
+            # Dynamic import
             module_path, class_name = manifest["entry_point"].rsplit(".", 1)
             module = importlib.import_module(module_path)
             tool_class = getattr(module, class_name)
@@ -270,9 +270,9 @@ class ToolRegistry:
 
 ---
 
-## LLM İletişim Protokolü (Standart)
+## LLM Communication Protocol (Standard)
 
-Agent, her ReAct döngüsünde LLM'e şunu gönderir:
+The agent sends this to the LLM on every ReAct iteration:
 
 ```json
 {
@@ -295,22 +295,22 @@ Agent, her ReAct döngüsünde LLM'e şunu gönderir:
 }
 ```
 
-LLM her zaman şu JSON'la cevap verir:
+The LLM always responds with this JSON:
 
 ```json
 {
-  "thought": "Port 445 açık ve SMB v1 çalışıyor. EternalBlue için searchsploit'e bakacağım.",
+  "thought": "Port 445 is open and SMB v1 is running. Checking searchsploit for EternalBlue.",
   "tool": "searchsploit_search",
   "parameters": { "query": "EternalBlue SMB ms17-010" },
   "confidence": 0.91
 }
 ```
 
-Eğer LLM işi bitirdi diye düşünüyorsa:
+When the LLM decides it's done:
 
 ```json
 {
-  "thought": "Tüm hedefler tarandı, 3 kritik zafiyet bulundu.",
+  "thought": "All targets scanned, 3 critical vulnerabilities found.",
   "tool": "generate_report",
   "parameters": { "session_id": "abc123" },
   "confidence": 1.0
@@ -319,79 +319,79 @@ Eğer LLM işi bitirdi diye düşünüyorsa:
 
 ---
 
-## Saldırı Akışı (V1 — Network Only)
+## Attack Flow (V1 — Network Only)
 
 ```
-Kullanıcı: "192.168.1.0/24 ağını tara ve exploit et"
+User: "Scan 192.168.1.0/24 and exploit anything you find"
                     │
                     ▼
-        [Agent] Session oluştur (DB)
+        [Agent] Create session (DB)
                     │
           ┌─────────▼──────────┐
-          │  Phase 1: Keşif    │ → nmap_scan (ping sweep)
+          │  Phase 1: Discovery │ → nmap_scan (ping sweep)
           └─────────┬──────────┘
-                    │ → Host listesi: [.5, .10, .23, .42]
+                    │ → Host list: [.5, .10, .23, .42]
           ┌─────────▼──────────┐
-          │  Phase 2: Port     │ → nmap_scan (service detect) × host sayısı
-          │  Tarama            │
+          │  Phase 2: Port      │ → nmap_scan (service detect) × host count
+          │  Scanning           │
           └─────────┬──────────┘
-                    │ → Port/servis/versiyon listesi
+                    │ → Port/service/version list
           ┌─────────▼──────────┐
-          │  Phase 3: Exploit  │ → searchsploit_search × servis sayısı
-          │  Arama             │
+          │  Phase 3: Exploit   │ → searchsploit_search × service count
+          │  Search             │
           └─────────┬──────────┘
-                    │ → Exploit listesi
+                    │ → Exploit list
           ┌─────────▼──────────┐
-          │  Phase 4:          │ → metasploit_run × exploit sayısı
-          │  Exploitation      │   (Safety check → LLM seçer)
+          │  Phase 4:           │ → metasploit_run × exploit count
+          │  Exploitation       │   (Safety check → LLM selects)
           └─────────┬──────────┘
-                    │ → Başarılı exploitler, sessionlar
+                    │ → Successful exploits, sessions
           ┌─────────▼──────────┐
-          │  Phase 5: Rapor    │ → generate_report
+          │  Phase 5: Report    │ → generate_report
           └────────────────────┘
 ```
 
-**Her action öncesi Safety Guard çalışır. Herhangi bir kural ihlali → block.**
+**Safety Guard runs before every action. Any rule violation → block.**
 
 ---
 
-## Safety System (10 Kural — Değişmez)
+## Safety System (10 Rules — Immutable)
 
 ```
-Action → [1] Kill switch aktif mi?
-       → [2] Hedef IP scope dahilinde mi?
-       → [3] Port izin verilen aralıkta mı?
-       → [4] Hedef excluded_ips'de mi?
-       → [5] Excluded ports'da mı?
-       → [6] Exploit izni var mı? (scan_only mode)
-       → [7] DoS kategorisi mi?
-       → [8] Destructive action mı?
-       → [9] Max exploit severity'yi aşıyor mu?
-       → [10] Time limit doldu mu?
-       → ✅ Çalıştır  VEYA  🛑 Blok + Audit Log
+Action → [1] Is kill switch active?
+       → [2] Is target IP within scope?
+       → [3] Is port within allowed range?
+       → [4] Is target in excluded_ips?
+       → [5] Is port in excluded_ports?
+       → [6] Is exploit permitted? (scan_only mode)
+       → [7] Is this a DoS category?
+       → [8] Is this a destructive action?
+       → [9] Does it exceed max exploit severity?
+       → [10] Has time limit expired?
+       → ✅ Execute  OR  🛑 Block + Audit Log
 ```
 
 ---
 
-## Veritabanı (7 Tablo — Pentest)
+## Database (7 Tables — Pentest)
 
-| Tablo             | Amacı                                           |
-| ----------------- | ----------------------------------------------- |
-| `sessions`        | Her pentest oturumu                             |
-| `messages`        | Agent thought/action/result geçmişi             |
-| `scan_results`    | Host/port/servis bulguları                      |
-| `vulnerabilities` | CVE listesi + CVSS puanı                        |
-| `exploit_results` | Exploit denemesi + sonuç                        |
-| `knowledge_base`  | "Hangi exploit hangi servis-versiyonda çalıştı" |
-| `audit_log`       | Hukuki için her action logu                     |
+| Table             | Purpose                                              |
+| ----------------- | ---------------------------------------------------- |
+| `sessions`        | Each pentest session                                 |
+| `messages`        | Agent thought/action/result history                  |
+| `scan_results`    | Host/port/service findings                           |
+| `vulnerabilities` | CVE list + CVSS score                                |
+| `exploit_results` | Exploit attempt + result                             |
+| `knowledge_base`  | "Which exploit worked against which service/version" |
+| `audit_log`       | Every action logged for legal purposes               |
 
 ---
 
-## Teknoloji Stack (V1 — Kesin Liste)
+## Technology Stack (V1 — Definitive List)
 
-| Bileşen           | Teknoloji                      | Versiyon      |
+| Component         | Technology                     | Version       |
 | ----------------- | ------------------------------ | ------------- |
-| Dil               | Python                         | 3.11+         |
+| Language          | Python                         | 3.11+         |
 | Web Framework     | FastAPI                        | 0.110+        |
 | LLM (cloud)       | OpenRouter → Claude 3.5 Sonnet | —             |
 | LLM (local)       | Ollama → Llama 3 8B            | —             |
@@ -399,16 +399,16 @@ Action → [1] Kill switch aktif mi?
 | Port Scanner      | Nmap                           | 7.94+         |
 | Exploit DB        | SearchSploit (ExploitDB)       | —             |
 | Exploit Framework | Metasploit 6.x via RPC         | pymetasploit3 |
-| Rapor             | Jinja2 + WeasyPrint            | —             |
+| Reporting         | Jinja2 + WeasyPrint            | —             |
 | Real-time         | WebSocket via FastAPI          | —             |
 | Terminal UI       | Rich                           | 13.x          |
-| Test              | pytest                         | 8.x           |
-| Plugin yükleme    | importlib (stdlib)             | —             |
+| Testing           | pytest                         | 8.x           |
+| Plugin loading    | importlib (stdlib)             | —             |
 
-**V1'de OLMAYAN şeyler (Plugin olarak V2+):**
+**Not in V1 (planned as V2+ plugins):**
 
 - Playwright / Headless Browser
-- XSS / SQLi / SSRF tarama
+- XSS / SQLi / SSRF scanning
 - Nuclei
 - Gobuster / ffuf
 - InteractSH (OOB callbacks)
@@ -417,7 +417,7 @@ Action → [1] Kill switch aktif mi?
 
 ---
 
-## Klasör Yapısı (Tam)
+## Directory Structure (Complete)
 
 ```
 AEGIS/
@@ -427,10 +427,10 @@ AEGIS/
 ├── requirements.txt
 ├── .env.example
 │
-├── core/                        # CORE — değiştirme
+├── core/                        # CORE — do not modify
 │   ├── agent.py                 # ReAct loop
 │   ├── llm_client.py            # LLM abstraction
-│   ├── safety.py                # 10 guardrail
+│   ├── safety.py                # 10 guardrails
 │   ├── memory.py                # Session memory
 │   ├── prompts.py               # Prompt builder
 │   └── tool_registry.py         # Plugin loader + tool catalog
@@ -441,8 +441,8 @@ AEGIS/
 │   ├── searchsploit_tool.py
 │   └── metasploit_tool.py
 │
-├── plugins/                     # PLUGIN TOOLS — V2+ (başlangıçta boş)
-│   └── __init__.py              # Boş, Plugin loader buraya bakar
+├── plugins/                     # PLUGIN TOOLS — V2+ (empty at start)
+│   └── __init__.py              # Empty, Plugin loader looks here
 │
 ├── database/
 │   ├── db.py
@@ -465,7 +465,7 @@ AEGIS/
 │   └── templates/
 │       └── report.html
 │
-├── defense/                     # OPSİYONEL — ayrı process
+├── defense/                     # OPTIONAL — separate process
 │   ├── sniffer.py
 │   ├── analyzer.py
 │   ├── llm_defender.py
@@ -497,7 +497,7 @@ AEGIS/
 │   ├── test_prompts.py
 │   ├── test_database.py
 │   ├── test_reporting.py
-│   ├── test_tool_registry.py    # YENİ
+│   ├── test_tool_registry.py    # NEW
 │   └── defense/
 │       ├── test_sniffer.py
 │       ├── test_detectors.py
@@ -507,26 +507,26 @@ AEGIS/
 │
 └── docs/
     ├── 01_XBOW_COMPARISON.md
-    ├── 02_ARCHITECTURE.md       ← BU DOSYA
+    ├── 02_ARCHITECTURE.md       ← THIS FILE
     ├── 03_PREREQUISITES.md
     ├── 04_ROADMAP.md
     ├── 05_SAFETY_AND_LEGAL.md
     ├── 06_LEARNING_CURRICULUM.md
     ├── 07_NETWORK_DEFENSE_MODULE.md
     ├── 08_MASTER_CHECKLIST.md
-    └── 09_PLUGIN_SYSTEM.md      ← YENİ
+    └── 09_PLUGIN_SYSTEM.md      ← NEW
 ```
 
 ---
 
-## Mimari Kararlar ve Gerekçeler
+## Architecture Decisions and Rationale
 
-| Karar                                        | Gerekçe                                                                  |
-| -------------------------------------------- | ------------------------------------------------------------------------ |
-| Plugin sistemi şimdi tasarla, V1'de tool yok | V2'de koda dokunmadan XSS plugin eklenebilsin                            |
-| ShellTool yok                                | Güvenlik riski çok yüksek, audit edilemez                                |
-| Ollama local > OpenRouter local              | Hız: 200ms vs 2s. Parsing/classification için ideal                      |
-| importlib plugin loading                     | stdlib, dependency yok, güvenli                                          |
-| Defense ayrı process                         | Pentest bot'u durdurmak defense'i etkilemesin                            |
-| SQLite (aiosqlite)                           | Sıfır kurulum, capstone için yeterli, V3'te PostgreSQL'e migrate edilir  |
-| Single agent (V1)                            | Öğrenmesi kolay, her kararı takip edilebilir, multi-agent V3'e ertelendi |
+| Decision                                          | Rationale                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------------- |
+| Design plugin system now, no plugins in V1        | XSS plugin can be added in V2 without touching core code                    |
+| No ShellTool                                      | Security risk too high, cannot be audited                                   |
+| Ollama local over OpenRouter local                | Speed: 200ms vs 2s. Ideal for parsing/classification                        |
+| importlib plugin loading                          | stdlib, no extra dependencies, secure                                       |
+| Defense as separate process                       | Stopping the pentest bot should not affect the defense module               |
+| SQLite (aiosqlite)                                | Zero setup, sufficient for capstone, migrate to PostgreSQL in V3            |
+| Single agent (V1)                                 | Easier to understand, every decision is traceable, multi-agent deferred to V3 |

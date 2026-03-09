@@ -27,7 +27,6 @@ The agent scans the network, identifies open services, searches for known exploi
 
 ## Demo
 
-> *Screenshot / GIF placeholder — add a screen recording of a live session here.*
 
 ![AEGIS Dashboard](docs/screenshot.png)
 

@@ -1,55 +1,55 @@
-# AEGIS — Plugin Sistemi Spesifikasyonu
+# AEGIS — Plugin System Specification
 
-> **Amaç:** Core'a dokunmadan yeni saldırı capabilityleri ekleyebilmek.  
-> V1'de 3 built-in tool var, geri her şey plugin ile gelecek.
-
----
-
-## Neden Plugin Sistemi?
-
-| Yöntem                  | Sorun                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------- |
-| Tool'ları core'a gömmek | XSS eklersen Nmap koduna dokunman gerekiyor = patlama riski                     |
-| Her şeyi baştan yazmak  | Metasploit güncellenince tüm sistem etkileniyor                                 |
-| **Plugin sistemi** ✅   | XSS tool'u yaz → `/plugins/web_scan/` klasörüne koy → sisteme bildir → çalıştır |
+> **Purpose:** Add new attack capabilities without touching the core.
+> V1 ships with 3 built-in tools — everything else arrives via plugins.
 
 ---
 
-## Plugin vs Core Tool Ayrımı
+## Why a Plugin System?
 
-| Kategori                     | Örnekler                          | Nerede            |
-| ---------------------------- | --------------------------------- | ----------------- |
-| **Core Tools** (V1 built-in) | Nmap, SearchSploit, Metasploit    | `tools/`          |
-| **Plugin Tools** (V2+)       | WebScan, Nuclei, Gobuster, SQLMap | `plugins/<isim>/` |
-
-### Kural:
-
-- Bir tool **network-level, bağımsız çalışıyor, kurulum gerektirmiyor** → `tools/` (core)
-- Bir tool **dış bağımlılık, belirli hedef tipi, opsiyonel** → `plugins/` (plugin)
+| Approach                     | Problem                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| Embedding tools into core    | Adding XSS means touching Nmap code = risk of breakage                            |
+| Rewriting everything         | Updating Metasploit affects the entire system                                     |
+| **Plugin system** ✅          | Write an XSS tool → drop it in `/plugins/web_scan/` → register → it runs         |
 
 ---
 
-## Plugin Anatomi (Her Plugin Tam Olarak Şunu İçerir)
+## Plugin vs Core Tool Distinction
+
+| Category                       | Examples                              | Location          |
+| ------------------------------ | ------------------------------------- | ----------------- |
+| **Core Tools** (V1 built-in)   | Nmap, SearchSploit, Metasploit        | `tools/`          |
+| **Plugin Tools** (V2+)         | WebScan, Nuclei, Gobuster, SQLMap     | `plugins/<name>/` |
+
+### Rule:
+
+- A tool that **works at network-level, is self-contained, requires no extra install** → `tools/` (core)
+- A tool that **has external dependencies, targets a specific type, is optional** → `plugins/` (plugin)
+
+---
+
+## Plugin Anatomy (Every Plugin Contains Exactly This)
 
 ```
 plugins/
-└── web_scanner/            ← Plugin klasörü (lowercase, underscore)
-    ├── plugin.json         ← Manifest (ZORUNLU)
-    ├── tool.py             ← Ana tool implementasyonu (ZORUNLU)
-    ├── requirements.txt    ← Plugin'e özgü bağımlılıklar (opsiyonel)
-    └── README.md           ← Kullanım kılavuzu (önerilen)
+└── web_scanner/            ← Plugin directory (lowercase, underscore)
+    ├── plugin.json         ← Manifest (REQUIRED)
+    ├── tool.py             ← Main tool implementation (REQUIRED)
+    ├── requirements.txt    ← Plugin-specific dependencies (optional)
+    └── README.md           ← Usage guide (recommended)
 ```
 
 ---
 
-## `plugin.json` Şeması (Tam Spec)
+## `plugin.json` Schema (Full Spec)
 
 ```json
 {
   "name": "web_scanner",
   "version": "1.0.0",
   "display_name": "Web Vulnerability Scanner",
-  "description": "XSS, SQLi ve SSRF tespiti için headless browser tabanlı tarayıcı.",
+  "description": "Headless browser-based scanner for XSS, SQLi, and SSRF detection.",
   "author": "your_name",
   "license": "MIT",
   "category": "web",
@@ -63,22 +63,22 @@ plugins/
 }
 ```
 
-### Alan Açıklamaları
+### Field Descriptions
 
-| Alan                | Tip    | Açıklama                                                 |
-| ------------------- | ------ | -------------------------------------------------------- |
-| `name`              | string | Benzersiz plugin kimliği (klasör adıyla aynı)            |
-| `version`           | semver | Plugin versiyonu                                         |
-| `enabled`           | bool   | `false` → yüklenmez, etkinleştirmek için `true` yap      |
-| `entry_point`       | string | `modul.yolu.SınıfAdı` (importlib bunu kullanır)          |
-| `requires_packages` | list   | pip ile kurulacak bağımlılıklar                          |
-| `min_core_version`  | semver | Bu plugin hangi core versiyonundan itibaren çalışır      |
-| `safety_level`      | enum   | `"low"` / `"medium"` / `"high"` — kullanıcıya gösterilir |
-| `target_type`       | enum   | `"ip"` / `"url"` / `"cidr"` / `"any"`                    |
+| Field               | Type   | Description                                                       |
+| ------------------- | ------ | ----------------------------------------------------------------- |
+| `name`              | string | Unique plugin identifier (same as directory name)                 |
+| `version`           | semver | Plugin version                                                    |
+| `enabled`           | bool   | `false` → not loaded; set to `true` to activate                   |
+| `entry_point`       | string | `module.path.ClassName` (importlib uses this)                     |
+| `requires_packages` | list   | pip dependencies to install                                       |
+| `min_core_version`  | semver | Minimum core version this plugin supports                         |
+| `safety_level`      | enum   | `"low"` / `"medium"` / `"high"` — shown to the user              |
+| `target_type`       | enum   | `"ip"` / `"url"` / `"cidr"` / `"any"`                             |
 
 ---
 
-## `tool.py` Şablonu (Kopyala-Yapıştır)
+## `tool.py` Template (Copy-Paste Ready)
 
 ```python
 # plugins/web_scanner/tool.py
@@ -86,8 +86,8 @@ from tools.base_tool import BaseTool, ToolMetadata
 
 class WebScannerTool(BaseTool):
     """
-    Headless browser kullanarak XSS, SQLi, SSRF tespiti yapar.
-    Playwright gerektirir.
+    Detects XSS, SQLi, and SSRF using a headless browser.
+    Requires Playwright.
     """
 
     @property
@@ -95,25 +95,25 @@ class WebScannerTool(BaseTool):
         return ToolMetadata(
             name="web_scan",
             description=(
-                "Web uygulamasını XSS, SQLi ve SSRF açıkları için tara. "
-                "Sadece URL hedefleri için kullan, IP adresi değil."
+                "Scan a web application for XSS, SQLi, and SSRF vulnerabilities. "
+                "Use only for URL targets, not IP addresses."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "Taranacak URL (örn: http://target.com/login)"
+                        "description": "URL to scan (e.g. http://target.com/login)"
                     },
                     "scan_type": {
                         "type": "string",
                         "enum": ["xss", "sqli", "ssrf", "all"],
-                        "description": "Hangi zafiyet türleri aransın"
+                        "description": "Which vulnerability types to look for"
                     },
                     "depth": {
                         "type": "integer",
                         "default": 2,
-                        "description": "Kaç link derinliğine kadar taransın"
+                        "description": "How many link levels deep to scan"
                     }
                 },
                 "required": ["url"]
@@ -127,7 +127,6 @@ class WebScannerTool(BaseTool):
         scan_type = params.get("scan_type", "all")
 
         try:
-            # Burada Playwright veya özel tarama kodu
             results = await self._run_scan(url, scan_type)
             return {
                 "success": True,
@@ -145,93 +144,93 @@ class WebScannerTool(BaseTool):
             }
 
     async def _run_scan(self, url: str, scan_type: str) -> list:
-        # Asıl tarama implementasyonu
+        # Actual scanning implementation
         ...
 ```
 
 ---
 
-## Plugin Etkinleştirme
+## Enabling a Plugin
 
 ```bash
-# Yöntem 1: plugin.json'u düzenle
+# Method 1: Edit plugin.json directly
 # plugins/web_scanner/plugin.json → "enabled": true
 
-# Yöntem 2: CLI ile (V2 hedef)
+# Method 2: CLI (V2 target)
 python main.py --enable-plugin web_scanner
 
-# Yöntem 3: Web UI'dan (V2 hedef)
+# Method 3: Web UI (V2 target)
 # Settings → Plugins → Web Scanner → Enable
 ```
 
 ---
 
-## Mevcut + Planlı Plugin Listesi
+## Current + Planned Plugin List
 
-| Plugin Adı             | Durum        | Versiyon | Açıklama                       |
-| ---------------------- | ------------ | -------- | ------------------------------ |
-| `web_scanner`          | 📋 Planlandı | V2       | XSS, SQLi, SSRF (Playwright)   |
-| `nuclei_scanner`       | 📋 Planlandı | V2       | Nuclei template-based tarama   |
-| `gobuster`             | 📋 Planlandı | V2       | Directory/file brute force     |
-| `interactsh`           | 📋 Planlandı | V2       | OOB (blind injection) tespiti  |
-| `sqlmap_plugin`        | 📋 Planlandı | V2       | Otomatik SQL injection         |
-| `ffuf_plugin`          | 📋 Planlandı | V2       | Web fuzzing                    |
-| `custom_payload`       | 📋 Planlandı | V2       | LLM'in kod yazdığı exploit     |
-| `source_code_analyzer` | 📋 Planlandı | V3       | Semgrep + LLM white-box analiz |
+| Plugin Name            | Status       | Version | Description                          |
+| ---------------------- | ------------ | ------- | ------------------------------------ |
+| `web_scanner`          | 📋 Planned   | V2      | XSS, SQLi, SSRF (Playwright)         |
+| `nuclei_scanner`       | 📋 Planned   | V2      | Nuclei template-based scanning       |
+| `gobuster`             | 📋 Planned   | V2      | Directory/file brute force           |
+| `interactsh`           | 📋 Planned   | V2      | OOB (blind injection) detection      |
+| `sqlmap_plugin`        | 📋 Planned   | V2      | Automated SQL injection              |
+| `ffuf_plugin`          | 📋 Planned   | V2      | Web fuzzing                          |
+| `custom_payload`       | 📋 Planned   | V2      | LLM-written exploit scripts          |
+| `source_code_analyzer` | 📋 Planned   | V3      | Semgrep + LLM white-box analysis     |
 
 ---
 
-## ToolRegistry Entegrasyon Akışı
+## ToolRegistry Integration Flow
 
 ```
-main.py başladığında:
-  1. ToolRegistry() oluştur
-  2. Core tools register et:
+At main.py startup:
+  1. Create ToolRegistry()
+  2. Register core tools:
        registry.register(NmapTool())
        registry.register(SearchSploitTool())
        registry.register(MetasploitTool())
-  3. registry.load_plugins(Path("plugins/")) çağır
-       → Her plugin.json oku
-       → enabled: true olanları importlib ile yükle
+  3. Call registry.load_plugins(Path("plugins/"))
+       → Read each plugin.json
+       → Import enabled ones via importlib
        → registry.register(PluginToolClass())
-  4. Agent'a registry'yi inject et
-  5. Agent, LLM'e tool listesini registry.list_for_llm() ile verir
+  4. Inject registry into agent
+  5. Agent provides tool list to LLM via registry.list_for_llm()
 ```
 
 ---
 
-## Plugin Yazarken Dikkat Edilecekler
+## Plugin Authoring Guidelines
 
-### ✅ Yapılması Gerekenler
+### ✅ Do
 
-- `BaseTool`'dan miras al, sözleşmeyi boz
-- `metadata.description` detaylı yaz — LLM bunu okuyarak ne zaman kullanacağına karar verir
-- Her zaman `{"success": bool, "output": any, "error": str|None}` döndür
-- Exception'ları yakala, kontrolsüz fırlatma
-- `plugin.json`'da `min_core_version` belirt
+- Inherit from `BaseTool`, honour the contract
+- Write a detailed `metadata.description` — the LLM reads this to decide when to use it
+- Always return `{"success": bool, "output": any, "error": str|None}`
+- Catch exceptions, never let them propagate unchecked
+- Specify `min_core_version` in `plugin.json`
 
-### ❌ Yapılmaması Gerekenler
+### ❌ Don't
 
-- Core dosyalarına (`core/`, `tools/`, `database/`) dokunma
-- Global state tutma (stateless ol)
-- `config.py`'yi doğrudan import etme → constructor'dan inject et
-- Engellenmiş komutları çalıştırma (`safety.py` zaten bloklar ama bilerek deneme)
+- Touch core files (`core/`, `tools/`, `database/`)
+- Hold global state (keep it stateless)
+- Import `config.py` directly → inject it through the constructor
+- Deliberately run blocked commands (`safety.py` will block them anyway)
 
 ---
 
-## V1 Referans: Core Tool Listesi
+## V1 Reference: Core Tool List
 
-V1'de yalnızca bu 3 tool built-in gelir:
+Only these 3 tools ship built-in in V1:
 
-| Tool Adı              | Dosya                        | Ne Yapar                                |
-| --------------------- | ---------------------------- | --------------------------------------- |
-| `nmap_scan`           | `tools/nmap_tool.py`         | Port tarama, host keşfi, servis tespiti |
-| `searchsploit_search` | `tools/searchsploit_tool.py` | Exploit veritabanı arama                |
-| `metasploit_run`      | `tools/metasploit_tool.py`   | Exploit çalıştırma, oturum yönetimi     |
+| Tool Name             | File                         | What It Does                               |
+| --------------------- | ---------------------------- | ------------------------------------------ |
+| `nmap_scan`           | `tools/nmap_tool.py`         | Port scanning, host discovery, service ID  |
+| `searchsploit_search` | `tools/searchsploit_tool.py` | Exploit database search                    |
+| `metasploit_run`      | `tools/metasploit_tool.py`   | Exploit execution, session management      |
 
-Ve 1 built-in "meta-tool" (tool değil, internal action):
+And 2 built-in meta-actions (not tools — internal agent actions):
 
-| Meta-action       | Ne Yapar                                    |
-| ----------------- | ------------------------------------------- |
-| `generate_report` | Session bulgularından PDF/HTML rapor üretir |
-| `finish`          | Agent döngüsünü sonlandırır                 |
+| Meta-action       | What It Does                                        |
+| ----------------- | --------------------------------------------------- |
+| `generate_report` | Produces PDF/HTML report from session findings      |
+| `finish`          | Terminates the agent loop                           |
