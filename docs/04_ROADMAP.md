@@ -1,24 +1,24 @@
 # AEGIS — Version Roadmap v2
 
-## Vizyon
+## Vision
 
-Açık kaynak otonom AI pentester. **Core küçük, plugin'ler büyük.**  
-Network saldırısından başla, plugin sistemiyle her attack tipine genişle.
+Open-source autonomous AI pentester. **Small core, big plugins.**
+Start with network-level attacks, expand to every attack type through the plugin system.
 
 ---
 
-## Sürüm Felsefesi
+## Version Philosophy
 
 ```
 V1 (Capstone):
-  Sadece network-level saldırı.
-  3 tool, 1 agent, sağlam temel.
-  Plugin sistemi hazır ama plugin yok.
+  Network-level attacks only.
+  3 tools, 1 agent, solid foundation.
+  Plugin system ready but no plugins.
 
 V2 (Community Growth):
-  Web saldırı plugin'leri.
-  Daha akıllı AI kararları.
-  Docker izolasyonu.
+  Web attack plugins.
+  Smarter AI decisions.
+  Docker isolation.
 
 V3 (XBOW Level):
   Multi-agent, source code analysis,
@@ -29,36 +29,36 @@ V3 (XBOW Level):
 
 ## V1 — Capstone Release
 
-**Hedef:** 3 araçla tam çalışan, plugin'lere açık otonom pentest botu.
+**Goal:** A fully working, plugin-extensible autonomous pentest bot with 3 tools.
 
-### Core Özellikler
+### Core Features
 
 - [x] ReAct agent loop (Reason → Act → Observe → Reflect)
-- [ ] **ToolRegistry** — plugin loader altyapısı (core tool'lar built-in)
-- [ ] Nmap port & servis tarama
-- [ ] SearchSploit exploit arama
-- [ ] Metasploit RPC exploit çalıştırma
-- [ ] OpenRouter (Claude) + Ollama LLM desteği
-- [ ] Full Auto + Ask Before Exploit modları
-- [ ] 10 safety guardrail + kill switch
+- [ ] **ToolRegistry** — plugin loader infrastructure (core tools built-in)
+- [ ] Nmap port & service scanning
+- [ ] SearchSploit exploit search
+- [ ] Metasploit RPC exploit execution
+- [ ] OpenRouter (Claude) + Ollama LLM support
+- [ ] Full Auto + Ask Before Exploit modes
+- [ ] 10 safety guardrails + kill switch
 - [ ] Full audit logging
-- [ ] SQLite veritabanı + knowledge base
+- [ ] SQLite database + knowledge base
 - [ ] Session memory (chat history)
 - [ ] Web UI — real-time streaming (WebSocket)
-- [ ] PDF/HTML rapor + CVSS puanlama
-- [ ] IP ve CIDR hedefleme
+- [ ] PDF/HTML report + CVSS scoring
+- [ ] IP and CIDR targeting
 
-### V1 Scope Sınırları (Kasıtlı)
+### V1 Scope Boundaries (Intentional)
 
-- **Sadece network-level** saldırı — web app tarama YOK
-- **Tek agent** — paralel execution YOK
-- **Host üzerinde çalışır** — Docker izolasyonu YOK
-- **Plugin sistemi hazır** ama `/plugins/` klasörü **boş**
-- ShellTool **YOK** (güvenlik riski)
+- **Network-level attacks only** — no web app scanning
+- **Single agent** — no parallel execution
+- **Runs on host** — no Docker isolation
+- **Plugin system ready** but `/plugins/` directory is **empty**
+- ShellTool **absent** (security risk)
 
-### V1 Araçlar
+### V1 Tools
 
-| Tool                  | Dosya                        | Kategori       |
+| Tool                  | File                         | Category       |
 | --------------------- | ---------------------------- | -------------- |
 | `nmap_scan`           | `tools/nmap_tool.py`         | recon          |
 | `searchsploit_search` | `tools/searchsploit_tool.py` | exploit-search |
@@ -68,29 +68,29 @@ V3 (XBOW Level):
 
 ## V2 — Post-Capstone: Web Testing Plugins
 
-**Hedef:** Plugin sistemiyle web uygulama saldırı kabiliyetleri ekle.
+**Goal:** Add web application attack capabilities via the plugin system.
 
-### Yeni Plugin'ler (her biri bağımsız PR)
+### New Plugins (each as an independent PR)
 
 - [ ] `web_scanner` plugin — XSS, SQLi, SSRF (Playwright)
-- [ ] `nuclei_scanner` plugin — Template-based tarama
+- [ ] `nuclei_scanner` plugin — Template-based scanning
 - [ ] `gobuster` plugin — Directory brute force
 - [ ] `interactsh` plugin — Blind injection (OOB callbacks)
-- [ ] `custom_payload` plugin — LLM exploit script yazar
+- [ ] `custom_payload` plugin — LLM writes exploit scripts
 
-### Core Geliştirmeler
+### Core Improvements
 
-- [ ] **Self-Correction** — Başarısız exploit → farklı strateji dene
-- [ ] **Internal Reviewer** — İkinci LLM bulguları doğrular (false positive azaltır)
-- [ ] **Docker izolasyonu** — Tool'lar container içinde çalışır
-- [ ] **Multi-target parallel** — Birden fazla host aynı anda
-- [ ] **Domain/URL support** — IP dışı hedefler
-- [ ] **SARIF output** — Standart zafiyet rapor formatı
-- [ ] **PoC generation** — Her bulgu için tekrarlanabilir kanıt
-- [ ] **Network proxying** — Tam trafik izleme
-- [ ] **Vector search (RAG)** — Daha akıllı knowledge base
+- [ ] **Self-Correction** — Failed exploit → try a different strategy
+- [ ] **Internal Reviewer** — Second LLM validates findings (reduces false positives)
+- [ ] **Docker isolation** — Tools run inside containers
+- [ ] **Multi-target parallel** — Multiple hosts at the same time
+- [ ] **Domain/URL support** — Non-IP targets
+- [ ] **SARIF output** — Standard vulnerability report format
+- [ ] **PoC generation** — Reproducible proof for every finding
+- [ ] **Network proxying** — Full traffic monitoring
+- [ ] **Vector search (RAG)** — Smarter knowledge base
 
-### V2 Araçlar (plugin olarak gelir)
+### V2 Tools (delivered as plugins)
 
 ```
 plugins/
@@ -103,61 +103,61 @@ plugins/
 
 ---
 
-## V3 — XBOW Seviyesi
+## V3 — XBOW Level
 
-**Hedef:** Üretim kalitesi açık kaynak araç.
+**Goal:** Production-quality open-source tool.
 
-### Yeni Özellikler
+### New Features
 
-- [ ] **Coordinator + Solver mimarisi** — Meta-agent özel çözücüler başlatır
-- [ ] **İzole attack makineleri** — Her solver kendi container'ında
-- [ ] **Source code analizi** — White-box testing (Semgrep + LLM)
-- [ ] **Zero-day keşfi** — Novel zafiyet üzerine akıl yürütme
-- [ ] **Custom tool generation** — LLM anında tool oluşturur
-- [ ] **Sürekli öğrenme** — Her kampanyadan gelişme
-- [ ] **CI/CD entegrasyonu** — GitHub Actions, GitLab CI plugin'leri
-- [ ] **Bug bounty çıktısı** — HackerOne uyumlu rapor
-- [ ] **Always-on monitoring** — Sürekli güvenlik testi
-- [ ] Bulut ortamları (AWS, Azure, GCP)
+- [ ] **Coordinator + Solver architecture** — Meta-agent spawns specialized solvers
+- [ ] **Isolated attack machines** — Each solver in its own container
+- [ ] **Source code analysis** — White-box testing (Semgrep + LLM)
+- [ ] **Zero-day discovery** — Reasoning about novel vulnerabilities
+- [ ] **Custom tool generation** — LLM creates tools on the fly
+- [ ] **Continuous learning** — Improvement across campaigns
+- [ ] **CI/CD integration** — GitHub Actions, GitLab CI plugins
+- [ ] **Bug bounty output** — HackerOne-compatible report
+- [ ] **Always-on monitoring** — Continuous security testing
+- [ ] Cloud environments (AWS, Azure, GCP)
 
 ---
 
-## Opsiyonel: Defense Module
+## Optional: Defense Module
 
-> Ana ürün değil — isteğe bağlı Blue Team eki.
+> Not the main product — an optional Blue Team add-on.
 
 ```bash
-# Attack mode (ana kullanım)
+# Attack mode (primary use)
 python main.py --target 192.168.1.0/24 --mode full_auto
 
-# Defense mode (opsiyonel, ayrı başlatılır)
+# Defense mode (optional, started separately)
 sudo python main.py --mode defend --interface eth0 --protect-network 192.168.1.0/24
 ```
 
-Defense module ayrı bir process olarak çalışır ve ana attack workflow'unu etkilemez.  
-Detay: [07_NETWORK_DEFENSE_MODULE.md](07_NETWORK_DEFENSE_MODULE.md)
+The Defense Module runs as a separate process and does not affect the main attack workflow.
+Details: [07_NETWORK_DEFENSE_MODULE.md](07_NETWORK_DEFENSE_MODULE.md)
 
 ---
 
-## Timeline (Esnek)
+## Timeline (Flexible)
 
 ```
-2025 Q1-Q2   V1 Geliştirme (Capstone)
-             └── Core agent, 3 tool, ToolRegistry, safety, web UI
+2025 Q1-Q2   V1 Development (Capstone)
+             └── Core agent, 3 tools, ToolRegistry, safety, web UI
 
-2025 Q3-Q4   V2 Geliştirme (Community)
-             └── Web plugin'leri, Docker, multi-target, akıllı AI
+2025 Q3-Q4   V2 Development (Community)
+             └── Web plugins, Docker, multi-target, smarter AI
 
-2026+        V3 Geliştirme (XBOW Seviyesi)
-             └── Multi-agent, source analiz, zero-day
+2026+        V3 Development (XBOW Level)
+             └── Multi-agent, source analysis, zero-day
 
-Sürekli      Açık Kaynak Topluluk
-             └── Bug bounty'ler, katkılar, yeni plugin'ler
+Ongoing      Open Source Community
+             └── Bug bounties, contributions, new plugins
 ```
 
 ---
 
-## V1 → XBOW Köprüsü
+## V1 → XBOW Bridge
 
 ```
 V1 (Capstone)          V2 (Growth)              V3 (XBOW Level)
@@ -170,16 +170,16 @@ Host Exec       →      + Docker Isolation   →    + Isolated Attack Machines
 1 Target        →      + Multi-Target       →    + Thousands Simultaneous
 SearchSploit    →      + Nuclei + NVD API   →    + Zero-Day Discovery
 PDF Report      →      + SARIF + PoC        →    + Bug Bounty Integration
-Plugin Altyapı  →      + Plugin Ekosistemi  →    + Plugin Marketplace
+Plugin System   →      + Plugin Ecosystem   →    + Plugin Marketplace
 ```
 
 ---
 
-## Açık Kaynak Planı
+## Open Source Plan
 
-### Lisans: MIT
+### License: MIT
 
-### Depo Yapısı (yayınlandığında)
+### Repository Structure (at release)
 
 ```
 AEGIS/
@@ -187,18 +187,18 @@ AEGIS/
 ├── LICENSE
 ├── CONTRIBUTING.md
 ├── CHANGELOG.md
-├── PLUGIN_GUIDE.md     ← Plugin yazma kılavuzu
+├── PLUGIN_GUIDE.md     ← Plugin authoring guide
 ├── docs/
 ├── src/
-├── plugins/            ← Community plugin'leri buraya
+├── plugins/            ← Community plugins go here
 ├── tests/
 ├── docker/
 └── .github/workflows/
 ```
 
-### Topluluk Hedefleri
+### Community Goals
 
-- Güvenlik araştırmacılarından katkı al
-- Plugin ekosistemi (herkes yeni saldırı tipi yazabilir)
-- Dökümantasyon wiki
-- Discord/Matrix topluluğu
+- Receive contributions from security researchers
+- Plugin ecosystem (anyone can write a new attack type)
+- Documentation wiki
+- Discord/Matrix community
