@@ -1,197 +1,199 @@
-# AEGIS — Öğrenme Yol Haritası
+# AEGIS — Learning Roadmap
 
-Projeyi yaparken öğreneceğin konular ve her konuda odaklanman gereken spesifik başlıklar.
-Sıra önemli — her konu bir sonrakinin temeli.
+Topics you will learn while building this project, and the specific areas to focus on within each topic.
+Order matters — each topic is the foundation for the next.
 
 ---
 
 ## 1. OOP — Object-Oriented Programming
 
-**Projedeki yeri:** `tools/base_tool.py`, `tools/nmap_tool.py`, `core/agent.py`, her yer.
+**Where it appears in the project:** `tools/base_tool.py`, `tools/nmap_tool.py`, `core/agent.py`, and nearly everywhere.
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- **Class tanımlamak** — `class MyClass:` sözdizimi, `__init__` metodu, `self`
-- **Instance vs class attribute** — `self.x` ile `MyClass.x` farkı
-- **Method tanımlamak** — instance method, ne zaman `self` alır
-- **Inheritance (kalıtım)** — `class Child(Parent):` sözdizimi, parent'tan ne miras kalır
-- **`super()`** — parent'ın `__init__`'ini çağırmak
-- **Abstract class + abstractmethod** — `from abc import ABC, abstractmethod` — child class'ı bir metodu implement etmeye zorlamak
-- **`@property` decorator** — metodu attribute gibi çağırmak (`tool.metadata` vs `tool.metadata()`)
-- **Dunder metodlar** — `__str__`, `__repr__`, `__len__` (ne olduğunu bilmek yeterli)
+- **Defining a class** — `class MyClass:` syntax, `__init__` method, `self`
+- **Instance vs class attribute** — difference between `self.x` and `MyClass.x`
+- **Defining methods** — instance methods, when they take `self`
+- **Inheritance** — `class Child(Parent):` syntax, what gets inherited from the parent
+- **`super()`** — calling the parent's `__init__`
+- **Abstract class + abstractmethod** — `from abc import ABC, abstractmethod` — forcing child classes to implement specific methods
+- **`@property` decorator** — calling a method like an attribute (`tool.metadata` vs `tool.metadata()`)
+- **Dunder methods** — `__str__`, `__repr__`, `__len__` (knowing they exist is enough)
 
-### Projedeki somut kullanım:
+### Concrete usage in the project:
+
 ```
 BaseTool (abstract)
     ├── NmapTool (concrete)
     ├── SearchSploitTool (concrete)
     └── MetasploitTool (concrete)
 ```
-`BaseTool` bir kontrat tanımlar: her tool `metadata` property'sine ve `execute()` metoduna sahip olmak zorunda.
-Bunu bilmeden `tools/` klasörünü yazamazsın.
+
+`BaseTool` defines a contract: every tool must have a `metadata` property and an `execute()` method.
+Without understanding this, you cannot write the `tools/` directory.
 
 ---
 
 ## 2. Type Hints + Pydantic
 
-**Projedeki yeri:** `models/`, `config.py`, `tools/base_tool.py`
+**Where it appears:** `models/`, `config.py`, `tools/base_tool.py`
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- **Temel type hints** — `str`, `int`, `bool`, `list[str]`, `dict[str, int]`, `tuple`
-- **Optional** — `str | None` veya `Optional[str]`
-- **Pydantic BaseModel** — class tanımlamak, field validation, default değerler
-- **Field() ile validation** — `Field(gt=0)`, `Field(default=...)`, `Field(description=...)`
-- **`.model_dump()`** — modeli dict'e çevirmek
-- **Nested model** — bir modelin içinde başka model
-- **`@validator` / `@field_validator`** — özel validation kuralı yazmak
+- **Basic type hints** — `str`, `int`, `bool`, `list[str]`, `dict[str, int]`, `tuple`
+- **Optional** — `str | None` or `Optional[str]`
+- **Pydantic BaseModel** — defining a class, field validation, default values
+- **Field() for validation** — `Field(gt=0)`, `Field(default=...)`, `Field(description=...)`
+- **`.model_dump()`** — converting a model to a dict
+- **Nested model** — a model containing another model
+- **`@validator` / `@field_validator`** — writing custom validation rules
 
 ---
 
 ## 3. async/await
 
-**Projedeki yeri:** Projenin %90'ı. FastAPI, aiosqlite, httpx hepsi async.
+**Where it appears:** 90% of the project. FastAPI, aiosqlite, httpx — all async.
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- **`async def` ile `def` farkı** — neden async kullanıyoruz
-- **`await` ne zaman yazılır** — sadece async fonksiyon çağrısı öncesi
-- **`asyncio.run()`** — sync koddan async kodu başlatmak
+- **`async def` vs `def`** — why we use async
+- **When to write `await`** — only before async function calls
+- **`asyncio.run()`** — starting async code from synchronous code
 - **`async with`** — async context manager (httpx client, db connection)
-- **`async for`** — async generator'lardan okumak
-- **`asyncio.gather()`** — birden fazla async işi aynı anda çalıştırmak
-- **Event loop kavramı** — arka planda ne oluyor (derin bilmek şart değil, kavramsal yeterli)
+- **`async for`** — reading from async generators
+- **`asyncio.gather()`** — running multiple async tasks at the same time
+- **Event loop concept** — what's happening under the hood (conceptual understanding is enough)
 
 ---
 
-## 4. subprocess — Dış Komut Çalıştırmak
+## 4. subprocess — Running External Commands
 
-**Projedeki yeri:** `tools/nmap_tool.py`, `tools/searchsploit_tool.py`
+**Where it appears:** `tools/nmap_tool.py`, `tools/searchsploit_tool.py`
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- **`subprocess.run()`** — basit komut çalıştırma
-- **`capture_output=True`** — stdout/stderr'ı yakalamak
-- **`check=True`** — hata durumunda exception fırlatmak
-- **`asyncio.create_subprocess_exec()`** — async subprocess (projede bu kullanılıyor)
-- **stdout/stderr okumak** — `.communicate()` ile
-- **Timeout** — komutu belirli süre sonra öldürmek
-- **Güvenlik:** shell injection nedir, neden `shell=True` tehlikeli
+- **`subprocess.run()`** — running a simple command
+- **`capture_output=True`** — capturing stdout/stderr
+- **`check=True`** — raising an exception on error
+- **`asyncio.create_subprocess_exec()`** — async subprocess (used in this project)
+- **Reading stdout/stderr** — via `.communicate()`
+- **Timeout** — killing a command after a set time
+- **Security:** what shell injection is, why `shell=True` is dangerous
 
 ---
 
 ## 5. JSON + XML Parsing
 
-**Projedeki yeri:** `tools/nmap_tool.py` (XML), LLM yanıtları (JSON)
+**Where it appears:** `tools/nmap_tool.py` (XML), LLM responses (JSON)
 
-### Odaklanman gerekenler:
+### What to focus on:
 
 **JSON:**
-- `json.loads()` — string'den dict
-- `json.dumps()` — dict'ten string
-- Nested JSON'a erişmek — `data["key"]["subkey"]`
-- `.get()` ile güvenli erişim
+- `json.loads()` — string to dict
+- `json.dumps()` — dict to string
+- Accessing nested JSON — `data["key"]["subkey"]`
+- Safe access with `.get()`
 
-**XML (Nmap çıktısı için):**
+**XML (for Nmap output):**
 - `xml.etree.ElementTree` — stdlib XML parser
-- `ET.fromstring()` — string'den parse
-- `.find()`, `.findall()` — eleman bulmak
-- `.get("attribute")` — attribute okumak
-- Nmap XML yapısını tanımak: `<host>`, `<port>`, `<service>` elemanları
+- `ET.fromstring()` — parse from string
+- `.find()`, `.findall()` — finding elements
+- `.get("attribute")` — reading attributes
+- Knowing the Nmap XML structure: `<host>`, `<port>`, `<service>` elements
 
 ---
 
-## 6. HTTP API Çağrısı (httpx)
+## 6. HTTP API Calls (httpx)
 
-**Projedeki yeri:** `core/llm_client.py` — OpenRouter ve Ollama ile iletişim
+**Where it appears:** `core/llm_client.py` — communicating with OpenRouter and Ollama
 
-### Odaklanman gerekenler:
+### What to focus on:
 
 - **`httpx.AsyncClient`** — async HTTP client
-- **`client.post(url, json=..., headers=...)`** — POST isteği göndermek
-- **Response okumak** — `.json()`, `.status_code`, `.text`
-- **Header'lar** — Authorization, Content-Type
-- **Timeout ayarlamak**
-- **HTTPStatusError** — hatalı response'u yakalamak
-- **Retry mantığı** — başarısız isteği tekrar denemek
+- **`client.post(url, json=..., headers=...)`** — sending a POST request
+- **Reading the response** — `.json()`, `.status_code`, `.text`
+- **Headers** — Authorization, Content-Type
+- **Setting timeouts**
+- **HTTPStatusError** — catching a bad response
+- **Retry logic** — retrying a failed request
 
 ---
 
 ## 7. SQL + SQLite (aiosqlite)
 
-**Projedeki yeri:** `database/`
+**Where it appears:** `database/`
 
-### Odaklanman gerekenler:
+### What to focus on:
 
 **SQL:**
-- `CREATE TABLE` — tablo oluşturmak, kolon tipleri (`TEXT`, `INTEGER`, `REAL`, `BLOB`)
-- `INSERT INTO` — kayıt eklemek
-- `SELECT ... WHERE` — kayıt sorgulamak
-- `UPDATE ... SET ... WHERE` — kayıt güncellemek
-- `JOIN` — iki tabloyu birleştirmek
-- `PRIMARY KEY`, `FOREIGN KEY` — ilişki kurmak
+- `CREATE TABLE` — creating a table, column types (`TEXT`, `INTEGER`, `REAL`, `BLOB`)
+- `INSERT INTO` — inserting a record
+- `SELECT ... WHERE` — querying records
+- `UPDATE ... SET ... WHERE` — updating a record
+- `JOIN` — joining two tables
+- `PRIMARY KEY`, `FOREIGN KEY` — establishing relationships
 - `LIKE`, `ORDER BY`, `LIMIT`
 
 **aiosqlite:**
-- `async with aiosqlite.connect("db.sqlite") as db:` — bağlantı açmak
-- `await db.execute(sql, params)` — sorgu çalıştırmak (parametre binding — SQL injection önleme)
+- `async with aiosqlite.connect("db.sqlite") as db:` — opening a connection
+- `await db.execute(sql, params)` — running a query (parameter binding — prevents SQL injection)
 - `await db.fetchall()`, `await db.fetchone()`
-- `await db.commit()` — değişiklikleri kaydetmek
+- `await db.commit()` — saving changes
 
 ---
 
-## 8. ipaddress Modülü
+## 8. ipaddress Module
 
-**Projedeki yeri:** `core/safety.py` — scope kontrolü
+**Where it appears:** `core/safety.py` — scope enforcement
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- `ipaddress.ip_address("192.168.1.5")` — IP objesi
-- `ipaddress.ip_network("192.168.1.0/24")` — network objesi
-- `ip in network` — IP'nin scope içinde olup olmadığı
-- CIDR notation nedir (`/24`, `/16`, `/8`)
-- Private IP aralıkları: `10.x`, `172.16-31.x`, `192.168.x`
+- `ipaddress.ip_address("192.168.1.5")` — IP object
+- `ipaddress.ip_network("192.168.1.0/24")` — network object
+- `ip in network` — checking whether an IP is within scope
+- What CIDR notation means (`/24`, `/16`, `/8`)
+- Private IP ranges: `10.x`, `172.16-31.x`, `192.168.x`
 
 ---
 
 ## 9. ReAct Agent Pattern
 
-**Projedeki yeri:** `core/agent.py` — projenin kalbi
+**Where it appears:** `core/agent.py` — the heart of the project
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- **ReAct döngüsü:** Reason → Act → Observe → Reflect
-- **Tool calling pattern** — LLM'in JSON ile tool seçmesi
-- **State yönetimi** — agent hangi aşamada, ne biliyor
-- **Termination condition** — agent ne zaman durur
-- **Error recovery** — tool başarısız olursa ne yapılır
-- **Kavramsal okuma:** LangChain veya LlamaIndex dökümanlarındaki "ReAct agent" açıklamaları
+- **The ReAct loop:** Reason → Act → Observe → Reflect
+- **Tool calling pattern** — the LLM selecting a tool via JSON
+- **State management** — what phase the agent is in, what it knows
+- **Termination condition** — when does the agent stop
+- **Error recovery** — what happens when a tool fails
+- **Conceptual reading:** "ReAct agent" explanations in LangChain or LlamaIndex docs
 
 ---
 
 ## 10. Prompt Engineering
 
-**Projedeki yeri:** `core/prompts.py`
+**Where it appears:** `core/prompts.py`
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- **System prompt** nedir, ne işe yarar
-- **Few-shot prompting** — örnekle öğretmek
-- **JSON output forcing** — LLM'i belirli formatta cevap vermeye zorlamak
-- **Tool description yazımı** — LLM hangi tool'u ne zaman kullanacağını nasıl anlar
-- **Context window yönetimi** — token limiti, sliding window
+- **What a system prompt is** and what it does
+- **Few-shot prompting** — teaching by example
+- **Forcing JSON output** — making the LLM respond in a specific format
+- **Writing tool descriptions** — how the LLM understands which tool to use and when
+- **Context window management** — token limits, sliding window
 
 ---
 
-## 11. FastAPI (Web backend)
+## 11. FastAPI (Web Backend)
 
-**Projedeki yeri:** `web/`
+**Where it appears:** `web/`
 
-### Odaklanman gerekenler:
+### What to focus on:
 
-- **`@app.get()`, `@app.post()`** — endpoint tanımlamak
+- **`@app.get()`, `@app.post()`** — defining endpoints
 - **Path parameters, query parameters, request body**
-- **Pydantic ile request/response validation**
+- **Request/response validation with Pydantic**
 - **Dependency injection** — `Depends()`
 - **CORS middleware**
 - **WebSocket** — `@app.websocket()`, `await ws.send_text()`, `await ws.receive_text()`
@@ -199,19 +201,19 @@ Bunu bilmeden `tools/` klasörünü yazamazsın.
 
 ---
 
-## Onay Sirasi (Tavsiye)
+## Recommended Order
 
 ```
-[1] OOP                  ← simdi
+[1] OOP                  ← start here
 [2] Type hints + Pydantic
 [3] async/await
 [4] subprocess + JSON/XML
 [5] HTTP API (httpx)
 [6] SQL + aiosqlite
-[7] ipaddress modulu
-[8] ReAct pattern (kavramsal)
+[7] ipaddress module
+[8] ReAct pattern (conceptual)
 [9] Prompt engineering
 [10] FastAPI
 ```
 
-Her konuyu bitirdikten sonra projede o konunun kullanıldığı dosyayı birlikte yazacagiz.
+After completing each topic, we will write the corresponding project file together.
