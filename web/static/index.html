@@ -83,21 +83,20 @@
       <div class="flex flex-col gap-4">
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-[11px] font-display font-bold text-secondary-text uppercase tracking-widest">Target IP</label>
-          <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm focus:border-primary transition-colors" placeholder="0.0.0.0" type="text"/>
+          <label class="text-[11px] font-display font-bold text-secondary-text uppercase tracking-widest">Target IP / CIDR</label>
+          <input id="mission-target" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm focus:border-primary transition-colors" placeholder="192.168.1.0/24" type="text"/>
         </div>
 
         <div class="flex flex-col gap-1.5">
           <label class="text-[11px] font-display font-bold text-secondary-text uppercase tracking-widest">Mode</label>
-          <select class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm appearance-none cursor-pointer">
-            <option>AUTOMATED_DISCOVERY</option>
-            <option>STEALTH_RECON</option>
-            <option>AGGRESSIVE_EXPLOIT</option>
-            <option>ASK_BEFORE_EXPLOIT</option>
+          <select id="mission-mode" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm appearance-none cursor-pointer">
+            <option value="scan_only">SCAN ONLY</option>
+            <option value="full_auto">FULL AUTO</option>
+            <option value="ask_before_exploit">ASK BEFORE EXPLOIT</option>
           </select>
         </div>
 
-        <button class="bg-primary text-black font-display font-bold text-sm py-2.5 px-4 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all mt-2">
+        <button id="start-mission-btn" class="bg-primary text-black font-display font-bold text-sm py-2.5 px-4 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all mt-2">
           Start Mission
         </button>
       </div>
@@ -106,19 +105,19 @@
       <div class="grid grid-cols-2 gap-2 mt-4">
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Vulns</p>
-          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
+          <p id="stat-vulns" class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Hosts</p>
-          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
+          <p id="stat-hosts" class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Ports</p>
-          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
+          <p id="stat-ports" class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
           <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Uptime</p>
-          <p class="mono-text text-2xl font-bold text-secondary-text">—</p>
+          <p id="stat-uptime" class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
       </div>
     </div>
@@ -175,14 +174,14 @@
         <button id="mobile-hamburger" onclick="toggleMobileSidebar()" class="w-9 h-9 flex items-center justify-center text-secondary-text hover:text-primary transition-colors shrink-0">
           <span class="material-symbols-outlined text-[22px]">menu</span>
         </button>
-        <div class="w-2 h-2 rounded-full bg-border-color shrink-0"></div>
-        <span class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline text-secondary-text">No Mission</span>
+        <div id="mission-status-dot" class="w-2 h-2 rounded-full bg-border-color shrink-0 transition-colors"></div>
+        <span id="mission-status-text" class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline text-secondary-text">No Mission</span>
       </div>
       <div class="flex items-center gap-2 md:gap-4">
-        <button class="hidden md:flex border border-danger text-danger font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
+        <button id="emergency-stop-btn" class="hidden md:flex border border-danger text-danger font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
           Emergency Stop
         </button>
-        <button class="md:hidden border border-danger text-danger font-display font-bold text-[9px] py-1 px-2.5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
+        <button id="emergency-stop-btn-mobile" class="md:hidden border border-danger text-danger font-display font-bold text-[9px] py-1 px-2.5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
           Stop
         </button>
         <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
@@ -335,7 +334,7 @@
       </div>
 
       <!-- Terminal body: BASH -->
-      <div class="console-body flex-1 p-6 font-mono text-xs text-primary overflow-y-auto scrollbar-hide flex flex-col gap-1" data-tab="bash">
+      <div id="console-bash" class="console-body flex-1 p-6 font-mono text-xs text-primary overflow-y-auto scrollbar-hide flex flex-col gap-1" data-tab="bash">
         <div class="flex gap-2 mb-2">
           <span class="text-secondary-text">[2023-11-24 14:42:01]</span>
           <span>root@pentest-ai:~# nmap -sV -T4 192.168.1.55</span>
@@ -421,10 +420,8 @@
       <div class="px-8 py-4 bg-surface border-b border-border-color flex items-center gap-4 shrink-0 flex-wrap">
         <div class="flex items-center gap-2">
           <span class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Session</span>
-          <select class="bg-background-dark border border-border-color text-slate-100 px-3 py-1.5 text-xs appearance-none cursor-pointer mono-text">
-            <option>ALL SESSIONS</option>
-            <option>ABC-123 (current)</option>
-            <option>XYZ-456</option>
+          <select id="audit-session-select" class="bg-background-dark border border-border-color text-slate-100 px-3 py-1.5 text-xs appearance-none cursor-pointer mono-text">
+            <option value="">ALL SESSIONS</option>
           </select>
         </div>
         <div class="flex items-center gap-2">
@@ -439,7 +436,7 @@
         </div>
         <div class="flex-1 relative min-w-[200px]">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px]">search</span>
-          <input class="w-full bg-background-dark border border-border-color text-slate-100 pl-9 pr-3 py-1.5 text-xs mono-text" placeholder="Search logs..." type="text"/>
+          <input id="audit-search-input" class="w-full bg-background-dark border border-border-color text-slate-100 pl-9 pr-3 py-1.5 text-xs mono-text" placeholder="Search logs..." type="text"/>
         </div>
         <button class="flex items-center gap-2 border border-border-color px-4 py-1.5 text-secondary-text hover:border-primary hover:text-primary transition-colors text-[11px] font-bold uppercase tracking-wider">
           <span class="material-symbols-outlined text-[14px]">download</span>
@@ -460,7 +457,7 @@
               <th class="text-left px-4 py-3 text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest w-[100px]">Status</th>
             </tr>
           </thead>
-          <tbody class="mono-text text-xs">
+          <tbody id="audit-table-body" class="mono-text text-xs">
 
             <!-- SESSION_START -->
             <tr class="border-b border-border-color hover:bg-surface transition-colors">
@@ -558,7 +555,7 @@
 
       <!-- Footer pagination -->
       <div class="px-8 py-3 bg-surface border-t border-border-color flex items-center justify-between shrink-0">
-        <span class="mono-text text-[10px] text-secondary-text">Showing 9 of 9 entries</span>
+        <span id="audit-count" class="mono-text text-[10px] text-secondary-text">Showing 0 entries</span>
         <div class="flex items-center gap-1">
           <button class="w-7 h-7 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
             <span class="material-symbols-outlined text-[14px]">chevron_left</span>
@@ -614,7 +611,7 @@
                     </div>
                     <span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">Required</span>
                   </div>
-                  <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="192.168.1.0/24" type="text" value="192.168.1.0/24"/>
+                  <input id="cfg-safety-scope" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="192.168.1.0/24" type="text" value="192.168.1.0/24"/>
                 </div>
               </div>
 
@@ -628,7 +625,7 @@
                       <p class="text-[10px] text-secondary-text mt-0.5">Port range that may be scanned</p>
                     </div>
                   </div>
-                  <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="1-65535" type="text" value="1-65535"/>
+                  <input id="cfg-safety-ports" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="1-65535" type="text" value="1-65535"/>
                 </div>
               </div>
 
@@ -640,7 +637,7 @@
                     <p class="text-xs font-bold uppercase tracking-wider">Excluded IPs</p>
                     <p class="text-[10px] text-secondary-text mt-0.5">Comma-separated IPs to always skip (e.g. gateway, DNS)</p>
                   </div>
-                  <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="192.168.1.1, 8.8.8.8" type="text"/>
+                  <input id="cfg-safety-excluded-ips" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="192.168.1.1, 8.8.8.8" type="text"/>
                 </div>
               </div>
 
@@ -652,7 +649,7 @@
                     <p class="text-xs font-bold uppercase tracking-wider">Excluded Ports</p>
                     <p class="text-[10px] text-secondary-text mt-0.5">Ports that will never be probed</p>
                   </div>
-                  <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="443, 8443" type="text"/>
+                  <input id="cfg-safety-excluded-ports" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" placeholder="443, 8443" type="text"/>
                 </div>
               </div>
 
@@ -664,7 +661,7 @@
                   <p class="text-[10px] text-secondary-text mt-0.5">Disable to run scan-only mode without any exploitation</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input type="checkbox" class="sr-only peer" checked/>
+                  <input id="cfg-safety-allow-exploits" type="checkbox" class="sr-only peer" checked/>
                   <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
                 </label>
               </div>
@@ -677,7 +674,7 @@
                   <p class="text-[10px] text-secondary-text mt-0.5">Prevent any denial-of-service category exploits</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input type="checkbox" class="sr-only peer" checked/>
+                  <input id="cfg-safety-block-dos" type="checkbox" class="sr-only peer" checked/>
                   <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
                 </label>
               </div>
@@ -690,7 +687,7 @@
                   <p class="text-[10px] text-secondary-text mt-0.5">Block exploits that modify or delete data on targets</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input type="checkbox" class="sr-only peer" checked/>
+                  <input id="cfg-safety-block-destructive" type="checkbox" class="sr-only peer" checked/>
                   <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
                 </label>
               </div>
@@ -703,11 +700,11 @@
                     <p class="text-xs font-bold uppercase tracking-wider">Max Exploit Severity</p>
                     <p class="text-[10px] text-secondary-text mt-0.5">Maximum CVSS category the agent may attempt</p>
                   </div>
-                  <select class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text appearance-none cursor-pointer">
-                    <option>LOW</option>
-                    <option>MEDIUM</option>
-                    <option>HIGH</option>
-                    <option selected>CRITICAL</option>
+                  <select id="cfg-safety-max-severity" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text appearance-none cursor-pointer">
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="CRITICAL" selected>CRITICAL</option>
                   </select>
                 </div>
               </div>
@@ -721,7 +718,7 @@
                     <p class="text-[10px] text-secondary-text mt-0.5">Auto-stop after N seconds (0 = no limit)</p>
                   </div>
                   <div class="flex items-center gap-3">
-                    <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text w-40" type="number" value="7200" min="0"/>
+                    <input id="cfg-safety-time-limit" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text w-40" type="number" value="7200" min="0"/>
                     <span class="text-[10px] text-secondary-text">seconds (default: 7200 = 2h)</span>
                   </div>
                 </div>
@@ -736,7 +733,7 @@
                     <p class="text-[10px] text-secondary-text mt-0.5">Max requests per second — prevents network flooding</p>
                   </div>
                   <div class="flex items-center gap-3">
-                    <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text w-40" type="number" value="50" min="1" max="200"/>
+                    <input id="cfg-safety-rate-limit" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text w-40" type="number" value="50" min="1" max="200"/>
                     <span class="text-[10px] text-secondary-text">req/s (default: 50)</span>
                   </div>
                 </div>
@@ -857,22 +854,22 @@
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">RPC Host</label>
-                <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" value="127.0.0.1"/>
+                <input id="cfg-msf-host" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" value="127.0.0.1"/>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">RPC Port</label>
-                <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="number" value="55552"/>
+                <input id="cfg-msf-port" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="number" value="55553"/>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">RPC Username</label>
-                <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" value="msf"/>
+                <input id="cfg-msf-user" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" value="msf" readonly/>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">RPC Password</label>
-                <input class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="password" placeholder="••••••••"/>
+                <input id="cfg-msf-pass" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="password" placeholder="••••••••"/>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex items-center gap-4 col-span-2">
@@ -881,7 +878,7 @@
                   <p class="text-[10px] text-secondary-text mt-0.5">Use encrypted connection to Metasploit RPC server</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input type="checkbox" class="sr-only peer" checked/>
+                  <input id="cfg-msf-ssl" type="checkbox" class="sr-only peer"/>
                   <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
                 </label>
               </div>
@@ -1028,18 +1025,18 @@
         <div class="flex items-center gap-3">
           <span class="material-symbols-outlined text-primary text-[18px]">summarize</span>
           <span class="font-display font-bold text-sm tracking-widest uppercase">Pentest Report</span>
-          <span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[8px] font-bold uppercase mono-text">Session ABC-123</span>
+          <span id="report-session-badge" class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[8px] font-bold uppercase mono-text">No Session</span>
         </div>
         <div class="flex items-center gap-3">
           <button id="generate-report-btn" class="flex items-center gap-2 bg-surface border border-border-color px-4 py-1.5 text-secondary-text hover:border-primary hover:text-primary transition-colors text-[11px] font-bold uppercase tracking-wider">
             <span class="material-symbols-outlined text-[14px]">refresh</span>
-            Regenerate
+            Generate Report
           </button>
-          <button class="flex items-center gap-2 border border-border-color px-4 py-1.5 text-secondary-text hover:border-primary hover:text-primary transition-colors text-[11px] font-bold uppercase tracking-wider">
+          <button id="export-html-btn" class="flex items-center gap-2 border border-border-color px-4 py-1.5 text-secondary-text hover:border-primary hover:text-primary transition-colors text-[11px] font-bold uppercase tracking-wider">
             <span class="material-symbols-outlined text-[14px]">download</span>
             Export HTML
           </button>
-          <button class="flex items-center gap-2 bg-primary text-black font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
+          <button id="download-pdf-btn" class="flex items-center gap-2 bg-primary text-black font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
             <span class="material-symbols-outlined text-[14px]">picture_as_pdf</span>
             Download PDF
           </button>
@@ -1048,7 +1045,7 @@
 
       <!-- Scrollable report body -->
       <div class="flex-1 overflow-y-auto scrollbar-hide p-8">
-        <div class="max-w-4xl mx-auto flex flex-col gap-8">
+        <div id="report-content" class="max-w-4xl mx-auto flex flex-col gap-8">
 
           <!-- Report header card -->
           <div class="bg-card border border-border-color p-6 flex flex-col gap-3">
@@ -1260,11 +1257,11 @@
 
           <!-- Bottom export row -->
           <div class="flex justify-end gap-3 pb-4">
-            <button class="flex items-center gap-2 border border-border-color px-5 py-2 text-secondary-text hover:border-primary hover:text-primary transition-colors text-[11px] font-bold uppercase tracking-wider">
+            <button id="export-html-btn-bottom" class="flex items-center gap-2 border border-border-color px-5 py-2 text-secondary-text hover:border-primary hover:text-primary transition-colors text-[11px] font-bold uppercase tracking-wider">
               <span class="material-symbols-outlined text-[14px]">download</span>
               Export HTML
             </button>
-            <button class="flex items-center gap-2 bg-primary text-black font-display font-bold text-sm py-2 px-8 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
+            <button id="download-pdf-btn-bottom" class="flex items-center gap-2 bg-primary text-black font-display font-bold text-sm py-2 px-8 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
               <span class="material-symbols-outlined text-[16px]">picture_as_pdf</span>
               Download PDF
             </button>

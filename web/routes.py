@@ -2,16 +2,39 @@
 REST API routes.
 """
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from config import settings
-from web.stats_state import token_counter
+import asyncio
+import logging
+import subprocess
+import time
+from typing import Optional
+
 import httpx
 import psutil
-import subprocess
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel
+
+from config import SafetyConfig, settings
 from database import db as database
+from database.repositories import (
+    AuditLogRepository,
+    ExploitResultRepository,
+    ScanResultRepository,
+    SessionRepository,
+    VulnerabilityRepository,
+)
+from web.stats_state import token_counter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
+
+# Repositories (shared, stateless)
+_session_repo = SessionRepository()
+_audit_repo = AuditLogRepository()
+_scan_repo = ScanResultRepository()
+_vuln_repo = VulnerabilityRepository()
+_exploit_repo = ExploitResultRepository()
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -54,7 +77,7 @@ async def get_ollama_config():
 
 # ── System Stats ───────────────────────────────────────────────────────────────
 
-def _gpu_percent() -> int | None:
+def _gpu_percent() -> Optional[int]:
     """Try to get GPU utilization via nvidia-smi. Returns None if unavailable."""
     try:
         result = subprocess.run(
@@ -149,7 +172,6 @@ async def set_ollama_config_persisted(body: OllamaSettings):
     if body.base_url.startswith("http"):
         settings.ollama.base_url = body.base_url
     settings.ollama.model = body.model
-    # persist to DB
     await database.set_setting("ollama_base_url", body.base_url)
     await database.set_setting("ollama_model", body.model)
     return {"ok": True}
@@ -193,3 +215,400 @@ async def set_lmstudio_config(body: LMStudioSettings):
     await database.set_setting("lmstudio_base_url", body.base_url)
     await database.set_setting("lmstudio_model", body.model)
     return {"ok": True}
+
+
+# ── Safety Config ─────────────────────────────────────────────────────────────
+
+class SafetyConfigRequest(BaseModel):
+    allowed_cidr: str = "10.0.0.0/8"
+    allowed_port_min: int = 1
+    allowed_port_max: int = 65535
+    excluded_ips: str = ""           # comma-separated string from UI
+    excluded_ports: str = ""         # comma-separated string from UI
+    allow_exploit: bool = True
+    block_dos_exploits: bool = True
+    block_destructive: bool = True
+    max_severity: str = "CRITICAL"   # LOW|MEDIUM|HIGH|CRITICAL
+    session_max_seconds: int = 7200
+    max_requests_per_second: int = 50
+
+
+_SEVERITY_TO_CVSS = {"LOW": 3.9, "MEDIUM": 6.9, "HIGH": 8.9, "CRITICAL": 10.0}
+
+
+@router.get("/config/safety")
+async def get_safety_config():
+    saved = await database.get_all_settings()
+    return {
+        "allowed_cidr": saved.get("safety_allowed_cidr", settings.safety.allowed_cidr),
+        "allowed_port_min": int(saved.get("safety_port_min", settings.safety.allowed_port_min)),
+        "allowed_port_max": int(saved.get("safety_port_max", settings.safety.allowed_port_max)),
+        "excluded_ips": saved.get("safety_excluded_ips", ""),
+        "excluded_ports": saved.get("safety_excluded_ports", ""),
+        "allow_exploit": saved.get("safety_allow_exploit", "true") == "true",
+        "block_dos_exploits": saved.get("safety_block_dos", "true") == "true",
+        "block_destructive": saved.get("safety_block_destructive", "true") == "true",
+        "max_severity": saved.get("safety_max_severity", "CRITICAL"),
+        "session_max_seconds": int(saved.get("safety_time_limit", 7200)),
+        "max_requests_per_second": int(saved.get("safety_rate_limit", 50)),
+    }
+
+
+@router.post("/config/safety")
+async def save_safety_config(body: SafetyConfigRequest):
+    await database.set_setting("safety_allowed_cidr", body.allowed_cidr)
+    await database.set_setting("safety_port_min", str(body.allowed_port_min))
+    await database.set_setting("safety_port_max", str(body.allowed_port_max))
+    await database.set_setting("safety_excluded_ips", body.excluded_ips)
+    await database.set_setting("safety_excluded_ports", body.excluded_ports)
+    await database.set_setting("safety_allow_exploit", "true" if body.allow_exploit else "false")
+    await database.set_setting("safety_block_dos", "true" if body.block_dos_exploits else "false")
+    await database.set_setting("safety_block_destructive", "true" if body.block_destructive else "false")
+    await database.set_setting("safety_max_severity", body.max_severity)
+    await database.set_setting("safety_time_limit", str(body.session_max_seconds))
+    await database.set_setting("safety_rate_limit", str(body.max_requests_per_second))
+
+    # Update live settings
+    settings.safety.allowed_cidr = body.allowed_cidr
+    settings.safety.allowed_port_min = body.allowed_port_min
+    settings.safety.allowed_port_max = body.allowed_port_max
+    settings.safety.excluded_ips = [
+        ip.strip() for ip in body.excluded_ips.split(",") if ip.strip()
+    ]
+    settings.safety.excluded_ports = [
+        int(p.strip()) for p in body.excluded_ports.split(",") if p.strip().isdigit()
+    ]
+    settings.safety.allow_exploit = body.allow_exploit
+    settings.safety.block_dos_exploits = body.block_dos_exploits
+    settings.safety.block_destructive = body.block_destructive
+    settings.safety.max_cvss_score = _SEVERITY_TO_CVSS.get(body.max_severity, 10.0)
+    settings.safety.session_max_seconds = body.session_max_seconds
+    settings.safety.max_requests_per_second = body.max_requests_per_second
+
+    return {"ok": True}
+
+
+# ── Metasploit Config ──────────────────────────────────────────────────────────
+
+class MsfConfigRequest(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = 55553
+    password: str = ""
+    ssl: bool = False
+
+
+@router.get("/config/msf")
+async def get_msf_config():
+    saved = await database.get_all_settings()
+    return {
+        "host": saved.get("msf_host", settings.msf.host),
+        "port": int(saved.get("msf_port", settings.msf.port)),
+        "password": "",  # never return password
+        "ssl": saved.get("msf_ssl", "false") == "true",
+    }
+
+
+@router.post("/config/msf")
+async def save_msf_config(body: MsfConfigRequest):
+    await database.set_setting("msf_host", body.host)
+    await database.set_setting("msf_port", str(body.port))
+    if body.password:
+        await database.set_setting("msf_password", body.password)
+    await database.set_setting("msf_ssl", "true" if body.ssl else "false")
+
+    # Update live settings
+    settings.msf.host = body.host
+    settings.msf.port = body.port
+    if body.password:
+        settings.msf.password = body.password
+    settings.msf.ssl = body.ssl
+
+    return {"ok": True}
+
+
+# ── Pentest Sessions ───────────────────────────────────────────────────────────
+
+class StartSessionRequest(BaseModel):
+    target: str
+    mode: str = "scan_only"
+    # Optional per-session safety overrides
+    allowed_cidr: Optional[str] = None
+    allow_exploit: Optional[bool] = None
+    block_dos: Optional[bool] = None
+    block_destructive: Optional[bool] = None
+    max_severity: Optional[str] = None
+    time_limit: Optional[int] = None
+    rate_limit: Optional[int] = None
+
+
+async def _run_agent_task(
+    session_id: str,
+    agent,
+    session_repo: SessionRepository,
+    audit_repo: AuditLogRepository,
+) -> None:
+    """Background task: run the PentestAgent, update DB, broadcast events."""
+    from web import session_manager
+
+    try:
+        await session_repo.update_status(session_id, "running")
+        await audit_repo.log("SESSION_START", session_id=session_id)
+
+        ctx = await agent.run()
+
+        await session_repo.update_status(session_id, "done")
+        await session_repo.update_stats(
+            session_id,
+            hosts_found=len(ctx.discovered_hosts),
+            ports_found=ctx.total_ports,
+            vulns_found=ctx.total_vulns,
+            exploits_run=ctx.total_exploits,
+        )
+        await audit_repo.log(
+            "SESSION_END",
+            session_id=session_id,
+            details={
+                "hosts": len(ctx.discovered_hosts),
+                "ports": ctx.total_ports,
+                "vulns": ctx.total_vulns,
+                "exploits": ctx.total_exploits,
+                "iterations": ctx.iteration,
+            },
+        )
+        await session_manager.broadcast(session_id, {
+            "type": "session_done",
+            "session_id": session_id,
+            "hosts": len(ctx.discovered_hosts),
+            "vulns": ctx.total_vulns,
+            "exploits": ctx.total_exploits,
+        })
+
+    except Exception as exc:
+        logger.error("Agent task failed for session %s: %s", session_id, exc)
+        await session_repo.update_status(session_id, "error", str(exc))
+        await audit_repo.log(
+            "SESSION_ERROR",
+            session_id=session_id,
+            details={"error": str(exc)},
+        )
+        await session_manager.broadcast(session_id, {
+            "type": "session_error",
+            "session_id": session_id,
+            "error": str(exc),
+        })
+
+    finally:
+        session_manager.cleanup(session_id)
+
+
+@router.post("/sessions")
+async def start_session(body: StartSessionRequest, background_tasks: BackgroundTasks):
+    """Create and start a new pentest session."""
+    from web import session_manager
+    from core.agent import PentestAgent
+    from core.safety import SafetyGuard
+    from models.session import Session
+
+    # Validate mode
+    if body.mode not in ("full_auto", "ask_before_exploit", "scan_only"):
+        raise HTTPException(400, f"Invalid mode: {body.mode}")
+
+    if not body.target.strip():
+        raise HTTPException(400, "Target IP or CIDR is required")
+
+    # Build SafetyConfig — start from global settings, apply per-session overrides
+    safety_cfg = SafetyConfig(
+        allowed_cidr=body.allowed_cidr or body.target,
+        allowed_port_min=settings.safety.allowed_port_min,
+        allowed_port_max=settings.safety.allowed_port_max,
+        excluded_ips=list(settings.safety.excluded_ips),
+        excluded_ports=list(settings.safety.excluded_ports),
+        allow_exploit=body.allow_exploit if body.allow_exploit is not None else settings.safety.allow_exploit,
+        block_dos_exploits=body.block_dos if body.block_dos is not None else settings.safety.block_dos_exploits,
+        block_destructive=body.block_destructive if body.block_destructive is not None else settings.safety.block_destructive,
+        max_cvss_score=_SEVERITY_TO_CVSS.get(body.max_severity or "CRITICAL", 10.0),
+        session_max_seconds=body.time_limit if body.time_limit is not None else settings.safety.session_max_seconds,
+        max_requests_per_second=body.rate_limit if body.rate_limit is not None else settings.safety.max_requests_per_second,
+    )
+
+    # Persist session record
+    session_data = await _session_repo.create(body.target.strip(), body.mode)
+    session_id = session_data["id"]
+
+    session_obj = Session(
+        id=session_id,
+        target=body.target.strip(),
+        mode=body.mode,
+        status="idle",
+        created_at=session_data["created_at"],
+        updated_at=session_data["updated_at"],
+    )
+
+    # Build agent
+    guard = SafetyGuard(safety_cfg)
+    progress_cb = session_manager.make_progress_callback(session_id)
+
+    # Import tool registry bootstrapped in app lifespan
+    try:
+        from web.app_state import tool_registry as registry
+    except ImportError:
+        from core.tool_registry import ToolRegistry
+        registry = ToolRegistry()
+
+    agent = PentestAgent(
+        session=session_obj,
+        target=body.target.strip(),
+        mode=body.mode,
+        registry=registry,
+        safety=guard,
+        progress_callback=progress_cb,
+    )
+
+    # Launch background task
+    task = asyncio.create_task(
+        _run_agent_task(session_id, agent, _session_repo, _audit_repo)
+    )
+    session_manager.register(session_id, task, guard)
+
+    return {
+        "session_id": session_id,
+        "target": body.target,
+        "mode": body.mode,
+        "status": "running",
+    }
+
+
+@router.get("/sessions")
+async def list_sessions():
+    sessions = await _session_repo.list_all()
+    # Annotate with live running status
+    from web import session_manager
+    for s in sessions:
+        s["is_running"] = session_manager.is_running(s["id"])
+    return sessions
+
+
+@router.get("/sessions/{sid}")
+async def get_session(sid: str):
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Attach findings
+    scan_results = await _scan_repo.get_for_session(sid)
+    vulns = await _vuln_repo.get_for_session(sid)
+    exploits = await _exploit_repo.get_for_session(sid)
+
+    from web import session_manager
+    session["is_running"] = session_manager.is_running(sid)
+    session["scan_results"] = scan_results
+    session["vulnerabilities"] = vulns
+    session["exploit_results"] = exploits
+
+    return session
+
+
+@router.post("/sessions/{sid}/kill")
+async def kill_session(sid: str):
+    """Trigger emergency stop on a running session."""
+    from web import session_manager
+
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    killed = session_manager.kill(sid)
+    if killed:
+        await _session_repo.update_status(sid, "error", "Emergency stop triggered by user")
+        await _audit_repo.log(
+            "KILL_SWITCH",
+            session_id=sid,
+            details={"reason": "Emergency stop triggered by user"},
+        )
+        return {"ok": True, "killed": True}
+
+    return {"ok": True, "killed": False, "message": "Session not running or already stopped"}
+
+
+@router.delete("/sessions/{sid}")
+async def delete_session(sid: str):
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    await _session_repo.delete(sid)
+    return {"ok": True}
+
+
+# ── Reports ────────────────────────────────────────────────────────────────────
+
+@router.get("/sessions/{sid}/report/html", response_class=HTMLResponse)
+async def get_report_html(sid: str):
+    """Generate and return HTML report for a session."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    try:
+        from reporting.report_generator import ReportGenerator
+        generator = ReportGenerator()
+        html = await generator.generate_html(sid)
+        return HTMLResponse(content=html)
+    except Exception as exc:
+        logger.error("Report HTML generation failed: %s", exc)
+        raise HTTPException(500, f"Report generation failed: {exc}")
+
+
+@router.get("/sessions/{sid}/report/pdf")
+async def get_report_pdf(sid: str):
+    """Generate and return PDF report for a session."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    try:
+        from reporting.report_generator import ReportGenerator
+        generator = ReportGenerator()
+        pdf_bytes = await generator.generate_pdf(sid)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="aegis-report-{sid[:8]}.pdf"'
+            },
+        )
+    except Exception as exc:
+        logger.error("Report PDF generation failed: %s", exc)
+        raise HTTPException(500, f"PDF generation failed: {exc}")
+
+
+# ── Audit Log ──────────────────────────────────────────────────────────────────
+
+@router.get("/audit")
+async def get_audit_log(
+    session_id: str = "",
+    event_type: str = "",
+    search: str = "",
+    limit: int = 200,
+):
+    """Return audit log entries with optional filtering."""
+    if session_id:
+        entries = await _audit_repo.get_for_session(session_id, limit=limit)
+    else:
+        entries = await _audit_repo.get_recent(limit=limit)
+
+    # Filter by event type
+    if event_type and event_type.upper() != "ALL":
+        entries = [e for e in entries if e["event_type"].upper() == event_type.upper()]
+
+    # Filter by search string
+    if search:
+        s = search.lower()
+        entries = [
+            e for e in entries
+            if s in e.get("tool_name", "").lower()
+            or s in e.get("target", "").lower()
+            or s in e.get("event_type", "").lower()
+            or s in str(e.get("details", "")).lower()
+        ]
+
+    return {"entries": entries, "total": len(entries)}

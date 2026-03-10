@@ -1906,4 +1906,760 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchLMStudioStatus, 30000);
     fetchSystemStats();
     setInterval(fetchSystemStats, 3000);
+
+    // Pentest session features
+    initMissionControls();
+    initAuditView();
+    initReportView();
+    loadSafetyConfig();
+    loadMsfConfig();
+    loadSessionsForSelects();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PENTEST SESSION MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let activeMissionId = null;
+let missionStartTime = null;
+let missionPollHandle = null;
+let missionUptimeHandle = null;
+
+// ─── WebSocket session event handler extension ────────────────────────────────
+
+// Extend the existing ws.onmessage to handle session events
+const _origWsConnect = wsConnect;
+wsConnect = function () {
+    _origWsConnect();
+    // Patch onmessage after connect
+    const _origOnOpen = ws ? ws.onopen : null;
+    // We'll override onmessage in a wrapper below
+};
+
+// Override ws message handler to also handle session events
+function patchWsSessionHandler() {
+    if (!ws) return;
+    const originalOnMessage = ws.onmessage;
+    ws.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+
+        // Handle session events before calling original handler
+        if (msg.type === 'session_event') {
+            handleSessionEvent(msg);
+            return;
+        }
+        if (msg.type === 'session_done') {
+            handleSessionDone(msg);
+            return;
+        }
+        if (msg.type === 'session_error') {
+            handleSessionError(msg);
+            return;
+        }
+        if (msg.type === 'session_subscribed') {
+            return;
+        }
+
+        // Fall through to original handler
+        if (originalOnMessage) originalOnMessage(event);
+    };
+}
+
+function handleSessionEvent(msg) {
+    const event = msg.event;
+    const data = msg.data || {};
+
+    // Update phase progress bar
+    if (event === 'start') {
+        setPhaseActive(1);
+        updateMissionStatusHeader('running', msg.session_id);
+    } else if (event === 'reasoning') {
+        appendConsoleLine(`[REASONING] ${data.thought || data.action || ''}`, 'text-secondary-text');
+    } else if (event === 'tool_call') {
+        appendConsoleToolCall(data);
+    } else if (event === 'tool_result') {
+        appendConsoleToolResult(data);
+    } else if (event === 'phase_change' || event === 'discovery') {
+        updatePhaseFromEvent(data);
+    } else if (event === 'kill_switch') {
+        showToast('Emergency stop activated');
+        updateMissionStatusHeader('stopped', msg.session_id);
+    } else if (event === 'max_iterations') {
+        showToast('Max iterations reached — mission finishing');
+    } else if (event === 'error') {
+        appendConsoleLine(`[ERROR] ${data.error || ''}`, 'text-danger');
+    }
+
+    // Refresh stats counters
+    if (activeMissionId) {
+        refreshMissionStats(activeMissionId);
+    }
+}
+
+function handleSessionDone(msg) {
+    setPhaseActive(5);
+    updateMissionStatusHeader('done', msg.session_id);
+    stopMissionPoll();
+    showToast('Mission complete');
+    appendConsoleLine('[SESSION] Agent finished — report available in the Report tab', 'text-primary');
+
+    // Update stat counters from final counts
+    if (msg.hosts !== undefined) setStatValue('stat-hosts', msg.hosts);
+    if (msg.vulns !== undefined) setStatValue('stat-vulns', msg.vulns);
+    if (msg.exploits !== undefined) setStatValue('stat-ports', msg.exploits + '+ exploits');
+
+    // Reload sessions in selects
+    loadSessionsForSelects();
+}
+
+function handleSessionError(msg) {
+    updateMissionStatusHeader('error', msg.session_id);
+    stopMissionPoll();
+    showToast('Mission error: ' + (msg.error || 'unknown'), true);
+    appendConsoleLine(`[ERROR] Session failed: ${msg.error || ''}`, 'text-danger');
+}
+
+// ─── Mission Controls ─────────────────────────────────────────────────────────
+
+function initMissionControls() {
+    const startBtn = document.getElementById('start-mission-btn');
+    const stopBtn = document.getElementById('emergency-stop-btn');
+    const stopBtnMobile = document.getElementById('emergency-stop-btn-mobile');
+
+    if (startBtn) startBtn.addEventListener('click', startMission);
+    if (stopBtn) stopBtn.addEventListener('click', killMission);
+    if (stopBtnMobile) stopBtnMobile.addEventListener('click', killMission);
+}
+
+async function startMission() {
+    const targetInput = document.getElementById('mission-target');
+    const modeSelect = document.getElementById('mission-mode');
+    const startBtn = document.getElementById('start-mission-btn');
+
+    const target = targetInput ? targetInput.value.trim() : '';
+    const mode = modeSelect ? modeSelect.value : 'scan_only';
+
+    if (!target) {
+        showToast('Enter a target IP or CIDR range');
+        if (targetInput) targetInput.focus();
+        return;
+    }
+
+    if (startBtn) { startBtn.textContent = 'Starting...'; startBtn.disabled = true; }
+
+    try {
+        const res = await fetch('/api/v1/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target, mode }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Start failed');
+        }
+        const data = await res.json();
+        activeMissionId = data.session_id;
+        missionStartTime = Date.now();
+
+        // Update UI
+        updateMissionStatusHeader('running', activeMissionId);
+        resetMissionStats();
+        setPhaseActive(1);
+        clearConsoleOutput();
+        appendConsoleLine(`[SESSION] Started: ${activeMissionId}`, 'text-primary');
+        appendConsoleLine(`[TARGET]  ${target}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
+
+        // Subscribe to session events via WebSocket
+        if (ws && wsReady) {
+            ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeMissionId }));
+            patchWsSessionHandler();
+        }
+
+        // Start polling for DB-backed stats
+        startMissionPoll(activeMissionId);
+        startMissionUptime();
+
+        // Switch to agent view
+        switchView('agent');
+        showToast('Mission started');
+
+    } catch (err) {
+        showToast('Error: ' + err.message, true);
+    } finally {
+        if (startBtn) {
+            startBtn.textContent = 'Start Mission';
+            startBtn.disabled = false;
+        }
+    }
+}
+
+async function killMission() {
+    if (!activeMissionId) {
+        showToast('No active mission to stop');
+        return;
+    }
+    showConfirm({
+        title: 'Emergency Stop',
+        message: `Stop mission ${activeMissionId.slice(0, 8)}...? The agent will halt immediately.`,
+        onConfirm: async () => {
+            try {
+                const res = await fetch(`/api/v1/sessions/${activeMissionId}/kill`, { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    updateMissionStatusHeader('stopped', activeMissionId);
+                    stopMissionPoll();
+                    showToast('Emergency stop sent');
+                    appendConsoleLine('[KILL_SWITCH] Emergency stop triggered by user', 'text-danger');
+                }
+            } catch (err) {
+                showToast('Kill failed: ' + err.message, true);
+            }
+        },
+    });
+}
+
+// ─── Mission polling & uptime ──────────────────────────────────────────────────
+
+function startMissionPoll(sessionId) {
+    stopMissionPoll();
+    missionPollHandle = setInterval(() => refreshMissionStats(sessionId), 5000);
+}
+
+function stopMissionPoll() {
+    if (missionPollHandle) { clearInterval(missionPollHandle); missionPollHandle = null; }
+}
+
+function startMissionUptime() {
+    if (missionUptimeHandle) clearInterval(missionUptimeHandle);
+    missionUptimeHandle = setInterval(() => {
+        if (!missionStartTime) return;
+        const elapsed = Math.floor((Date.now() - missionStartTime) / 1000);
+        const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+        const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+        const s = String(elapsed % 60).padStart(2, '0');
+        const uptimeEl = document.getElementById('stat-uptime');
+        if (uptimeEl) uptimeEl.textContent = `${h}:${m}:${s}`;
+    }, 1000);
+}
+
+async function refreshMissionStats(sessionId) {
+    try {
+        const res = await fetch(`/api/v1/sessions/${sessionId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        setStatValue('stat-vulns', data.vulns_found ?? '—');
+        setStatValue('stat-hosts', data.hosts_found ?? '—');
+        setStatValue('stat-ports', data.ports_found ?? '—');
+
+        // Update phase bar based on agent's attack_phase
+        updatePhaseFromSessionStatus(data.status);
+
+        // Stop polling if session is done/error
+        if (data.status === 'done' || data.status === 'error') {
+            stopMissionPoll();
+            updateMissionStatusHeader(data.status, sessionId);
+        }
+    } catch { /* ignore */ }
+}
+
+function setStatValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+}
+
+function resetMissionStats() {
+    setStatValue('stat-vulns', '0');
+    setStatValue('stat-hosts', '0');
+    setStatValue('stat-ports', '0');
+    setStatValue('stat-uptime', '00:00:00');
+}
+
+// ─── Phase progress bar ───────────────────────────────────────────────────────
+
+const PHASE_NAMES = {
+    1: 'DISCOVERY',
+    2: 'PORT_SCAN',
+    3: 'EXPLOIT_SEARCH',
+    4: 'EXPLOITATION',
+    5: 'REPORT',
+};
+
+function setPhaseActive(phaseNum) {
+    document.querySelectorAll('.phase-step').forEach(step => {
+        const n = parseInt(step.dataset.phase, 10);
+        const dot = step.querySelector('div');
+        const label = step.querySelector('span');
+        if (n < phaseNum) {
+            // Completed
+            if (dot) { dot.style.borderColor = '#ccff00'; dot.style.backgroundColor = '#ccff00'; }
+            if (label) label.style.color = '#ccff00';
+        } else if (n === phaseNum) {
+            // Active
+            if (dot) { dot.style.borderColor = '#ccff00'; dot.style.backgroundColor = 'transparent'; }
+            if (label) label.style.color = '#ccff00';
+        } else {
+            // Pending
+            if (dot) { dot.style.borderColor = ''; dot.style.backgroundColor = ''; }
+            if (label) label.style.color = '';
+        }
+    });
+}
+
+function resetPhaseBar() {
+    document.querySelectorAll('.phase-step').forEach(step => {
+        const dot = step.querySelector('div');
+        const label = step.querySelector('span');
+        if (dot) { dot.style.borderColor = ''; dot.style.backgroundColor = ''; }
+        if (label) label.style.color = '';
+    });
+}
+
+function updatePhaseFromEvent(data) {
+    const phase = data.attack_phase || data.phase || '';
+    const phaseMap = {
+        'DISCOVERY': 1, 'PORT_SCAN': 2, 'EXPLOIT_SEARCH': 3,
+        'EXPLOITATION': 4, 'DONE': 5,
+    };
+    const n = phaseMap[phase.toUpperCase()];
+    if (n) setPhaseActive(n);
+}
+
+function updatePhaseFromSessionStatus(status) {
+    if (status === 'running') setPhaseActive(1);
+    else if (status === 'done') setPhaseActive(5);
+}
+
+// ─── Mission status header ─────────────────────────────────────────────────────
+
+function updateMissionStatusHeader(status, sessionId) {
+    const dot = document.getElementById('mission-status-dot');
+    const text = document.getElementById('mission-status-text');
+    const short = sessionId ? sessionId.slice(0, 8) : '';
+
+    const statusMap = {
+        running: { color: 'bg-primary', label: `Mission Active · ${short}` },
+        done:    { color: 'bg-primary', label: `Mission Done · ${short}` },
+        stopped: { color: 'bg-danger', label: `Mission Stopped · ${short}` },
+        error:   { color: 'bg-danger', label: `Mission Error · ${short}` },
+        idle:    { color: 'bg-border-color', label: 'No Mission' },
+    };
+
+    const s = statusMap[status] || statusMap.idle;
+    if (dot) {
+        dot.className = `w-2 h-2 rounded-full shrink-0 transition-colors ${s.color}`;
+    }
+    if (text) text.textContent = s.label;
+}
+
+// ─── Console output helpers ───────────────────────────────────────────────────
+
+function clearConsoleOutput() {
+    const bash = document.getElementById('console-bash');
+    if (bash) bash.innerHTML = '';
+}
+
+function appendConsoleLine(text, colorClass = 'text-primary') {
+    const bash = document.getElementById('console-bash');
+    if (!bash) return;
+    const line = document.createElement('div');
+    line.className = colorClass;
+    line.textContent = text;
+    bash.appendChild(line);
+    bash.scrollTop = bash.scrollHeight;
+}
+
+function appendConsoleToolCall(data) {
+    const tool = data.tool_name || data.action || '';
+    const target = data.target_ip || '';
+    const ts = new Date().toLocaleTimeString();
+    appendConsoleLine(`[${ts}] TOOL_CALL: ${tool}${target ? ' → ' + target : ''}`, 'text-slate-300');
+    if (data.params) {
+        appendConsoleLine(`         params: ${JSON.stringify(data.params)}`, 'text-secondary-text');
+    }
+}
+
+function appendConsoleToolResult(data) {
+    const success = data.success !== false;
+    const color = success ? 'text-primary' : 'text-danger';
+    appendConsoleLine(`         result: ${success ? 'OK' : 'FAILED'} ${data.summary || ''}`, color);
+}
+
+// ─── Load sessions for dropdown selects ──────────────────────────────────────
+
+async function loadSessionsForSelects() {
+    try {
+        const res = await fetch('/api/v1/sessions');
+        if (!res.ok) return;
+        const sessions = await res.json();
+
+        // Populate audit session select
+        const auditSelect = document.getElementById('audit-session-select');
+        if (auditSelect) {
+            const currentVal = auditSelect.value;
+            auditSelect.innerHTML = '<option value="">ALL SESSIONS</option>';
+            sessions.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                const ts = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString() : '';
+                opt.textContent = `${s.id.slice(0, 8)} · ${s.target} · ${s.status.toUpperCase()} · ${ts}`;
+                auditSelect.appendChild(opt);
+            });
+            if (currentVal) auditSelect.value = currentVal;
+        }
+
+        // Auto-set active mission if sessions exist with running status
+        if (!activeMissionId) {
+            const running = sessions.find(s => s.is_running);
+            if (running) {
+                activeMissionId = running.id;
+                missionStartTime = Date.now() - ((running.updated_at - running.created_at) * 1000);
+                updateMissionStatusHeader('running', running.id);
+                patchWsSessionHandler();
+                if (ws && wsReady) {
+                    ws.send(JSON.stringify({ type: 'subscribe_session', session_id: running.id }));
+                }
+                startMissionPoll(running.id);
+                startMissionUptime();
+            }
+        }
+
+        // Populate report session select (report view uses last session by default)
+        if (sessions.length > 0 && !activeMissionId) {
+            const latest = sessions[0];
+            const badge = document.getElementById('report-session-badge');
+            if (badge) badge.textContent = `Session ${latest.id.slice(0, 8).toUpperCase()}`;
+        }
+
+    } catch { /* ignore */ }
+}
+
+// ─── Audit Log View ────────────────────────────────────────────────────────────
+
+let auditCurrentFilter = 'ALL';
+
+function initAuditView() {
+    const sessionSelect = document.getElementById('audit-session-select');
+    const searchInput = document.getElementById('audit-search-input');
+    const filterBtns = document.querySelectorAll('.audit-filter-btn');
+
+    if (sessionSelect) {
+        sessionSelect.addEventListener('change', () => loadAuditLogs());
+    }
+    if (searchInput) {
+        let debounce;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(() => loadAuditLogs(), 400);
+        });
+    }
+
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            auditCurrentFilter = btn.dataset.filter || 'ALL';
+            loadAuditLogs();
+        });
+    });
+
+    // Load on view switch
+    const auditNavItem = document.querySelector('[data-view="audit"]');
+    if (auditNavItem) {
+        auditNavItem.addEventListener('click', () => {
+            loadAuditLogs();
+        });
+    }
+}
+
+async function loadAuditLogs() {
+    const sessionSelect = document.getElementById('audit-session-select');
+    const searchInput = document.getElementById('audit-search-input');
+    const tbody = document.getElementById('audit-table-body');
+    const countEl = document.getElementById('audit-count');
+
+    const sessionId = sessionSelect ? sessionSelect.value : '';
+    const search = searchInput ? searchInput.value.trim() : '';
+    const filter = auditCurrentFilter !== 'ALL' ? auditCurrentFilter : '';
+
+    const params = new URLSearchParams();
+    if (sessionId) params.set('session_id', sessionId);
+    if (filter) params.set('event_type', filter);
+    if (search) params.set('search', search);
+    params.set('limit', '200');
+
+    try {
+        const res = await fetch(`/api/v1/audit?${params}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const entries = data.entries || [];
+
+        if (tbody) {
+            if (entries.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-secondary-text text-xs mono-text">No audit log entries found</td></tr>`;
+            } else {
+                tbody.innerHTML = entries.map(e => buildAuditRow(e)).join('');
+            }
+        }
+        if (countEl) countEl.textContent = `Showing ${entries.length} entries`;
+
+    } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-danger text-xs">Failed to load audit logs</td></tr>`;
+    }
+}
+
+function buildAuditRow(entry) {
+    const ts = entry.created_at
+        ? new Date(entry.created_at * 1000).toISOString().replace('T', ' ').slice(0, 19)
+        : '—';
+    const sid = entry.session_id ? entry.session_id.slice(0, 8).toUpperCase() : '—';
+    const event = entry.event_type || '—';
+    const tool = entry.tool_name || (entry.details ? JSON.stringify(entry.details).slice(0, 60) : '—');
+    const target = entry.target || '—';
+
+    const eventColor = getAuditEventColor(event);
+    const statusBadge = getAuditStatusBadge(event);
+
+    return `<tr class="border-b border-border-color hover:bg-surface transition-colors${event.includes('KILL') || event.includes('BLOCK') ? ' bg-danger/5' : ''}">
+      <td class="px-6 py-3 text-secondary-text">${escapeHtml(ts)}</td>
+      <td class="px-4 py-3 text-slate-400">${escapeHtml(sid)}</td>
+      <td class="px-4 py-3"><span class="${eventColor} font-bold">${escapeHtml(event)}</span></td>
+      <td class="px-4 py-3 text-slate-300">${escapeHtml(tool)}</td>
+      <td class="px-4 py-3 text-slate-300">${escapeHtml(target)}</td>
+      <td class="px-4 py-3">${statusBadge}</td>
+    </tr>`;
+}
+
+function getAuditEventColor(event) {
+    if (event.includes('KILL') || event.includes('BLOCK') || event.includes('ERROR')) return 'text-danger';
+    if (event.includes('START') || event.includes('SUCCESS') || event.includes('OK')) return 'text-primary';
+    if (event.includes('END') || event.includes('DONE')) return 'text-secondary-text';
+    return 'text-slate-300';
+}
+
+function getAuditStatusBadge(event) {
+    if (event.includes('KILL') || event.includes('BLOCK')) {
+        return '<span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">BLOCKED</span>';
+    }
+    if (event.includes('ERROR')) {
+        return '<span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">ERROR</span>';
+    }
+    if (event.includes('SUCCESS') || event.includes('START')) {
+        return '<span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[8px] font-bold uppercase">OK</span>';
+    }
+    if (event.includes('END') || event.includes('DONE')) {
+        return '<span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[8px] font-bold uppercase">DONE</span>';
+    }
+    return '<span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[8px] font-bold uppercase">INFO</span>';
+}
+
+// ─── Report View ───────────────────────────────────────────────────────────────
+
+let reportSessionId = null;
+
+function initReportView() {
+    const genBtn = document.getElementById('generate-report-btn');
+    const htmlBtn = document.getElementById('export-html-btn');
+    const pdfBtn = document.getElementById('download-pdf-btn');
+    const htmlBtnBottom = document.getElementById('export-html-btn-bottom');
+    const pdfBtnBottom = document.getElementById('download-pdf-btn-bottom');
+
+    if (genBtn) genBtn.addEventListener('click', generateReport);
+    if (htmlBtn) htmlBtn.addEventListener('click', exportReportHTML);
+    if (pdfBtn) pdfBtn.addEventListener('click', downloadReportPDF);
+    if (htmlBtnBottom) htmlBtnBottom.addEventListener('click', exportReportHTML);
+    if (pdfBtnBottom) pdfBtnBottom.addEventListener('click', downloadReportPDF);
+
+    // Load report when switching to report view
+    const reportNavItem = document.querySelector('[data-view="report"]');
+    if (reportNavItem) {
+        reportNavItem.addEventListener('click', () => {
+            if (!reportSessionId && activeMissionId) {
+                reportSessionId = activeMissionId;
+                updateReportBadge(reportSessionId);
+            }
+        });
+    }
+}
+
+async function generateReport() {
+    const sid = reportSessionId || activeMissionId;
+    if (!sid) {
+        showToast('No session selected — start a mission first');
+        return;
+    }
+    reportSessionId = sid;
+    updateReportBadge(sid);
+
+    const btn = document.getElementById('generate-report-btn');
+    if (btn) { btn.querySelector('span').textContent = 'hourglass_empty'; btn.style.opacity = '0.6'; }
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${sid}/report/html`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const html = await res.text();
+        injectReportContent(html);
+        showToast('Report generated');
+    } catch (err) {
+        showToast('Report generation failed: ' + err.message, true);
+    } finally {
+        if (btn) { btn.querySelector('span').textContent = 'refresh'; btn.style.opacity = ''; }
+    }
+}
+
+function injectReportContent(htmlString) {
+    const container = document.getElementById('report-content');
+    if (!container) return;
+
+    // Parse the generated HTML and extract body content
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlString, 'text/html');
+    const body = doc.body;
+
+    // If the template returns a full HTML page, extract body inner HTML
+    // Otherwise use it directly
+    if (body && body.innerHTML.trim()) {
+        // Wrap in a styled iframe-like container for isolation
+        container.innerHTML = `<div class="bg-white text-black p-8 overflow-auto min-h-[400px] border border-border-color">
+            <div class="report-html-content">${body.innerHTML}</div>
+        </div>`;
+    } else {
+        container.innerHTML = `<div class="text-secondary-text text-xs p-8">Report content is empty</div>`;
+    }
+}
+
+function exportReportHTML() {
+    const sid = reportSessionId || activeMissionId;
+    if (!sid) { showToast('No session to export'); return; }
+    window.open(`/api/v1/sessions/${sid}/report/html`, '_blank');
+}
+
+function downloadReportPDF() {
+    const sid = reportSessionId || activeMissionId;
+    if (!sid) { showToast('No session — start a mission first'); return; }
+    window.open(`/api/v1/sessions/${sid}/report/pdf`, '_blank');
+}
+
+function updateReportBadge(sessionId) {
+    const badge = document.getElementById('report-session-badge');
+    if (badge && sessionId) badge.textContent = `Session ${sessionId.slice(0, 8).toUpperCase()}`;
+}
+
+// ─── Safety Config Load/Save ───────────────────────────────────────────────────
+
+async function loadSafetyConfig() {
+    try {
+        const res = await fetch('/api/v1/config/safety');
+        if (!res.ok) return;
+        const d = await res.json();
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+
+        set('cfg-safety-scope', d.allowed_cidr || '');
+        // Port scope: format as "min-max"
+        const portMin = d.allowed_port_min || 1;
+        const portMax = d.allowed_port_max || 65535;
+        set('cfg-safety-ports', `${portMin}-${portMax}`);
+        set('cfg-safety-excluded-ips', d.excluded_ips || '');
+        set('cfg-safety-excluded-ports', d.excluded_ports || '');
+        setChk('cfg-safety-allow-exploits', d.allow_exploit !== false);
+        setChk('cfg-safety-block-dos', d.block_dos_exploits !== false);
+        setChk('cfg-safety-block-destructive', d.block_destructive !== false);
+        set('cfg-safety-max-severity', d.max_severity || 'CRITICAL');
+        set('cfg-safety-time-limit', String(d.session_max_seconds || 7200));
+        set('cfg-safety-rate-limit', String(d.max_requests_per_second || 50));
+    } catch { /* ignore */ }
+}
+
+async function saveSafetyConfig() {
+    const get = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const getChk = (id) => { const el = document.getElementById(id); return el ? el.checked : true; };
+
+    // Parse port range "min-max"
+    const portRange = get('cfg-safety-ports').split('-');
+    const portMin = parseInt(portRange[0] || '1', 10);
+    const portMax = parseInt(portRange[1] || '65535', 10);
+
+    const body = {
+        allowed_cidr: get('cfg-safety-scope') || '10.0.0.0/8',
+        allowed_port_min: isNaN(portMin) ? 1 : portMin,
+        allowed_port_max: isNaN(portMax) ? 65535 : portMax,
+        excluded_ips: get('cfg-safety-excluded-ips'),
+        excluded_ports: get('cfg-safety-excluded-ports'),
+        allow_exploit: getChk('cfg-safety-allow-exploits'),
+        block_dos_exploits: getChk('cfg-safety-block-dos'),
+        block_destructive: getChk('cfg-safety-block-destructive'),
+        max_severity: get('cfg-safety-max-severity') || 'CRITICAL',
+        session_max_seconds: parseInt(get('cfg-safety-time-limit') || '7200', 10),
+        max_requests_per_second: parseInt(get('cfg-safety-rate-limit') || '50', 10),
+    };
+
+    await fetch('/api/v1/config/safety', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+}
+
+// ─── Metasploit Config Load/Save ───────────────────────────────────────────────
+
+async function loadMsfConfig() {
+    try {
+        const res = await fetch('/api/v1/config/msf');
+        if (!res.ok) return;
+        const d = await res.json();
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+        set('cfg-msf-host', d.host || '127.0.0.1');
+        set('cfg-msf-port', String(d.port || 55553));
+        const sslEl = document.getElementById('cfg-msf-ssl');
+        if (sslEl) sslEl.checked = d.ssl === true;
+    } catch { /* ignore */ }
+}
+
+async function saveMsfConfig() {
+    const get = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const getChk = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
+
+    const body = {
+        host: get('cfg-msf-host') || '127.0.0.1',
+        port: parseInt(get('cfg-msf-port') || '55553', 10),
+        password: get('cfg-msf-pass') || '',
+        ssl: getChk('cfg-msf-ssl'),
+    };
+
+    await fetch('/api/v1/config/msf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+}
+
+// ─── Extended saveConfig (wraps existing + adds safety + msf) ─────────────────
+
+const _origSaveConfig = saveConfig;
+saveConfig = async function () {
+    await _origSaveConfig();
+    await saveSafetyConfig();
+    await saveMsfConfig();
+};
+
+// ─── Toast helper extension ────────────────────────────────────────────────────
+
+// Override showToast to support error styling
+const _origShowToast = showToast;
+showToast = function (msg, isError = false) {
+    let toast = document.getElementById('aegis-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'aegis-toast';
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-card border border-border-color text-secondary-text text-[11px] font-display uppercase tracking-widest px-4 py-2 z-50 pointer-events-none transition-opacity duration-300';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.color = isError ? '#FF3B3B' : '';
+    toast.style.borderColor = isError ? '#FF3B3B' : '';
+    toast.style.opacity = '1';
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+};

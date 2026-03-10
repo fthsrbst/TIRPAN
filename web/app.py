@@ -7,6 +7,8 @@ Serves static frontend and provides:
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -21,6 +23,18 @@ from database.db import init_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    # Bootstrap tool registry
+    from web.app_state import tool_registry
+    from tools.nmap_tool import NmapTool
+    from tools.searchsploit_tool import SearchSploitTool
+    from tools.metasploit_tool import MetasploitTool
+
+    tool_registry.register(NmapTool())
+    tool_registry.register(SearchSploitTool())
+    tool_registry.register(MetasploitTool())
+    tool_registry.load_plugins(Path("plugins/"))
+
     yield
 
 
