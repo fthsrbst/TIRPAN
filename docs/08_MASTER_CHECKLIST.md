@@ -118,36 +118,29 @@
 **Teaches:** importlib, dynamic loading, registry pattern
 **Why it matters:** The agent learns which tools exist from here. Plugins register here.
 
-- [ ] **3.5.1** — Create `ToolRegistry` class
-- [ ] **3.5.2** — `register(tool: BaseTool)` — store the tool in a dict (key = `tool.metadata.name`)
-- [ ] **3.5.3** — `get(name: str) -> BaseTool` — retrieve tool by name, raise `ToolNotFoundError` if missing
-- [ ] **3.5.4** — `list_for_llm() -> list[dict]` — tool descriptions to send to the LLM
+- [x] **3.5.1** — Create `ToolRegistry` class
+- [x] **3.5.2** — `register(tool: BaseTool)` — store the tool in a dict (key = `tool.metadata.name`)
+- [x] **3.5.3** — `get(name: str) -> BaseTool` — retrieve tool by name, raise `ToolNotFoundError` if missing
+- [x] **3.5.4** — `list_for_llm() -> list[dict]` — tool descriptions to send to the LLM
   ```python
   # Example output:
   [{"name": "nmap_scan", "description": "...", "parameters": {...}}, ...]
   ```
-- [ ] **3.5.5** — `load_plugins(plugins_dir: Path)` — scan `/plugins/` directory:
-  - [ ] Look for `plugin.json` in each subdirectory
-  - [ ] Load those with `enabled: true` via `importlib.import_module()`
-  - [ ] Instantiate and register the class from `entry_point`
-  - [ ] On plugin load failure: log `WARNING`, do not crash the app
-- [ ] **3.5.6** — Bootstrap registry in `main.py` on startup:
-  ```python
-  registry = ToolRegistry()
-  registry.register(NmapTool())
-  registry.register(SearchSploitTool())
-  registry.register(MetasploitTool())
-  registry.load_plugins(Path("plugins/"))
-  ```
-- [ ] **3.5.7** — Create empty `plugins/__init__.py` (makes directory a package)
-- [ ] **3.5.8** — `plugin.json` schema validation: check for required fields
-- [ ] **3.5.9** — `tests/test_tool_registry.py` — test scenarios:
-  - [ ] Core tool register and get test
-  - [ ] Get non-existent tool → `ToolNotFoundError`
-  - [ ] `load_plugins()` test with a mock plugin directory
-  - [ ] Plugin with `enabled: false` must not be loaded
-  - [ ] Malformed `plugin.json` → app must not crash (WARNING log)
-- [ ] **3.5.10** — `python -m pytest tests/test_tool_registry.py -v` must pass
+- [x] **3.5.5** — `load_plugins(plugins_dir: Path)` — scan `/plugins/` directory:
+  - [x] Look for `plugin.json` in each subdirectory
+  - [x] Load those with `enabled: true` via `importlib.import_module()`
+  - [x] Instantiate and register the class from `entry_point`
+  - [x] On plugin load failure: log `WARNING`, do not crash the app
+- [x] **3.5.6** — Bootstrap registry in `main.py` on startup
+- [x] **3.5.7** — Create empty `plugins/__init__.py` (makes directory a package)
+- [x] **3.5.8** — `plugin.json` schema validation: check for required fields
+- [x] **3.5.9** — `tests/test_tool_registry.py` — test scenarios:
+  - [x] Core tool register and get test
+  - [x] Get non-existent tool → `ToolNotFoundError`
+  - [x] `load_plugins()` test with a mock plugin directory
+  - [x] Plugin with `enabled: false` must not be loaded
+  - [x] Malformed `plugin.json` → app must not crash (WARNING log)
+- [x] **3.5.10** — `python -m pytest tests/test_tool_registry.py -v` must pass (12/12)
 
 ---
 
@@ -686,7 +679,7 @@
 | Phase 1 (Config)              | 15          | 15        | ✅ 100% |
 | Phase 2 (LLM Client)          | 14          | 14        | ✅ 100% |
 | Phase 3 (BaseTool + Nmap)     | 15          | 14        | 93%     |
-| Phase 3.5 (ToolRegistry) 🆕   | 10          | 0         | 0%      |
+| Phase 3.5 (ToolRegistry) 🆕   | 10          | 10        | ✅ 100% |
 | Phase 4 (SearchSploit)        | 9           | 0         | 0%      |
 | Phase 5 (Metasploit)          | 11          | 0         | 0%      |
 | Phase 6 (Safety)              | 16          | 0         | 0%      |
@@ -698,7 +691,7 @@
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **43**    | **22%** |
+| **Pentest Total**             | **192**     | **53**    | **28%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
@@ -708,7 +701,7 @@
 | Phase D7 (Defense DB)         | 13          | 0         | 0%      |
 | Phase D8 (Defense UI)         | 21          | 0         | 0%      |
 | **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **0**     | **0%**  |
+| **🎯 GRAND TOTAL**            | **320**     | **53**    | **17%** |
 
 ---
 
