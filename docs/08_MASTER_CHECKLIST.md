@@ -166,17 +166,17 @@
 **File:** `tools/metasploit_tool.py`
 **Teaches:** RPC protocol, network programming, session management
 
-- [ ] **5.1** — Prepare `msfrpcd` startup script (systemd service or startup script)
-- [ ] **5.2** — `MetasploitTool(BaseTool)` — connection via `pymetasploit3`
-- [ ] **5.3** — Module listing: `client.modules.exploits`
-- [ ] **5.4** — Module search: find exploits by service
-- [ ] **5.5** — Option setting: `RHOSTS`, `RPORT`, `PAYLOAD`
-- [ ] **5.6** — Exploit execution: `client.modules.use()` + `run()`
-- [ ] **5.7** — Session management: list active sessions, run commands
-- [ ] **5.8** — Timeout: 60 second exploit timeout
-- [ ] **5.9** — Handle connection loss (detect msfrpcd restart)
-- [ ] **5.10** — `tests/test_metasploit_tool.py` — tests with mocked RPC
-- [ ] **5.11** — `python -m pytest tests/test_metasploit_tool.py -v` must pass
+- [x] **5.1** — Prepare `msfrpcd` startup script (systemd service or startup script)
+- [x] **5.2** — `MetasploitTool(BaseTool)` — connection via `pymetasploit3`
+- [x] **5.3** — Module listing: `client.modules.exploits`
+- [x] **5.4** — Module search: find exploits by service
+- [x] **5.5** — Option setting: `RHOSTS`, `RPORT`, `PAYLOAD`
+- [x] **5.6** — Exploit execution: `client.modules.use()` + `run()`
+- [x] **5.7** — Session management: list active sessions, run commands
+- [x] **5.8** — Timeout: 60 second exploit timeout
+- [x] **5.9** — Handle connection loss (detect msfrpcd restart)
+- [x] **5.10** — `tests/test_metasploit_tool.py` — tests with mocked RPC
+- [x] **5.11** — `python -m pytest tests/test_metasploit_tool.py -v` must pass (16/16)
 
 ---
 
@@ -185,22 +185,22 @@
 **File:** `core/safety.py`
 **Teaches:** IP mathematics, input validation, security thinking
 
-- [ ] **6.1** — Create `SafetyGuard` class
-- [ ] **6.2** — **Rule 1:** `check_target_scope()` — CIDR range check (`ipaddress` module)
-- [ ] **6.3** — **Rule 2:** `check_port_scope()` — port range check
-- [ ] **6.4** — **Rule 3:** `check_excluded_ips()` — excluded IP list check
-- [ ] **6.5** — **Rule 4:** `check_excluded_ports()` — excluded port check
-- [ ] **6.6** — **Rule 5:** `check_exploit_allowed()` — scan-only mode check
-- [ ] **6.7** — **Rule 6:** `check_no_dos()` — block DoS exploit categories
-- [ ] **6.8** — **Rule 7:** `check_no_destructive()` — block destructive actions
-- [ ] **6.9** — **Rule 8:** `check_max_severity()` — CVSS score cap
-- [ ] **6.10** — **Rule 9:** `check_time_limit()` — session duration limit
-- [ ] **6.11** — **Rule 10:** `check_rate_limit()` — requests/second limit
-- [ ] **6.12** — Kill switch: `kill_switch_triggered` flag and `emergency_stop()` method
-- [ ] **6.13** — `validate_action(action) -> (bool, str)` — runs all guards as a pipeline
-- [ ] **6.14** — `tests/test_safety.py` — test case for each rule
-- [ ] **6.15** — Edge cases: `/0` subnet, port 0, negative CVSS, etc.
-- [ ] **6.16** — `python -m pytest tests/test_safety.py -v` must pass
+- [x] **6.1** — Create `SafetyGuard` class
+- [x] **6.2** — **Rule 1:** `check_target_scope()` — CIDR range check (`ipaddress` module)
+- [x] **6.3** — **Rule 2:** `check_port_scope()` — port range check
+- [x] **6.4** — **Rule 3:** `check_excluded_ips()` — excluded IP list check
+- [x] **6.5** — **Rule 4:** `check_excluded_ports()` — excluded port check
+- [x] **6.6** — **Rule 5:** `check_exploit_allowed()` — scan-only mode check
+- [x] **6.7** — **Rule 6:** `check_no_dos()` — block DoS exploit categories
+- [x] **6.8** — **Rule 7:** `check_no_destructive()` — block destructive actions
+- [x] **6.9** — **Rule 8:** `check_max_severity()` — CVSS score cap
+- [x] **6.10** — **Rule 9:** `check_time_limit()` — session duration limit
+- [x] **6.11** — **Rule 10:** `check_rate_limit()` — requests/second limit
+- [x] **6.12** — Kill switch: `kill_switch_triggered` flag and `emergency_stop()` method
+- [x] **6.13** — `validate_action(action) -> (bool, str)` — runs all guards as a pipeline
+- [x] **6.14** — `tests/test_safety.py` — test case for each rule
+- [x] **6.15** — Edge cases: `/0` subnet, port 0, negative CVSS, etc.
+- [x] **6.16** — `python -m pytest tests/test_safety.py -v` must pass (36/36)
 
 ---
 
@@ -681,8 +681,8 @@
 | Phase 3 (BaseTool + Nmap)     | 15          | 14        | 93%     |
 | Phase 3.5 (ToolRegistry) 🆕   | 10          | 10        | ✅ 100% |
 | Phase 4 (SearchSploit)        | 9           | 9         | ✅ 100% |
-| Phase 5 (Metasploit)          | 11          | 0         | 0%      |
-| Phase 6 (Safety)              | 16          | 0         | 0%      |
+| Phase 5 (Metasploit)          | 11          | 11        | ✅ 100% |
+| Phase 6 (Safety)              | 16          | 16        | ✅ 100% |
 | Phase 7 (Memory)              | 10          | 0         | 0%      |
 | Phase 8 (Agent)               | 19          | 0         | 0%      |
 | Phase 9 (Prompts)             | 11          | 0         | 0%      |
@@ -691,7 +691,7 @@
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **62**    | **32%** |
+| **Pentest Total**             | **192**     | **89**    | **46%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
@@ -701,7 +701,7 @@
 | Phase D7 (Defense DB)         | 13          | 0         | 0%      |
 | Phase D8 (Defense UI)         | 21          | 0         | 0%      |
 | **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **62**    | **19%** |
+| **🎯 GRAND TOTAL**            | **320**     | **89**    | **28%** |
 
 ---
 

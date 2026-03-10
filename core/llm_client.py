@@ -6,7 +6,7 @@ Providers:
   - OpenRouterClient: cloud via OpenRouter (httpx, retry, timeout)
 
 Router:
-  - LLMRouter: provider seçimi + fallback logic
+  - LLMRouter: provider selection + fallback logic
 """
 
 import json
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ── Base ──────────────────────────────────────────────────────────────────────
 
 class LLMClient(ABC):
-    """Abstract base — tüm LLM client'lar bunu implement eder."""
+    """Abstract base — all LLM clients implement this."""
 
     @abstractmethod
     async def chat(
@@ -33,7 +33,7 @@ class LLMClient(ABC):
         messages: list[dict],
         stream: bool = False,
     ) -> str:
-        """Mesaj listesi gönder, tam yanıt döndür."""
+        """Send a list of messages and return the full response."""
         ...
 
     @abstractmethod
@@ -41,12 +41,12 @@ class LLMClient(ABC):
         self,
         messages: list[dict],
     ) -> AsyncIterator[str]:
-        """Token token yield eder."""
+        """Yields tokens one by one."""
         ...
 
     @abstractmethod
     async def is_available(self) -> bool:
-        """Provider erişilebilir mi?"""
+        """Is the provider reachable?"""
         ...
 
 
@@ -121,7 +121,7 @@ class OpenRouterClient(LLMClient):
 
     _BASE = "https://openrouter.ai/api/v1"
     _MAX_RETRIES = 3
-    _RETRY_BASE_DELAY = 1.0   # saniye (exponential: 1, 2, 4)
+    _RETRY_BASE_DELAY = 1.0   # seconds (exponential: 1, 2, 4)
 
     def __init__(self):
         self.api_key = settings.llm.api_key
@@ -217,12 +217,12 @@ class OpenRouterClient(LLMClient):
 
 class LLMRouter:
     """
-    Provider seçimi + fallback.
+    Provider selection + fallback.
 
-    Strateji:
+    Strategy:
       - settings.llm.provider == "ollama"      → OllamaClient
       - settings.llm.provider == "openrouter"  → OpenRouterClient
-      - Seçilen provider çökmüşse → diğerine fallback
+      - If the selected provider fails → fallback to the other
     """
 
     def __init__(self):
@@ -258,7 +258,7 @@ class LLMRouter:
                 yield token
 
     async def active_provider(self) -> str:
-        """Hangisi erişilebilir, onu döndür."""
+        """Return which provider is reachable."""
         if await self._primary().is_available():
             return type(self._primary()).__name__
         if await self._fallback().is_available():
@@ -268,13 +268,13 @@ class LLMRouter:
     @staticmethod
     def parse_json(response: str) -> dict:
         """
-        LLM yanıtından JSON çıkar.
-        LLM bazen ```json ... ``` bloğu içine yazar, onu temizler.
+        Extract JSON from an LLM response.
+        The LLM sometimes wraps it in a ```json ... ``` block — this cleans that up.
         """
         text = response.strip()
         if text.startswith("```"):
             lines = text.splitlines()
-            # ilk ve son ``` satırlarını at
+            # Drop the first and last ``` lines
             inner = [l for l in lines[1:] if l.strip() != "```"]
             text = "\n".join(inner)
         return json.loads(text)
