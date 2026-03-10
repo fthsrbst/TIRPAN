@@ -229,36 +229,36 @@
 
 ### Agent State Machine
 
-- [ ] **8.1** — `AgentState` enum: `IDLE`, `REASONING`, `ACTING`, `OBSERVING`, `REFLECTING`, `DONE`, `ERROR`
-- [ ] **8.2** — Create `PentestAgent` class
-- [ ] **8.3** — State transitions: `IDLE → REASONING → ACTING → OBSERVING → REFLECTING → REASONING`
+- [x] **8.1** — `AgentState` enum: `IDLE`, `REASONING`, `ACTING`, `OBSERVING`, `REFLECTING`, `DONE`, `ERROR`
+- [x] **8.2** — Create `PentestAgent` class
+- [x] **8.3** — State transitions: `IDLE → REASONING → ACTING → OBSERVING → REFLECTING → REASONING`
 
 ### ReAct Loop
 
-- [ ] **8.4** — `reason()` — send current state to LLM, receive next_action
-- [ ] **8.5** — `act(action)` — call the appropriate tool
-- [ ] **8.6** — `observe(result)` — add tool result to memory
-- [ ] **8.7** — `reflect()` — update summary, adapt strategy
-- [ ] **8.8** — `run()` — main loop (while not done)
+- [x] **8.4** — `reason()` — send current state to LLM, receive next_action
+- [x] **8.5** — `act(action)` — call the appropriate tool
+- [x] **8.6** — `observe(result)` — add tool result to memory
+- [x] **8.7** — `reflect()` — update summary, adapt strategy
+- [x] **8.8** — `run()` — main loop (while not done)
 
 ### Attack Phases
 
-- [ ] **8.9** — Phase 1: Host discovery (`nmap_scan` tool, ping sweep)
-- [ ] **8.10** — Phase 2: Port scanning (`nmap_scan` tool, service detect, per host)
-- [ ] **8.11** — Phase 3: Exploit search (`searchsploit_search` tool, per service)
-- [ ] **8.12** — Phase 4: Exploitation (`metasploit_run` tool, LLM selects best exploit)
-- [ ] **8.13** — Phase 5: Report (terminate with `generate_report` meta-action)
+- [x] **8.9** — Phase 1: Host discovery (`nmap_scan` tool, ping sweep)
+- [x] **8.10** — Phase 2: Port scanning (`nmap_scan` tool, service detect, per host)
+- [x] **8.11** — Phase 3: Exploit search (`searchsploit_search` tool, per service)
+- [x] **8.12** — Phase 4: Exploitation (`metasploit_run` tool, LLM selects best exploit)
+- [x] **8.13** — Phase 5: Report (terminate with `generate_report` meta-action)
 
-> ⚠️ **ShellTool is NOT present in V1.** The LLM cannot run shell commands directly.
+> **ShellTool is NOT present in V1.** The LLM cannot run shell commands directly.
 
 ### Control
 
-- [ ] **8.14** — Kill switch integration (check before each action)
-- [ ] **8.15** — Max iterations guard (prevent infinite loop)
-- [ ] **8.16** — Ask-before-exploit mode (pause for user approval)
-- [ ] **8.17** — Progress callbacks (for WebSocket)
-- [ ] **8.18** — `tests/test_agent.py` — end-to-end ReAct loop test with mocked tools
-- [ ] **8.19** — `python -m pytest tests/test_agent.py -v` must pass
+- [x] **8.14** — Kill switch integration (check before each action)
+- [x] **8.15** — Max iterations guard (prevent infinite loop)
+- [x] **8.16** — Ask-before-exploit mode (pause for user approval)
+- [x] **8.17** — Progress callbacks (for WebSocket)
+- [x] **8.18** — `tests/test_agent.py` — end-to-end ReAct loop test with mocked tools
+- [x] **8.19** — `python -m pytest tests/test_agent.py -v` must pass (39/39)
 
 ---
 
@@ -267,17 +267,17 @@
 **File:** `core/prompts.py`
 **Teaches:** Prompt engineering, system prompts, templates, few-shot
 
-- [ ] **9.1** — Create `PromptBuilder` class
-- [ ] **9.2** — **System prompt:** define who the agent is, its purpose, and its constraints
-- [ ] **9.3** — **Context prompt:** send current scan state (found hosts, ports, vulns)
-- [ ] **9.4** — **Tool descriptions prompt:** describe each tool to the LLM as a JSON schema
-- [ ] **9.5** — **Action selection prompt:** "Choose next action" instruction
-- [ ] **9.6** — **Few-shot examples:** 3-5 examples of good decisions (EternalBlue, failed exploit, etc.)
-- [ ] **9.7** — **Reflection prompt:** "What did you learn? Update strategy" prompt
-- [ ] **9.8** — Output format enforcement: "Return ONLY valid JSON, no prose"
-- [ ] **9.9** — Dynamic prompt assembly: adjust example count based on context length
-- [ ] **9.10** — `tests/test_prompts.py` — prompt token count and format tests
-- [ ] **9.11** — `python -m pytest tests/test_prompts.py -v` must pass
+- [x] **9.1** — Create `PromptBuilder` class
+- [x] **9.2** — **System prompt:** define who the agent is, its purpose, and its constraints
+- [x] **9.3** — **Context prompt:** send current scan state (found hosts, ports, vulns)
+- [x] **9.4** — **Tool descriptions prompt:** describe each tool to the LLM as a JSON schema
+- [x] **9.5** — **Action selection prompt:** "Choose next action" instruction
+- [x] **9.6** — **Few-shot examples:** 5 examples of good decisions (vsftpd, SMB, report)
+- [x] **9.7** — **Reflection prompt:** "What did you learn? Update strategy" prompt
+- [x] **9.8** — Output format enforcement: "Return ONLY valid JSON, no prose"
+- [x] **9.9** — Dynamic prompt assembly: examples dropped in EXPLOITATION phase and after iteration 20
+- [x] **9.10** — `tests/test_prompts.py` — prompt token count and format tests
+- [x] **9.11** — `python -m pytest tests/test_prompts.py -v` must pass (33/33)
 
 ---
 
@@ -684,14 +684,14 @@
 | Phase 5 (Metasploit)          | 11          | 11        | ✅ 100% |
 | Phase 6 (Safety)              | 16          | 16        | ✅ 100% |
 | Phase 7 (Memory)              | 10          | 10        | ✅ 100% |
-| Phase 8 (Agent)               | 19          | 0         | 0%      |
-| Phase 9 (Prompts)             | 11          | 0         | 0%      |
+| Phase 8 (Agent)               | 19          | 19        | 100%    |
+| Phase 9 (Prompts)             | 11          | 11        | 100%    |
 | Phase 10 (Database)           | 13          | 0         | 0%      |
 | Phase 11 (Reporting)          | 10          | 0         | 0%      |
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **99**    | **52%** |
+| **Pentest Total**             | **192**     | **129**   | **67%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
@@ -701,7 +701,7 @@
 | Phase D7 (Defense DB)         | 13          | 0         | 0%      |
 | Phase D8 (Defense UI)         | 21          | 0         | 0%      |
 | **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **99**    | **31%** |
+| **🎯 GRAND TOTAL**            | **320**     | **129**   | **40%** |
 
 ---
 
