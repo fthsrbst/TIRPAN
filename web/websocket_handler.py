@@ -191,6 +191,12 @@ async def handle_websocket(websocket: WebSocket) -> None:
     conversation_id: str | None = None
     chat_history: list[dict] = []
 
+    # Session subscriptions — list of session IDs this WS is watching
+    watched_sessions: list[str] = []
+
+    async def _send(event: dict) -> None:
+        await websocket.send_json(event)
+
     try:
         while True:
             raw = await websocket.receive_text()
@@ -203,7 +209,6 @@ async def handle_websocket(websocket: WebSocket) -> None:
             msg_type = msg.get("type")
 
             if msg_type == "load_conversation":
-                # Client wants to load an existing conversation
                 cid = msg.get("conversation_id")
                 if cid:
                     messages = await database.get_messages(cid)
@@ -216,18 +221,14 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 if not content:
                     continue
 
-                # Create a new conversation if none active
                 if not conversation_id:
-                    # Use first message as title (truncated)
                     title = content[:60] + ("…" if len(content) > 60 else "")
                     conv = await database.create_conversation(title)
                     conversation_id = conv["id"]
                     await websocket.send_json({"type": "conversation_created", "conversation": conv})
 
-                # Echo user message back (so UI can confirm delivery)
                 await websocket.send_json({"type": "user_echo", "content": content})
 
-                # Stream AI response (also saves to DB)
                 provider = msg.get("provider", "ollama")
                 model_override = msg.get("model", "")
                 if provider == "lmstudio":
@@ -238,7 +239,6 @@ async def handle_websocket(websocket: WebSocket) -> None:
                         settings.ollama.model = model_override
                     assistant_text = await stream_ollama(websocket, content, chat_history, conversation_id)
 
-                # Update in-memory history for context
                 chat_history.append({"role": "user", "content": content})
                 if assistant_text:
                     chat_history.append({"role": "assistant", "content": assistant_text})
@@ -247,6 +247,29 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 conversation_id = None
                 chat_history = []
                 await websocket.send_json({"type": "conversation_reset"})
+
+            elif msg_type == "subscribe_session":
+                # Client wants real-time events for a pentest session
+                from web import session_manager
+                sid = msg.get("session_id", "")
+                if sid and sid not in watched_sessions:
+                    watched_sessions.append(sid)
+                    buffered = session_manager.subscribe(sid, _send)
+                    # Replay buffered events so the client catches up
+                    for event in buffered:
+                        await websocket.send_json(event)
+                    await websocket.send_json({
+                        "type": "session_subscribed",
+                        "session_id": sid,
+                        "replayed": len(buffered),
+                    })
+
+            elif msg_type == "unsubscribe_session":
+                from web import session_manager
+                sid = msg.get("session_id", "")
+                if sid in watched_sessions:
+                    watched_sessions.remove(sid)
+                    session_manager.unsubscribe(sid, _send)
 
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
@@ -262,5 +285,13 @@ async def handle_websocket(websocket: WebSocket) -> None:
     except Exception as e:
         try:
             await websocket.send_json({"type": "error", "content": str(e)})
+        except Exception:
+            pass
+    finally:
+        # Clean up all session subscriptions
+        try:
+            from web import session_manager
+            for sid in watched_sessions:
+                session_manager.unsubscribe(sid, _send)
         except Exception:
             pass
