@@ -288,25 +288,25 @@
 
 ### Schema
 
-- [ ] **10.1** — `database/schema.sql` — define 7 tables (sessions, messages, scan_results, vulnerabilities, exploit_results, knowledge_base, audit_log)
-- [ ] **10.2** — `database/db.py` — async DB connection via `aiosqlite`
-- [ ] **10.3** — Migration system: schema versioning
+- [x] **10.1** — `database/schema.sql` — 7 tables (pentest_sessions, scan_results, vulnerabilities, exploit_results, knowledge_base, audit_log, schema_migrations)
+- [x] **10.2** — `database/db.py` — async DB connection via `aiosqlite`, `init_db(db_path?)` function
+- [x] **10.3** — Migration system: v1 (chat tables) → v2 (pentest tables) versioning
 
 ### Repositories
 
-- [ ] **10.4** — `SessionRepository` — CRUD operations for sessions
-- [ ] **10.5** — `ScanResultRepository` — save/get scan findings
-- [ ] **10.6** — `VulnerabilityRepository` — CRUD + query by CVSS score
-- [ ] **10.7** — `ExploitResultRepository` — save exploit attempts
-- [ ] **10.8** — `AuditLogRepository` — append-only audit trail
+- [x] **10.4** — `SessionRepository` — CRUD + update_status, update_stats, save_memory
+- [x] **10.5** — `ScanResultRepository` — save/get scan findings, hosts JSON serialization
+- [x] **10.6** — `VulnerabilityRepository` — CRUD + `get_by_min_cvss()` query
+- [x] **10.7** — `ExploitResultRepository` — save + get_successful()
+- [x] **10.8** — `AuditLogRepository` — append-only (no delete/update methods)
 
 ### Knowledge Base
 
-- [ ] **10.9** — `KnowledgeBase` — "What exploits worked on what services" DB
-- [ ] **10.10** — `remember_success(service, version, exploit_module)` method
-- [ ] **10.11** — `suggest_exploits(service, version)` method (hints for LLM)
-- [ ] **10.12** — `tests/test_database.py` — tests with in-memory SQLite
-- [ ] **10.13** — `python -m pytest tests/test_database.py -v` must pass
+- [x] **10.9** — `KnowledgeBase` class — `database/knowledge_base.py`
+- [x] **10.10** — `remember_success(service, version, exploit_module)` — upsert with count
+- [x] **10.11** — `suggest_exploits(service, version)` — service-only fallback, ordered by count
+- [x] **10.12** — `tests/test_database.py` — 44 tests with temp-file SQLite (no in-memory due to aiosqlite threading)
+- [x] **10.13** — `python -m pytest tests/test_database.py -v` must pass (44/44)
 
 ---
 
@@ -686,12 +686,12 @@
 | Phase 7 (Memory)              | 10          | 10        | ✅ 100% |
 | Phase 8 (Agent)               | 19          | 19        | 100%    |
 | Phase 9 (Prompts)             | 11          | 11        | 100%    |
-| Phase 10 (Database)           | 13          | 0         | 0%      |
+| Phase 10 (Database)           | 13          | 13        | 100%    |
 | Phase 11 (Reporting)          | 10          | 0         | 0%      |
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **129**   | **67%** |
+| **Pentest Total**             | **192**     | **142**   | **74%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
@@ -701,7 +701,7 @@
 | Phase D7 (Defense DB)         | 13          | 0         | 0%      |
 | Phase D8 (Defense UI)         | 21          | 0         | 0%      |
 | **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **129**   | **40%** |
+| **🎯 GRAND TOTAL**            | **320**     | **142**   | **44%** |
 
 ---
 
