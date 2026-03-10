@@ -1,7 +1,7 @@
 """
 Phase 3 — BaseTool & ToolMetadata
 
-Her tool (core veya plugin) bu contract'ı implement eder.
+Every tool (core or plugin) implements this contract.
 """
 
 from abc import ABC, abstractmethod
@@ -9,45 +9,45 @@ from pydantic import BaseModel
 
 
 class ToolMetadata(BaseModel):
-    name: str                   # unique identifier — agent bunu kullanır
-    description: str            # LLM'e gönderilecek açıklama
-    parameters: dict            # JSON Schema — LLM hangi parametreleri göndereceğini bilir
+    name: str                   # unique identifier — used by the agent
+    description: str            # description sent to the LLM
+    parameters: dict            # JSON Schema — tells the LLM which parameters to send
     category: str               # "recon" | "exploit-search" | "exploit-exec" | "report"
     version: str = "1.0.0"
 
 
 class BaseTool(ABC):
-    """Tüm tool'lar bu sınıftan türer."""
+    """All tools inherit from this class."""
 
     @property
     @abstractmethod
     def metadata(self) -> ToolMetadata:
-        """Tool'u tanımlayan metadata."""
+        """Metadata that describes the tool."""
         ...
 
     @abstractmethod
     async def execute(self, params: dict) -> dict:
         """
-        Tool'u çalıştır.
+        Execute the tool.
 
-        Her zaman şu formatta döner:
+        Always returns in this format:
           {"success": bool, "output": any, "error": str | None}
         """
         ...
 
     async def validate(self, params: dict) -> tuple[bool, str]:
         """
-        Parametreleri çalıştırmadan önce doğrula.
-        Override edilmezse her şeyi geçerli kabul eder.
+        Validate parameters before execution.
+        If not overridden, accepts everything as valid.
 
         Returns:
-          (True, "") — geçerli
-          (False, "hata mesajı") — geçersiz
+          (True, "") — valid
+          (False, "error message") — invalid
         """
         return True, ""
 
     def to_llm_dict(self) -> dict:
-        """LLM'e gönderilecek tool tanımı."""
+        """Tool definition to be sent to the LLM."""
         return {
             "name": self.metadata.name,
             "description": self.metadata.description,

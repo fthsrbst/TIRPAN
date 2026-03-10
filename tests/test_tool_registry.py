@@ -1,12 +1,12 @@
 """
-Phase 3.5 — ToolRegistry testleri
+Phase 3.5 — ToolRegistry tests
 
-5 senaryo:
+5 scenarios:
   1. Core tool register + get
-  2. Olmayan tool → ToolNotFoundError
-  3. load_plugins() — mock plugin yükleme
-  4. enabled: false plugin yüklenmemeli
-  5. Bozuk plugin.json → uygulama çökmemeli (WARNING log)
+  2. Non-existent tool → ToolNotFoundError
+  3. load_plugins() — mock plugin loading
+  4. enabled: false plugin should not be loaded
+  5. Malformed plugin.json → application should not crash (WARNING log)
 """
 
 import json
@@ -19,7 +19,7 @@ from tools.base_tool import BaseTool, ToolMetadata
 
 
 # ------------------------------------------------------------------
-# Yardımcı: sahte tool
+# Helper: fake tool
 # ------------------------------------------------------------------
 
 class FakeTool(BaseTool):
@@ -27,7 +27,7 @@ class FakeTool(BaseTool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="fake_tool",
-            description="Test amaçlı sahte tool",
+            description="Fake tool for testing purposes",
             parameters={"type": "object", "properties": {}},
             category="recon",
         )
@@ -41,7 +41,7 @@ class AnotherFakeTool(BaseTool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="another_tool",
-            description="İkinci sahte tool",
+            description="Second fake tool",
             parameters={"type": "object", "properties": {}},
             category="recon",
         )
@@ -92,7 +92,7 @@ class TestRegisterAndGet:
 
 
 # ------------------------------------------------------------------
-# 2. Olmayan tool → ToolNotFoundError
+# 2. Non-existent tool → ToolNotFoundError
 # ------------------------------------------------------------------
 
 class TestToolNotFound:
@@ -108,19 +108,19 @@ class TestToolNotFound:
 
 
 # ------------------------------------------------------------------
-# 3. load_plugins() — geçerli plugin yükleme
+# 3. load_plugins() — valid plugin loading
 # ------------------------------------------------------------------
 
 class TestLoadPlugins:
     def test_valid_plugin_loaded(self, tmp_path):
-        # Sahte plugin dizini oluştur
+        # Create a fake plugin directory
         plugin_dir = tmp_path / "my_plugin"
         plugin_dir.mkdir()
 
         config = {
             "name": "my_plugin",
             "enabled": True,
-            "entry_point": "tools.nmap_tool",  # gerçek mevcut modül
+            "entry_point": "tools.nmap_tool",  # real existing module
             "class_name": "NmapTool",
             "version": "1.0.0",
         }
@@ -129,19 +129,19 @@ class TestLoadPlugins:
         registry = ToolRegistry()
         registry.load_plugins(tmp_path)
 
-        # NmapTool adı "nmap_scan" olduğu için onu kontrol et
+        # NmapTool's name is "nmap_scan", so check for that
         tool = registry.get("nmap_scan")
         assert tool is not None
 
     def test_nonexistent_plugins_dir(self, tmp_path):
-        """Dizin yoksa sessizce geç, hata fırlatma."""
+        """If directory doesn't exist, pass silently without raising."""
         registry = ToolRegistry()
         registry.load_plugins(tmp_path / "does_not_exist")
         assert len(registry) == 0
 
 
 # ------------------------------------------------------------------
-# 4. enabled: false → yüklenmemeli
+# 4. enabled: false → should not be loaded
 # ------------------------------------------------------------------
 
 class TestPluginDisabled:
@@ -164,7 +164,7 @@ class TestPluginDisabled:
 
 
 # ------------------------------------------------------------------
-# 5. Bozuk plugin.json → uygulama çökmemeli
+# 5. Malformed plugin.json → application should not crash
 # ------------------------------------------------------------------
 
 class TestMalformedPlugin:
@@ -174,14 +174,14 @@ class TestMalformedPlugin:
         (plugin_dir / "plugin.json").write_text("{ THIS IS NOT JSON }")
 
         registry = ToolRegistry()
-        registry.load_plugins(tmp_path)  # hata fırlatmamalı
+        registry.load_plugins(tmp_path)  # should not raise
         assert len(registry) == 0
 
     def test_missing_required_fields_does_not_crash(self, tmp_path):
         plugin_dir = tmp_path / "incomplete_plugin"
         plugin_dir.mkdir()
 
-        config = {"name": "incomplete"}  # enabled, entry_point, class_name eksik
+        config = {"name": "incomplete"}  # enabled, entry_point, class_name are missing
         (plugin_dir / "plugin.json").write_text(json.dumps(config))
 
         registry = ToolRegistry()
