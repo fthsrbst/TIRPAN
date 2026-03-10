@@ -149,15 +149,15 @@
 **File:** `tools/searchsploit_tool.py`
 **Teaches:** String parsing, regex, CLI integration
 
-- [ ] **4.1** — Create `SearchSploitTool(BaseTool)` class
-- [ ] **4.2** — Use `searchsploit -j` JSON output mode
-- [ ] **4.3** — Build query combining service + version
-- [ ] **4.4** — Parse exploit list (title, path, type, platform)
-- [ ] **4.5** — CVE ID extraction (regex from title)
-- [ ] **4.6** — Filter exploit categories (exclude DoS exploits — safety)
-- [ ] **4.7** — Map results to `Vulnerability` model
-- [ ] **4.8** — `tests/test_searchsploit_tool.py` — tests with mocked output
-- [ ] **4.9** — `python -m pytest tests/test_searchsploit_tool.py -v` must pass
+- [x] **4.1** — Create `SearchSploitTool(BaseTool)` class
+- [x] **4.2** — Use `searchsploit -j` JSON output mode
+- [x] **4.3** — Build query combining service + version
+- [x] **4.4** — Parse exploit list (title, path, type, platform)
+- [x] **4.5** — CVE ID extraction (regex from title)
+- [x] **4.6** — Filter exploit categories (exclude DoS exploits — safety)
+- [x] **4.7** — Map results to `Vulnerability` model
+- [x] **4.8** — `tests/test_searchsploit_tool.py` — tests with mocked output
+- [x] **4.9** — `python -m pytest tests/test_searchsploit_tool.py -v` must pass (16/16)
 
 ---
 
@@ -680,7 +680,7 @@
 | Phase 2 (LLM Client)          | 14          | 14        | ✅ 100% |
 | Phase 3 (BaseTool + Nmap)     | 15          | 14        | 93%     |
 | Phase 3.5 (ToolRegistry) 🆕   | 10          | 10        | ✅ 100% |
-| Phase 4 (SearchSploit)        | 9           | 0         | 0%      |
+| Phase 4 (SearchSploit)        | 9           | 9         | ✅ 100% |
 | Phase 5 (Metasploit)          | 11          | 0         | 0%      |
 | Phase 6 (Safety)              | 16          | 0         | 0%      |
 | Phase 7 (Memory)              | 10          | 0         | 0%      |
@@ -691,7 +691,7 @@
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **53**    | **28%** |
+| **Pentest Total**             | **192**     | **62**    | **32%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
@@ -701,7 +701,7 @@
 | Phase D7 (Defense DB)         | 13          | 0         | 0%      |
 | Phase D8 (Defense UI)         | 21          | 0         | 0%      |
 | **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **53**    | **17%** |
+| **🎯 GRAND TOTAL**            | **320**     | **62**    | **19%** |
 
 ---
 
