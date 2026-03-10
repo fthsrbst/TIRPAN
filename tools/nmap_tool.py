@@ -1,0 +1,203 @@
+"""
+Phase 3 — NmapTool
+
+Scan tipleri:
+  ping    — host discovery (-sn)
+  service — port + servis tespiti (-sV)
+  os      — OS tespiti (-O)
+  full    — hepsi birden (-sV -O)
+
+Çıktı: ScanResult modeli
+"""
+
+import asyncio
+import time
+import xml.etree.ElementTree as ET
+from typing import Optional
+
+from tools.base_tool import BaseTool, ToolMetadata
+from models.scan_result import Port, Host, ScanResult
+
+SCAN_TIMEOUT = 300  # 5 dakika maks
+
+
+class NmapTool(BaseTool):
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="nmap_scan",
+            description=(
+                "Runs an nmap scan against a target IP or CIDR range. "
+                "Use scan_type='ping' for host discovery, 'service' for open ports and versions, "
+                "'os' for OS detection, 'full' for everything."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "IP address or CIDR range (e.g. 192.168.1.1 or 10.0.0.0/24)",
+                    },
+                    "scan_type": {
+                        "type": "string",
+                        "enum": ["ping", "service", "os", "full"],
+                        "description": "Type of scan to perform",
+                        "default": "service",
+                    },
+                    "port_range": {
+                        "type": "string",
+                        "description": "Port range to scan (e.g. '1-1024'). Ignored for ping scans.",
+                        "default": "1-1024",
+                    },
+                },
+                "required": ["target"],
+            },
+            category="recon",
+        )
+
+    async def validate(self, params: dict) -> tuple[bool, str]:
+        if "target" not in params:
+            return False, "Missing required parameter: target"
+        scan_type = params.get("scan_type", "service")
+        if scan_type not in ("ping", "service", "os", "full"):
+            return False, f"Invalid scan_type: {scan_type}"
+        return True, ""
+
+    async def execute(self, params: dict) -> dict:
+        ok, err = await self.validate(params)
+        if not ok:
+            return {"success": False, "output": None, "error": err}
+
+        target = params["target"]
+        scan_type = params.get("scan_type", "service")
+        port_range = params.get("port_range", "1-1024")
+
+        cmd = self._build_command(target, scan_type, port_range)
+
+        try:
+            start = time.time()
+            xml_output = await self._run_nmap(cmd)
+            duration = time.time() - start
+
+            result = self._parse_xml(xml_output, target, scan_type, duration)
+            return {"success": True, "output": result.model_dump(), "error": None}
+
+        except asyncio.TimeoutError:
+            return {"success": False, "output": None, "error": f"Nmap timed out after {SCAN_TIMEOUT}s"}
+        except FileNotFoundError:
+            return {"success": False, "output": None, "error": "nmap not found — install nmap first"}
+        except Exception as e:
+            return {"success": False, "output": None, "error": str(e)}
+
+    # ── Internals ──────────────────────────────────────────────────────────────
+
+    def _build_command(self, target: str, scan_type: str, port_range: str) -> list[str]:
+        base = ["nmap", "-oX", "-"]  # XML output to stdout
+
+        if scan_type == "ping":
+            base += ["-sn"]
+        elif scan_type == "service":
+            base += ["-sV", "-p", port_range]
+        elif scan_type == "os":
+            base += ["-O", "-p", port_range]
+        elif scan_type == "full":
+            base += ["-sV", "-O", "-p", port_range]
+
+        base.append(target)
+        return base
+
+    async def _run_nmap(self, cmd: list[str]) -> str:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=SCAN_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"nmap error: {stderr.decode()}")
+        return stdout.decode()
+
+    def _parse_xml(
+        self,
+        xml_output: str,
+        target: str,
+        scan_type: str,
+        duration: float,
+    ) -> ScanResult:
+        root = ET.fromstring(xml_output)
+        hosts: list[Host] = []
+
+        for host_el in root.findall("host"):
+            # state
+            status_el = host_el.find("status")
+            state = status_el.get("state", "unknown") if status_el is not None else "unknown"
+
+            # IP
+            ip = ""
+            hostname = ""
+            for addr in host_el.findall("address"):
+                if addr.get("addrtype") == "ipv4":
+                    ip = addr.get("addr", "")
+
+            # hostname
+            hostnames_el = host_el.find("hostnames")
+            if hostnames_el is not None:
+                hn = hostnames_el.find("hostname")
+                if hn is not None:
+                    hostname = hn.get("name", "")
+
+            # OS
+            os_name = ""
+            os_accuracy = 0
+            os_el = host_el.find("os")
+            if os_el is not None:
+                match = os_el.find("osmatch")
+                if match is not None:
+                    os_name = match.get("name", "")
+                    os_accuracy = int(match.get("accuracy", 0))
+
+            # Ports
+            ports: list[Port] = []
+            ports_el = host_el.find("ports")
+            if ports_el is not None:
+                for port_el in ports_el.findall("port"):
+                    port_state_el = port_el.find("state")
+                    port_state = port_state_el.get("state", "unknown") if port_state_el is not None else "unknown"
+
+                    service_el = port_el.find("service")
+                    service = ""
+                    version = ""
+                    if service_el is not None:
+                        service = service_el.get("name", "")
+                        product = service_el.get("product", "")
+                        ver = service_el.get("version", "")
+                        version = f"{product} {ver}".strip()
+
+                    ports.append(Port(
+                        number=int(port_el.get("portid", 0)),
+                        protocol=port_el.get("protocol", "tcp"),
+                        state=port_state,
+                        service=service,
+                        version=version,
+                    ))
+
+            hosts.append(Host(
+                ip=ip,
+                hostname=hostname,
+                os=os_name,
+                os_accuracy=os_accuracy,
+                state=state,
+                ports=ports,
+            ))
+
+        return ScanResult(
+            target=target,
+            scan_type=scan_type,
+            hosts=hosts,
+            duration_seconds=round(duration, 2),
+            raw_output=xml_output,
+        )
