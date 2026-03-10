@@ -16,6 +16,7 @@ import uvicorn
 from config import settings
 from core.tool_registry import ToolRegistry
 from tools.nmap_tool import NmapTool
+from tools.searchsploit_tool import SearchSploitTool
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 def build_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(NmapTool())
+    registry.register(SearchSploitTool())
     registry.load_plugins(Path("plugins/"))
     logger.info("Registry hazır — %d tool yüklendi.", len(registry))
     return registry
