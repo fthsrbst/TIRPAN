@@ -17,6 +17,7 @@ from config import settings
 from core.tool_registry import ToolRegistry
 from tools.nmap_tool import NmapTool
 from tools.searchsploit_tool import SearchSploitTool
+from tools.metasploit_tool import MetasploitTool
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ def build_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(NmapTool())
     registry.register(SearchSploitTool())
+    registry.register(MetasploitTool())
     registry.load_plugins(Path("plugins/"))
     logger.info("Registry hazır — %d tool yüklendi.", len(registry))
     return registry

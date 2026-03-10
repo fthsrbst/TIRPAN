@@ -1,7 +1,7 @@
 """
-Phase 4 — SearchSploitTool testleri
+Phase 4 — SearchSploitTool tests
 
-Tüm testler gerçek searchsploit CLI olmadan çalışır (mock).
+All tests run without a real searchsploit CLI (mocked).
 """
 
 import json
@@ -12,7 +12,7 @@ from tools.searchsploit_tool import SearchSploitTool
 
 
 # ------------------------------------------------------------------
-# Fixture: örnek searchsploit JSON çıktısı
+# Fixture: sample searchsploit JSON output
 # ------------------------------------------------------------------
 
 SAMPLE_OUTPUT = {
@@ -59,7 +59,7 @@ WINDOWS_OUTPUT = {
 
 
 # ------------------------------------------------------------------
-# Yardımcı: mock _run_searchsploit
+# Helper: mock _run_searchsploit
 # ------------------------------------------------------------------
 
 def make_tool_with_mock(output: dict) -> SearchSploitTool:
@@ -85,7 +85,7 @@ class TestMetadata:
 
 
 # ------------------------------------------------------------------
-# 4.2 / 4.3 / 4.4 — JSON parsing + sonuç yapısı
+# 4.2 / 4.3 / 4.4 — JSON parsing + result structure
 # ------------------------------------------------------------------
 
 class TestExecute:
@@ -127,7 +127,7 @@ class TestExecute:
 
 
 # ------------------------------------------------------------------
-# 4.5 — CVE ID çıkarma
+# 4.5 — CVE ID extraction
 # ------------------------------------------------------------------
 
 class TestCveExtraction:
@@ -145,14 +145,14 @@ class TestCveExtraction:
         tool = make_tool_with_mock(SAMPLE_OUTPUT)
         result = await tool.execute({"service": "vsftpd"})
 
-        # İkinci exploit (DoS olmayan) CVE içermiyor
+        # Second exploit (non-DoS) does not contain a CVE
         vulns = result["output"]["vulnerabilities"]
         second = next(v for v in vulns if "Heap" in v["title"])
         assert second["cve_id"] is None
 
 
 # ------------------------------------------------------------------
-# 4.6 — DoS filtresi (güvenlik kuralı)
+# 4.6 — DoS filter (security rule)
 # ------------------------------------------------------------------
 
 class TestDosFilter:
@@ -169,12 +169,12 @@ class TestDosFilter:
         tool = make_tool_with_mock(SAMPLE_OUTPUT)
         result = await tool.execute({"service": "vsftpd"})
 
-        # SAMPLE_OUTPUT'ta 3 exploit var, 1'i DoS → 2 kalmalı
+        # SAMPLE_OUTPUT has 3 exploits, 1 is DoS → 2 should remain
         assert result["output"]["total_found"] == 2
 
 
 # ------------------------------------------------------------------
-# 4.7 — Vulnerability modeline eşleme
+# 4.7 — Vulnerability model mapping
 # ------------------------------------------------------------------
 
 class TestVulnerabilityMapping:
@@ -198,7 +198,7 @@ class TestVulnerabilityMapping:
 
 
 # ------------------------------------------------------------------
-# Validate + hata senaryoları
+# Validate + error scenarios
 # ------------------------------------------------------------------
 
 class TestValidation:

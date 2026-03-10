@@ -62,6 +62,7 @@ class MetasploitConfig(BaseSettings):
     host: str = Field(default="127.0.0.1", alias="MSF_RPC_HOST")
     port: int = Field(default=55553, alias="MSF_RPC_PORT")
     password: str = Field(default="msfrpc", alias="MSF_RPC_PASSWORD")
+    ssl: bool = Field(default=False, alias="MSF_RPC_SSL")
 
 
 class ServerConfig(BaseSettings):

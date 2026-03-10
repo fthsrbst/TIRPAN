@@ -1,8 +1,8 @@
 """
 Phase 4 — SearchSploit Tool
 
-searchsploit CLI'yi kullanarak servis + versiyon için exploit arar.
-Güvenlik: DoS exploitleri filtrelenir.
+Searches for exploits for a service + version using the searchsploit CLI.
+Security: DoS exploits are filtered out.
 """
 
 import asyncio
@@ -14,10 +14,10 @@ from typing import Optional
 from models.vulnerability import Vulnerability
 from tools.base_tool import BaseTool, ToolMetadata
 
-# DoS / DDoS / Flood içeren başlıklar otomatik elenir (güvenlik kuralı)
+# Titles containing DoS / DDoS / Flood are automatically excluded (security rule)
 _DOS_PATTERN = re.compile(r"\b(dos|ddos|denial.of.service|flood)\b", re.IGNORECASE)
 
-# CVE-YYYY-NNNNN formatı
+# CVE-YYYY-NNNNN format
 _CVE_PATTERN = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
 
 
@@ -28,24 +28,24 @@ class SearchSploitTool(BaseTool):
         return ToolMetadata(
             name="searchsploit_search",
             description=(
-                "ExploitDB'de servis ve versiyona göre exploit arar. "
-                "Sonuçları Vulnerability listesi olarak döner."
+                "Searches ExploitDB for exploits by service and version. "
+                "Returns results as a list of Vulnerability objects."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "service": {
                         "type": "string",
-                        "description": "Servis adı (örn: 'apache', 'openssh', 'vsftpd')",
+                        "description": "Service name (e.g. 'apache', 'openssh', 'vsftpd')",
                     },
                     "version": {
                         "type": "string",
-                        "description": "Servis versiyonu (örn: '2.3.4', '7.4p1')",
+                        "description": "Service version (e.g. '2.3.4', '7.4p1')",
                         "default": "",
                     },
                     "platform": {
                         "type": "string",
-                        "description": "Platform filtresi (örn: 'linux', 'windows'). Boş = hepsi.",
+                        "description": "Platform filter (e.g. 'linux', 'windows'). Empty = all.",
                         "default": "",
                     },
                 },
@@ -56,7 +56,7 @@ class SearchSploitTool(BaseTool):
 
     async def validate(self, params: dict) -> tuple[bool, str]:
         if not params.get("service", "").strip():
-            return False, "'service' parametresi boş olamaz"
+            return False, "'service' parameter cannot be empty"
         return True, ""
 
     async def execute(self, params: dict) -> dict:
@@ -76,10 +76,10 @@ class SearchSploitTool(BaseTool):
             return {
                 "success": False,
                 "output": None,
-                "error": "searchsploit bulunamadı. ExploitDB kurulu mu? (apt install exploitdb)",
+                "error": "searchsploit not found. Is ExploitDB installed? (apt install exploitdb)",
             }
         except asyncio.TimeoutError:
-            return {"success": False, "output": None, "error": "searchsploit zaman aşımına uğradı (30s)"}
+            return {"success": False, "output": None, "error": "searchsploit timed out (30s)"}
 
         vulnerabilities = self._parse_output(raw, service, version, platform)
 
@@ -98,7 +98,7 @@ class SearchSploitTool(BaseTool):
     # ------------------------------------------------------------------
 
     async def _run_searchsploit(self, query: str) -> dict:
-        """searchsploit -j <query> çalıştır ve JSON çıktısını döner."""
+        """Run searchsploit -j <query> and return the JSON output."""
         cmd = ["searchsploit", "--json", query]
 
         loop = asyncio.get_event_loop()
@@ -124,7 +124,7 @@ class SearchSploitTool(BaseTool):
         version: str,
         platform_filter: str,
     ) -> list[Vulnerability]:
-        """JSON çıktısını Vulnerability listesine çevir."""
+        """Convert JSON output to a list of Vulnerability objects."""
         exploits = raw.get("RESULTS_EXPLOIT", [])
         results: list[Vulnerability] = []
 
@@ -134,15 +134,15 @@ class SearchSploitTool(BaseTool):
             exploit_type: str = item.get("Type", "").lower()
             platform: str = item.get("Platform", "").lower()
 
-            # --- Güvenlik filtresi: DoS exploitlerini ele ---
+            # --- Security filter: exclude DoS exploits ---
             if _DOS_PATTERN.search(title):
                 continue
 
-            # --- Platform filtresi ---
+            # --- Platform filter ---
             if platform_filter and platform_filter.lower() not in platform:
                 continue
 
-            # --- CVE çıkar ---
+            # --- Extract CVE ---
             cve_match = _CVE_PATTERN.search(title)
             cve_id: Optional[str] = cve_match.group(0).upper() if cve_match else None
 
