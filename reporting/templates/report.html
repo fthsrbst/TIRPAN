@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEGIS Penetration Test Report — {{ session.target }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #1a1a2e;
+      background: #f4f6f9;
+    }
+
+    /* ── Cover page ──────────────────────────────────────────────────────── */
+    .cover {
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 60px 80px;
+      page-break-after: always;
+    }
+    .cover .badge {
+      display: inline-block;
+      background: #e74c3c;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 3px;
+      margin-bottom: 24px;
+    }
+    .cover h1 {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1.1;
+      margin-bottom: 8px;
+    }
+    .cover .subtitle {
+      font-size: 18px;
+      color: rgba(255,255,255,0.65);
+      margin-bottom: 48px;
+    }
+    .cover .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 700px;
+    }
+    .cover .meta-item label {
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 4px;
+    }
+    .cover .meta-item .value {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .cover .footer {
+      margin-top: auto;
+      padding-top: 40px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.3);
+    }
+
+    /* ── Page layout ─────────────────────────────────────────────────────── */
+    .page { padding: 40px 60px; }
+
+    h2.section-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #0f0c29;
+      padding-bottom: 10px;
+      border-bottom: 3px solid #302b63;
+      margin-bottom: 24px;
+      margin-top: 40px;
+    }
+    h2.section-title:first-child { margin-top: 0; }
+
+    /* ── Executive summary cards ─────────────────────────────────────────── */
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      border-top: 4px solid #302b63;
+    }
+    .card.critical { border-top-color: #c0392b; }
+    .card.high     { border-top-color: #e67e22; }
+    .card.medium   { border-top-color: #f1c40f; }
+    .card.ok       { border-top-color: #27ae60; }
+    .card .num {
+      font-size: 36px;
+      font-weight: 800;
+      color: #0f0c29;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #7f8c8d;
+    }
+
+    /* ── Severity badge ──────────────────────────────────────────────────── */
+    .badge-sev {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #fff;
+    }
+    .sev-CRITICAL { background: #c0392b; }
+    .sev-HIGH     { background: #e67e22; }
+    .sev-MEDIUM   { background: #e6b800; color: #222; }
+    .sev-LOW      { background: #27ae60; }
+    .sev-NONE     { background: #7f8c8d; }
+
+    /* ── Tables ──────────────────────────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      margin-bottom: 32px;
+    }
+    thead th {
+      background: #302b63;
+      color: #fff;
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    tbody tr:nth-child(even) { background: #f9fafc; }
+    tbody tr:hover { background: #eef0f7; }
+    tbody td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #e8eaed;
+      vertical-align: top;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+
+    /* ── Finding cards ───────────────────────────────────────────────────── */
+    .finding-card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      margin-bottom: 24px;
+      overflow: hidden;
+      page-break-inside: avoid;
+    }
+    .finding-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid #e8eaed;
+    }
+    .finding-header .cvss-score {
+      font-size: 28px;
+      font-weight: 800;
+      min-width: 52px;
+      text-align: center;
+    }
+    .finding-header .title-block .title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+    .finding-header .title-block .cve {
+      font-size: 12px;
+      color: #7f8c8d;
+      margin-top: 2px;
+    }
+    .finding-header .meta-right {
+      margin-left: auto;
+      text-align: right;
+    }
+    .finding-body {
+      padding: 16px 20px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .finding-section label {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #7f8c8d;
+      margin-bottom: 4px;
+    }
+    .finding-section p {
+      font-size: 13px;
+      color: #2c3e50;
+    }
+    .finding-section.full { grid-column: 1 / -1; }
+    .poc-block {
+      background: #1a1a2e;
+      color: #5dff8a;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      padding: 10px 14px;
+      border-radius: 5px;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+    .fix-block {
+      background: #eafaf1;
+      border-left: 3px solid #27ae60;
+      padding: 8px 12px;
+      border-radius: 0 5px 5px 0;
+      font-size: 12px;
+      color: #1a5632;
+      margin-top: 4px;
+    }
+
+    /* ── Exploit results table ───────────────────────────────────────────── */
+    .success-yes { color: #27ae60; font-weight: 700; }
+    .success-no  { color: #c0392b; font-weight: 700; }
+
+    /* ── Footer ──────────────────────────────────────────────────────────── */
+    .report-footer {
+      margin-top: 60px;
+      padding-top: 20px;
+      border-top: 1px solid #e0e0e0;
+      font-size: 11px;
+      color: #aaa;
+      text-align: center;
+    }
+
+    @media print {
+      .cover { page-break-after: always; }
+      .finding-card { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Cover Page ─────────────────────────────────────────────────────────── -->
+<div class="cover">
+  <div class="badge">Confidential</div>
+  <h1>Penetration Test Report</h1>
+  <p class="subtitle">AEGIS Autonomous Security Assessment</p>
+
+  <div class="meta-grid">
+    <div class="meta-item">
+      <label>Target</label>
+      <span class="value">{{ session.target }}</span>
+    </div>
+    <div class="meta-item">
+      <label>Mode</label>
+      <span class="value">{{ session.mode | replace('_', ' ') | title }}</span>
+    </div>
+    <div class="meta-item">
+      <label>Status</label>
+      <span class="value">{{ session.status | title }}</span>
+    </div>
+    <div class="meta-item">
+      <label>Report Date</label>
+      <span class="value">{{ generated_at }}</span>
+    </div>
+    <div class="meta-item">
+      <label>Session ID</label>
+      <span class="value" style="font-size:11px; font-family:monospace">{{ session.id[:16] }}...</span>
+    </div>
+    <div class="meta-item">
+      <label>Tool</label>
+      <span class="value">AEGIS v0.1.0</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    This report was generated automatically by AEGIS.
+    All findings must be verified by a qualified security professional before remediation.
+    Unauthorized distribution is prohibited.
+  </div>
+</div>
+
+<!-- ── Main Content ───────────────────────────────────────────────────────── -->
+<div class="page">
+
+  <!-- Executive Summary -->
+  <h2 class="section-title">Executive Summary</h2>
+
+  <div class="summary-cards">
+    <div class="card ok">
+      <div class="num">{{ stats.hosts_found }}</div>
+      <div class="label">Live Hosts</div>
+    </div>
+    <div class="card ok">
+      <div class="num">{{ stats.ports_found }}</div>
+      <div class="label">Open Ports</div>
+    </div>
+    <div class="card high">
+      <div class="num">{{ stats.vulns_found }}</div>
+      <div class="label">Vulnerabilities</div>
+    </div>
+    <div class="card critical">
+      <div class="num">{{ stats.critical_count }}</div>
+      <div class="label">Critical Findings</div>
+    </div>
+  </div>
+
+  {% if stats.exploits_run > 0 %}
+  <div class="summary-cards" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card critical">
+      <div class="num">{{ stats.exploits_run }}</div>
+      <div class="label">Exploit Attempts</div>
+    </div>
+    <div class="card critical">
+      <div class="num">{{ stats.exploits_success }}</div>
+      <div class="label">Successful Exploits</div>
+    </div>
+    <div class="card ok">
+      <div class="num">{{ stats.sessions_opened }}</div>
+      <div class="label">Sessions Opened</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Host / Port Summary -->
+  {% if scan_results %}
+  <h2 class="section-title">Discovered Hosts &amp; Services</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Host IP</th>
+        <th>Port</th>
+        <th>Service</th>
+        <th>Version</th>
+        <th>State</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in scan_results %}
+      <tr>
+        <td><code>{{ entry.ip }}</code></td>
+        <td>{{ entry.port }}/{{ entry.protocol }}</td>
+        <td>{{ entry.service }}</td>
+        <td>{{ entry.version }}</td>
+        <td><span style="color: #27ae60; font-weight: 600;">{{ entry.state }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- Vulnerability Findings -->
+  {% if vulnerabilities %}
+  <h2 class="section-title">Vulnerability Findings</h2>
+
+  {% for vuln in vulnerabilities %}
+  <div class="finding-card">
+    <div class="finding-header">
+      <div class="cvss-score" style="color: {{ vuln.color }};">{{ "%.1f"|format(vuln.cvss_score) }}</div>
+      <div class="title-block">
+        <div class="title">{{ vuln.title }}</div>
+        <div class="cve">
+          {% if vuln.cve_id %}CVE: {{ vuln.cve_id }} &nbsp;|&nbsp;{% endif %}
+          Service: {{ vuln.service }}{% if vuln.service_version %} {{ vuln.service_version }}{% endif %}
+          {% if vuln.host_ip %} &nbsp;|&nbsp; Host: {{ vuln.host_ip }}{% endif %}
+        </div>
+      </div>
+      <div class="meta-right">
+        <span class="badge-sev sev-{{ vuln.severity }}">{{ vuln.severity }}</span>
+      </div>
+    </div>
+    <div class="finding-body">
+      {% if vuln.description %}
+      <div class="finding-section full">
+        <label>Description</label>
+        <p>{{ vuln.description }}</p>
+      </div>
+      {% endif %}
+
+      {% if vuln.exploit_path %}
+      <div class="finding-section full">
+        <label>Proof of Concept</label>
+        <div class="poc-block">
+          use {{ vuln.exploit_path }}<br>
+          set RHOSTS {{ vuln.host_ip or "&lt;target&gt;" }}<br>
+          {% if vuln.exploit_port %}set RPORT {{ vuln.exploit_port }}<br>{% endif %}
+          run
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="finding-section full">
+        <label>Recommended Fix</label>
+        <div class="fix-block">{{ vuln.recommendation }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Exploit Results -->
+  {% if exploit_results %}
+  <h2 class="section-title">Exploitation Results</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Host</th>
+        <th>Port</th>
+        <th>Module</th>
+        <th>Result</th>
+        <th>Session</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in exploit_results %}
+      <tr>
+        <td><code>{{ e.host_ip }}</code></td>
+        <td>{{ e.port }}</td>
+        <td style="font-family:monospace; font-size:11px;">{{ e.module }}</td>
+        <td>
+          {% if e.success %}
+          <span class="success-yes">SUCCESS</span>
+          {% else %}
+          <span class="success-no">FAILED</span>
+          {% endif %}
+        </td>
+        <td>{% if e.session_opened %}Session #{{ e.session_opened }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- Footer -->
+  <div class="report-footer">
+    Generated by AEGIS Autonomous Penetration Testing Agent &nbsp;|&nbsp;
+    Report ID: {{ session.id }} &nbsp;|&nbsp;
+    {{ generated_at }}
+  </div>
+
+</div>
+</body>
+</html>
