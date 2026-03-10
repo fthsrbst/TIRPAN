@@ -18,32 +18,32 @@
 
 ### Structure
 
-- [ ] **1.1** — Create project directory structure (`core/`, `tools/`, `plugins/`, `models/`, `database/`, `web/`, `reporting/`, `defense/`, `tests/`, `docs/`)
-- [ ] **1.2** — Create virtual environment (`python3.11 -m venv venv`)
-- [ ] **1.3** — Prepare `requirements.txt`: `pydantic fastapi uvicorn httpx python-nmap pymetasploit3 scapy aiosqlite rich weasyprint jinja2 pytest pytest-cov pytest-asyncio`
+- [x] **1.1** — Create project directory structure (`core/`, `tools/`, `plugins/`, `models/`, `database/`, `web/`, `reporting/`, `defense/`, `tests/`, `docs/`)
+- [x] **1.2** — Create virtual environment (`python3.11 -m venv venv`)
+- [x] **1.3** — Prepare `requirements.txt`: `pydantic fastapi uvicorn httpx python-nmap pymetasploit3 scapy aiosqlite rich weasyprint jinja2 pytest pytest-cov pytest-asyncio`
       _(no openai package — we connect to OpenRouter directly via httpx)_
       _(scapy is only for the defense module; optionally move to a separate requirements-defense.txt)_
-- [ ] **1.4** — Create `.env.example` file (OPENROUTER_API_KEY, MSF_RPC_PASSWORD, MSF_RPC_HOST, MSF_RPC_PORT)
-- [ ] **1.5** — Create `.gitignore` file (`.env`, `venv/`, `*.db`, `__pycache__/`, `reports/`)
+- [x] **1.4** — Create `.env.example` file (OPENROUTER_API_KEY, MSF_RPC_PASSWORD, MSF_RPC_HOST, MSF_RPC_PORT)
+- [x] **1.5** — Create `.gitignore` file (`.env`, `venv/`, `*.db`, `__pycache__/`, `reports/`)
 
 ### Models
 
-- [ ] **1.6** — `models/target.py` — `Target` Pydantic model (ip, port_range, scan_only, excluded_ports)
-- [ ] **1.7** — `models/scan_result.py` — `Port`, `Host`, `ScanResult` models
-- [ ] **1.8** — `models/vulnerability.py` — `Vulnerability` model (cvss_score, description, cve_id)
-- [ ] **1.9** — `models/exploit_result.py` — `ExploitResult` model (success, output, session_id)
-- [ ] **1.10** — `models/session.py` — `Session` model (target, config, status, timestamps)
+- [x] **1.6** — `models/target.py` — `Target` Pydantic model (ip, port_range, scan_only, excluded_ports)
+- [x] **1.7** — `models/scan_result.py` — `Port`, `Host`, `ScanResult` models
+- [x] **1.8** — `models/vulnerability.py` — `Vulnerability` model (cvss_score, description, cve_id)
+- [x] **1.9** — `models/exploit_result.py` — `ExploitResult` model (success, output, session_id)
+- [x] **1.10** — `models/session.py` — `Session` model (target, config, status, timestamps)
 
 ### Configuration
 
-- [ ] **1.11** — `config.py` — `AppConfig` class (reads all settings from `.env`)
-- [ ] **1.12** — `config.py` — `SafetyConfig` class (10 guardrail rules)
-- [ ] **1.13** — `config.py` — `LLMConfig` class (provider, model, temperature, timeout)
+- [x] **1.11** — `config.py` — `AppConfig` class (reads all settings from `.env`)
+- [x] **1.12** — `config.py` — `SafetyConfig` class (10 guardrail rules)
+- [x] **1.13** — `config.py` — `LLMConfig` class (provider, model, temperature, timeout)
 
 ### Tests
 
-- [ ] **1.14** — `tests/test_models.py` — write validation tests for every model
-- [ ] **1.15** — `python -m pytest tests/test_models.py -v` must pass
+- [x] **1.14** — `tests/test_models.py` — write validation tests for every model
+- [x] **1.15** — `python -m pytest tests/test_models.py -v` must pass (25/25)
 
 ---
 
@@ -54,29 +54,29 @@
 
 ### OpenRouter Integration
 
-- [ ] **2.1** — Create `LLMClient` abstract base class
-- [ ] **2.2** — `OpenRouterClient` — async POST calls via `httpx` (chat completions endpoint)
-- [ ] **2.3** — `OpenRouterClient` — JSON response parsing (`choices[0].message.content`)
-- [ ] **2.4** — `OpenRouterClient` — retry logic (3 attempts, exponential backoff)
-- [ ] **2.5** — `OpenRouterClient` — timeout handling (30 second default)
+- [x] **2.1** — Create `LLMClient` abstract base class
+- [x] **2.2** — `OpenRouterClient` — async POST calls via `httpx` (chat completions endpoint)
+- [x] **2.3** — `OpenRouterClient` — JSON response parsing (`choices[0].message.content`)
+- [x] **2.4** — `OpenRouterClient` — retry logic (3 attempts, exponential backoff)
+- [x] **2.5** — `OpenRouterClient` — timeout handling (30 second default)
 
 ### Ollama Integration
 
-- [ ] **2.6** — `OllamaClient` — local API (`http://localhost:11434/api/generate`)
-- [ ] **2.7** — `OllamaClient` — streaming response support
-- [ ] **2.8** — `OllamaClient` — model health check (`ollama list` API)
+- [x] **2.6** — `OllamaClient` — local API (`http://localhost:11434/api/chat`)
+- [x] **2.7** — `OllamaClient` — streaming response support
+- [x] **2.8** — `OllamaClient` — model health check (`/api/tags` endpoint)
 
 ### Router
 
-- [ ] **2.9** — `LLMRouter` — select provider by task type (complex → OpenRouter, parsing → Ollama)
-- [ ] **2.10** — Structured output parsing (parse JSON returned by the LLM)
-- [ ] **2.11** — Fallback logic (OpenRouter fails → switch to Ollama)
+- [x] **2.9** — `LLMRouter` — provider selection + fallback logic
+- [x] **2.10** — Structured output parsing (parse JSON returned by the LLM, handles ```json blocks)
+- [x] **2.11** — Fallback logic (primary fails → switch to other provider)
 
 ### Tests
 
-- [ ] **2.12** — `tests/test_llm_client.py` — unit tests with mocked HTTP calls
-- [ ] **2.13** — Integration test with real API (requires `.env`)
-- [ ] **2.14** — `python -m pytest tests/test_llm_client.py -v` must pass
+- [x] **2.12** — `tests/test_llm_client.py` — unit tests with mocked HTTP calls
+- [x] **2.13** — Integration test with real Ollama API (`.env` ile doğrulandı)
+- [x] **2.14** — `python -m pytest tests/test_llm_client.py -v` must pass (14/14)
 
 ---
 
@@ -87,28 +87,28 @@
 
 ### Base Tool + ToolMetadata (Plugin Contract)
 
-- [ ] **3.1** — Create `ToolMetadata` Pydantic model: `name`, `description`, `parameters` (JSON schema), `category`, `version`
-- [ ] **3.2** — Create `BaseTool` abstract class (ABC)
-- [ ] **3.3** — Define `@property @abstractmethod metadata(self) -> ToolMetadata`
-- [ ] **3.4** — Define `async def execute(self, params: dict) -> dict` abstract method
+- [x] **3.1** — Create `ToolMetadata` Pydantic model: `name`, `description`, `parameters` (JSON schema), `category`, `version`
+- [x] **3.2** — Create `BaseTool` abstract class (ABC)
+- [x] **3.3** — Define `@property @abstractmethod metadata(self) -> ToolMetadata`
+- [x] **3.4** — Define `async def execute(self, params: dict) -> dict` abstract method
   - Return format always: `{"success": bool, "output": any, "error": str|None}`
-- [ ] **3.5** — Optional `async def validate(self, params: dict) -> tuple[bool, str]` override
+- [x] **3.5** — Optional `async def validate(self, params: dict) -> tuple[bool, str]` override
 
 ### Nmap Tool
 
-- [ ] **3.6** — Create `NmapTool(BaseTool)` class, implement `metadata` property
-- [ ] **3.7** — Ping sweep: host discovery with `-sn` flag
-- [ ] **3.8** — Port scan: service and OS detection with `-sV -O`
-- [ ] **3.9** — XML output parsing (`python-nmap` or `xml.etree`)
-- [ ] **3.10** — Structured output: convert to `ScanResult` model
-- [ ] **3.11** — Scan type selection (ping/service/os/full)
-- [ ] **3.12** — Timeout control (max 5 minutes per host)
+- [x] **3.6** — Create `NmapTool(BaseTool)` class, implement `metadata` property
+- [x] **3.7** — Ping sweep: host discovery with `-sn` flag
+- [x] **3.8** — Port scan: service and OS detection with `-sV -O`
+- [x] **3.9** — XML output parsing (`xml.etree`)
+- [x] **3.10** — Structured output: convert to `ScanResult` model
+- [x] **3.11** — Scan type selection (ping/service/os/full)
+- [x] **3.12** — Timeout control (max 5 minutes per host)
 
 ### Tests
 
-- [ ] **3.13** — `tests/test_nmap_tool.py` — tests with mocked subprocess output
+- [x] **3.13** — `tests/test_nmap_tool.py` — tests with mocked subprocess output
 - [ ] **3.14** — Run Metasploitable2 in Docker and test with a real scan
-- [ ] **3.15** — `python -m pytest tests/test_nmap_tool.py -v` must pass
+- [x] **3.15** — `python -m pytest tests/test_nmap_tool.py -v` must pass (20/20)
 
 ---
 
@@ -683,9 +683,9 @@
 
 | Section                       | Total Tasks | Completed | Percent |
 | ----------------------------- | ----------- | --------- | ------- |
-| Phase 1 (Config)              | 15          | 0         | 0%      |
-| Phase 2 (LLM Client)          | 14          | 0         | 0%      |
-| Phase 3 (BaseTool + Nmap)     | 15          | 0         | 0%      |
+| Phase 1 (Config)              | 15          | 15        | ✅ 100% |
+| Phase 2 (LLM Client)          | 14          | 14        | ✅ 100% |
+| Phase 3 (BaseTool + Nmap)     | 15          | 14        | 93%     |
 | Phase 3.5 (ToolRegistry) 🆕   | 10          | 0         | 0%      |
 | Phase 4 (SearchSploit)        | 9           | 0         | 0%      |
 | Phase 5 (Metasploit)          | 11          | 0         | 0%      |
@@ -698,7 +698,7 @@
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **0**     | **0%**  |
+| **Pentest Total**             | **192**     | **43**    | **22%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
