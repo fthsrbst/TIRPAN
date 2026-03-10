@@ -209,16 +209,16 @@
 **File:** `core/memory.py`
 **Teaches:** Data structures, context management, token counting
 
-- [ ] **7.1** — Create `SessionMemory` class
-- [ ] **7.2** — Message history: bounded window with `deque(maxlen=50)`
-- [ ] **7.3** — Message types: `system`, `user`, `assistant`, `tool_result`
-- [ ] **7.4** — Context builder: build messages list to send to LLM
-- [ ] **7.5** — Token estimation: rough token count (chars/4 heuristic)
-- [ ] **7.6** — Auto-truncation: drop old messages when context window fills up
-- [ ] **7.7** — Important findings **pinning**: critical findings always stay in context
-- [ ] **7.8** — Memory serialization: `to_dict()` and `from_dict()` (for DB)
-- [ ] **7.9** — `tests/test_memory.py` — truncation and pinning tests
-- [ ] **7.10** — `python -m pytest tests/test_memory.py -v` must pass
+- [x] **7.1** — Create `SessionMemory` class
+- [x] **7.2** — Message history: bounded window (evicts oldest non-pinned first)
+- [x] **7.3** — Message types: `system`, `user`, `assistant`, `tool_result`
+- [x] **7.4** — Context builder: build messages list to send to LLM
+- [x] **7.5** — Token estimation: rough token count (chars/4 heuristic)
+- [x] **7.6** — Auto-truncation: drop old messages when context window fills up
+- [x] **7.7** — Important findings **pinning**: critical findings always stay in context
+- [x] **7.8** — Memory serialization: `to_dict()` and `from_dict()` (for DB)
+- [x] **7.9** — `tests/test_memory.py` — truncation and pinning tests
+- [x] **7.10** — `python -m pytest tests/test_memory.py -v` must pass (24/24)
 
 ---
 
@@ -683,7 +683,7 @@
 | Phase 4 (SearchSploit)        | 9           | 9         | ✅ 100% |
 | Phase 5 (Metasploit)          | 11          | 11        | ✅ 100% |
 | Phase 6 (Safety)              | 16          | 16        | ✅ 100% |
-| Phase 7 (Memory)              | 10          | 0         | 0%      |
+| Phase 7 (Memory)              | 10          | 10        | ✅ 100% |
 | Phase 8 (Agent)               | 19          | 0         | 0%      |
 | Phase 9 (Prompts)             | 11          | 0         | 0%      |
 | Phase 10 (Database)           | 13          | 0         | 0%      |
@@ -691,7 +691,7 @@
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **89**    | **46%** |
+| **Pentest Total**             | **192**     | **99**    | **52%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
@@ -701,7 +701,7 @@
 | Phase D7 (Defense DB)         | 13          | 0         | 0%      |
 | Phase D8 (Defense UI)         | 21          | 0         | 0%      |
 | **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **89**    | **28%** |
+| **🎯 GRAND TOTAL**            | **320**     | **99**    | **31%** |
 
 ---
 
