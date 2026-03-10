@@ -1,19 +1,29 @@
 """
-SQLite database layer — conversations, messages, settings.
+SQLite database layer — chat UI tables + pentest tables.
 
 DB path: data/aegis.db
+
+Migration versions:
+  v1 — conversations, messages, app_settings (chat UI)
+  v2 — pentest_sessions, scan_results, vulnerabilities,
+        exploit_results, knowledge_base, audit_log
 """
 
 import json
 import uuid
 import time
+import logging
 import aiosqlite
 from pathlib import Path
 from config import settings
 
+logger = logging.getLogger(__name__)
+
 DB_PATH = settings.data_dir / "aegis.db"
 
-_SCHEMA = """
+# ── Schema v1: chat UI tables ──────────────────────────────────────────────────
+
+_SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS conversations (
     id         TEXT PRIMARY KEY,
     title      TEXT NOT NULL DEFAULT 'New Chat',
@@ -24,7 +34,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE TABLE IF NOT EXISTS messages (
     id              TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    role            TEXT NOT NULL,   -- 'user' | 'assistant' | 'system'
+    role            TEXT NOT NULL,
     content         TEXT NOT NULL,
     tokens_in       INTEGER DEFAULT 0,
     tokens_out      INTEGER DEFAULT 0,
@@ -33,18 +43,66 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL   -- JSON encoded
+    value TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
 """
 
+# ── Schema v2: pentest tables ──────────────────────────────────────────────────
 
-async def init_db() -> None:
-    """Create tables if they don't exist."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.executescript(_SCHEMA)
+_SCHEMA_V2_FILE = Path(__file__).parent / "schema.sql"
+
+
+async def _read_pentest_schema() -> str:
+    return _SCHEMA_V2_FILE.read_text(encoding="utf-8")
+
+
+# ── Migration runner ───────────────────────────────────────────────────────────
+
+async def _get_schema_version(db: aiosqlite.Connection) -> int:
+    """Return the highest applied migration version (0 if none)."""
+    try:
+        async with db.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row and row[0] is not None else 0
+    except Exception:
+        return 0
+
+
+async def _apply_migration(
+    db: aiosqlite.Connection, version: int, sql: str, description: str
+) -> None:
+    await db.executescript(sql)
+    await db.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+        (version, time.time(), description),
+    )
+    await db.commit()
+    logger.info("DB migration v%d applied: %s", version, description)
+
+
+async def init_db(db_path: Path | None = None) -> None:
+    """
+    Initialise the database and run pending migrations.
+
+    Accepts an optional db_path for testing with in-memory or temp DBs.
+    """
+    path = db_path or DB_PATH
+    async with aiosqlite.connect(path) as db:
+        # Always ensure v1 base tables exist first
+        await db.executescript(_SCHEMA_V1)
         await db.commit()
+
+        version = await _get_schema_version(db)
+
+        if version < 2:
+            pentest_sql = await _read_pentest_schema()
+            await _apply_migration(db, 2, pentest_sql, "pentest tables")
+
+    logger.info("Database ready: %s", path)
 
 
 # ── Conversations ─────────────────────────────────────────────────────────────
