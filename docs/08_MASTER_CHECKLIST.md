@@ -315,16 +315,16 @@
 **Files:** `reporting/report_generator.py`, `reporting/cvss.py`
 **Teaches:** Jinja2 templates, PDF generation, CVSS algorithm, file I/O
 
-- [ ] **11.1** — `CvssCalculator` — CVSS v3.1 score calculation (attack vector, complexity, privileges, etc.)
-- [ ] **11.2** — `templates/report.html` — Jinja2 HTML template (title, executive summary, findings table)
-- [ ] **11.3** — Create `ReportGenerator` class
-- [ ] **11.4** — `generate_html(session_id) -> str` method
-- [ ] **11.5** — `generate_pdf(session_id) -> bytes` method (WeasyPrint)
-- [ ] **11.6** — For each finding: CVE description, CVSS score, PoC command, recommended fix
-- [ ] **11.7** — Executive summary: total host count, open ports, critical vulns
-- [ ] **11.8** — Save report file: `reports/{session_id}_{timestamp}.pdf`
-- [ ] **11.9** — `tests/test_reporting.py` — report generation test with mock data
-- [ ] **11.10** — `python -m pytest tests/test_reporting.py -v` must pass
+- [x] **11.1** — `CvssCalculator` — CVSS v3.1 score calculation (attack vector, complexity, privileges, etc.)
+- [x] **11.2** — `templates/report.html` — Jinja2 HTML template (title, executive summary, findings table)
+- [x] **11.3** — Create `ReportGenerator` class
+- [x] **11.4** — `generate_html(session_id) -> str` method
+- [x] **11.5** — `generate_pdf(session_id) -> bytes` method (WeasyPrint)
+- [x] **11.6** — For each finding: CVE description, CVSS score, PoC command, recommended fix
+- [x] **11.7** — Executive summary: total host count, open ports, critical vulns
+- [x] **11.8** — Save report file: `reports/{session_id}_{timestamp}.pdf`
+- [x] **11.9** — `tests/test_reporting.py` — report generation test with mock data
+- [x] **11.10** — `python -m pytest tests/test_reporting.py -v` must pass
 
 ---
 
@@ -687,11 +687,11 @@
 | Phase 8 (Agent)               | 19          | 19        | 100%    |
 | Phase 9 (Prompts)             | 11          | 11        | 100%    |
 | Phase 10 (Database)           | 13          | 13        | 100%    |
-| Phase 11 (Reporting)          | 10          | 0         | 0%      |
+| Phase 11 (Reporting)          | 10          | 10        | ✅ 100% |
 | Phase 12 (Web UI)             | 16          | 0         | 0%      |
 | Phase 13 (CLI)                | 11          | 0         | 0%      |
 | Phase 14 (Testing)            | 12          | 0         | 0%      |
-| **Pentest Total**             | **192**     | **142**   | **74%** |
+| **Pentest Total**             | **192**     | **152**   | **79%** |
 | Phase D1 (Sniffer)            | 12          | 0         | 0%      |
 | Phase D2 (Detectors)          | 31          | 0         | 0%      |
 | Phase D3 (Analyzer)           | 8           | 0         | 0%      |
@@ -701,7 +701,7 @@
 | Phase D7 (Defense DB)         | 13          | 0         | 0%      |
 | Phase D8 (Defense UI)         | 21          | 0         | 0%      |
 | **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **142**   | **44%** |
+| **🎯 GRAND TOTAL**            | **320**     | **152**   | **48%** |
 
 ---
 
