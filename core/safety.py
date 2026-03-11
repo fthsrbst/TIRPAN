@@ -9,7 +9,6 @@ import ipaddress
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 from config import SafetyConfig, settings
 
@@ -42,7 +41,7 @@ class SafetyGuard:
         ok, reason = guard.validate_action(action)
     """
 
-    def __init__(self, config: Optional[SafetyConfig] = None):
+    def __init__(self, config: SafetyConfig | None = None):
         self.config = config or settings.safety
         self._kill_switch = False
         self._session_start: float = time.time()

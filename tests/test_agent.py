@@ -855,7 +855,7 @@ async def test_state_transitions_during_run():
     def cb(event, data):
         if event == "reasoning":
             state_log.append("REASONING")
-        elif event == "action":
+        elif event in ("tool_call", "action"):
             state_log.append("ACTING")
         elif event == "observation":
             state_log.append("OBSERVING")
