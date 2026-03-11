@@ -92,7 +92,13 @@ class NmapTool(BaseTool):
     # ── Internals ──────────────────────────────────────────────────────────────
 
     def _build_command(self, target: str, scan_type: str, port_range: str) -> list[str]:
-        base = ["nmap", "-oX", "-"]  # XML output to stdout
+        import os
+        from config import settings
+
+        # Use sudo for privileged scans (OS detection, SYN) when configured
+        # or when not already running as root
+        use_sudo = settings.nmap_sudo and os.geteuid() != 0
+        base = (["sudo", "-n", "nmap", "-oX", "-"] if use_sudo else ["nmap", "-oX", "-"])
 
         if scan_type == "ping":
             base += ["-sn"]

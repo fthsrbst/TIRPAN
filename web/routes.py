@@ -326,6 +326,24 @@ async def save_msf_config(body: MsfConfigRequest):
     return {"ok": True}
 
 
+# ── Nmap Config ────────────────────────────────────────────────────────────────
+
+@router.get("/config/nmap")
+async def get_nmap_config():
+    saved = await database.get_all_settings()
+    return {
+        "nmap_sudo": saved.get("nmap_sudo", "false") == "true",
+    }
+
+
+@router.post("/config/nmap")
+async def save_nmap_config(body: dict):
+    nmap_sudo = bool(body.get("nmap_sudo", False))
+    await database.set_setting("nmap_sudo", "true" if nmap_sudo else "false")
+    settings.nmap_sudo = nmap_sudo
+    return {"ok": True}
+
+
 # ── Pentest Sessions ───────────────────────────────────────────────────────────
 
 class StartSessionRequest(BaseModel):
