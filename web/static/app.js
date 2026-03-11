@@ -2202,8 +2202,20 @@ function handleSessionEvent(msg) {
         renderMissionStart(data.target || '', data.mode || '');
         appendConsoleLine(`[START] Target: ${data.target || ''} · Mode: ${data.mode || ''}`, 'text-primary');
 
+    } else if (event === 'llm_thinking_start') {
+        setAgentStatus('reasoning');
+        startAgentStreamCard('thinking');
+
+    } else if (event === 'llm_reflecting_start') {
+        setAgentStatus('reflecting');
+        startAgentStreamCard('reflecting');
+
+    } else if (event === 'llm_token') {
+        appendAgentStreamToken(data.token || '');
+
     } else if (event === 'reasoning') {
         setAgentStatus('reasoning', data.action ? `→ ${data.action}` : '');
+        finalizeAgentStreamCard();
         renderMissionReasoning(data);
         updatePhaseFromEvent(data);
         appendConsoleLine(`[THINK] ${data.thought || data.action || ''}`, 'text-secondary-text');
@@ -2224,6 +2236,7 @@ function handleSessionEvent(msg) {
 
     } else if (event === 'reflection') {
         setAgentStatus('reflecting');
+        finalizeAgentStreamCard();
         renderMissionReflection(data);
         if (data.content) {
             appendConsoleLine(`[REFLECT] ${data.content.slice(0, 120)}`, 'text-purple-400');
@@ -2767,6 +2780,60 @@ function renderMissionStart(target, mode) {
             <div class="text-secondary-text">TARGET &nbsp;<span class="text-slate-200">${_esc(target)}</span> &nbsp;&nbsp; MODE &nbsp;<span class="text-slate-200">${_esc(mode).toUpperCase()}</span></div>
         </div>
     `);
+}
+
+// ── Agent LLM Streaming ──────────────────────────────────────────────────────
+
+let _agentStreamEl = null;   // the live streaming card element
+let _agentStreamBody = null; // the <pre> inside it that receives tokens
+
+function startAgentStreamCard(mode) {
+    finalizeAgentStreamCard(); // close any previous open card
+    const isReflect = mode === 'reflecting';
+    const borderColor = isReflect ? 'border-purple-500/40' : 'border-yellow-500/30';
+    const labelColor  = isReflect ? 'text-purple-400/70' : 'text-yellow-400/70';
+    const icon        = isReflect ? 'lightbulb' : 'psychology';
+    const label       = isReflect ? 'REFLECTING' : 'THINKING';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mission-card-wrapper';
+    wrapper.innerHTML = `
+        <div class="border-l-2 ${borderColor} bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+            <div class="flex items-center gap-2 ${labelColor} font-bold text-[10px] uppercase tracking-widest mb-2">
+                <span class="material-symbols-outlined text-[13px]">${icon}</span>
+                ${label}
+                <span class="inline-block w-1.5 h-3 bg-current ml-1 animate-pulse" id="agent-stream-cursor"></span>
+            </div>
+            <pre id="agent-stream-body" class="text-secondary-text text-[10px] leading-relaxed whitespace-pre-wrap break-all max-h-64 overflow-y-auto"></pre>
+        </div>`;
+
+    const feed = getMissionFeed();
+    if (feed) {
+        feed.appendChild(wrapper);
+        _agentStreamEl = wrapper;
+        _agentStreamBody = wrapper.querySelector('#agent-stream-body');
+        const scrollEl = document.getElementById('message-stream');
+        if (scrollEl && scrollEl.parentElement) scrollEl.parentElement.scrollTop = scrollEl.parentElement.scrollHeight;
+    }
+}
+
+function appendAgentStreamToken(token) {
+    if (!_agentStreamBody) return;
+    _agentStreamBody.textContent += token;
+    // Auto-scroll the card itself if it's overflowing
+    _agentStreamBody.scrollTop = _agentStreamBody.scrollHeight;
+    // Auto-scroll the page
+    const scrollEl = document.getElementById('message-stream');
+    if (scrollEl && scrollEl.parentElement) scrollEl.parentElement.scrollTop = scrollEl.parentElement.scrollHeight;
+}
+
+function finalizeAgentStreamCard() {
+    if (!_agentStreamEl) return;
+    // Remove the blinking cursor
+    const cursor = _agentStreamEl.querySelector('#agent-stream-cursor');
+    if (cursor) cursor.remove();
+    _agentStreamEl = null;
+    _agentStreamBody = null;
 }
 
 function renderMissionReasoning(data) {

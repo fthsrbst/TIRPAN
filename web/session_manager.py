@@ -121,6 +121,19 @@ async def broadcast(session_id: str, event: dict) -> None:
             logger.debug("Subscriber send failed for session %s: %s", session_id, exc)
 
 
+async def _broadcast_no_buffer(session_id: str, event: dict) -> None:
+    """Push an event to subscribers WITHOUT adding to the replay buffer.
+
+    Used for high-frequency streaming events (llm_token) that would saturate
+    the 500-event buffer and prevent late-joining clients from seeing real events.
+    """
+    for send_fn in list(_subscribers.get(session_id, [])):
+        try:
+            await send_fn(event)
+        except Exception as exc:
+            logger.debug("Subscriber send (no-buffer) failed for session %s: %s", session_id, exc)
+
+
 # ── Pause / Resume / Inject ────────────────────────────────────────────────────
 
 def pause_session(session_id: str) -> bool:
@@ -172,7 +185,11 @@ def make_progress_callback(session_id: str) -> Callable[[str, dict], None]:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                loop.create_task(broadcast(session_id, event))
+                # Streaming token events are high-frequency — don't buffer them
+                if event_type in ("llm_token", "llm_thinking_start", "llm_reflecting_start"):
+                    loop.create_task(_broadcast_no_buffer(session_id, event))
+                else:
+                    loop.create_task(broadcast(session_id, event))
         except RuntimeError:
             pass
 

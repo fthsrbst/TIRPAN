@@ -25,6 +25,9 @@ weasyprint>=62.0
 # System monitoring
 psutil>=5.9.0
 
+# Secure credential storage (OS keychain)
+keyring>=25.0.0
+
 # Terminal UI
 rich>=13.7.0
 
