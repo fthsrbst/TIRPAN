@@ -2051,6 +2051,13 @@ function handleSessionDone(msg) {
     if (counts.vulns    !== undefined) setStatValue('stat-vulns', counts.vulns);
     if (counts.exploits !== undefined) setStatValue('stat-ports', counts.exploits);
 
+    // Sync report view to completed session
+    if (activeMissionId) {
+        reportSessionId = activeMissionId;
+        const sel = document.getElementById('report-session-select');
+        if (sel && sel.value !== activeMissionId) sel.value = activeMissionId;
+    }
+
     loadSessionsForSelects();
 }
 
@@ -2306,36 +2313,94 @@ function updateMissionStatusHeader(status, sessionId) {
 // ─── Console output helpers ───────────────────────────────────────────────────
 
 function clearConsoleOutput() {
-    const bash = document.getElementById('console-bash');
-    if (bash) bash.innerHTML = '';
+    ['console-bash', 'console-nmap', 'console-msf'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = '';
+        // Restore empty state placeholder
+        const emptyId = id + '-empty';
+        const empty = document.createElement('div');
+        empty.id = emptyId;
+        empty.className = 'flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none';
+        const labels = {
+            'console-bash': ['terminal', 'No active session \u2014 start a mission to see live output'],
+            'console-nmap': ['search', 'No nmap results yet'],
+            'console-msf':  ['bolt', 'No Metasploit activity yet'],
+        };
+        const [icon, label] = labels[id];
+        empty.innerHTML = `<span class="material-symbols-outlined text-3xl opacity-40">${icon}</span>
+<span class="text-[11px] tracking-widest uppercase opacity-60">${label}</span>`;
+        el.appendChild(empty);
+    });
 }
 
-function appendConsoleLine(text, colorClass = 'text-primary') {
-    const bash = document.getElementById('console-bash');
-    if (!bash) return;
+// Remove empty-state placeholder for a panel on first write
+function _consoleEnsureActive(panelId) {
+    const emptyEl = document.getElementById(panelId + '-empty');
+    if (emptyEl) emptyEl.remove();
+}
+
+function _consoleAppend(panelId, text, colorClass = 'text-primary') {
+    const el = document.getElementById(panelId);
+    if (!el) return;
+    _consoleEnsureActive(panelId);
     const line = document.createElement('div');
     line.className = colorClass;
     line.textContent = text;
-    bash.appendChild(line);
-    bash.scrollTop = bash.scrollHeight;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+}
+
+function appendConsoleLine(text, colorClass = 'text-primary') {
+    _consoleAppend('console-bash', text, colorClass);
 }
 
 function appendConsoleToolCall(data) {
     const tool = data.tool || data.tool_name || data.action || '';
     const ts = new Date().toLocaleTimeString();
-    appendConsoleLine(`[${ts}] TOOL_CALL: ${tool}`, 'text-slate-300');
+    const line = `[${ts}] TOOL_CALL: ${tool}`;
+    _consoleAppend('console-bash', line, 'text-slate-300');
     if (data.params) {
-        appendConsoleLine(`         params: ${JSON.stringify(data.params)}`, 'text-secondary-text');
+        _consoleAppend('console-bash', `         params: ${JSON.stringify(data.params)}`, 'text-secondary-text');
+    }
+
+    // Mirror to specialist tabs
+    const isNmap = tool === 'nmap_scan';
+    const isMsf  = tool === 'metasploit_run' || tool === 'metasploit_search';
+    if (isNmap || isMsf) {
+        const tabId = isNmap ? 'console-nmap' : 'console-msf';
+        _consoleAppend(tabId, line, 'text-slate-300');
+        if (data.params) {
+            _consoleAppend(tabId, `         params: ${JSON.stringify(data.params)}`, 'text-secondary-text');
+        }
     }
 }
 
 function appendConsoleToolResult(data) {
+    const tool = data.tool || data.tool_name || data.action || '';
     const success = data.success !== false;
     const color = success ? 'text-primary' : 'text-danger';
-    appendConsoleLine(`         result: ${success ? 'OK' : 'FAILED'}`, color);
+    const resultLine = `         result: ${success ? 'OK' : 'FAILED'}`;
+    _consoleAppend('console-bash', resultLine, color);
+
+    let outputPreview = '';
     if (data.output) {
-        const preview = data.output.slice(0, 200).replace(/\n/g, ' ');
-        appendConsoleLine(`         output: ${preview}${data.output.length > 200 ? '…' : ''}`, 'text-secondary-text');
+        outputPreview = data.output.slice(0, 400).replace(/\n/g, '\n         ');
+        _consoleAppend('console-bash', `         output: ${outputPreview}${data.output.length > 400 ? '\u2026' : ''}`, 'text-secondary-text');
+    }
+
+    // Mirror output to specialist tabs
+    const isNmap = tool === 'nmap_scan';
+    const isMsf  = tool === 'metasploit_run' || tool === 'metasploit_search';
+    if (isNmap || isMsf) {
+        const tabId = isNmap ? 'console-nmap' : 'console-msf';
+        _consoleAppend(tabId, resultLine, color);
+        if (data.output) {
+            // Show full output in the specialist tab (up to 2000 chars)
+            const lines = data.output.slice(0, 2000).split('\n');
+            lines.forEach(l => _consoleAppend(tabId, l, 'text-secondary-text'));
+            if (data.output.length > 2000) _consoleAppend(tabId, '\u2026 (truncated)', 'text-secondary-text');
+        }
     }
 }
 
@@ -2563,11 +2628,26 @@ async function loadSessionsForSelects() {
             }
         }
 
-        // Populate report session select (report view uses last session by default)
-        if (sessions.length > 0 && !activeMissionId) {
-            const latest = sessions[0];
-            const badge = document.getElementById('report-session-badge');
-            if (badge) badge.textContent = `Session ${latest.id.slice(0, 8).toUpperCase()}`;
+        // Populate report session select
+        const reportSelect = document.getElementById('report-session-select');
+        if (reportSelect) {
+            const currentReportVal = reportSelect.value;
+            reportSelect.innerHTML = '<option value="">— select session —</option>';
+            sessions.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                const ts = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString() : '';
+                const statusLabel = s.is_running ? 'RUNNING' : (s.status || 'done').toUpperCase();
+                opt.textContent = `${s.id.slice(0, 8)} · ${s.target} · ${statusLabel} · ${ts}`;
+                reportSelect.appendChild(opt);
+            });
+            if (currentReportVal) {
+                reportSelect.value = currentReportVal;
+            } else if (activeMissionId) {
+                reportSelect.value = activeMissionId;
+            } else if (sessions.length > 0) {
+                reportSelect.value = sessions[0].id;
+            }
         }
 
     } catch { /* ignore */ }
@@ -2576,11 +2656,14 @@ async function loadSessionsForSelects() {
 // ─── Audit Log View ────────────────────────────────────────────────────────────
 
 let auditCurrentFilter = 'ALL';
+// Cache last loaded entries for export
+let _auditLastEntries = [];
 
 function initAuditView() {
     const sessionSelect = document.getElementById('audit-session-select');
     const searchInput = document.getElementById('audit-search-input');
     const filterBtns = document.querySelectorAll('.audit-filter-btn');
+    const exportBtn = document.getElementById('audit-export-btn');
 
     if (sessionSelect) {
         sessionSelect.addEventListener('change', () => loadAuditLogs());
@@ -2595,10 +2678,22 @@ function initAuditView() {
 
     filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            auditCurrentFilter = btn.dataset.filter || 'ALL';
+            // Toggle active styling
+            filterBtns.forEach(b => {
+                b.classList.remove('bg-primary', 'text-black');
+                b.classList.add('text-secondary-text');
+            });
+            btn.classList.add('bg-primary', 'text-black');
+            btn.classList.remove('text-secondary-text');
+
+            auditCurrentFilter = (btn.dataset.filter || 'all').toUpperCase();
             loadAuditLogs();
         });
     });
+
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportAuditCSV);
+    }
 
     // Load on view switch
     const auditNavItem = document.querySelector('[data-view="audit"]');
@@ -2617,32 +2712,76 @@ async function loadAuditLogs() {
 
     const sessionId = sessionSelect ? sessionSelect.value : '';
     const search = searchInput ? searchInput.value.trim() : '';
-    const filter = auditCurrentFilter !== 'ALL' ? auditCurrentFilter : '';
+    const filter = auditCurrentFilter !== 'ALL' ? auditCurrentFilter.toLowerCase() : '';
 
     const params = new URLSearchParams();
     if (sessionId) params.set('session_id', sessionId);
     if (filter) params.set('event_type', filter);
     if (search) params.set('search', search);
-    params.set('limit', '200');
+    params.set('limit', '500');
+
+    if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-6 text-center text-secondary-text text-xs mono-text">
+          <span class="material-symbols-outlined text-[14px] align-middle animate-spin mr-1">progress_activity</span>Loading...</td></tr>`;
+    }
 
     try {
         const res = await fetch(`/api/v1/audit?${params}`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const entries = data.entries || [];
+        _auditLastEntries = entries;
 
         if (tbody) {
             if (entries.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-secondary-text text-xs mono-text">No audit log entries found</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-10 text-center text-secondary-text text-xs mono-text">No audit log entries found</td></tr>`;
             } else {
                 tbody.innerHTML = entries.map(e => buildAuditRow(e)).join('');
             }
         }
-        if (countEl) countEl.textContent = `Showing ${entries.length} entries`;
+        if (countEl) countEl.textContent = `Showing ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
 
     } catch (err) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-danger text-xs">Failed to load audit logs</td></tr>`;
+        _auditLastEntries = [];
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-10 text-center text-danger text-xs">Failed to load audit logs: ${escapeHtml(err.message)}</td></tr>`;
+        if (countEl) countEl.textContent = 'Error';
     }
+}
+
+function exportAuditCSV() {
+    if (!_auditLastEntries.length) {
+        showToast('No entries to export — load logs first');
+        return;
+    }
+    const header = ['Timestamp', 'Session', 'Event', 'Tool / Action', 'Target', 'Status'];
+    const rows = _auditLastEntries.map(entry => {
+        const ts = entry.created_at
+            ? new Date(entry.created_at * 1000).toISOString().replace('T', ' ').slice(0, 19)
+            : '';
+        const sid = entry.session_id ? entry.session_id.slice(0, 8).toUpperCase() : '';
+        const event = entry.event_type || '';
+        const tool = entry.tool_name || (entry.details ? JSON.stringify(entry.details).slice(0, 80) : '');
+        const target = entry.target || '';
+        const status = _auditStatusText(event);
+        return [ts, sid, event, tool, target, status].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+    });
+    const csv = [header.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `aegis_audit_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Exported ${_auditLastEntries.length} entries`);
+}
+
+function _auditStatusText(event) {
+    if (event.includes('KILL') || event.includes('BLOCK')) return 'BLOCKED';
+    if (event.includes('ERROR')) return 'ERROR';
+    if (event.includes('SUCCESS') || event.includes('START')) return 'OK';
+    if (event.includes('END') || event.includes('DONE')) return 'DONE';
+    return 'INFO';
 }
 
 function buildAuditRow(entry) {
@@ -2698,38 +2837,81 @@ function initReportView() {
     const genBtn = document.getElementById('generate-report-btn');
     const htmlBtn = document.getElementById('export-html-btn');
     const pdfBtn = document.getElementById('download-pdf-btn');
-    const htmlBtnBottom = document.getElementById('export-html-btn-bottom');
-    const pdfBtnBottom = document.getElementById('download-pdf-btn-bottom');
+    const sessionSelect = document.getElementById('report-session-select');
 
     if (genBtn) genBtn.addEventListener('click', generateReport);
     if (htmlBtn) htmlBtn.addEventListener('click', exportReportHTML);
     if (pdfBtn) pdfBtn.addEventListener('click', downloadReportPDF);
-    if (htmlBtnBottom) htmlBtnBottom.addEventListener('click', exportReportHTML);
-    if (pdfBtnBottom) pdfBtnBottom.addEventListener('click', downloadReportPDF);
 
-    // Load report when switching to report view
+    if (sessionSelect) {
+        sessionSelect.addEventListener('change', () => {
+            reportSessionId = sessionSelect.value || null;
+            if (reportSessionId) {
+                generateReport();
+            } else {
+                _reportShowEmpty();
+            }
+        });
+    }
+
+    // Auto-load when switching to report view
     const reportNavItem = document.querySelector('[data-view="report"]');
     if (reportNavItem) {
         reportNavItem.addEventListener('click', () => {
-            if (!reportSessionId && activeMissionId) {
-                reportSessionId = activeMissionId;
-                updateReportBadge(reportSessionId);
+            // Prefer active mission; fall back to first session in dropdown
+            if (!reportSessionId) {
+                const sel = document.getElementById('report-session-select');
+                if (activeMissionId) {
+                    reportSessionId = activeMissionId;
+                    if (sel) sel.value = activeMissionId;
+                } else if (sel && sel.options.length > 1) {
+                    reportSessionId = sel.options[1].value;
+                    sel.value = reportSessionId;
+                }
+            }
+            if (reportSessionId) {
+                generateReport();
             }
         });
     }
 }
 
+function _reportShowEmpty(msg) {
+    const container = document.getElementById('report-content');
+    if (!container) return;
+    const text = msg || 'Select a session and click Generate';
+    container.innerHTML = `<div id="report-empty-state" class="flex flex-col items-center justify-center gap-4 py-24 text-secondary-text">
+      <span class="material-symbols-outlined text-5xl opacity-30">summarize</span>
+      <p class="text-[11px] tracking-widest uppercase opacity-60">${escapeHtml(text)}</p>
+    </div>`;
+}
+
+function _reportShowLoading() {
+    const container = document.getElementById('report-content');
+    if (!container) return;
+    container.innerHTML = `<div class="flex flex-col items-center justify-center gap-4 py-24 text-secondary-text">
+      <span class="material-symbols-outlined text-3xl opacity-40 animate-spin">progress_activity</span>
+      <p class="text-[11px] tracking-widest uppercase opacity-60">Generating report…</p>
+    </div>`;
+}
+
 async function generateReport() {
-    const sid = reportSessionId || activeMissionId;
+    const sel = document.getElementById('report-session-select');
+    const sid = reportSessionId || (sel ? sel.value : null) || activeMissionId;
     if (!sid) {
-        showToast('No session selected — start a mission first');
+        _reportShowEmpty('No session selected — start a mission first');
         return;
     }
     reportSessionId = sid;
-    updateReportBadge(sid);
+    if (sel && sel.value !== sid) sel.value = sid;
 
     const btn = document.getElementById('generate-report-btn');
-    if (btn) { btn.querySelector('span').textContent = 'hourglass_empty'; btn.style.opacity = '0.6'; }
+    if (btn) {
+        btn.querySelector('span').textContent = 'hourglass_empty';
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+    }
+    _reportShowLoading();
 
     try {
         const res = await fetch(`/api/v1/sessions/${sid}/report/html`);
@@ -2738,9 +2920,14 @@ async function generateReport() {
         injectReportContent(html);
         showToast('Report generated');
     } catch (err) {
+        _reportShowEmpty(`Failed to generate report: ${err.message}`);
         showToast('Report generation failed: ' + err.message, true);
     } finally {
-        if (btn) { btn.querySelector('span').textContent = 'refresh'; btn.style.opacity = ''; }
+        if (btn) {
+            btn.querySelector('span').textContent = 'refresh';
+            btn.disabled = false;
+            btn.style.opacity = '';
+        }
     }
 }
 
@@ -2748,20 +2935,16 @@ function injectReportContent(htmlString) {
     const container = document.getElementById('report-content');
     if (!container) return;
 
-    // Parse the generated HTML and extract body content
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlString, 'text/html');
     const body = doc.body;
 
-    // If the template returns a full HTML page, extract body inner HTML
-    // Otherwise use it directly
     if (body && body.innerHTML.trim()) {
-        // Wrap in a styled iframe-like container for isolation
         container.innerHTML = `<div class="bg-white text-black p-8 overflow-auto min-h-[400px] border border-border-color">
             <div class="report-html-content">${body.innerHTML}</div>
         </div>`;
     } else {
-        container.innerHTML = `<div class="text-secondary-text text-xs p-8">Report content is empty</div>`;
+        _reportShowEmpty('Report content is empty — the session may have no findings yet');
     }
 }
 
@@ -2774,12 +2957,14 @@ function exportReportHTML() {
 function downloadReportPDF() {
     const sid = reportSessionId || activeMissionId;
     if (!sid) { showToast('No session — start a mission first'); return; }
+    showToast('Opening PDF download…');
     window.open(`/api/v1/sessions/${sid}/report/pdf`, '_blank');
 }
 
 function updateReportBadge(sessionId) {
-    const badge = document.getElementById('report-session-badge');
-    if (badge && sessionId) badge.textContent = `Session ${sessionId.slice(0, 8).toUpperCase()}`;
+    // Legacy helper kept for compatibility; the badge is now the select element
+    const sel = document.getElementById('report-session-select');
+    if (sel && sessionId && sel.value !== sessionId) sel.value = sessionId;
 }
 
 // ─── Safety Config Load/Save ───────────────────────────────────────────────────
