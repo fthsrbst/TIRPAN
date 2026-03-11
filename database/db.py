@@ -10,11 +10,13 @@ Migration versions:
 """
 
 import json
-import uuid
-import time
 import logging
-import aiosqlite
+import time
+import uuid
 from pathlib import Path
+
+import aiosqlite
+
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -204,11 +206,10 @@ async def get_messages(conversation_id: str) -> list[dict]:
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 async def get_setting(key: str, default=None):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT value FROM app_settings WHERE key=?", (key,)
-        ) as cur:
-            row = await cur.fetchone()
+    async with aiosqlite.connect(DB_PATH) as db, db.execute(
+        "SELECT value FROM app_settings WHERE key=?", (key,)
+    ) as cur:
+        row = await cur.fetchone()
     if row is None:
         return default
     return json.loads(row[0])

@@ -14,9 +14,6 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
-
-import aiosqlite
 
 from database.db import DB_PATH
 from database.repositories import _connect  # reuse the same context manager
@@ -119,13 +116,12 @@ class KnowledgeBase:
 
     async def get_all(self, limit: int = 100) -> list[dict]:
         """Return all knowledge base entries, most used first."""
-        async with _connect(self._path) as db:
-            async with db.execute(
-                """SELECT * FROM knowledge_base
+        async with _connect(self._path) as db, db.execute(
+            """SELECT * FROM knowledge_base
                    ORDER BY success_count DESC LIMIT ?""",
-                (limit,),
-            ) as cur:
-                rows = await cur.fetchall()
+            (limit,),
+        ) as cur:
+            rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
     async def clear(self) -> None:
@@ -137,7 +133,6 @@ class KnowledgeBase:
 
     async def count(self) -> int:
         """Return the total number of knowledge base entries."""
-        async with _connect(self._path) as db:
-            async with db.execute("SELECT COUNT(*) FROM knowledge_base") as cur:
-                row = await cur.fetchone()
+        async with _connect(self._path) as db, db.execute("SELECT COUNT(*) FROM knowledge_base") as cur:  # noqa: SIM117
+            row = await cur.fetchone()
         return row[0] if row else 0

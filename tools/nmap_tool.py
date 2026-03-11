@@ -13,10 +13,9 @@ Scan tipleri:
 import asyncio
 import time
 import xml.etree.ElementTree as ET
-from typing import Optional
 
+from models.scan_result import Host, Port, ScanResult
 from tools.base_tool import BaseTool, ToolMetadata
-from models.scan_result import Port, Host, ScanResult
 
 SCAN_TIMEOUT = 300  # 5 dakika maks
 
@@ -83,7 +82,7 @@ class NmapTool(BaseTool):
             result = self._parse_xml(xml_output, target, scan_type, duration)
             return {"success": True, "output": result.model_dump(), "error": None}
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {"success": False, "output": None, "error": f"Nmap timed out after {SCAN_TIMEOUT}s"}
         except FileNotFoundError:
             return {"success": False, "output": None, "error": "nmap not found — install nmap first"}

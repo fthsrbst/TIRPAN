@@ -15,11 +15,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Awaitable, Callable, Optional
 
-from config import SafetyConfig
 from core.llm_client import LLMRouter, llm_router
 from core.memory import SessionMemory
 from core.prompts import PromptBuilder
@@ -115,12 +114,12 @@ class PentestAgent:
         session: Session,
         target: str,
         mode: str = "full_auto",
-        registry: Optional[ToolRegistry] = None,
-        safety: Optional[SafetyGuard] = None,
-        llm: Optional[LLMRouter] = None,
+        registry: ToolRegistry | None = None,
+        safety: SafetyGuard | None = None,
+        llm: LLMRouter | None = None,
         max_iterations: int = _DEFAULT_MAX_ITERATIONS,
-        progress_callback: Optional[ProgressCallback] = None,
-        approval_callback: Optional[ApprovalCallback] = None,
+        progress_callback: ProgressCallback | None = None,
+        approval_callback: ApprovalCallback | None = None,
     ):
         self.session = session
         self.memory = SessionMemory()
@@ -466,11 +465,10 @@ class PentestAgent:
             ip = str(host.get("ip", ""))
             state = str(host.get("state", "down"))
 
-            if state == "up" and ip:
-                if ip not in self._ctx.discovered_hosts:
-                    self._ctx.discovered_hosts.append(ip)
-                    self._ctx.hosts_pending_port_scan.append(ip)
-                    logger.info("Discovered live host: %s", ip)
+            if state == "up" and ip and ip not in self._ctx.discovered_hosts:
+                self._ctx.discovered_hosts.append(ip)
+                self._ctx.hosts_pending_port_scan.append(ip)
+                logger.info("Discovered live host: %s", ip)
 
             for port in host.get("ports", []):
                 if port.get("state") != "open":
@@ -491,17 +489,17 @@ class PentestAgent:
             self._ctx.hosts_pending_port_scan.remove(target)
 
         # Phase advancement
-        if scan_type == "ping" and self._ctx.attack_phase == "DISCOVERY":
-            if self._ctx.discovered_hosts:
-                self._ctx.attack_phase = "PORT_SCAN"
-                logger.info(
-                    "Phase → PORT_SCAN  (%d live hosts)",
-                    len(self._ctx.discovered_hosts),
-                )
-                self._emit("phase_change", {
-                    "attack_phase": "PORT_SCAN",
-                    "hosts": len(self._ctx.discovered_hosts),
-                })
+        if (
+            scan_type == "ping"
+            and self._ctx.attack_phase == "DISCOVERY"
+            and self._ctx.discovered_hosts
+        ):
+            self._ctx.attack_phase = "PORT_SCAN"
+            logger.info("Phase → PORT_SCAN  (%d live hosts)", len(self._ctx.discovered_hosts))
+            self._emit("phase_change", {
+                "attack_phase": "PORT_SCAN",
+                "hosts": len(self._ctx.discovered_hosts),
+            })
 
         if (
             scan_type in ("service", "os", "full")

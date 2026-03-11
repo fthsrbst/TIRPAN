@@ -1,6 +1,6 @@
-from pydantic import BaseModel, field_validator
-from typing import Optional
 import ipaddress
+
+from pydantic import BaseModel, field_validator
 
 
 class Target(BaseModel):
@@ -18,8 +18,8 @@ class Target(BaseModel):
         except ValueError:
             try:
                 ipaddress.ip_network(v, strict=False)
-            except ValueError:
-                raise ValueError(f"Invalid IP address or CIDR: {v}")
+            except ValueError as exc:
+                raise ValueError(f"Invalid IP address or CIDR: {v}") from exc
         return v
 
     @field_validator("port_range")
@@ -43,7 +43,7 @@ class Target(BaseModel):
         return "/" in self.ip
 
     @property
-    def network(self) -> Optional[ipaddress.IPv4Network]:
+    def network(self) -> ipaddress.IPv4Network | None:
         if self.is_cidr:
             return ipaddress.ip_network(self.ip, strict=False)
         return None

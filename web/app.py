@@ -38,24 +38,30 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AEGIS", version="0.1.0", lifespan=lifespan)
+def create_app() -> FastAPI:
+    """Factory used by tests and uvicorn."""
+    application = FastAPI(title="AEGIS", version="0.1.0", lifespan=lifespan)
 
-# CORS — allow frontend dev server if needed
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-# REST routes
-app.include_router(router)
+    application.include_router(router)
 
-# WebSocket
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await handle_websocket(websocket)
+    @application.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket):
+        await handle_websocket(websocket)
 
-# Static files — mount at root AFTER API routes so API takes priority.
-# html=True enables SPA fallback (unknown paths → index.html).
-app.mount("/", StaticFiles(directory=str(settings.static_dir), html=True), name="static")
+    application.mount(
+        "/",
+        StaticFiles(directory=str(settings.static_dir), html=True),
+        name="static",
+    )
+    return application
+
+
+# Module-level singleton (used by uvicorn and direct imports)
+app = create_app()

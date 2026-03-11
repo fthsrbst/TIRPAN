@@ -9,11 +9,11 @@ Router:
   - LLMRouter: provider selection + fallback logic
 """
 
-import json
 import asyncio
+import json
 import logging
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -81,29 +81,28 @@ class OllamaClient(LLMClient):
             return data["message"]["content"]
 
     async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
-                },
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    try:
-                        data = json.loads(line)
-                        token = data.get("message", {}).get("content", "")
-                        if token:
-                            yield token
-                        if data.get("done"):
-                            break
-                    except json.JSONDecodeError:
-                        continue
+        async with httpx.AsyncClient(timeout=self.timeout) as client, client.stream(
+            "POST",
+            f"{self.base_url}/api/chat",
+            json={
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    token = data.get("message", {}).get("content", "")
+                    if token:
+                        yield token
+                    if data.get("done"):
+                        break
+                except json.JSONDecodeError:
+                    continue
 
     async def is_available(self) -> bool:
         try:
@@ -143,7 +142,7 @@ class OpenRouterClient(LLMClient):
         return headers
 
     async def chat(self, messages: list[dict], stream: bool = False) -> str:
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(self._MAX_RETRIES):
             try:
@@ -175,35 +174,34 @@ class OpenRouterClient(LLMClient):
         )
 
     async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{self._BASE}/chat/completions",
-                headers=self._headers(),
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": True,
-                },
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    raw = line[6:]
-                    if raw == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(raw)
-                        token = (
-                            data.get("choices", [{}])[0]
-                            .get("delta", {})
-                            .get("content", "")
-                        )
-                        if token:
-                            yield token
-                    except json.JSONDecodeError:
-                        continue
+        async with httpx.AsyncClient(timeout=self.timeout) as client, client.stream(
+            "POST",
+            f"{self._BASE}/chat/completions",
+            headers=self._headers(),
+            json={
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                raw = line[6:]
+                if raw == "[DONE]":
+                    break
+                try:
+                    data = json.loads(raw)
+                    token = (
+                        data.get("choices", [{}])[0]
+                        .get("delta", {})
+                        .get("content", "")
+                    )
+                    if token:
+                        yield token
+                except json.JSONDecodeError:
+                    continue
 
     async def is_available(self) -> bool:
         if not self._has_valid_key():
@@ -297,7 +295,7 @@ class LLMRouter:
         if text.startswith("```"):
             lines = text.splitlines()
             # Drop the first and last ``` lines
-            inner = [l for l in lines[1:] if l.strip() != "```"]
+            inner = [line for line in lines[1:] if line.strip() != "```"]
             text = "\n".join(inner)
         return json.loads(text)
 

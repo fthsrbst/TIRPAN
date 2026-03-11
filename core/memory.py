@@ -41,7 +41,7 @@ class Message:
         return {"role": self.role, "content": self.content, "pinned": self.pinned}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Message":
+    def from_dict(cls, data: dict) -> Message:
         return cls(
             role=data["role"],
             content=data["content"],
@@ -150,7 +150,7 @@ class SessionMemory:
                 remaining_budget -= msg.estimated_tokens
 
         # Merge: pinned first (in original order), then normal
-        pinned_set = set(id(m) for m in pinned)
+        pinned_set = {id(m) for m in pinned}
         result: list[Message] = []
         for msg in all_messages:
             if id(msg) in pinned_set or msg in selected_normal:
@@ -188,7 +188,7 @@ class SessionMemory:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SessionMemory":
+    def from_dict(cls, data: dict) -> SessionMemory:
         """Deserialize from database storage."""
         memory = cls(
             max_messages=data.get("max_messages", DEFAULT_MAX_MESSAGES),

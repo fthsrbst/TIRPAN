@@ -1,6 +1,6 @@
-from pydantic import BaseModel, field_validator
-from typing import Optional
 import time
+
+from pydantic import BaseModel, field_validator
 
 
 class Session(BaseModel):
@@ -10,12 +10,12 @@ class Session(BaseModel):
     status: str = "idle"           # "idle" | "running" | "paused" | "done" | "error"
     created_at: float = 0.0
     updated_at: float = 0.0
-    finished_at: Optional[float] = None
+    finished_at: float | None = None
     hosts_found: int = 0
     ports_found: int = 0
     vulns_found: int = 0
     exploits_run: int = 0
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     @field_validator("mode")
     @classmethod
