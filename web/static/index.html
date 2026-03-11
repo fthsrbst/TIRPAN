@@ -196,10 +196,33 @@
         <button id="mobile-hamburger" onclick="toggleMobileSidebar()" class="w-9 h-9 flex items-center justify-center text-secondary-text hover:text-primary transition-colors shrink-0">
           <span class="material-symbols-outlined text-[22px]">menu</span>
         </button>
-        <div id="mission-status-dot" class="w-2 h-2 rounded-full bg-border-color shrink-0 transition-colors"></div>
-        <span id="mission-status-text" class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline text-secondary-text">No Mission</span>
+
+        <!-- Session Switcher Button + Dropdown -->
+        <div class="relative">
+          <button id="session-switcher-btn" class="flex items-center gap-1.5 px-2 py-1 hover:bg-white/5 transition-colors group border border-transparent hover:border-border-color">
+            <div id="mission-status-dot" class="w-2 h-2 rounded-full bg-border-color shrink-0 transition-colors"></div>
+            <span id="mission-status-text" class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline text-secondary-text">No Mission</span>
+            <span class="material-symbols-outlined text-[13px] text-secondary-text group-hover:text-primary transition-colors hidden sm:inline">expand_more</span>
+          </button>
+          <!-- Session history dropdown -->
+          <div id="session-switcher-dropdown" class="hidden absolute top-full left-0 mt-1 bg-surface border border-border-color z-50 min-w-[320px] shadow-lg">
+            <div class="px-3 py-2 border-b border-border-color flex items-center justify-between shrink-0">
+              <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Mission History</span>
+              <button id="session-dropdown-close" class="text-secondary-text hover:text-primary transition-colors">
+                <span class="material-symbols-outlined text-[14px]">close</span>
+              </button>
+            </div>
+            <div id="session-switcher-list" class="flex flex-col max-h-64 overflow-y-auto scrollbar-hide">
+              <div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading sessions...</div>
+            </div>
+          </div>
+        </div>
       </div>
+
       <div class="flex items-center gap-2 md:gap-4">
+        <button id="pause-mission-btn" class="hidden border border-yellow-500/60 text-yellow-400 font-display font-bold text-xs py-1.5 px-4 rounded-full uppercase tracking-tighter hover:bg-yellow-500/10 transition-all">
+          Pause
+        </button>
         <button id="emergency-stop-btn" class="hidden md:flex border border-danger text-danger font-display font-bold text-xs py-1.5 px-5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
           Emergency Stop
         </button>
@@ -265,6 +288,21 @@
             <span class="text-[9px] font-bold uppercase tracking-wider text-secondary-text whitespace-nowrap">Report</span>
           </div>
 
+        </div>
+      </div>
+
+      <!-- Agent Inject Bar — visible only when a mission is running -->
+      <div id="agent-inject-bar" class="hidden px-4 md:px-8 py-2 bg-surface border-b border-border-color shrink-0">
+        <div class="max-w-4xl mx-auto flex items-center gap-2">
+          <span class="material-symbols-outlined text-yellow-400/80 text-[14px] shrink-0">send</span>
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest shrink-0 hidden sm:inline">Operator Inject</span>
+          <input id="agent-inject-input" type="text"
+            class="flex-1 bg-background-dark border border-border-color text-slate-100 px-3 py-1.5 text-xs mono-text focus:border-yellow-500/60 transition-colors"
+            placeholder="Inject instruction or context to the running agent... (Enter to send)"/>
+          <button id="agent-inject-btn"
+            class="border border-yellow-500/60 text-yellow-400 font-display font-bold text-[10px] px-3 py-1.5 hover:bg-yellow-500/10 transition-colors uppercase tracking-wider shrink-0">
+            Inject
+          </button>
         </div>
       </div>
 
