@@ -28,6 +28,9 @@ _tasks: Dict[str, asyncio.Task] = {}
 # session_id → SafetyGuard (needed for kill-switch relay)
 _guards: Dict[str, SafetyGuard] = {}
 
+# session_id → PentestAgent (for pause/resume/inject)
+_agents: Dict[str, object] = {}
+
 # session_id → list of async send callables registered by WS connections
 _subscribers: Dict[str, List[Callable]] = {}
 
@@ -39,10 +42,12 @@ _BUFFER_MAX = 500
 
 # ── Registration ───────────────────────────────────────────────────────────────
 
-def register(session_id: str, task: asyncio.Task, guard: SafetyGuard) -> None:
+def register(session_id: str, task: asyncio.Task, guard: SafetyGuard, agent=None) -> None:
     """Called when a new agent task is started."""
     _tasks[session_id] = task
     _guards[session_id] = guard
+    if agent is not None:
+        _agents[session_id] = agent
     _subscribers.setdefault(session_id, [])
     _buffers.setdefault(session_id, [])
     logger.info("Session %s registered in manager", session_id)
@@ -52,6 +57,7 @@ def cleanup(session_id: str) -> None:
     """Called when the task finishes (success or error)."""
     _tasks.pop(session_id, None)
     _guards.pop(session_id, None)
+    _agents.pop(session_id, None)
     # Keep subscribers and buffers briefly so late-arriving WS clients can read
     logger.info("Session %s task cleaned up", session_id)
 
@@ -109,6 +115,37 @@ async def broadcast(session_id: str, event: dict) -> None:
             await send_fn(event)
         except Exception as exc:
             logger.debug("Subscriber send failed for session %s: %s", session_id, exc)
+
+
+# ── Pause / Resume / Inject ────────────────────────────────────────────────────
+
+def pause_session(session_id: str) -> bool:
+    """Pause the running agent. Returns True if found and paused."""
+    agent = _agents.get(session_id)
+    if agent and is_running(session_id):
+        agent.pause()
+        logger.info("Session %s paused", session_id)
+        return True
+    return False
+
+
+def resume_session(session_id: str) -> bool:
+    """Resume a paused agent. Returns True if found."""
+    agent = _agents.get(session_id)
+    if agent:
+        agent.resume()
+        logger.info("Session %s resumed", session_id)
+        return True
+    return False
+
+
+def inject_message(session_id: str, message: str) -> bool:
+    """Inject an operator message into the agent's memory. Returns True if found."""
+    agent = _agents.get(session_id)
+    if agent and is_running(session_id):
+        agent.inject_message(message)
+        return True
+    return False
 
 
 # ── Progress callback factory ──────────────────────────────────────────────────

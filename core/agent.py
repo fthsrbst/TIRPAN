@@ -136,6 +136,10 @@ class PentestAgent:
         self._max_iterations = max_iterations
         self._progress_cb = progress_callback
         self._approval_cb = approval_callback
+        # Pause/resume control
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()  # Not paused initially
+        self._paused = False
 
     # ── Public properties ─────────────────────────────────────────────────────
 
@@ -146,6 +150,30 @@ class PentestAgent:
     @property
     def context(self) -> AgentContext:
         return self._ctx
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    # ── Pause / Resume / Inject ────────────────────────────────────────────────
+
+    def pause(self) -> None:
+        """Pause the agent between iterations."""
+        self._pause_event.clear()
+        self._paused = True
+        logger.info("Agent paused for session %s", self.session.id)
+
+    def resume(self) -> None:
+        """Resume the agent after pausing."""
+        self._pause_event.set()
+        self._paused = False
+        logger.info("Agent resumed for session %s", self.session.id)
+
+    def inject_message(self, message: str) -> None:
+        """Inject an operator message into the agent's memory for the next iteration."""
+        self.memory.add_user(message)
+        self._emit("injected", {"message": message[:300]})
+        logger.info("Operator message injected into agent memory")
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
@@ -171,6 +199,18 @@ class PentestAgent:
                 self._emit("kill_switch", {})
                 self._state = AgentState.ERROR
                 break
+
+            # ── Pause gate — wait until resumed or kill switch fires ──────
+            if not self._pause_event.is_set():
+                while not self._pause_event.is_set():
+                    if self._safety.kill_switch_triggered:
+                        break
+                    await asyncio.sleep(0.5)
+                # Re-check kill switch after unpausing
+                if self._safety.kill_switch_triggered:
+                    self._emit("kill_switch", {})
+                    self._state = AgentState.ERROR
+                    break
 
             # ── Max iterations guard ─────────────────────────────────────
             if self._ctx.iteration >= self._max_iterations:

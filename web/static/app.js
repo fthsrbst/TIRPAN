@@ -1909,6 +1909,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Pentest session features
     initMissionControls();
+    initSessionSwitcher();
+    initPauseControls();
+    initAgentInject();
     initAuditView();
     initReportView();
     loadSafetyConfig();
@@ -2011,6 +2014,35 @@ function handleSessionEvent(msg) {
     } else if (event === 'phase_change' || event === 'discovery') {
         updatePhaseFromEvent(data);
 
+    } else if (event === 'paused') {
+        appendConsoleLine('[PAUSED] Agent paused by operator', 'text-yellow-400');
+        appendMissionCard(`
+            <div class="border border-yellow-500/30 bg-yellow-500/5 px-4 py-2 font-mono text-xs">
+                <div class="flex items-center gap-2 text-yellow-400 font-bold">
+                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">pause_circle</span>
+                    AGENT PAUSED — waiting for operator instruction
+                </div>
+            </div>
+        `);
+        missionPaused = true;
+        updatePauseButton();
+
+    } else if (event === 'resumed') {
+        appendConsoleLine('[RESUMED] Agent resumed', 'text-primary');
+        appendMissionCard(`
+            <div class="border border-primary/20 bg-primary/5 px-4 py-2 font-mono text-xs">
+                <div class="flex items-center gap-2 text-primary font-bold">
+                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">play_circle</span>
+                    AGENT RESUMED
+                </div>
+            </div>
+        `);
+        missionPaused = false;
+        updatePauseButton();
+
+    } else if (event === 'injected') {
+        appendConsoleLine(`[INJECT] Operator instruction added to agent memory`, 'text-yellow-400');
+
     } else if (event === 'kill_switch') {
         showToast('Emergency stop activated');
         updateMissionStatusHeader('stopped', msg.session_id);
@@ -2039,6 +2071,9 @@ function handleSessionDone(msg) {
     setPhaseActive(5);
     updateMissionStatusHeader('done', msg.session_id);
     stopMissionPoll();
+    hideAgentInjectBar();
+    hidePauseMissionBtn();
+    missionPaused = false;
     showToast('Mission complete');
     renderMissionDone({
         hosts: counts.hosts,
@@ -2064,6 +2099,9 @@ function handleSessionDone(msg) {
 function handleSessionError(msg) {
     updateMissionStatusHeader('error', msg.session_id);
     stopMissionPoll();
+    hideAgentInjectBar();
+    hidePauseMissionBtn();
+    missionPaused = false;
     showToast('Mission error: ' + (msg.error || 'unknown'), true);
     renderMissionError({ error: msg.error || 'Session failed' });
     appendConsoleLine(`[ERROR] Session failed: ${msg.error || ''}`, 'text-danger');
@@ -2113,7 +2151,9 @@ async function startMission() {
         }
         const data = await res.json();
         activeMissionId = data.session_id;
+        viewingSessionId = activeMissionId;
         missionStartTime = Date.now();
+        missionPaused = false;
 
         // Update UI
         updateMissionStatusHeader('running', activeMissionId);
@@ -2125,6 +2165,9 @@ async function startMission() {
         renderMissionStart(target, mode);
         appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
         appendConsoleLine(`[TARGET]  ${target}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
+        showAgentInjectBar();
+        showPauseMissionBtn();
+        updatePauseButton();
 
         // Subscribe to session events via WebSocket
         patchWsSessionHandler();
@@ -2166,6 +2209,9 @@ async function killMission() {
                 if (data.ok) {
                     updateMissionStatusHeader('stopped', activeMissionId);
                     stopMissionPoll();
+                    hideAgentInjectBar();
+                    hidePauseMissionBtn();
+                    missionPaused = false;
                     showToast('Emergency stop sent');
                     appendConsoleLine('[KILL_SWITCH] Emergency stop triggered by user', 'text-danger');
                 }
@@ -2617,6 +2663,7 @@ async function loadSessionsForSelects() {
             const running = sessions.find(s => s.is_running);
             if (running) {
                 activeMissionId = running.id;
+                viewingSessionId = running.id;
                 missionStartTime = Date.now() - ((running.updated_at - running.created_at) * 1000);
                 updateMissionStatusHeader('running', running.id);
                 patchWsSessionHandler();
@@ -2625,6 +2672,8 @@ async function loadSessionsForSelects() {
                 }
                 startMissionPoll(running.id);
                 startMissionUptime();
+                showAgentInjectBar();
+                showPauseMissionBtn();
             }
         }
 
@@ -2651,6 +2700,306 @@ async function loadSessionsForSelects() {
         }
 
     } catch { /* ignore */ }
+}
+
+// ─── Session Switcher ─────────────────────────────────────────────────────────
+
+let _sessionSwitcherOpen = false;
+let viewingSessionId = null;  // session currently being viewed (may differ from activeMissionId)
+
+function initSessionSwitcher() {
+    const btn = document.getElementById('session-switcher-btn');
+    const dropdown = document.getElementById('session-switcher-dropdown');
+    const closeBtn = document.getElementById('session-dropdown-close');
+
+    if (btn) btn.addEventListener('click', () => {
+        _sessionSwitcherOpen ? closeSessionSwitcher() : openSessionSwitcher();
+    });
+    if (closeBtn) closeBtn.addEventListener('click', closeSessionSwitcher);
+
+    document.addEventListener('click', (e) => {
+        if (!_sessionSwitcherOpen) return;
+        if (dropdown && !dropdown.contains(e.target) && btn && !btn.contains(e.target)) {
+            closeSessionSwitcher();
+        }
+    });
+}
+
+async function openSessionSwitcher() {
+    const dropdown = document.getElementById('session-switcher-dropdown');
+    const list = document.getElementById('session-switcher-list');
+    if (!dropdown || !list) return;
+
+    _sessionSwitcherOpen = true;
+    dropdown.classList.remove('hidden');
+    list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading...</div>';
+
+    try {
+        const res = await fetch('/api/v1/sessions');
+        const sessions = await res.json();
+
+        if (!sessions.length) {
+            list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">No sessions yet</div>';
+            return;
+        }
+
+        list.innerHTML = '';
+        sessions.forEach(s => {
+            const ts = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString() : '';
+            const isRunning = s.is_running;
+            const statusLabel = isRunning ? 'RUNNING' : (s.status || 'done').toUpperCase();
+            const statusColor = isRunning ? 'text-primary' : (s.status === 'done' ? 'text-slate-400' : 'text-danger');
+            const isViewing = s.id === (viewingSessionId || activeMissionId);
+
+            const item = document.createElement('button');
+            item.className = `w-full text-left px-4 py-2.5 hover:bg-primary/5 transition-colors border-b border-border-color/30 ${isViewing ? 'bg-primary/5' : ''}`;
+            item.dataset.sessionId = s.id;
+            item.innerHTML = `
+                <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-[10px] mono-text font-bold text-slate-200">${_esc(s.target)}</span>
+                    <span class="text-[9px] font-bold ${statusColor} uppercase">${statusLabel}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-[9px] mono-text text-secondary-text">${s.id.slice(0, 8).toUpperCase()}</span>
+                    <span class="text-[9px] mono-text text-secondary-text">${_esc(s.mode || '')}</span>
+                    <span class="text-[9px] mono-text text-secondary-text">${ts}</span>
+                </div>`;
+            item.addEventListener('click', () => {
+                closeSessionSwitcher();
+                switchToSession(s.id);
+            });
+            list.appendChild(item);
+        });
+    } catch {
+        list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-danger">Failed to load sessions</div>';
+    }
+}
+
+function closeSessionSwitcher() {
+    const dropdown = document.getElementById('session-switcher-dropdown');
+    if (dropdown) dropdown.classList.add('hidden');
+    _sessionSwitcherOpen = false;
+}
+
+async function switchToSession(sessionId) {
+    try {
+        const res = await fetch(`/api/v1/sessions/${sessionId}`);
+        if (!res.ok) { showToast('Failed to load session'); return; }
+        const session = await res.json();
+
+        viewingSessionId = sessionId;
+
+        // Update header
+        const isRunning = session.is_running;
+        const status = isRunning ? 'running' : (session.status || 'done');
+        updateMissionStatusHeader(status, sessionId);
+
+        // Update stats
+        setStatValue('stat-vulns', session.vulns_found ?? '—');
+        setStatValue('stat-hosts', session.hosts_found ?? '—');
+        setStatValue('stat-ports', session.ports_found ?? '—');
+
+        // Switch to agent view
+        switchView('agent');
+        clearMissionFeed();
+
+        if (isRunning) {
+            // Live session — subscribe to WS events
+            activeMissionId = sessionId;
+            patchWsSessionHandler();
+            if (ws && wsReady) {
+                ws.send(JSON.stringify({ type: 'subscribe_session', session_id: sessionId }));
+            }
+            startMissionPoll(sessionId);
+            showAgentInjectBar();
+            showPauseMissionBtn();
+            updatePauseButton();
+        } else {
+            // Historical session — reconstruct from DB data
+            renderHistoricalSession(session);
+            hideAgentInjectBar();
+            hidePauseMissionBtn();
+        }
+
+    } catch (err) {
+        showToast('Error loading session: ' + err.message);
+    }
+}
+
+function renderHistoricalSession(session) {
+    const ts = session.created_at ? new Date(session.created_at * 1000).toLocaleString() : '';
+
+    appendMissionCard(`
+        <div class="border border-border-color/60 bg-surface px-4 py-3 font-mono text-xs">
+            <div class="flex items-center gap-2 text-secondary-text font-bold mb-2">
+                <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">history</span>
+                HISTORICAL SESSION · ${_esc(ts)}
+            </div>
+            <div class="text-secondary-text">
+                TARGET &nbsp;<span class="text-slate-200">${_esc(session.target)}</span>
+                &nbsp;&nbsp; MODE &nbsp;<span class="text-slate-200">${_esc((session.mode || '').toUpperCase())}</span>
+                &nbsp;&nbsp; STATUS &nbsp;<span class="text-slate-200">${_esc((session.status || '').toUpperCase())}</span>
+            </div>
+        </div>
+    `);
+
+    if (session.scan_results && session.scan_results.length > 0) {
+        const items = session.scan_results.slice(0, 20).map(r =>
+            `<div class="text-secondary-text">${_esc(String(r.ip || ''))}:${_esc(String(r.port || ''))} <span class="text-slate-300">${_esc(r.service || '')} ${_esc(r.version || '')}</span></div>`
+        ).join('');
+        appendMissionCard(`
+            <div class="border-l-2 border-primary/30 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+                <div class="flex items-center gap-2 text-primary/60 font-bold text-[10px] uppercase tracking-widest mb-2">
+                    <span class="material-symbols-outlined text-[13px]">search</span>
+                    SCAN RESULTS · ${session.scan_results.length} ports found
+                </div>
+                ${items}
+                ${session.scan_results.length > 20 ? `<div class="text-secondary-text text-[10px] mt-1">… and ${session.scan_results.length - 20} more</div>` : ''}
+            </div>
+        `);
+    }
+
+    if (session.vulnerabilities && session.vulnerabilities.length > 0) {
+        const items = session.vulnerabilities.slice(0, 15).map(v =>
+            `<div class="flex items-start gap-2"><span class="text-danger shrink-0">▸</span><span class="text-slate-300">${_esc(v.title || v.description || String(v).slice(0, 100))}</span></div>`
+        ).join('');
+        appendMissionCard(`
+            <div class="border-l-2 border-danger/40 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+                <div class="flex items-center gap-2 text-danger/80 font-bold text-[10px] uppercase tracking-widest mb-2">
+                    <span class="material-symbols-outlined text-[13px]">bug_report</span>
+                    VULNERABILITIES · ${session.vulnerabilities.length} found
+                </div>
+                ${items}
+            </div>
+        `);
+    }
+
+    if (session.exploit_results && session.exploit_results.length > 0) {
+        const items = session.exploit_results.map(e =>
+            `<div class="text-${e.success ? 'primary' : 'danger'}">${e.success ? '✓' : '✗'} ${_esc(e.module || '')} → ${_esc(e.target_ip || '')}</div>`
+        ).join('');
+        appendMissionCard(`
+            <div class="border-l-2 border-orange-500/40 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+                <div class="flex items-center gap-2 text-orange-400/80 font-bold text-[10px] uppercase tracking-widest mb-2">
+                    <span class="material-symbols-outlined text-[13px]">bolt</span>
+                    EXPLOIT RESULTS · ${session.exploit_results.length} attempts
+                </div>
+                ${items}
+            </div>
+        `);
+    }
+
+    if (!session.scan_results?.length && !session.vulnerabilities?.length && !session.exploit_results?.length) {
+        appendMissionCard(`
+            <div class="border-l-2 border-border-color/40 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+                <div class="text-secondary-text text-[11px]">No detailed findings stored for this session.</div>
+            </div>
+        `);
+    }
+}
+
+// ─── Pause / Resume ───────────────────────────────────────────────────────────
+
+let missionPaused = false;
+
+function showPauseMissionBtn() {
+    const btn = document.getElementById('pause-mission-btn');
+    if (btn) btn.classList.remove('hidden');
+}
+
+function hidePauseMissionBtn() {
+    const btn = document.getElementById('pause-mission-btn');
+    if (btn) btn.classList.add('hidden');
+}
+
+function updatePauseButton() {
+    const btn = document.getElementById('pause-mission-btn');
+    if (!btn) return;
+    if (missionPaused) {
+        btn.textContent = 'Resume';
+        btn.classList.remove('border-yellow-500/60', 'text-yellow-400', 'hover:bg-yellow-500/10');
+        btn.classList.add('border-primary', 'text-primary', 'hover:bg-primary/10');
+    } else {
+        btn.textContent = 'Pause';
+        btn.classList.remove('border-primary', 'text-primary', 'hover:bg-primary/10');
+        btn.classList.add('border-yellow-500/60', 'text-yellow-400', 'hover:bg-yellow-500/10');
+    }
+}
+
+function initPauseControls() {
+    const pauseBtn = document.getElementById('pause-mission-btn');
+    if (pauseBtn) pauseBtn.addEventListener('click', togglePauseMission);
+}
+
+async function togglePauseMission() {
+    const sessionId = activeMissionId || viewingSessionId;
+    if (!sessionId) { showToast('No active mission'); return; }
+
+    const endpoint = missionPaused ? 'resume' : 'pause';
+    try {
+        const res = await fetch(`/api/v1/sessions/${sessionId}/${endpoint}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) showToast('Could not pause/resume — agent may not be running');
+    } catch (err) {
+        showToast('Error: ' + err.message);
+    }
+}
+
+// ─── Agent Inject ─────────────────────────────────────────────────────────────
+
+function showAgentInjectBar() {
+    const bar = document.getElementById('agent-inject-bar');
+    if (bar) bar.classList.remove('hidden');
+}
+
+function hideAgentInjectBar() {
+    const bar = document.getElementById('agent-inject-bar');
+    if (bar) bar.classList.add('hidden');
+}
+
+function initAgentInject() {
+    const injectBtn = document.getElementById('agent-inject-btn');
+    const injectInput = document.getElementById('agent-inject-input');
+
+    const doInject = async () => {
+        const sessionId = activeMissionId || viewingSessionId;
+        if (!sessionId) { showToast('No active session'); return; }
+        const message = injectInput ? injectInput.value.trim() : '';
+        if (!message) return;
+
+        try {
+            const res = await fetch(`/api/v1/sessions/${sessionId}/inject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                appendMissionCard(`
+                    <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
+                        <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-1">
+                            <span class="material-symbols-outlined text-[12px]">person</span>
+                            OPERATOR INSTRUCTION
+                        </div>
+                        <div class="text-slate-200 text-[11px] whitespace-pre-wrap">${_esc(message)}</div>
+                    </div>
+                `);
+                if (injectInput) injectInput.value = '';
+                showToast('Instruction injected into agent');
+            } else {
+                showToast('Agent not running or session not found');
+            }
+        } catch (err) {
+            showToast('Error: ' + err.message);
+        }
+    };
+
+    if (injectBtn) injectBtn.addEventListener('click', doInject);
+    if (injectInput) {
+        injectInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') doInject();
+        });
+    }
 }
 
 // ─── Audit Log View ────────────────────────────────────────────────────────────
