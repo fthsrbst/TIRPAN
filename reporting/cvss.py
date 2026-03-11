@@ -205,14 +205,14 @@ class CvssCalculator:
     def severity_color(score: float) -> str:
         """Return a hex color code for severity (for HTML reports)."""
         if score >= 9.0:
-            return "#c0392b"   # deep red
+            return "#ff4444"   # critical red
         elif score >= 7.0:
-            return "#e67e22"   # orange
+            return "#ff8c42"   # high orange
         elif score >= 4.0:
-            return "#f1c40f"   # yellow
+            return "#ffd43b"   # medium yellow
         elif score > 0.0:
-            return "#27ae60"   # green
-        return "#7f8c8d"       # grey
+            return "#69db7c"   # low green
+        return "#8b949e"       # none grey
 
 
 # Convenience singleton

@@ -175,7 +175,8 @@ class ReportGenerator:
             ) from exc
 
         html_str = await self.generate_html(session_id)
-        pdf_bytes: bytes = WeasyHTML(string=html_str, base_url=str(_TEMPLATES_DIR)).write_pdf()
+        doc = WeasyHTML(string=html_str, base_url=str(_TEMPLATES_DIR))
+        pdf_bytes: bytes = doc.write_pdf(presentational_hints=True)
         return pdf_bytes
 
     async def save_report(
@@ -277,14 +278,14 @@ class ReportGenerator:
     def _overall_risk(critical: int, high: int, medium: int, low: int) -> tuple[str, str]:
         """Determine overall engagement risk level and colour."""
         if critical > 0:
-            return "CRITICAL", "#cf222e"
+            return "CRITICAL", "#ff4444"
         if high > 0:
-            return "HIGH", "#bc4c00"
+            return "HIGH", "#ff8c42"
         if medium > 0:
-            return "MEDIUM", "#9a6700"
+            return "MEDIUM", "#ffd43b"
         if low > 0:
-            return "LOW", "#1a7f37"
-        return "NONE", "#57606a"
+            return "LOW", "#69db7c"
+        return "NONE", "#8b949e"
 
     @staticmethod
     def _flatten_scan_results(raw_scans: list[dict]) -> list[dict]:
