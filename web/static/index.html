@@ -96,6 +96,28 @@
           </select>
         </div>
 
+        <!-- Advanced Options — collapsible -->
+        <div class="border border-border-color">
+          <button id="adv-opts-toggle" type="button"
+            class="w-full flex items-center justify-between px-3 py-2 text-[11px] font-display font-bold text-secondary-text uppercase tracking-widest hover:text-primary transition-colors"
+            onclick="(function(){var p=document.getElementById('adv-opts-body');var ic=document.getElementById('adv-opts-icon');var open=p.classList.toggle('hidden');ic.textContent=open?'expand_more':'expand_less';})()">
+            <span>Advanced Options</span>
+            <span id="adv-opts-icon" class="material-symbols-outlined text-[14px]">expand_more</span>
+          </button>
+          <div id="adv-opts-body" class="hidden flex flex-col gap-3 px-3 pb-3 border-t border-border-color pt-3">
+            <div class="flex flex-col gap-1">
+              <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Port Range</label>
+              <input id="mission-port-range" class="bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-xs focus:border-primary transition-colors" placeholder="1-65535 or 9021,9022,9080" type="text" value="1-65535"/>
+              <p class="text-[9px] text-secondary-text leading-tight">Comma-separated for Docker mapped ports</p>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Operator Notes</label>
+              <input id="mission-notes" class="bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-xs focus:border-primary transition-colors" placeholder="e.g. Docker: 9021=FTP 9080=HTTP" type="text"/>
+              <p class="text-[9px] text-secondary-text leading-tight">Injected into every LLM prompt</p>
+            </div>
+          </div>
+        </div>
+
         <button id="start-mission-btn" class="bg-primary text-black font-display font-bold text-sm py-2.5 px-4 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all mt-2">
           Start Mission
         </button>
