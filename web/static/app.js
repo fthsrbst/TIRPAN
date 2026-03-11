@@ -1927,89 +1927,130 @@ let missionUptimeHandle = null;
 
 // ─── WebSocket session event handler extension ────────────────────────────────
 
-// Extend the existing ws.onmessage to handle session events
-const _origWsConnect = wsConnect;
-wsConnect = function () {
-    _origWsConnect();
-    // Patch onmessage after connect
-    const _origOnOpen = ws ? ws.onopen : null;
-    // We'll override onmessage in a wrapper below
-};
-
-// Override ws message handler to also handle session events
+/**
+ * Wrap ws.onmessage once per WebSocket instance to intercept session events.
+ * Guard flag prevents double-patching the same ws object.
+ */
 function patchWsSessionHandler() {
-    if (!ws) return;
-    const originalOnMessage = ws.onmessage;
+    if (!ws || ws._sessionPatched) return;
+    ws._sessionPatched = true;
+
+    const _base = ws.onmessage;
     ws.onmessage = (event) => {
         let msg;
         try { msg = JSON.parse(event.data); } catch { return; }
 
-        // Handle session events before calling original handler
-        if (msg.type === 'session_event') {
-            handleSessionEvent(msg);
-            return;
-        }
-        if (msg.type === 'session_done') {
-            handleSessionDone(msg);
-            return;
-        }
-        if (msg.type === 'session_error') {
-            handleSessionError(msg);
-            return;
-        }
-        if (msg.type === 'session_subscribed') {
-            return;
-        }
+        if (msg.type === 'session_event')     { handleSessionEvent(msg);  return; }
+        if (msg.type === 'session_done')      { handleSessionDone(msg);   return; }
+        if (msg.type === 'session_error')     { handleSessionError(msg);  return; }
+        if (msg.type === 'session_subscribed') { return; }
 
-        // Fall through to original handler
-        if (originalOnMessage) originalOnMessage(event);
+        if (_base) _base(event);
     };
 }
+
+/**
+ * Override wsConnect so every fresh WebSocket (including reconnects) automatically
+ * re-patches the session handler and re-subscribes to the active mission.
+ */
+const _origWsConnect = wsConnect;
+wsConnect = function () {
+    _origWsConnect();
+    // ws is now a brand-new WebSocket; wrap its onopen
+    const _innerOnOpen = ws.onopen;
+    ws.onopen = () => {
+        if (_innerOnOpen) _innerOnOpen();
+        patchWsSessionHandler();
+        if (activeMissionId) {
+            ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeMissionId }));
+        }
+    };
+};
 
 function handleSessionEvent(msg) {
     const event = msg.event;
     const data = msg.data || {};
 
-    // Update phase progress bar
     if (event === 'start') {
         setPhaseActive(1);
         updateMissionStatusHeader('running', msg.session_id);
+        clearMissionFeed();
+        renderMissionStart(data.target || '', data.mode || '');
+        appendConsoleLine(`[START] Target: ${data.target || ''} · Mode: ${data.mode || ''}`, 'text-primary');
+
     } else if (event === 'reasoning') {
-        appendConsoleLine(`[REASONING] ${data.thought || data.action || ''}`, 'text-secondary-text');
+        renderMissionReasoning(data);
+        updatePhaseFromEvent(data);
+        appendConsoleLine(`[THINK] ${data.thought || data.action || ''}`, 'text-secondary-text');
+        if (data.action) {
+            appendConsoleLine(`[ACTION] → ${data.action}`, 'text-slate-400');
+        }
+
     } else if (event === 'tool_call') {
+        renderMissionToolCall(data);
         appendConsoleToolCall(data);
+
     } else if (event === 'tool_result') {
+        renderMissionToolResult(data);
         appendConsoleToolResult(data);
+
+    } else if (event === 'reflection') {
+        renderMissionReflection(data);
+        if (data.content) {
+            appendConsoleLine(`[REFLECT] ${data.content.slice(0, 120)}`, 'text-purple-400');
+        }
+
+    } else if (event === 'safety_block') {
+        renderMissionSafetyBlock(data);
+        appendConsoleLine(`[SAFETY] Blocked ${data.tool || ''}: ${data.reason || ''}`, 'text-orange-400');
+
+    } else if (event === 'observation') {
+        // Handled via tool_result; just update phase
+        updatePhaseFromEvent(data);
+
     } else if (event === 'phase_change' || event === 'discovery') {
         updatePhaseFromEvent(data);
+
     } else if (event === 'kill_switch') {
         showToast('Emergency stop activated');
         updateMissionStatusHeader('stopped', msg.session_id);
+        appendConsoleLine('[KILL_SWITCH] Emergency stop triggered', 'text-danger');
+
     } else if (event === 'max_iterations') {
         showToast('Max iterations reached — mission finishing');
+        appendConsoleLine('[MAX_ITER] Maximum iterations reached — wrapping up', 'text-orange-400');
+
     } else if (event === 'error') {
+        renderMissionError(data);
         appendConsoleLine(`[ERROR] ${data.error || ''}`, 'text-danger');
+
+    } else if (event === 'generate_report') {
+        setPhaseActive(5);
+        appendConsoleLine('[REPORT] Generating final report…', 'text-primary');
     }
 
-    // Refresh stats counters
     if (activeMissionId) {
         refreshMissionStats(activeMissionId);
     }
 }
 
 function handleSessionDone(msg) {
+    const counts = msg.data || msg;
     setPhaseActive(5);
     updateMissionStatusHeader('done', msg.session_id);
     stopMissionPoll();
     showToast('Mission complete');
+    renderMissionDone({
+        hosts: counts.hosts,
+        vulns: counts.vulns,
+        exploits: counts.exploits,
+    });
     appendConsoleLine('[SESSION] Agent finished — report available in the Report tab', 'text-primary');
 
-    // Update stat counters from final counts
-    if (msg.hosts !== undefined) setStatValue('stat-hosts', msg.hosts);
-    if (msg.vulns !== undefined) setStatValue('stat-vulns', msg.vulns);
-    if (msg.exploits !== undefined) setStatValue('stat-ports', msg.exploits + '+ exploits');
+    if (counts.hosts    !== undefined) setStatValue('stat-hosts', counts.hosts);
+    if (counts.vulns    !== undefined) setStatValue('stat-vulns', counts.vulns);
+    if (counts.exploits !== undefined) setStatValue('stat-ports', counts.exploits);
 
-    // Reload sessions in selects
     loadSessionsForSelects();
 }
 
@@ -2017,6 +2058,7 @@ function handleSessionError(msg) {
     updateMissionStatusHeader('error', msg.session_id);
     stopMissionPoll();
     showToast('Mission error: ' + (msg.error || 'unknown'), true);
+    renderMissionError({ error: msg.error || 'Session failed' });
     appendConsoleLine(`[ERROR] Session failed: ${msg.error || ''}`, 'text-danger');
 }
 
@@ -2065,22 +2107,26 @@ async function startMission() {
         // Update UI
         updateMissionStatusHeader('running', activeMissionId);
         resetMissionStats();
+        resetPhaseBar();
         setPhaseActive(1);
         clearConsoleOutput();
-        appendConsoleLine(`[SESSION] Started: ${activeMissionId}`, 'text-primary');
+        clearMissionFeed();
+        renderMissionStart(target, mode);
+        appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
         appendConsoleLine(`[TARGET]  ${target}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
 
         // Subscribe to session events via WebSocket
+        patchWsSessionHandler();
         if (ws && wsReady) {
             ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeMissionId }));
-            patchWsSessionHandler();
         }
+        // activeMissionId is now set — wsConnect's onopen will re-subscribe on reconnect
 
         // Start polling for DB-backed stats
         startMissionPoll(activeMissionId);
         startMissionUptime();
 
-        // Switch to agent view
+        // Switch to agent view so user sees the live feed immediately
         switchView('agent');
         showToast('Mission started');
 
@@ -2271,10 +2317,9 @@ function appendConsoleLine(text, colorClass = 'text-primary') {
 }
 
 function appendConsoleToolCall(data) {
-    const tool = data.tool_name || data.action || '';
-    const target = data.target_ip || '';
+    const tool = data.tool || data.tool_name || data.action || '';
     const ts = new Date().toLocaleTimeString();
-    appendConsoleLine(`[${ts}] TOOL_CALL: ${tool}${target ? ' → ' + target : ''}`, 'text-slate-300');
+    appendConsoleLine(`[${ts}] TOOL_CALL: ${tool}`, 'text-slate-300');
     if (data.params) {
         appendConsoleLine(`         params: ${JSON.stringify(data.params)}`, 'text-secondary-text');
     }
@@ -2283,7 +2328,196 @@ function appendConsoleToolCall(data) {
 function appendConsoleToolResult(data) {
     const success = data.success !== false;
     const color = success ? 'text-primary' : 'text-danger';
-    appendConsoleLine(`         result: ${success ? 'OK' : 'FAILED'} ${data.summary || ''}`, color);
+    appendConsoleLine(`         result: ${success ? 'OK' : 'FAILED'}`, color);
+    if (data.output) {
+        const preview = data.output.slice(0, 200).replace(/\n/g, ' ');
+        appendConsoleLine(`         output: ${preview}${data.output.length > 200 ? '…' : ''}`, 'text-secondary-text');
+    }
+}
+
+// ─── Agent view live mission feed ─────────────────────────────────────────────
+
+let _missionIteration = 0;
+
+function _esc(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function getMissionFeed() {
+    let feed = document.getElementById('mission-feed');
+    if (!feed) {
+        const stream = document.getElementById('message-stream');
+        if (!stream) return null;
+        const emptyState = document.getElementById('chat-empty-state');
+        if (emptyState) emptyState.style.display = 'none';
+        feed = document.createElement('div');
+        feed.id = 'mission-feed';
+        feed.className = 'flex flex-col gap-2 w-full';
+        stream.appendChild(feed);
+    }
+    return feed;
+}
+
+function appendMissionCard(html) {
+    const feed = getMissionFeed();
+    if (!feed) return;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html.trim();
+    if (wrapper.firstChild) feed.appendChild(wrapper.firstChild);
+    // Scroll the overflow parent
+    const stream = document.getElementById('message-stream');
+    const scrollEl = stream ? stream.parentElement : null;
+    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+}
+
+function clearMissionFeed() {
+    const feed = document.getElementById('mission-feed');
+    if (feed) feed.remove();
+    _missionIteration = 0;
+    const emptyState = document.getElementById('chat-empty-state');
+    if (emptyState) emptyState.style.display = '';
+}
+
+function renderMissionStart(target, mode) {
+    const ts = new Date().toLocaleTimeString();
+    appendMissionCard(`
+        <div class="border border-primary/30 bg-primary/5 px-4 py-3 font-mono text-xs">
+            <div class="flex items-center gap-2 text-primary font-bold mb-1">
+                <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">rocket_launch</span>
+                MISSION STARTED &nbsp;·&nbsp; ${ts}
+            </div>
+            <div class="text-secondary-text">TARGET &nbsp;<span class="text-slate-200">${_esc(target)}</span> &nbsp;&nbsp; MODE &nbsp;<span class="text-slate-200">${_esc(mode).toUpperCase()}</span></div>
+        </div>
+    `);
+}
+
+function renderMissionReasoning(data) {
+    _missionIteration++;
+    const thought   = _esc(data.thought || '');
+    const reasoning = _esc(data.reasoning || '');
+    const action    = _esc(data.action || '');
+    appendMissionCard(`
+        <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+            <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-2">
+                <span class="material-symbols-outlined text-[13px]">psychology</span>
+                REASONING &nbsp;·&nbsp; Iteration ${_missionIteration}
+            </div>
+            ${thought    ? `<div class="text-slate-300 leading-relaxed mb-2 whitespace-pre-wrap">${thought}</div>` : ''}
+            ${reasoning  ? `<div class="text-secondary-text text-[11px] leading-relaxed mb-2 whitespace-pre-wrap italic">${reasoning}</div>` : ''}
+            ${action     ? `<div class="text-primary text-[11px] font-bold mt-1">→ &nbsp;${action}</div>` : ''}
+        </div>
+    `);
+}
+
+function renderMissionToolCall(data) {
+    const tool      = _esc(data.tool || '');
+    const paramsStr = _esc(JSON.stringify(data.params || {}, null, 2));
+    appendMissionCard(`
+        <div class="border-l-2 border-blue-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+            <div class="flex items-center gap-2 text-blue-400/80 font-bold text-[10px] uppercase tracking-widest mb-2">
+                <span class="material-symbols-outlined text-[13px]">terminal</span>
+                TOOL CALL
+            </div>
+            <div class="text-primary font-bold mb-1">▶ &nbsp;${tool}</div>
+            <pre class="text-secondary-text text-[10px] overflow-x-auto whitespace-pre-wrap break-all">${paramsStr}</pre>
+        </div>
+    `);
+}
+
+function renderMissionToolResult(data) {
+    const tool    = _esc(data.tool || '');
+    const success = data.success !== false;
+    const output  = _esc(data.output || data.error || '');
+    const border  = success ? 'border-primary/50' : 'border-danger/50';
+    const color   = success ? 'text-primary' : 'text-danger';
+    const icon    = success ? 'check_circle' : 'error';
+    const label   = success ? 'OK' : 'FAILED';
+    appendMissionCard(`
+        <div class="border-l-2 ${border} bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2 ${color} font-bold text-[10px] uppercase tracking-widest">
+                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">${icon}</span>
+                    RESULT: ${tool}
+                </div>
+                <span class="${color} font-bold text-[10px]">${label}</span>
+            </div>
+            ${output ? `<pre class="text-secondary-text text-[10px] overflow-x-auto max-h-48 whitespace-pre-wrap break-all">${output}</pre>` : ''}
+        </div>
+    `);
+}
+
+function renderMissionReflection(data) {
+    const content = _esc(data.content || '');
+    if (!content) return;
+    appendMissionCard(`
+        <div class="border-l-2 border-purple-500/40 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
+            <div class="flex items-center gap-2 text-purple-400/60 font-bold text-[10px] uppercase tracking-widest mb-1">
+                <span class="material-symbols-outlined text-[12px]">lightbulb</span>
+                REFLECTION
+            </div>
+            <div class="text-secondary-text text-[11px] italic leading-relaxed whitespace-pre-wrap">${content}</div>
+        </div>
+    `);
+}
+
+function renderMissionSafetyBlock(data) {
+    const reason = _esc(data.reason || '');
+    const tool   = _esc(data.tool || '');
+    appendMissionCard(`
+        <div class="border-l-2 border-orange-500/60 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+            <div class="flex items-center gap-2 text-orange-400 font-bold text-[10px] uppercase tracking-widest mb-1">
+                <span class="material-symbols-outlined text-[13px]">shield</span>
+                SAFETY BLOCK${tool ? ' · ' + tool : ''}
+            </div>
+            <div class="text-orange-300/80 text-[11px]">${reason}</div>
+        </div>
+    `);
+}
+
+function renderMissionError(data) {
+    const msg = _esc(data.error || 'Unknown error');
+    appendMissionCard(`
+        <div class="border-l-2 border-danger/60 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+            <div class="flex items-center gap-2 text-danger font-bold text-[10px] uppercase tracking-widest mb-1">
+                <span class="material-symbols-outlined text-[13px]">error</span>
+                ERROR
+            </div>
+            <div class="text-danger/80 text-[11px] whitespace-pre-wrap">${msg}</div>
+        </div>
+    `);
+}
+
+function renderMissionDone(data) {
+    const ts = new Date().toLocaleTimeString();
+    appendMissionCard(`
+        <div class="border border-primary/30 bg-primary/5 px-4 py-4 font-mono text-xs">
+            <div class="flex items-center gap-2 text-primary font-bold mb-3">
+                <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">flag</span>
+                MISSION COMPLETE &nbsp;·&nbsp; ${ts}
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-center">
+                <div>
+                    <div class="text-primary text-xl font-bold mono-text">${data.hosts || 0}</div>
+                    <div class="text-secondary-text text-[10px] uppercase tracking-wider mt-0.5">Hosts</div>
+                </div>
+                <div>
+                    <div class="text-primary text-xl font-bold mono-text">${data.vulns || 0}</div>
+                    <div class="text-secondary-text text-[10px] uppercase tracking-wider mt-0.5">Vulns</div>
+                </div>
+                <div>
+                    <div class="text-primary text-xl font-bold mono-text">${data.exploits || 0}</div>
+                    <div class="text-secondary-text text-[10px] uppercase tracking-wider mt-0.5">Exploits</div>
+                </div>
+            </div>
+            <div class="mt-3 text-center text-secondary-text text-[11px]">
+                Report available in the <span class="text-primary cursor-pointer hover:underline" onclick="switchView('report')">Report</span> tab
+            </div>
+        </div>
+    `);
 }
 
 // ─── Load sessions for dropdown selects ──────────────────────────────────────
