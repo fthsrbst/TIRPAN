@@ -326,6 +326,55 @@ async def save_msf_config(body: MsfConfigRequest):
     return {"ok": True}
 
 
+# ── OpenRouter Config ──────────────────────────────────────────────────────────
+
+class OpenRouterSettings(BaseModel):
+    api_key: str = ""
+    cloud_model: str = ""
+
+
+@router.get("/config/openrouter")
+async def get_openrouter_config():
+    saved = await database.get_all_settings()
+    return {
+        "cloud_model": saved.get("cloud_model", settings.llm.cloud_model),
+        "has_api_key": bool(saved.get("openrouter_api_key", settings.llm.api_key)),
+    }
+
+
+@router.post("/config/openrouter")
+async def save_openrouter_config(body: OpenRouterSettings):
+    if body.api_key:
+        await database.set_setting("openrouter_api_key", body.api_key)
+        settings.llm.api_key = body.api_key
+    if body.cloud_model:
+        await database.set_setting("cloud_model", body.cloud_model)
+        settings.llm.cloud_model = body.cloud_model
+    return {"ok": True}
+
+
+@router.get("/openrouter/models")
+async def openrouter_models():
+    """Fetch available models from OpenRouter API."""
+    saved = await database.get_all_settings()
+    api_key = saved.get("openrouter_api_key", settings.llm.api_key or "")
+    key = (api_key or "").strip()
+    if not key or key.startswith("sk-or-..."):
+        return {"models": [], "error": "No API key configured"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            models = sorted(m["id"] for m in data.get("data", []) if m.get("id"))
+            return {"models": models}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+
 # ── Nmap Config ────────────────────────────────────────────────────────────────
 
 @router.get("/config/nmap")
@@ -402,6 +451,22 @@ async def _run_agent_task(
             "hosts": len(ctx.discovered_hosts),
             "vulns": ctx.total_vulns,
             "exploits": ctx.total_exploits,
+        })
+
+    except asyncio.CancelledError:
+        # Task was cancelled by the kill switch — preserve all findings, just mark stopped
+        logger.warning("Agent task cancelled (emergency stop) for session %s", session_id)
+        await session_repo.update_status(session_id, "stopped", "Emergency stop triggered by user")
+        await audit_repo.log(
+            "KILL_SWITCH",
+            session_id=session_id,
+            details={"reason": "Emergency stop — task cancelled"},
+        )
+        await session_manager.broadcast(session_id, {
+            "type": "session_event",
+            "session_id": session_id,
+            "event": "kill_switch",
+            "data": {},
         })
 
     except Exception as exc:
@@ -542,7 +607,9 @@ async def kill_session(sid: str):
 
     killed = session_manager.kill(sid)
     if killed:
-        await _session_repo.update_status(sid, "error", "Emergency stop triggered by user")
+        # Status will be updated to "stopped" via CancelledError handler in _run_agent_task
+        # but we pre-set it here in case the task was already done
+        await _session_repo.update_status(sid, "stopped", "Emergency stop triggered by user")
         await _audit_repo.log(
             "KILL_SWITCH",
             session_id=sid,

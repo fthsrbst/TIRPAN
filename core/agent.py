@@ -140,6 +140,8 @@ class PentestAgent:
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # Not paused initially
         self._paused = False
+        # Operator inject tracking
+        self._has_pending_inject = False
 
     # ── Public properties ─────────────────────────────────────────────────────
 
@@ -171,7 +173,8 @@ class PentestAgent:
 
     def inject_message(self, message: str) -> None:
         """Inject an operator message into the agent's memory for the next iteration."""
-        self.memory.add_user(message)
+        self.memory.add_user(f"[OPERATOR INTERRUPT]\n{message}")
+        self._has_pending_inject = True
         self._emit("injected", {"message": message[:300]})
         logger.info("Operator message injected into agent memory")
 
@@ -306,10 +309,28 @@ class PentestAgent:
                 memory=self.memory,
                 tools=self._registry.list_for_llm(),
             )
+
+            # If operator injected a message, append a priority note to the final user turn
+            if self._has_pending_inject:
+                messages[-1]["content"] += (
+                    "\n\n⚠️ OPERATOR INTERRUPT ACTIVE: The operator has sent you a message "
+                    "(marked [OPERATOR INTERRUPT] in the conversation above). "
+                    "You MUST acknowledge it in your 'thought' field and adjust your plan "
+                    "accordingly before choosing the next action."
+                )
+
             response = await self._llm.chat(messages)
             action_dict = LLMRouter.parse_json(response)
 
             self.memory.add_assistant(response)
+
+            # Emit a dedicated operator_response event when responding to an inject
+            if self._has_pending_inject:
+                self._has_pending_inject = False
+                self._emit("operator_response", {
+                    "thought": action_dict.get("thought", "")[:600],
+                })
+
             self._emit(
                 "reasoning",
                 {
