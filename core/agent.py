@@ -301,6 +301,7 @@ class PentestAgent:
         """
         REASON: send current context to the LLM, receive next action as JSON.
 
+        Streams tokens to subscribers in real-time via llm_token events.
         Returns the parsed action dict, or None on LLM / JSON parse failure.
         """
         try:
@@ -319,7 +320,13 @@ class PentestAgent:
                     "accordingly before choosing the next action."
                 )
 
-            response = await self._llm.chat(messages)
+            # Stream tokens so the UI shows the LLM "thinking" in real-time
+            self._emit("llm_thinking_start", {})
+            response = ""
+            async for token in self._llm.stream_chat(messages):
+                response += token
+                self._emit("llm_token", {"token": token})
+
             action_dict = LLMRouter.parse_json(response)
 
             self.memory.add_assistant(response)
@@ -460,7 +467,11 @@ class PentestAgent:
                 context=self._ctx,
                 memory=self.memory,
             )
-            reflection = await self._llm.chat(messages)
+            self._emit("llm_reflecting_start", {})
+            reflection = ""
+            async for token in self._llm.stream_chat(messages):
+                reflection += token
+                self._emit("llm_token", {"token": token})
             self.memory.add_assistant(f"[REFLECTION] {reflection}")
             self._emit("reflection", {"content": reflection[:300]})
         except Exception as exc:
