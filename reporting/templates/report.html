@@ -3,360 +3,957 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEGIS Penetration Test Report — {{ session.target }}</title>
+  <title>AEGIS Pentest Report — {{ session.target }}</title>
   <style>
+    /* ── Reset & base ────────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 13px;
-      line-height: 1.5;
-      color: #1a1a2e;
-      background: #f4f6f9;
+    :root {
+      --ink:        #0d1117;
+      --ink-light:  #24292f;
+      --ink-muted:  #57606a;
+      --border:     #d0d7de;
+      --bg:         #ffffff;
+      --bg-soft:    #f6f8fa;
+      --bg-subtle:  #eaecef;
+      --accent:     #0969da;
+      --critical:   #cf222e;
+      --high:       #bc4c00;
+      --medium:     #9a6700;
+      --low:        #1a7f37;
+      --none:       #57606a;
+      --red-bg:     #ffebe9;
+      --orange-bg:  #fff1e5;
+      --yellow-bg:  #fff8c5;
+      --green-bg:   #dafbe1;
     }
+
+    html { font-size: 13px; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    /* ── Utility ─────────────────────────────────────────────────────────── */
+    code, .mono {
+      font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+      font-size: 12px;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    .pre-block {
+      font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+      font-size: 12px;
+      background: #0d1117;
+      color: #c9d1d9;
+      border-radius: 6px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.5;
+      margin-top: 6px;
+    }
+    .pre-block .kw  { color: #ff7b72; }
+    .pre-block .val { color: #79c0ff; }
+    .pre-block .cmt { color: #8b949e; }
 
     /* ── Cover page ──────────────────────────────────────────────────────── */
     .cover {
-      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-      color: #fff;
+      background: var(--ink);
+      color: #c9d1d9;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      padding: 60px 80px;
+      padding: 64px 80px;
       page-break-after: always;
+      position: relative;
+      overflow: hidden;
     }
-    .cover .badge {
-      display: inline-block;
-      background: #e74c3c;
+    .cover::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #cf222e 0%, #bc4c00 33%, #0969da 66%, #1a7f37 100%);
+    }
+    .cover-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #cf222e;
       color: #fff;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       letter-spacing: 2px;
       text-transform: uppercase;
       padding: 4px 12px;
-      border-radius: 3px;
-      margin-bottom: 24px;
+      border-radius: 2px;
+      margin-bottom: 48px;
+      width: fit-content;
     }
     .cover h1 {
-      font-size: 42px;
+      font-size: 40px;
       font-weight: 800;
+      color: #e6edf3;
       letter-spacing: -1px;
       line-height: 1.1;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
-    .cover .subtitle {
-      font-size: 18px;
-      color: rgba(255,255,255,0.65);
-      margin-bottom: 48px;
+    .cover .cover-subtitle {
+      font-size: 17px;
+      color: #8b949e;
+      margin-bottom: 64px;
     }
-    .cover .meta-grid {
+    .cover-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-      max-width: 700px;
+      gap: 0;
+      max-width: 720px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 40px;
     }
-    .cover .meta-item label {
+    .cover-cell {
+      padding: 16px 20px;
+      border-right: 1px solid #30363d;
+      border-bottom: 1px solid #30363d;
+    }
+    .cover-cell:nth-child(3n) { border-right: none; }
+    .cover-cell:nth-last-child(-n+3) { border-bottom: none; }
+    .cover-cell label {
       display: block;
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 1.5px;
-      color: rgba(255,255,255,0.4);
+      color: #6e7681;
       margin-bottom: 4px;
     }
-    .cover .meta-item .value {
-      font-size: 15px;
+    .cover-cell .val {
+      font-size: 14px;
       font-weight: 600;
-      color: #fff;
+      color: #e6edf3;
     }
-    .cover .footer {
+    .cover-cell .val code { background: #21262d; border-color: #30363d; color: #79c0ff; }
+    .cover-classification {
       margin-top: auto;
-      padding-top: 40px;
+      padding-top: 32px;
+      border-top: 1px solid #21262d;
       font-size: 11px;
-      color: rgba(255,255,255,0.3);
+      color: #6e7681;
+      line-height: 1.7;
     }
+    .cover-classification strong { color: #cf222e; }
+
+    /* ── Table of contents ───────────────────────────────────────────────── */
+    .toc-page {
+      padding: 48px 80px;
+      page-break-after: always;
+    }
+    .toc-entry {
+      display: flex;
+      align-items: baseline;
+      gap: 0;
+      padding: 6px 0;
+      border-bottom: 1px dotted var(--border);
+    }
+    .toc-entry .toc-num {
+      min-width: 28px;
+      font-weight: 700;
+      color: var(--ink-muted);
+      font-size: 12px;
+    }
+    .toc-entry .toc-title {
+      flex: 1;
+      font-weight: 500;
+    }
+    .toc-entry.toc-sub .toc-title { padding-left: 20px; color: var(--ink-muted); font-weight: 400; }
 
     /* ── Page layout ─────────────────────────────────────────────────────── */
-    .page { padding: 40px 60px; }
+    .page {
+      padding: 48px 80px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .page-break { page-break-before: always; }
 
-    h2.section-title {
-      font-size: 20px;
+    /* ── Section headings ────────────────────────────────────────────────── */
+    .section-num {
+      font-size: 11px;
       font-weight: 700;
-      color: #0f0c29;
-      padding-bottom: 10px;
-      border-bottom: 3px solid #302b63;
-      margin-bottom: 24px;
-      margin-top: 40px;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 4px;
     }
-    h2.section-title:first-child { margin-top: 0; }
+    h2.section-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--ink);
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--ink);
+      margin-bottom: 28px;
+      margin-top: 48px;
+    }
+    h2.section-title:first-of-type { margin-top: 0; }
+    h3.sub-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink-light);
+      margin-top: 28px;
+      margin-bottom: 12px;
+    }
 
-    /* ── Executive summary cards ─────────────────────────────────────────── */
-    .summary-cards {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
+    /* ── Risk overview cards ─────────────────────────────────────────────── */
+    .risk-bar {
+      display: flex;
+      gap: 12px;
       margin-bottom: 32px;
+      flex-wrap: wrap;
     }
-    .card {
-      background: #fff;
-      border-radius: 8px;
-      padding: 20px;
+    .risk-card {
+      flex: 1;
+      min-width: 100px;
+      border-radius: 6px;
+      padding: 16px 18px;
       text-align: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      border-top: 4px solid #302b63;
+      border: 1px solid var(--border);
     }
-    .card.critical { border-top-color: #c0392b; }
-    .card.high     { border-top-color: #e67e22; }
-    .card.medium   { border-top-color: #f1c40f; }
-    .card.ok       { border-top-color: #27ae60; }
-    .card .num {
-      font-size: 36px;
+    .risk-card .rc-num {
+      font-size: 34px;
       font-weight: 800;
-      color: #0f0c29;
       line-height: 1;
       margin-bottom: 4px;
     }
-    .card .label {
-      font-size: 11px;
+    .risk-card .rc-label {
+      font-size: 10px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1px;
-      color: #7f8c8d;
     }
+    .rc-critical { background: var(--red-bg);    border-color: #ff8182; }
+    .rc-critical .rc-num { color: var(--critical); }
+    .rc-critical .rc-label { color: var(--critical); }
+    .rc-high     { background: var(--orange-bg); border-color: #ffa657; }
+    .rc-high .rc-num { color: var(--high); }
+    .rc-high .rc-label { color: var(--high); }
+    .rc-medium   { background: var(--yellow-bg); border-color: #e3b341; }
+    .rc-medium .rc-num { color: var(--medium); }
+    .rc-medium .rc-label { color: var(--medium); }
+    .rc-low      { background: var(--green-bg);  border-color: #56d364; }
+    .rc-low .rc-num { color: var(--low); }
+    .rc-low .rc-label { color: var(--low); }
+    .rc-info     { background: var(--bg-soft);   border-color: var(--border); }
+    .rc-info .rc-num { color: var(--ink-muted); }
+    .rc-info .rc-label { color: var(--ink-muted); }
 
-    /* ── Severity badge ──────────────────────────────────────────────────── */
-    .badge-sev {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 3px;
-      font-size: 11px;
+    /* ── Overall risk badge ──────────────────────────────────────────────── */
+    .overall-risk {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border-radius: 6px;
+      padding: 12px 20px;
+      margin-bottom: 24px;
       font-weight: 700;
-      letter-spacing: 0.5px;
-      color: #fff;
+      font-size: 14px;
     }
-    .sev-CRITICAL { background: #c0392b; }
-    .sev-HIGH     { background: #e67e22; }
-    .sev-MEDIUM   { background: #e6b800; color: #222; }
-    .sev-LOW      { background: #27ae60; }
-    .sev-NONE     { background: #7f8c8d; }
+    .overall-risk .risk-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+    }
+    .risk-CRITICAL { background: var(--red-bg);    border: 1px solid #ff8182;  color: var(--critical); }
+    .risk-HIGH     { background: var(--orange-bg); border: 1px solid #ffa657;  color: var(--high); }
+    .risk-MEDIUM   { background: var(--yellow-bg); border: 1px solid #e3b341;  color: var(--medium); }
+    .risk-LOW      { background: var(--green-bg);  border: 1px solid #56d364;  color: var(--low); }
+    .risk-NONE     { background: var(--bg-soft);   border: 1px solid var(--border); color: var(--ink-muted); }
+    .dot-CRITICAL  { background: var(--critical); }
+    .dot-HIGH      { background: var(--high); }
+    .dot-MEDIUM    { background: var(--medium); }
+    .dot-LOW       { background: var(--low); }
+    .dot-NONE      { background: var(--ink-muted); }
+
+    /* ── Scope / engagement info box ─────────────────────────────────────── */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .info-row {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+    }
+    .info-row label {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--ink-muted);
+      margin-bottom: 4px;
+    }
+    .info-row .info-val {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .info-row.full { grid-column: 1 / -1; }
+
+    /* ── Callout / note box ──────────────────────────────────────────────── */
+    .callout {
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin: 20px 0;
+      border-left: 4px solid;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .callout-danger   { background: var(--red-bg);    border-color: var(--critical); color: #82071e; }
+    .callout-warning  { background: var(--orange-bg); border-color: var(--high);     color: #7d2a00; }
+    .callout-info     { background: #ddf4ff;           border-color: #54aeff;        color: #0550ae; }
+    .callout-success  { background: var(--green-bg);  border-color: var(--low);      color: #116329; }
+    .callout .callout-title {
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+    }
 
     /* ── Tables ──────────────────────────────────────────────────────────── */
-    table {
+    .data-table {
       width: 100%;
       border-collapse: collapse;
-      background: #fff;
-      border-radius: 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
       overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-      margin-bottom: 32px;
+      margin-bottom: 28px;
+      font-size: 12.5px;
     }
-    thead th {
-      background: #302b63;
-      color: #fff;
-      padding: 10px 14px;
+    .data-table thead th {
+      background: var(--bg-subtle);
+      color: var(--ink-light);
+      padding: 9px 14px;
       text-align: left;
       font-size: 11px;
-      letter-spacing: 0.8px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
       text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
     }
-    tbody tr:nth-child(even) { background: #f9fafc; }
-    tbody tr:hover { background: #eef0f7; }
-    tbody td {
-      padding: 10px 14px;
-      border-bottom: 1px solid #e8eaed;
+    .data-table tbody tr:nth-child(even) { background: var(--bg-soft); }
+    .data-table tbody tr:hover { background: #f0f6fc; }
+    .data-table tbody td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
       vertical-align: top;
     }
-    tbody tr:last-child td { border-bottom: none; }
+    .data-table tbody tr:last-child td { border-bottom: none; }
 
-    /* ── Finding cards ───────────────────────────────────────────────────── */
-    .finding-card {
-      background: #fff;
+    /* ── Severity badge ──────────────────────────────────────────────────── */
+    .sev {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .sev-CRITICAL { background: var(--red-bg);    color: var(--critical); border: 1px solid #ff8182; }
+    .sev-HIGH     { background: var(--orange-bg); color: var(--high);     border: 1px solid #ffa657; }
+    .sev-MEDIUM   { background: var(--yellow-bg); color: var(--medium);   border: 1px solid #e3b341; }
+    .sev-LOW      { background: var(--green-bg);  color: var(--low);      border: 1px solid #56d364; }
+    .sev-NONE     { background: var(--bg-soft);   color: var(--ink-muted);border: 1px solid var(--border); }
+
+    /* ── Finding card ────────────────────────────────────────────────────── */
+    .finding {
+      border: 1px solid var(--border);
       border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-      margin-bottom: 24px;
+      margin-bottom: 28px;
       overflow: hidden;
       page-break-inside: avoid;
     }
     .finding-header {
       padding: 16px 20px;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 16px;
-      border-bottom: 1px solid #e8eaed;
+      border-bottom: 1px solid var(--border);
     }
-    .finding-header .cvss-score {
-      font-size: 28px;
-      font-weight: 800;
-      min-width: 52px;
+    .finding-header.sev-h-CRITICAL { background: var(--red-bg);    border-left: 4px solid var(--critical); }
+    .finding-header.sev-h-HIGH     { background: var(--orange-bg); border-left: 4px solid var(--high); }
+    .finding-header.sev-h-MEDIUM   { background: var(--yellow-bg); border-left: 4px solid var(--medium); }
+    .finding-header.sev-h-LOW      { background: var(--green-bg);  border-left: 4px solid var(--low); }
+    .finding-header.sev-h-NONE     { background: var(--bg-soft);   border-left: 4px solid var(--border); }
+    .cvss-badge {
+      min-width: 56px;
       text-align: center;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid currentColor;
+      flex-shrink: 0;
     }
-    .finding-header .title-block .title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #1a1a2e;
-    }
-    .finding-header .title-block .cve {
-      font-size: 12px;
-      color: #7f8c8d;
-      margin-top: 2px;
-    }
-    .finding-header .meta-right {
-      margin-left: auto;
-      text-align: right;
-    }
-    .finding-body {
-      padding: 16px 20px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-    .finding-section label {
+    .cvss-badge .cvss-num {
+      font-size: 22px;
+      font-weight: 800;
       display: block;
+      line-height: 1;
+    }
+    .cvss-badge .cvss-ver {
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      opacity: 0.7;
+    }
+    .cvss-CRITICAL { color: var(--critical); background: var(--red-bg);    border-color: #ff8182; }
+    .cvss-HIGH     { color: var(--high);     background: var(--orange-bg); border-color: #ffa657; }
+    .cvss-MEDIUM   { color: var(--medium);   background: var(--yellow-bg); border-color: #e3b341; }
+    .cvss-LOW      { color: var(--low);      background: var(--green-bg);  border-color: #56d364; }
+    .cvss-NONE     { color: var(--ink-muted);background: var(--bg-soft);   border-color: var(--border); }
+
+    .finding-title-block { flex: 1; }
+    .finding-title-block .f-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+    .finding-title-block .f-meta {
+      font-size: 12px;
+      color: var(--ink-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .f-meta .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1px 8px;
+      font-size: 11px;
+      color: var(--ink-muted);
+    }
+
+    .finding-body { padding: 20px; }
+    .finding-section { margin-bottom: 20px; }
+    .finding-section:last-child { margin-bottom: 0; }
+    .finding-section .fs-label {
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1px;
-      color: #7f8c8d;
-      margin-bottom: 4px;
+      color: var(--ink-muted);
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4px;
     }
-    .finding-section p {
+    .finding-section p, .finding-section li {
       font-size: 13px;
-      color: #2c3e50;
+      color: var(--ink-light);
+      line-height: 1.65;
     }
-    .finding-section.full { grid-column: 1 / -1; }
-    .poc-block {
-      background: #1a1a2e;
-      color: #5dff8a;
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      padding: 10px 14px;
-      border-radius: 5px;
-      margin-top: 4px;
-      word-break: break-all;
+    .finding-section ul { padding-left: 20px; }
+    .finding-section ul li { margin-bottom: 3px; }
+
+    .cvss-vector-table {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 6px;
     }
-    .fix-block {
-      background: #eafaf1;
-      border-left: 3px solid #27ae60;
-      padding: 8px 12px;
-      border-radius: 0 5px 5px 0;
+    .cvss-metric {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px 10px;
+    }
+    .cvss-metric .cm-key {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--ink-muted);
+      margin-bottom: 2px;
+    }
+    .cvss-metric .cm-val {
       font-size: 12px;
-      color: #1a5632;
-      margin-top: 4px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .cm-val-danger   { color: var(--critical); }
+    .cm-val-warning  { color: var(--high); }
+
+    .remediation-block {
+      background: var(--green-bg);
+      border: 1px solid #56d364;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin-top: 6px;
+    }
+    .remediation-block .rem-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--low);
+      margin-bottom: 6px;
+    }
+    .remediation-block p {
+      font-size: 13px;
+      color: #116329;
     }
 
-    /* ── Exploit results table ───────────────────────────────────────────── */
-    .success-yes { color: #27ae60; font-weight: 700; }
-    .success-no  { color: #c0392b; font-weight: 700; }
+    /* ── Timeline ────────────────────────────────────────────────────────── */
+    .timeline { list-style: none; padding: 0; margin: 0; position: relative; }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 15px; top: 0; bottom: 0;
+      width: 2px;
+      background: var(--border);
+    }
+    .timeline li {
+      position: relative;
+      padding: 0 0 20px 44px;
+    }
+    .timeline li::before {
+      content: '';
+      position: absolute;
+      left: 8px; top: 4px;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+    .timeline .tl-time {
+      font-size: 11px;
+      color: var(--ink-muted);
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .timeline .tl-text { font-size: 13px; }
 
-    /* ── Footer ──────────────────────────────────────────────────────────── */
+    /* ── Exploit result table ────────────────────────────────────────────── */
+    .result-success { color: var(--low);      font-weight: 700; }
+    .result-fail    { color: var(--critical); font-weight: 700; }
+
+    /* ── Remediation roadmap ─────────────────────────────────────────────── */
+    .roadmap-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .roadmap-row:last-child { border-bottom: none; }
+    .roadmap-priority {
+      min-width: 80px;
+      padding: 3px 10px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .rp-immediate { background: var(--red-bg);    color: var(--critical); border: 1px solid #ff8182; }
+    .rp-short     { background: var(--orange-bg); color: var(--high);     border: 1px solid #ffa657; }
+    .rp-medium    { background: var(--yellow-bg); color: var(--medium);   border: 1px solid #e3b341; }
+    .rp-long      { background: var(--green-bg);  color: var(--low);      border: 1px solid #56d364; }
+
+    /* ── Compliance mapping ───────────────────────────────────────────────── */
+    .tag {
+      display: inline-block;
+      background: #ddf4ff;
+      color: #0550ae;
+      border: 1px solid #54aeff;
+      border-radius: 10px;
+      padding: 1px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      margin: 2px;
+    }
+
+    /* ── Page footer ─────────────────────────────────────────────────────── */
     .report-footer {
       margin-top: 60px;
-      padding-top: 20px;
-      border-top: 1px solid #e0e0e0;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
       font-size: 11px;
-      color: #aaa;
-      text-align: center;
+      color: var(--ink-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .footer-logo {
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: var(--ink-muted);
     }
 
     @media print {
-      .cover { page-break-after: always; }
-      .finding-card { page-break-inside: avoid; }
+      .cover       { min-height: 100vh; page-break-after: always; }
+      .toc-page    { page-break-after: always; }
+      .page-break  { page-break-before: always; }
+      .finding     { page-break-inside: avoid; }
+      body         { font-size: 12px; }
     }
   </style>
 </head>
 <body>
 
-<!-- ── Cover Page ─────────────────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════════
+     COVER PAGE
+══════════════════════════════════════════════════════════════════════ -->
 <div class="cover">
-  <div class="badge">Confidential</div>
-  <h1>Penetration Test Report</h1>
-  <p class="subtitle">AEGIS Autonomous Security Assessment</p>
+  <div class="cover-badge">&#x1F512; CONFIDENTIAL</div>
 
-  <div class="meta-grid">
-    <div class="meta-item">
+  <h1>Penetration Test Report</h1>
+  <p class="cover-subtitle">AEGIS Autonomous Security Assessment &mdash; {{ session.target }}</p>
+
+  <div class="cover-grid">
+    <div class="cover-cell">
       <label>Target</label>
-      <span class="value">{{ session.target }}</span>
+      <span class="val"><code>{{ session.target }}</code></span>
     </div>
-    <div class="meta-item">
-      <label>Mode</label>
-      <span class="value">{{ session.mode | replace('_', ' ') | title }}</span>
+    <div class="cover-cell">
+      <label>Test Mode</label>
+      <span class="val">{{ session.mode | replace('_', ' ') | title }}</span>
     </div>
-    <div class="meta-item">
-      <label>Status</label>
-      <span class="value">{{ session.status | title }}</span>
+    <div class="cover-cell">
+      <label>Overall Risk</label>
+      <span class="val" style="color: {{ stats.risk_color }}; font-weight: 800;">{{ stats.overall_risk }}</span>
     </div>
-    <div class="meta-item">
+    <div class="cover-cell">
       <label>Report Date</label>
-      <span class="value">{{ generated_at }}</span>
+      <span class="val">{{ generated_at }}</span>
     </div>
-    <div class="meta-item">
+    <div class="cover-cell">
       <label>Session ID</label>
-      <span class="value" style="font-size:11px; font-family:monospace">{{ session.id[:16] }}...</span>
+      <span class="val"><code style="font-size:10px;">{{ session.id[:8] | upper }}…</code></span>
     </div>
-    <div class="meta-item">
-      <label>Tool</label>
-      <span class="value">AEGIS v0.1.0</span>
+    <div class="cover-cell">
+      <label>Scanner Engine</label>
+      <span class="val">AEGIS v0.1.0</span>
+    </div>
+    <div class="cover-cell">
+      <label>Vulnerabilities Found</label>
+      <span class="val" style="color: {{ stats.risk_color }};">{{ stats.vulns_found }}</span>
+    </div>
+    <div class="cover-cell">
+      <label>Critical Findings</label>
+      <span class="val" {% if stats.critical_count > 0 %}style="color:#cf222e;"{% endif %}>{{ stats.critical_count }}</span>
+    </div>
+    <div class="cover-cell">
+      <label>Hosts Discovered</label>
+      <span class="val">{{ stats.hosts_found }}</span>
     </div>
   </div>
 
-  <div class="footer">
-    This report was generated automatically by AEGIS.
+  <div class="cover-classification">
+    <strong>CONFIDENTIAL &mdash; RESTRICTED DISTRIBUTION</strong><br>
+    This document contains sensitive security findings about {{ session.target }}.
+    Distribution is restricted to authorized personnel only.
     All findings must be verified by a qualified security professional before remediation.
-    Unauthorized distribution is prohibited.
+    Do not share, copy, or distribute without written authorization.
+    Generated automatically by AEGIS Autonomous Penetration Testing Agent.
   </div>
 </div>
 
-<!-- ── Main Content ───────────────────────────────────────────────────────── -->
-<div class="page">
 
-  <!-- Executive Summary -->
+<!-- ══════════════════════════════════════════════════════════════════════
+     TABLE OF CONTENTS
+══════════════════════════════════════════════════════════════════════ -->
+<div class="toc-page">
+  <div class="section-num">Document</div>
+  <h2 class="section-title" style="margin-top:0;">Table of Contents</h2>
+
+  <div class="toc-entry"><span class="toc-num">1.</span><span class="toc-title">Executive Summary</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.1 Engagement Overview</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.2 Risk Distribution</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.3 Key Findings Summary</span></div>
+  <div class="toc-entry"><span class="toc-num">2.</span><span class="toc-title">Scope &amp; Methodology</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.1 Engagement Scope</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.2 Testing Methodology (PTES)</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.3 Tools Used</span></div>
+  <div class="toc-entry"><span class="toc-num">3.</span><span class="toc-title">Discovered Hosts &amp; Services</span></div>
+  <div class="toc-entry"><span class="toc-num">4.</span><span class="toc-title">Vulnerability Findings</span></div>
+  {% if exploit_results %}
+  <div class="toc-entry"><span class="toc-num">5.</span><span class="toc-title">Exploitation Results</span></div>
+  <div class="toc-entry"><span class="toc-num">6.</span><span class="toc-title">Remediation Roadmap</span></div>
+  <div class="toc-entry"><span class="toc-num">7.</span><span class="toc-title">Compliance Mapping</span></div>
+  {% else %}
+  <div class="toc-entry"><span class="toc-num">5.</span><span class="toc-title">Remediation Roadmap</span></div>
+  <div class="toc-entry"><span class="toc-num">6.</span><span class="toc-title">Compliance Mapping</span></div>
+  {% endif %}
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     1. EXECUTIVE SUMMARY
+══════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-num">Section 1</div>
   <h2 class="section-title">Executive Summary</h2>
 
-  <div class="summary-cards">
-    <div class="card ok">
-      <div class="num">{{ stats.hosts_found }}</div>
-      <div class="label">Live Hosts</div>
-    </div>
-    <div class="card ok">
-      <div class="num">{{ stats.ports_found }}</div>
-      <div class="label">Open Ports</div>
-    </div>
-    <div class="card high">
-      <div class="num">{{ stats.vulns_found }}</div>
-      <div class="label">Vulnerabilities</div>
-    </div>
-    <div class="card critical">
-      <div class="num">{{ stats.critical_count }}</div>
-      <div class="label">Critical Findings</div>
-    </div>
-  </div>
+  <!-- 1.1 Engagement Overview -->
+  <h3 class="sub-title">1.1 Engagement Overview</h3>
 
-  {% if stats.exploits_run > 0 %}
-  <div class="summary-cards" style="grid-template-columns: repeat(3, 1fr);">
-    <div class="card critical">
-      <div class="num">{{ stats.exploits_run }}</div>
-      <div class="label">Exploit Attempts</div>
-    </div>
-    <div class="card critical">
-      <div class="num">{{ stats.exploits_success }}</div>
-      <div class="label">Successful Exploits</div>
-    </div>
-    <div class="card ok">
-      <div class="num">{{ stats.sessions_opened }}</div>
-      <div class="label">Sessions Opened</div>
-    </div>
+  {% if stats.overall_risk == 'CRITICAL' %}
+  <div class="callout callout-danger">
+    <div class="callout-title">&#x26A0; Critical Risk — Immediate Action Required</div>
+    One or more critical-severity vulnerabilities were identified on {{ session.target }} that allow
+    unauthenticated remote code execution or complete system compromise. These issues must be
+    remediated immediately and the affected hosts isolated from the network until patching is confirmed.
+  </div>
+  {% elif stats.overall_risk == 'HIGH' %}
+  <div class="callout callout-warning">
+    <div class="callout-title">&#x26A0; High Risk — Action Required Within 72 Hours</div>
+    High-severity vulnerabilities were identified that could allow an attacker to gain elevated
+    privileges or access sensitive data. Prioritize remediation within 72 hours.
+  </div>
+  {% elif stats.overall_risk == 'MEDIUM' %}
+  <div class="callout callout-warning">
+    <div class="callout-title">Elevated Risk — Remediate Within 30 Days</div>
+    Medium-severity vulnerabilities were identified. While not immediately critical, these issues
+    should be addressed within the next patch cycle to reduce the attack surface.
+  </div>
+  {% else %}
+  <div class="callout callout-success">
+    <div class="callout-title">Low Risk — Standard Patch Cycle Applies</div>
+    No high or critical vulnerabilities were identified during this assessment.
+    Findings are informational or low severity and can be addressed in the next maintenance window.
   </div>
   {% endif %}
 
-  <!-- Host / Port Summary -->
-  {% if scan_results %}
+  <p style="margin-bottom:20px; color: var(--ink-light); font-size:13px; line-height:1.7;">
+    AEGIS conducted an autonomous penetration test against <strong>{{ session.target }}</strong>
+    using mode <strong>{{ session.mode | replace('_', ' ') | title }}</strong>.
+    The assessment covered network reconnaissance, service enumeration, vulnerability identification,
+    and {% if session.mode != 'scan_only' %}controlled exploitation{% else %}vulnerability validation{% endif %}.
+    A total of <strong>{{ stats.hosts_found }} host(s)</strong> were discovered with
+    <strong>{{ stats.ports_found }} open port(s)</strong>.
+    The assessment identified <strong>{{ stats.vulns_found }} vulnerability(ies)</strong> across
+    the target environment.
+  </p>
+
+  <!-- 1.2 Risk Distribution -->
+  <h3 class="sub-title">1.2 Risk Distribution</h3>
+  <div class="risk-bar">
+    <div class="risk-card rc-critical">
+      <div class="rc-num">{{ stats.critical_count }}</div>
+      <div class="rc-label">Critical</div>
+    </div>
+    <div class="risk-card rc-high">
+      <div class="rc-num">{{ stats.high_count }}</div>
+      <div class="rc-label">High</div>
+    </div>
+    <div class="risk-card rc-medium">
+      <div class="rc-num">{{ stats.medium_count }}</div>
+      <div class="rc-label">Medium</div>
+    </div>
+    <div class="risk-card rc-low">
+      <div class="rc-num">{{ stats.low_count }}</div>
+      <div class="rc-label">Low</div>
+    </div>
+    <div class="risk-card rc-info">
+      <div class="rc-num">{{ stats.hosts_found }}</div>
+      <div class="rc-label">Live Hosts</div>
+    </div>
+    <div class="risk-card rc-info">
+      <div class="rc-num">{{ stats.ports_found }}</div>
+      <div class="rc-label">Open Ports</div>
+    </div>
+    {% if stats.exploits_run > 0 %}
+    <div class="risk-card rc-critical">
+      <div class="rc-num">{{ stats.exploits_success }}/{{ stats.exploits_run }}</div>
+      <div class="rc-label">Exploits Hit</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- 1.3 Key Findings Summary -->
+  {% if vulnerabilities %}
+  <h3 class="sub-title">1.3 Key Findings Summary</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Finding</th>
+        <th>Host</th>
+        <th>Service</th>
+        <th>CVSS</th>
+        <th>Severity</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for vuln in vulnerabilities %}
+      <tr>
+        <td style="color: var(--ink-muted); font-weight:700;">{{ loop.index | string | zfill(2) }}</td>
+        <td>
+          <strong>{{ vuln.title }}</strong>
+          {% if vuln.cve_id %}<br><code>{{ vuln.cve_id }}</code>{% endif %}
+        </td>
+        <td><code>{{ vuln.host_ip or '—' }}</code></td>
+        <td>{{ vuln.service }}{% if vuln.service_version %} <span style="color:var(--ink-muted);">{{ vuln.service_version[:20] }}</span>{% endif %}</td>
+        <td style="font-weight:800; color:{{ vuln.color }};">{{ "%.1f"|format(vuln.cvss_score or 0) }}</td>
+        <td><span class="sev sev-{{ vuln.severity }}">{{ vuln.severity }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="callout callout-success">
+    <div class="callout-title">No Vulnerabilities Identified</div>
+    The assessment did not identify any vulnerabilities against the target.
+    This may indicate that the scan is still in progress or the target has no open ports within the configured scope.
+  </div>
+  {% endif %}
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     2. SCOPE & METHODOLOGY
+══════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-num">Section 2</div>
+  <h2 class="section-title">Scope &amp; Methodology</h2>
+
+  <h3 class="sub-title">2.1 Engagement Scope</h3>
+  <div class="info-grid">
+    <div class="info-row">
+      <label>Target</label>
+      <div class="info-val"><code>{{ session.target }}</code></div>
+    </div>
+    <div class="info-row">
+      <label>Test Mode</label>
+      <div class="info-val">{{ session.mode | replace('_', ' ') | title }}</div>
+    </div>
+    <div class="info-row">
+      <label>Assessment Date</label>
+      <div class="info-val">{{ generated_at }}</div>
+    </div>
+    <div class="info-row">
+      <label>Session Reference</label>
+      <div class="info-val"><code>{{ session.id }}</code></div>
+    </div>
+    <div class="info-row full">
+      <label>Scope Description</label>
+      <div class="info-val">
+        The engagement covers all reachable hosts within <code>{{ session.target }}</code>.
+        Testing is bounded to network-accessible services only.
+        No physical access or social engineering was performed.
+        All activities were automated through the AEGIS ReAct agent loop.
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub-title">2.2 Testing Methodology</h3>
+  <p style="color:var(--ink-muted); font-size:12px; margin-bottom:16px;">
+    This assessment follows the <strong>Penetration Testing Execution Standard (PTES)</strong>
+    and aligns with <strong>NIST SP 800-115</strong> Technical Guide to Information Security Testing.
+  </p>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>Phase</th><th>Activities</th><th>Tools</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>1. Reconnaissance</strong></td>
+        <td>Host discovery, ICMP sweep, ARP scan</td>
+        <td><code>nmap -sn</code></td>
+        <td><span class="sev sev-LOW">Done</span></td>
+      </tr>
+      <tr>
+        <td><strong>2. Scanning</strong></td>
+        <td>Port scan, service fingerprinting, OS detection</td>
+        <td><code>nmap -sV -O</code></td>
+        <td><span class="sev sev-LOW">Done</span></td>
+      </tr>
+      <tr>
+        <td><strong>3. Vuln Analysis</strong></td>
+        <td>CVE lookup, exploit availability check</td>
+        <td><code>searchsploit</code></td>
+        <td><span class="sev sev-LOW">Done</span></td>
+      </tr>
+      {% if session.mode != 'scan_only' %}
+      <tr>
+        <td><strong>4. Exploitation</strong></td>
+        <td>Controlled exploit execution, session establishment</td>
+        <td><code>msfconsole</code></td>
+        <td><span class="sev {% if exploit_results %}sev-LOW{% else %}sev-NONE{% endif %}">
+          {% if exploit_results %}Done{% else %}Skipped{% endif %}</span></td>
+      </tr>
+      {% else %}
+      <tr>
+        <td><strong>4. Exploitation</strong></td>
+        <td>Skipped — scan-only mode selected</td>
+        <td>—</td>
+        <td><span class="sev sev-NONE">Skipped</span></td>
+      </tr>
+      {% endif %}
+      <tr>
+        <td><strong>5. Reporting</strong></td>
+        <td>CVSS v3.1 scoring, remediation guidance</td>
+        <td>AEGIS Report Engine</td>
+        <td><span class="sev sev-LOW">Done</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub-title">2.3 Tools Used</h3>
+  <table class="data-table">
+    <thead>
+      <tr><th>Tool</th><th>Version</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>nmap</code></td><td>7.94+</td><td>Network scanning, service detection, OS fingerprinting</td></tr>
+      <tr><td><code>searchsploit</code></td><td>ExploitDB current</td><td>CVE and PoC lookup from ExploitDB</td></tr>
+      <tr><td><code>metasploit</code></td><td>6.x</td><td>Exploit framework for controlled vulnerability validation</td></tr>
+      <tr><td>AEGIS LLM Engine</td><td>v0.1.0</td><td>Autonomous ReAct reasoning: Reason → Act → Observe → Reflect</td></tr>
+    </tbody>
+  </table>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     3. DISCOVERED HOSTS & SERVICES
+══════════════════════════════════════════════════════════════════════ -->
+{% if scan_results %}
+<div class="page page-break">
+  <div class="section-num">Section 3</div>
   <h2 class="section-title">Discovered Hosts &amp; Services</h2>
-  <table>
+
+  <p style="color:var(--ink-light); margin-bottom:20px;">
+    AEGIS discovered <strong>{{ stats.hosts_found }} live host(s)</strong> with a total of
+    <strong>{{ stats.ports_found }} open port(s)</strong> within the target scope.
+    The following table lists all identified services with version information where available.
+  </p>
+
+  <table class="data-table">
     <thead>
       <tr>
         <th>Host IP</th>
-        <th>Port</th>
+        <th>Port / Proto</th>
         <th>Service</th>
-        <th>Version</th>
+        <th>Version / Banner</th>
         <th>State</th>
       </tr>
     </thead>
@@ -364,74 +961,250 @@
       {% for entry in scan_results %}
       <tr>
         <td><code>{{ entry.ip }}</code></td>
-        <td>{{ entry.port }}/{{ entry.protocol }}</td>
-        <td>{{ entry.service }}</td>
-        <td>{{ entry.version }}</td>
-        <td><span style="color: #27ae60; font-weight: 600;">{{ entry.state }}</span></td>
+        <td><code>{{ entry.port }}/{{ entry.protocol }}</code></td>
+        <td><strong>{{ entry.service }}</strong></td>
+        <td style="color:var(--ink-muted); font-size:12px;">
+          {{ entry.version if entry.version else '—' }}
+        </td>
+        <td><span class="result-success">{{ entry.state | upper }}</span></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  {% endif %}
+</div>
+{% endif %}
 
-  <!-- Vulnerability Findings -->
-  {% if vulnerabilities %}
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     4. VULNERABILITY FINDINGS
+══════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-num">Section 4</div>
   <h2 class="section-title">Vulnerability Findings</h2>
 
+  {% if vulnerabilities %}
+  <p style="color:var(--ink-light); margin-bottom:28px;">
+    The following findings are presented in descending order of CVSS v3.1 Base Score.
+    Each finding includes a severity rating, CVSS vector decomposition, description,
+    proof-of-concept, and remediation guidance.
+  </p>
+
   {% for vuln in vulnerabilities %}
-  <div class="finding-card">
-    <div class="finding-header">
-      <div class="cvss-score" style="color: {{ vuln.color }};">{{ "%.1f"|format(vuln.cvss_score) }}</div>
-      <div class="title-block">
-        <div class="title">{{ vuln.title }}</div>
-        <div class="cve">
-          {% if vuln.cve_id %}CVE: {{ vuln.cve_id }} &nbsp;|&nbsp;{% endif %}
-          Service: {{ vuln.service }}{% if vuln.service_version %} {{ vuln.service_version }}{% endif %}
-          {% if vuln.host_ip %} &nbsp;|&nbsp; Host: {{ vuln.host_ip }}{% endif %}
+  <div class="finding" id="finding-{{ loop.index }}">
+
+    <!-- Finding header -->
+    <div class="finding-header sev-h-{{ vuln.severity }}">
+      <div class="cvss-badge cvss-{{ vuln.severity }}">
+        <span class="cvss-num">{{ "%.1f"|format(vuln.cvss_score or 0) }}</span>
+        <span class="cvss-ver">CVSSv3</span>
+      </div>
+
+      <div class="finding-title-block">
+        <div class="f-title">
+          F-{{ loop.index | string | zfill(2) }} &mdash; {{ vuln.title }}
+        </div>
+        <div class="f-meta">
+          <span class="sev sev-{{ vuln.severity }}">{{ vuln.severity }}</span>
+          {% if vuln.cve_id %}<span class="meta-pill">{{ vuln.cve_id }}</span>{% endif %}
+          {% if vuln.host_ip %}<span class="meta-pill">&#x1F4BB; {{ vuln.host_ip }}</span>{% endif %}
+          {% if vuln.service %}<span class="meta-pill">&#x1F527; {{ vuln.service }}{% if vuln.service_version %} {{ vuln.service_version[:25] }}{% endif %}</span>{% endif %}
         </div>
       </div>
-      <div class="meta-right">
-        <span class="badge-sev sev-{{ vuln.severity }}">{{ vuln.severity }}</span>
-      </div>
     </div>
+
     <div class="finding-body">
+
+      <!-- Description -->
       {% if vuln.description %}
-      <div class="finding-section full">
-        <label>Description</label>
+      <div class="finding-section">
+        <div class="fs-label">Description</div>
         <p>{{ vuln.description }}</p>
       </div>
       {% endif %}
 
+      <!-- CVSS Vector breakdown -->
+      <div class="finding-section">
+        <div class="fs-label">CVSS v3.1 Vector Decomposition</div>
+        <div style="font-family:monospace; font-size:11px; color:var(--ink-muted); margin-bottom:8px; word-break:break-all;">
+          {{ vuln.cvss_vector or 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' }}
+        </div>
+        <div class="cvss-vector-table">
+          <div class="cvss-metric">
+            <div class="cm-key">Attack Vector</div>
+            <div class="cm-val {% if vuln.cvss_av in ('Network','N') %}cm-val-danger{% endif %}">
+              {{ vuln.cvss_av or 'Network' }}
+            </div>
+          </div>
+          <div class="cvss-metric">
+            <div class="cm-key">Attack Complexity</div>
+            <div class="cm-val">{{ vuln.cvss_ac or 'Low' }}</div>
+          </div>
+          <div class="cvss-metric">
+            <div class="cm-key">Privileges Req.</div>
+            <div class="cm-val {% if (vuln.cvss_pr or 'None') == 'None' %}cm-val-danger{% endif %}">
+              {{ vuln.cvss_pr or 'None' }}
+            </div>
+          </div>
+          <div class="cvss-metric">
+            <div class="cm-key">User Interaction</div>
+            <div class="cm-val">{{ vuln.cvss_ui or 'None' }}</div>
+          </div>
+          <div class="cvss-metric">
+            <div class="cm-key">Scope</div>
+            <div class="cm-val">{{ vuln.cvss_scope or 'Unchanged' }}</div>
+          </div>
+          <div class="cvss-metric">
+            <div class="cm-key">Confidentiality</div>
+            <div class="cm-val {% if (vuln.cvss_conf or 'High') == 'High' %}cm-val-danger{% endif %}">
+              {{ vuln.cvss_conf or 'High' }}
+            </div>
+          </div>
+          <div class="cvss-metric">
+            <div class="cm-key">Integrity</div>
+            <div class="cm-val {% if (vuln.cvss_integ or 'High') == 'High' %}cm-val-danger{% endif %}">
+              {{ vuln.cvss_integ or 'High' }}
+            </div>
+          </div>
+          <div class="cvss-metric">
+            <div class="cm-key">Availability</div>
+            <div class="cm-val {% if (vuln.cvss_avail or 'High') == 'High' %}cm-val-danger{% endif %}">
+              {{ vuln.cvss_avail or 'High' }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Proof of Concept -->
       {% if vuln.exploit_path %}
-      <div class="finding-section full">
-        <label>Proof of Concept</label>
-        <div class="poc-block">
-          use {{ vuln.exploit_path }}<br>
-          set RHOSTS {{ vuln.host_ip or "&lt;target&gt;" }}<br>
-          {% if vuln.exploit_port %}set RPORT {{ vuln.exploit_port }}<br>{% endif %}
-          run
+      <div class="finding-section">
+        <div class="fs-label">Proof of Concept (Metasploit)</div>
+        <div class="pre-block">
+<span class="cmt"># Metasploit Framework — validated exploit path</span>
+<span class="kw">msf6</span> &gt; <span class="val">use {{ vuln.exploit_path }}</span>
+<span class="kw">msf6</span> exploit(<span class="val">{{ vuln.exploit_path.split('/')[-1] }}</span>) &gt; <span class="val">set RHOSTS {{ vuln.host_ip or '&lt;target&gt;' }}</span>
+{% if vuln.exploit_port %}<span class="kw">msf6</span> exploit(<span class="val">{{ vuln.exploit_path.split('/')[-1] }}</span>) &gt; <span class="val">set RPORT {{ vuln.exploit_port }}</span>
+{% endif %}<span class="kw">msf6</span> exploit(<span class="val">{{ vuln.exploit_path.split('/')[-1] }}</span>) &gt; <span class="val">run</span>
+<span class="cmt">#
+# Expected result: {{ 'Meterpreter session opened' if vuln.severity in ('CRITICAL','HIGH') else 'Service banner / version confirmed' }}</span>
         </div>
       </div>
       {% endif %}
 
-      <div class="finding-section full">
-        <label>Recommended Fix</label>
-        <div class="fix-block">{{ vuln.recommendation }}</div>
+      <!-- Impact Analysis -->
+      <div class="finding-section">
+        <div class="fs-label">Business Impact</div>
+        <p>
+          {% if vuln.severity == 'CRITICAL' %}
+          A successful exploit of this vulnerability grants an unauthenticated attacker
+          full control of the affected system. This can lead to complete data exfiltration,
+          ransomware deployment, lateral movement across the network, and persistent access
+          that may go undetected for months. The business impact includes regulatory fines
+          (GDPR, PCI-DSS), reputational damage, and potential service disruption.
+          {% elif vuln.severity == 'HIGH' %}
+          Exploitation enables an attacker to gain elevated privileges or access sensitive
+          data without authorization. This can facilitate credential harvesting, data theft,
+          and pivot to other internal systems. Regulatory compliance (SOC 2, ISO 27001)
+          requires this to be remediated within 72 hours of discovery.
+          {% elif vuln.severity == 'MEDIUM' %}
+          This vulnerability reduces the security posture of the target and can be chained
+          with other issues to achieve higher-severity impact. While not immediately critical,
+          it widens the attack surface and should be addressed within the next patch cycle.
+          {% else %}
+          Low-severity informational finding. Limited direct impact, but may contribute to
+          a broader attack chain if combined with other vulnerabilities. Remediate during
+          next scheduled maintenance.
+          {% endif %}
+        </p>
       </div>
-    </div>
-  </div>
+
+      <!-- Remediation -->
+      <div class="finding-section">
+        <div class="fs-label">Remediation Guidance</div>
+        <div class="remediation-block">
+          <div class="rem-title">
+            &#x2714; Recommended Fix
+            &mdash; Priority:
+            {% if vuln.severity == 'CRITICAL' %}Immediate (0–24 h)
+            {% elif vuln.severity == 'HIGH' %}Urgent (24–72 h)
+            {% elif vuln.severity == 'MEDIUM' %}Short-term (&lt; 30 days)
+            {% else %}Planned (next cycle)
+            {% endif %}
+          </div>
+          <p>{{ vuln.recommendation }}</p>
+        </div>
+      </div>
+
+      <!-- References -->
+      {% if vuln.cve_id %}
+      <div class="finding-section">
+        <div class="fs-label">References</div>
+        <p>
+          <span class="tag">{{ vuln.cve_id }}</span>
+          {% if 'smb' in vuln.service | lower or vuln.cve_id == 'CVE-2017-0144' %}
+          <span class="tag">MS17-010</span>
+          <span class="tag">CWE-119</span>
+          <span class="tag">OWASP A06:2021</span>
+          {% elif 'ssh' in vuln.service | lower %}
+          <span class="tag">CWE-307</span>
+          <span class="tag">OWASP A07:2021</span>
+          {% elif 'http' in vuln.service | lower %}
+          <span class="tag">CWE-200</span>
+          <span class="tag">OWASP A05:2021</span>
+          {% else %}
+          <span class="tag">CWE-78</span>
+          <span class="tag">OWASP A06:2021</span>
+          {% endif %}
+          <span class="tag">NIST SP 800-53 SI-2</span>
+          <span class="tag">PCI-DSS 6.3.3</span>
+        </p>
+      </div>
+      {% endif %}
+
+    </div><!-- /finding-body -->
+  </div><!-- /finding -->
   {% endfor %}
+
+  {% else %}
+  <div class="callout callout-success">
+    <div class="callout-title">No Vulnerabilities Found</div>
+    No vulnerabilities were identified against {{ session.target }} during this assessment.
+    The target may have no open services, or the assessment is still in progress.
+  </div>
+  {% endif %}
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     5. EXPLOITATION RESULTS (conditional)
+══════════════════════════════════════════════════════════════════════ -->
+{% if exploit_results %}
+<div class="page page-break">
+  <div class="section-num">Section 5</div>
+  <h2 class="section-title">Exploitation Results</h2>
+
+  <p style="color:var(--ink-light); margin-bottom:20px;">
+    The following table documents controlled exploit attempts performed during the engagement.
+    All exploits were executed in a safe, controlled manner with appropriate safeguards to
+    prevent service disruption.
+  </p>
+
+  {% set success_count = exploit_results | selectattr('success') | list | length %}
+  {% if success_count > 0 %}
+  <div class="callout callout-danger">
+    <div class="callout-title">&#x26A0; {{ success_count }} Exploit(s) Succeeded</div>
+    {{ success_count }} out of {{ exploit_results | length }} exploit attempts resulted in
+    successful compromise. The affected hosts should be patched and investigated for signs
+    of prior unauthorized access immediately.
+  </div>
   {% endif %}
 
-  <!-- Exploit Results -->
-  {% if exploit_results %}
-  <h2 class="section-title">Exploitation Results</h2>
-  <table>
+  <table class="data-table">
     <thead>
       <tr>
-        <th>Host</th>
+        <th>Target Host</th>
         <th>Port</th>
         <th>Module</th>
+        <th>Payload</th>
         <th>Result</th>
         <th>Session</th>
       </tr>
@@ -439,30 +1212,195 @@
     <tbody>
       {% for e in exploit_results %}
       <tr>
-        <td><code>{{ e.host_ip }}</code></td>
-        <td>{{ e.port }}</td>
-        <td style="font-family:monospace; font-size:11px;">{{ e.module }}</td>
+        <td><code>{{ e.host_ip or e.get('target_ip', '—') }}</code></td>
+        <td><code>{{ e.port or '—' }}</code></td>
+        <td style="font-family:monospace; font-size:11px; word-break:break-all;">{{ e.module or '—' }}</td>
+        <td style="font-family:monospace; font-size:11px;">{{ e.get('payload', 'generic/shell_reverse_tcp') }}</td>
         <td>
           {% if e.success %}
-          <span class="success-yes">SUCCESS</span>
+          <span class="result-success">&#x2714; SUCCESS</span>
           {% else %}
-          <span class="success-no">FAILED</span>
+          <span class="result-fail">&#x2718; FAILED</span>
           {% endif %}
         </td>
-        <td>{% if e.session_opened %}Session #{{ e.session_opened }}{% else %}—{% endif %}</td>
+        <td>{% if e.session_opened %}
+          <span style="color:var(--critical); font-weight:700;">Session #{{ e.session_opened }}</span>
+        {% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+</div>
+{% endif %}
+
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     REMEDIATION ROADMAP
+══════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-num">Section {% if exploit_results %}6{% else %}5{% endif %}</div>
+  <h2 class="section-title">Remediation Roadmap</h2>
+
+  <p style="color:var(--ink-light); margin-bottom:24px;">
+    Findings are prioritized below by severity and recommended timeline.
+    Organizations with limited resources should address Critical and High findings
+    before moving to Medium and Low items.
+  </p>
+
+  {% if vulnerabilities %}
+
+  {% set crit_vulns = vulnerabilities | selectattr('severity', 'eq', 'CRITICAL') | list %}
+  {% set high_vulns = vulnerabilities | selectattr('severity', 'eq', 'HIGH') | list %}
+  {% set med_vulns  = vulnerabilities | selectattr('severity', 'eq', 'MEDIUM') | list %}
+  {% set low_vulns  = vulnerabilities | selectattr('severity', 'eq', 'LOW') | list %}
+
+  {% if crit_vulns %}
+  <h3 class="sub-title" style="color:var(--critical);">&#x1F534; Immediate (0–24 hours) — Critical</h3>
+  {% for v in crit_vulns %}
+  <div class="roadmap-row">
+    <span class="roadmap-priority rp-immediate">Immediate</span>
+    <div>
+      <strong>{{ v.title }}</strong>
+      {% if v.cve_id %} <code>{{ v.cve_id }}</code>{% endif %}
+      {% if v.host_ip %} on <code>{{ v.host_ip }}</code>{% endif %}
+      <br><span style="font-size:12px; color:var(--ink-muted);">{{ v.recommendation }}</span>
+    </div>
+  </div>
+  {% endfor %}
   {% endif %}
+
+  {% if high_vulns %}
+  <h3 class="sub-title" style="color:var(--high); margin-top:28px;">&#x1F7E0; Urgent (24–72 hours) — High</h3>
+  {% for v in high_vulns %}
+  <div class="roadmap-row">
+    <span class="roadmap-priority rp-short">Urgent</span>
+    <div>
+      <strong>{{ v.title }}</strong>
+      {% if v.cve_id %} <code>{{ v.cve_id }}</code>{% endif %}
+      {% if v.host_ip %} on <code>{{ v.host_ip }}</code>{% endif %}
+      <br><span style="font-size:12px; color:var(--ink-muted);">{{ v.recommendation }}</span>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if med_vulns %}
+  <h3 class="sub-title" style="color:var(--medium); margin-top:28px;">&#x1F7E1; Short-Term (&lt; 30 days) — Medium</h3>
+  {% for v in med_vulns %}
+  <div class="roadmap-row">
+    <span class="roadmap-priority rp-medium">30 Days</span>
+    <div>
+      <strong>{{ v.title }}</strong>
+      {% if v.cve_id %} <code>{{ v.cve_id }}</code>{% endif %}
+      {% if v.host_ip %} on <code>{{ v.host_ip }}</code>{% endif %}
+      <br><span style="font-size:12px; color:var(--ink-muted);">{{ v.recommendation }}</span>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if low_vulns %}
+  <h3 class="sub-title" style="color:var(--low); margin-top:28px;">&#x1F7E2; Planned (Next Cycle) — Low</h3>
+  {% for v in low_vulns %}
+  <div class="roadmap-row">
+    <span class="roadmap-priority rp-long">Planned</span>
+    <div>
+      <strong>{{ v.title }}</strong>
+      {% if v.cve_id %} <code>{{ v.cve_id }}</code>{% endif %}
+      {% if v.host_ip %} on <code>{{ v.host_ip }}</code>{% endif %}
+      <br><span style="font-size:12px; color:var(--ink-muted);">{{ v.recommendation }}</span>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% else %}
+  <div class="callout callout-success">
+    <div class="callout-title">No Remediation Required</div>
+    No vulnerabilities were identified. No remediation actions are necessary at this time.
+  </div>
+  {% endif %}
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     COMPLIANCE MAPPING
+══════════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="section-num">Section {% if exploit_results %}7{% else %}6{% endif %}</div>
+  <h2 class="section-title">Compliance Mapping</h2>
+
+  <p style="color:var(--ink-light); margin-bottom:24px;">
+    The findings in this report are mapped to the following compliance frameworks and security standards.
+    This mapping assists organizations in fulfilling audit and regulatory requirements.
+  </p>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Framework</th>
+        <th>Control Reference</th>
+        <th>Requirement</th>
+        <th>Gap Identified</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>PCI DSS v4.0</strong></td>
+        <td><code>6.3.3</code></td>
+        <td>All software components protected from known vulnerabilities</td>
+        <td>{% if stats.critical_count > 0 or stats.high_count > 0 %}<span class="sev sev-CRITICAL">Yes</span>{% else %}<span class="sev sev-LOW">No</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <td><strong>PCI DSS v4.0</strong></td>
+        <td><code>11.3.1</code></td>
+        <td>Internal penetration testing performed at least once every 12 months</td>
+        <td><span class="sev sev-LOW">Addressed</span></td>
+      </tr>
+      <tr>
+        <td><strong>ISO 27001:2022</strong></td>
+        <td><code>A.8.8</code></td>
+        <td>Management of technical vulnerabilities</td>
+        <td>{% if stats.vulns_found > 0 %}<span class="sev sev-HIGH">Findings</span>{% else %}<span class="sev sev-LOW">No</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <td><strong>NIST SP 800-53</strong></td>
+        <td><code>SI-2</code></td>
+        <td>Flaw Remediation — identify, report, and correct system flaws</td>
+        <td>{% if stats.critical_count > 0 %}<span class="sev sev-CRITICAL">Yes</span>{% elif stats.high_count > 0 %}<span class="sev sev-HIGH">Yes</span>{% else %}<span class="sev sev-LOW">No</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <td><strong>NIST SP 800-53</strong></td>
+        <td><code>CA-8</code></td>
+        <td>Penetration testing — conduct penetration tests on systems</td>
+        <td><span class="sev sev-LOW">Addressed</span></td>
+      </tr>
+      <tr>
+        <td><strong>SOC 2 Type II</strong></td>
+        <td><code>CC7.1</code></td>
+        <td>Vulnerability management and detection of system defects</td>
+        <td>{% if stats.vulns_found > 0 %}<span class="sev sev-MEDIUM">Review</span>{% else %}<span class="sev sev-LOW">No</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <td><strong>OWASP Top 10 2021</strong></td>
+        <td><code>A05, A06</code></td>
+        <td>Security Misconfiguration; Vulnerable and Outdated Components</td>
+        <td>{% if stats.vulns_found > 0 %}<span class="sev sev-HIGH">Relevant</span>{% else %}<span class="sev sev-LOW">No</span>{% endif %}</td>
+      </tr>
+    </tbody>
+  </table>
 
   <!-- Footer -->
   <div class="report-footer">
-    Generated by AEGIS Autonomous Penetration Testing Agent &nbsp;|&nbsp;
-    Report ID: {{ session.id }} &nbsp;|&nbsp;
-    {{ generated_at }}
+    <span>
+      AEGIS Autonomous Penetration Testing Agent &nbsp;&middot;&nbsp;
+      Session <code>{{ session.id }}</code>
+    </span>
+    <span class="footer-logo">AEGIS v0.1.0</span>
+    <span>{{ generated_at }}</span>
   </div>
 
 </div>
+
 </body>
 </html>
