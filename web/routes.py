@@ -339,6 +339,9 @@ class StartSessionRequest(BaseModel):
     max_severity: Optional[str] = None
     time_limit: Optional[int] = None
     rate_limit: Optional[int] = None
+    # Agent hints
+    port_range: str = "1-65535"
+    notes: str = ""
 
 
 async def _run_agent_task(
@@ -462,6 +465,8 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         registry=registry,
         safety=guard,
         progress_callback=progress_cb,
+        port_range=body.port_range,
+        notes=body.notes,
     )
 
     # Launch background task
