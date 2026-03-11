@@ -85,6 +85,9 @@ class AppConfig(BaseSettings):
     server: ServerConfig = Field(default_factory=ServerConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
 
+    # Nmap: run with sudo for privileged scans (OS detection, SYN scan)
+    nmap_sudo: bool = Field(default=False, alias="NMAP_SUDO")
+
     def model_post_init(self, __context):
         self.data_dir.mkdir(exist_ok=True)
 
