@@ -2935,17 +2935,56 @@ function injectReportContent(htmlString) {
     const container = document.getElementById('report-content');
     if (!container) return;
 
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlString, 'text/html');
-    const body = doc.body;
-
-    if (body && body.innerHTML.trim()) {
-        container.innerHTML = `<div class="bg-white text-black p-8 overflow-auto min-h-[400px] border border-border-color">
-            <div class="report-html-content">${body.innerHTML}</div>
-        </div>`;
-    } else {
+    if (!htmlString || !htmlString.trim()) {
         _reportShowEmpty('Report content is empty — the session may have no findings yet');
+        return;
     }
+
+    // Render in an iframe for proper style isolation — the report has its own CSS
+    container.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'w-full flex flex-col';
+    wrapper.style.cssText = 'background:#f6f8fa; border:1px solid var(--border-color,#2a3040); border-radius:4px; overflow:hidden;';
+
+    // Toolbar strip above the iframe
+    const toolbar = document.createElement('div');
+    toolbar.style.cssText = 'display:flex; align-items:center; gap:8px; padding:8px 12px; background:#161b22; border-bottom:1px solid #30363d;';
+    toolbar.innerHTML = `
+      <span class="material-symbols-outlined" style="font-size:14px; color:#8b949e;">description</span>
+      <span style="font-size:10px; font-family:monospace; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#8b949e;">Pentest Report</span>
+      <span id="report-page-info" style="font-size:10px; color:#6e7681; margin-left:auto;"></span>
+      <button onclick="document.getElementById('report-iframe').contentWindow.print()"
+        style="display:flex; align-items:center; gap:4px; background:transparent; border:1px solid #30363d; color:#8b949e; padding:3px 10px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; cursor:pointer; border-radius:3px;"
+        title="Print / Save as PDF">
+        <span class="material-symbols-outlined" style="font-size:12px;">print</span> Print
+      </button>`;
+    wrapper.appendChild(toolbar);
+
+    // The iframe
+    const iframe = document.createElement('iframe');
+    iframe.id = 'report-iframe';
+    iframe.style.cssText = 'width:100%; border:none; background:#ffffff; min-height:80vh;';
+    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-popups');
+    iframe.title = 'Pentest Report';
+    wrapper.appendChild(iframe);
+
+    container.appendChild(wrapper);
+
+    // Write HTML into iframe
+    const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+    iDoc.open();
+    iDoc.write(htmlString);
+    iDoc.close();
+
+    // Auto-resize iframe to content height after load
+    iframe.addEventListener('load', () => {
+        try {
+            const h = iframe.contentDocument.documentElement.scrollHeight;
+            iframe.style.height = Math.max(h, 600) + 'px';
+        } catch {
+            iframe.style.height = '2400px';
+        }
+    });
 }
 
 function exportReportHTML() {

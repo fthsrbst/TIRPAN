@@ -54,6 +54,61 @@ _RECOMMENDATIONS: dict[str, str] = {
 }
 
 
+def _parse_cvss_vector_static(vector_string: str | None) -> dict:
+    """
+    Parse a CVSS v3.1 vector string into human-readable metric labels for the template.
+    """
+    _AV = {"N": "Network", "A": "Adjacent", "L": "Local", "P": "Physical"}
+    _AC = {"L": "Low", "H": "High"}
+    _PR = {"N": "None", "L": "Low", "H": "High"}
+    _UI = {"N": "None", "R": "Required"}
+    _S  = {"U": "Unchanged", "C": "Changed"}
+    _CI = {"N": "None", "L": "Low", "H": "High"}
+
+    defaults = {
+        "cvss_vector": "",
+        "cvss_av": "Network", "cvss_ac": "Low",
+        "cvss_pr": "None",    "cvss_ui": "None",
+        "cvss_scope": "Unchanged",
+        "cvss_conf": "High",  "cvss_integ": "High", "cvss_avail": "High",
+    }
+
+    if not vector_string:
+        return defaults
+
+    s = vector_string.strip()
+    if s.upper().startswith("CVSS:3"):
+        s = s[9:]
+
+    result: dict = {"cvss_vector": vector_string}
+    for part in s.split("/"):
+        if ":" not in part:
+            continue
+        key, val = part.split(":", 1)
+        key = key.upper()
+        val = val.upper()
+        if key == "AV":
+            result["cvss_av"] = _AV.get(val, val)
+        elif key == "AC":
+            result["cvss_ac"] = _AC.get(val, val)
+        elif key == "PR":
+            result["cvss_pr"] = _PR.get(val, val)
+        elif key == "UI":
+            result["cvss_ui"] = _UI.get(val, val)
+        elif key == "S":
+            result["cvss_scope"] = _S.get(val, val)
+        elif key == "C":
+            result["cvss_conf"] = _CI.get(val, val)
+        elif key == "I":
+            result["cvss_integ"] = _CI.get(val, val)
+        elif key == "A":
+            result["cvss_avail"] = _CI.get(val, val)
+
+    for k, v in defaults.items():
+        result.setdefault(k, v)
+    return result
+
+
 def _service_recommendation(service: str, severity: str) -> str:
     """
     Return a specific recommendation based on service type.
@@ -175,35 +230,61 @@ class ReportGenerator:
         raw_exploits = await ExploitResultRepository(self._db_path).get_for_session(session_id)
 
         scan_rows = self._flatten_scan_results(raw_scans)
-        vuln_rows = self._enrich_vulns(raw_vulns)
-        exploit_rows = raw_exploits
+        vuln_rows = self._enrich_vulns(raw_vulns, raw_exploits)
+        exploit_rows = list(raw_exploits)
 
         critical_count = sum(1 for v in vuln_rows if v["severity"] == "CRITICAL")
+        high_count     = sum(1 for v in vuln_rows if v["severity"] == "HIGH")
+        medium_count   = sum(1 for v in vuln_rows if v["severity"] == "MEDIUM")
+        low_count      = sum(1 for v in vuln_rows if v["severity"] == "LOW")
         exploits_success = sum(1 for e in exploit_rows if e.get("success"))
         sessions_opened = sum(
             1 for e in exploit_rows if e.get("session_opened") and e["session_opened"] > 0
         )
+
+        overall_risk, risk_color = self._overall_risk(critical_count, high_count, medium_count, low_count)
 
         stats = {
             "hosts_found":      session.get("hosts_found", 0) or len({r["ip"] for r in scan_rows}),
             "ports_found":      session.get("ports_found", 0) or len(scan_rows),
             "vulns_found":      session.get("vulns_found", 0) or len(vuln_rows),
             "critical_count":   critical_count,
+            "high_count":       high_count,
+            "medium_count":     medium_count,
+            "low_count":        low_count,
             "exploits_run":     session.get("exploits_run", 0) or len(exploit_rows),
             "exploits_success": exploits_success,
             "sessions_opened":  sessions_opened,
+            "overall_risk":     overall_risk,
+            "risk_color":       risk_color,
         }
 
+        # Add zfill filter for zero-padded numbers in the template
+        self._jinja.filters["zfill"] = lambda val, width=2: str(val).zfill(width)
+
         return {
-            "session":        session,
-            "stats":          stats,
-            "scan_results":   scan_rows,
+            "session":         session,
+            "stats":           stats,
+            "scan_results":    scan_rows,
             "vulnerabilities": vuln_rows,
             "exploit_results": exploit_rows,
-            "generated_at":   datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            "generated_at":    datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         }
 
     # ── Data processing ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _overall_risk(critical: int, high: int, medium: int, low: int) -> tuple[str, str]:
+        """Determine overall engagement risk level and colour."""
+        if critical > 0:
+            return "CRITICAL", "#cf222e"
+        if high > 0:
+            return "HIGH", "#bc4c00"
+        if medium > 0:
+            return "MEDIUM", "#9a6700"
+        if low > 0:
+            return "LOW", "#1a7f37"
+        return "NONE", "#57606a"
 
     @staticmethod
     def _flatten_scan_results(raw_scans: list[dict]) -> list[dict]:
@@ -237,19 +318,46 @@ class ReportGenerator:
         return rows
 
     @staticmethod
-    def _enrich_vulns(raw_vulns: list[dict]) -> list[dict]:
-        """Add severity label, color, and recommendation to each vuln."""
+    def _enrich_vulns(raw_vulns: list[dict], exploit_results: list[dict]) -> list[dict]:
+        """
+        Add severity label, colour, CVSS vector decomposition,
+        exploit port, and recommendation to each vulnerability.
+        Sort by CVSS score descending.
+        """
+        # Build a quick lookup: (host_ip, port) → exploit module
+        exploit_map: dict[tuple, dict] = {}
+        for e in exploit_results:
+            key = (e.get("host_ip") or e.get("target_ip", ""), str(e.get("port", "")))
+            if key not in exploit_map:
+                exploit_map[key] = e
+
         enriched = []
         for v in raw_vulns:
-            score = float(v.get("cvss_score") or 0.0)
+            score    = float(v.get("cvss_score") or 0.0)
             severity = cvss.severity_label(score)
-            color = cvss.severity_color(score)
-            service = v.get("service", "")
+            color    = cvss.severity_color(score)
+            service  = v.get("service", "")
+            host_ip  = v.get("host_ip", "")
+
+            # Try to find matching exploit data for PoC port
+            matched_exploit = exploit_map.get((host_ip, str(v.get("port", ""))))
+            exploit_port = (
+                matched_exploit.get("port")
+                if matched_exploit
+                else v.get("port")
+            )
+
+            vector_data = _parse_cvss_vector_static(v.get("cvss_vector"))
+
             enriched.append({
                 **v,
+                **vector_data,
                 "severity":       severity,
                 "color":          color,
                 "recommendation": _service_recommendation(service, severity),
-                "exploit_port":   None,  # populated from exploit_results if available
+                "exploit_port":   exploit_port,
             })
+
+        # Sort by CVSS score descending
+        enriched.sort(key=lambda x: float(x.get("cvss_score") or 0), reverse=True)
         return enriched
