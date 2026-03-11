@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from config import SafetyConfig, settings
+from core.secure_store import async_get_secret, async_set_secret
 from database import db as database
 from database.repositories import (
     AuditLogRepository,
@@ -313,7 +314,7 @@ async def save_msf_config(body: MsfConfigRequest):
     await database.set_setting("msf_host", body.host)
     await database.set_setting("msf_port", str(body.port))
     if body.password:
-        await database.set_setting("msf_password", body.password)
+        await async_set_secret("msf_password", body.password)
     await database.set_setting("msf_ssl", "true" if body.ssl else "false")
 
     # Update live settings
@@ -336,16 +337,17 @@ class OpenRouterSettings(BaseModel):
 @router.get("/config/openrouter")
 async def get_openrouter_config():
     saved = await database.get_all_settings()
+    api_key = await async_get_secret("openrouter_api_key") or settings.llm.api_key
     return {
         "cloud_model": saved.get("cloud_model", settings.llm.cloud_model),
-        "has_api_key": bool(saved.get("openrouter_api_key", settings.llm.api_key)),
+        "has_api_key": bool(api_key),
     }
 
 
 @router.post("/config/openrouter")
 async def save_openrouter_config(body: OpenRouterSettings):
     if body.api_key:
-        await database.set_setting("openrouter_api_key", body.api_key)
+        await async_set_secret("openrouter_api_key", body.api_key)
         settings.llm.api_key = body.api_key
     if body.cloud_model:
         await database.set_setting("cloud_model", body.cloud_model)
@@ -357,7 +359,7 @@ async def save_openrouter_config(body: OpenRouterSettings):
 async def openrouter_models():
     """Fetch available models from OpenRouter API."""
     saved = await database.get_all_settings()
-    api_key = saved.get("openrouter_api_key", settings.llm.api_key or "")
+    api_key = await async_get_secret("openrouter_api_key") or settings.llm.api_key or ""
     key = (api_key or "").strip()
     if not key or key.startswith("sk-or-..."):
         return {"models": [], "error": "No API key configured"}

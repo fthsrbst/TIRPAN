@@ -16,6 +16,7 @@ import uuid
 import httpx
 from fastapi import WebSocket, WebSocketDisconnect
 from config import settings
+from core.secure_store import async_get_secret
 from web.stats_state import token_counter
 from database import db as database
 
@@ -321,7 +322,7 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     assistant_text = await stream_lmstudio(websocket, content, chat_history, lms_model, conversation_id)
                 elif provider == "openrouter":
                     saved = await database.get_all_settings()
-                    api_key = saved.get("openrouter_api_key", settings.llm.api_key or "")
+                    api_key = await async_get_secret("openrouter_api_key") or settings.llm.api_key or ""
                     or_model = model_override or saved.get("cloud_model", settings.llm.cloud_model)
                     assistant_text = await stream_openrouter(websocket, content, chat_history, or_model, api_key, conversation_id)
                 else:
