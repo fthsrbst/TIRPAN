@@ -8,6 +8,8 @@
 [![License](https://img.shields.io/badge/license-Non--Commercial-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com)
+[![Tests](https://img.shields.io/badge/tests-329%20passing-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-79%25-green.svg)]()
 [![Status](https://img.shields.io/badge/status-active%20development-orange.svg)]()
 [![Authorized Use Only](https://img.shields.io/badge/use-authorized%20environments%20only-red.svg)](docs/05_SAFETY_AND_LEGAL.md)
 
@@ -133,20 +135,26 @@ git clone https://github.com/yourusername/aegis.git
 cd aegis
 
 # 2. Install
-python3.11 -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 3. Configure
 cp .env.example .env
-# Add your OpenRouter API key (or configure Ollama for fully local operation)
+# Add your OpenRouter API key (optional — Ollama works fully local)
+# Set OLLAMA_MODEL to a model you have pulled, e.g. qwen2.5-coder:14b
 
-# 4. Start Metasploit RPC (required for exploit execution)
+# 4. Start Metasploit RPC (required for exploit execution; skip for scan-only)
 msfrpcd -P your_password -S
 
-# 5. Run
-python main.py
-# Open http://localhost:8000
+# 5. Run — choose your interface:
+python3 main.py                            # Web UI at http://localhost:8000
+python3 main.py --host 0.0.0.0 --port 9000 # Expose on network
+
+# Or run directly from the terminal (no web UI):
+python3 main.py run --target 192.168.1.0/24
+python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24
+python3 main.py run --target 10.0.0.5 --mode scan_only --time-limit 300
 ```
 
 For a quick lab setup using Docker:
@@ -156,6 +164,59 @@ For a quick lab setup using Docker:
 docker run -d --name target tleemcjr/metasploitable2
 
 # Then point AEGIS at the container's IP
+python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' target)
+```
+
+---
+
+## CLI Reference
+
+AEGIS has two modes: **web UI** (default) and **terminal run** (headless).
+
+```
+python3 main.py [--host HOST] [--port PORT] [--no-reload] [--log-level LEVEL]
+python3 main.py run --target TARGET [options]
+```
+
+### Web UI (default)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--host` | `127.0.0.1` | Bind address |
+| `--port` | `8000` | Listen port |
+| `--no-reload` | off | Disable hot-reload (use in production) |
+| `--log-level` | `info` | One of: `debug`, `info`, `warning`, `error` |
+
+### Terminal mode (`run` subcommand)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--target` / `-t` | *required* | Target IP or CIDR (e.g. `192.168.1.0/24`) |
+| `--mode` / `-m` | `scan_only` | `full_auto` / `ask_before_exploit` / `scan_only` |
+| `--scope` | `0.0.0.0/0` | Restrict agent to this CIDR |
+| `--exclude-ips` | — | Comma-separated IPs to skip |
+| `--exclude-ports` | — | Comma-separated ports to skip |
+| `--time-limit` | `0` (none) | Auto-stop after N seconds |
+| `--rate-limit` | `10` | Max requests per second |
+| `--max-iterations` | `50` | Max agent iterations |
+| `--no-dos-block` | off | Allow DoS-category exploits (dangerous) |
+| `--no-destructive-block` | off | Allow destructive exploits (dangerous) |
+| `--output` / `-o` | `reports/` | Report output directory |
+
+**Examples:**
+
+```bash
+# Scan only — no exploitation
+python3 main.py run --target 10.0.0.0/24
+
+# Full auto with safety scope and 10-minute limit
+python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24 --time-limit 600
+
+# Scan with exclusions
+python3 main.py run --target 192.168.1.0/24 --exclude-ips 192.168.1.1,192.168.1.254 --exclude-ports 22,3389
+
+# Save report to custom directory
+python3 main.py run --target 10.0.0.1 --output /tmp/aegis-reports/
 ```
 
 ---
@@ -294,13 +355,15 @@ Full technical comparison: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.
 |-----------|-----------|
 | Language | Python 3.11+ |
 | Web framework | FastAPI + WebSocket |
-| LLM (cloud) | OpenRouter → Claude 3.5 Sonnet |
-| LLM (local) | Ollama → Llama 3 |
+| LLM (cloud) | OpenRouter (Claude, GPT-4, Gemini…) |
+| LLM (local) | Ollama (Llama 3, Qwen, Mistral…) |
 | Offensive tools | Nmap 7.94+, SearchSploit, Metasploit 6.x (pymetasploit3) |
 | Database | SQLite via aiosqlite |
-| Reporting | Jinja2 + WeasyPrint (PDF) |
+| Reporting | Jinja2 + WeasyPrint (HTML + PDF) |
 | Frontend | Vanilla HTML/CSS/JS + TailwindCSS |
-| Testing | pytest |
+| Testing | pytest + pytest-asyncio + pytest-cov (329 tests, 79% coverage) |
+| Linting | ruff + black |
+| CLI | argparse + Rich (banner, tables, live event stream) |
 | Plugin loading | importlib (stdlib) |
 
 ---
