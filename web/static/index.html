@@ -664,30 +664,34 @@
             </div>
             <div class="grid grid-cols-2 gap-4">
 
-              <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
-                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Cloud Provider</label>
-                <select class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text appearance-none cursor-pointer">
-                  <option selected>OpenRouter</option>
-                  <option>Direct Anthropic</option>
-                  <option>OpenAI</option>
-                </select>
-              </div>
-
-              <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
-                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Model</label>
-                <select class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text appearance-none cursor-pointer">
-                  <option selected>claude-sonnet-4-6</option>
-                  <option>claude-opus-4-6</option>
-                  <option>claude-haiku-4-5</option>
-                  <option>gpt-4o</option>
-                </select>
-              </div>
-
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2">
-                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">API Key</label>
+                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">OpenRouter API Key</label>
                 <div class="relative">
                   <input id="cfg-openrouter-key" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-10" type="password" placeholder="sk-or-..."/>
                   <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] cursor-pointer hover:text-primary transition-colors" id="toggle-api-key">visibility</span>
+                </div>
+              </div>
+
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2">
+                <div class="flex items-center justify-between">
+                  <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Cloud Model (OpenRouter)</label>
+                  <button id="fetch-or-models-btn" type="button" class="text-[10px] mono-text text-secondary-text hover:text-primary transition-colors flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[13px]">refresh</span>
+                    Fetch Models
+                  </button>
+                </div>
+                <div class="relative" id="cfg-cloud-model-wrapper">
+                  <button id="cfg-cloud-model-btn" type="button"
+                    class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
+                    <span id="cfg-cloud-model-label" class="truncate">anthropic/claude-sonnet-4-6</span>
+                    <span class="material-symbols-outlined text-secondary-text text-[16px]" id="cfg-cloud-model-chevron">expand_more</span>
+                  </button>
+                  <input type="hidden" id="cfg-cloud-model" value="anthropic/claude-sonnet-4-6"/>
+                  <div id="cfg-cloud-model-dropdown" class="hidden absolute top-full left-0 right-0 bg-card border border-border-color border-t-0 z-50 max-h-56 overflow-y-auto scrollbar-hide">
+                    <div id="cfg-cloud-model-list">
+                      <div class="px-3 py-2 text-[10px] mono-text text-secondary-text">Enter API key and click Fetch Models</div>
+                    </div>
+                  </div>
                 </div>
               </div>
 

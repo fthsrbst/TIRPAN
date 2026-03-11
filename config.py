@@ -24,7 +24,7 @@ class LLMConfig(BaseSettings):
     model_config = _ENV
     provider: str = Field(default="ollama", alias="LLM_PROVIDER")  # "ollama" | "openrouter"
     api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
-    cloud_model: str = Field(default="claude-sonnet-4-6", alias="CLOUD_MODEL")
+    cloud_model: str = Field(default="anthropic/claude-sonnet-4-6", alias="CLOUD_MODEL")
     use_local_for_classification: bool = Field(default=True)
 
 
@@ -86,7 +86,7 @@ class AppConfig(BaseSettings):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
 
     # Nmap: run with sudo for privileged scans (OS detection, SYN scan)
-    nmap_sudo: bool = Field(default=False, alias="NMAP_SUDO")
+    nmap_sudo: bool = Field(default=True, alias="NMAP_SUDO")
 
     def model_post_init(self, __context):
         self.data_dir.mkdir(exist_ok=True)
