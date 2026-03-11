@@ -74,6 +74,8 @@ class AgentContext:
 
     iteration: int = 0
     attack_phase: str = "DISCOVERY"  # DISCOVERY|PORT_SCAN|EXPLOIT_SEARCH|EXPLOITATION|DONE
+    port_range: str = "1-65535"      # nmap port range hint passed to the LLM via prompt
+    notes: str = ""                  # operator-supplied notes injected into every prompt
 
     # ── Convenience properties ─────────────────────────────────────────────
 
@@ -120,10 +122,12 @@ class PentestAgent:
         max_iterations: int = _DEFAULT_MAX_ITERATIONS,
         progress_callback: ProgressCallback | None = None,
         approval_callback: ApprovalCallback | None = None,
+        port_range: str = "1-65535",
+        notes: str = "",
     ):
         self.session = session
         self.memory = SessionMemory()
-        self._ctx = AgentContext(target=target, mode=mode)
+        self._ctx = AgentContext(target=target, mode=mode, port_range=port_range, notes=notes)
         self._state = AgentState.IDLE
         self._registry = registry or ToolRegistry()
         self._safety = safety or SafetyGuard()

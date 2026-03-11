@@ -2081,6 +2081,10 @@ async function startMission() {
 
     const target = targetInput ? targetInput.value.trim() : '';
     const mode = modeSelect ? modeSelect.value : 'scan_only';
+    const portRangeInput = document.getElementById('mission-port-range');
+    const notesInput = document.getElementById('mission-notes');
+    const portRange = portRangeInput ? (portRangeInput.value.trim() || '1-65535') : '1-65535';
+    const notes = notesInput ? notesInput.value.trim() : '';
 
     if (!target) {
         showToast('Enter a target IP or CIDR range');
@@ -2094,7 +2098,7 @@ async function startMission() {
         const res = await fetch('/api/v1/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target, mode }),
+            body: JSON.stringify({ target, mode, port_range: portRange, notes }),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
