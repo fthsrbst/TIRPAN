@@ -473,7 +473,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     task = asyncio.create_task(
         _run_agent_task(session_id, agent, _session_repo, _audit_repo)
     )
-    session_manager.register(session_id, task, guard)
+    session_manager.register(session_id, task, guard, agent)
 
     return {
         "session_id": session_id,
@@ -542,6 +542,67 @@ async def delete_session(sid: str):
         raise HTTPException(404, "Session not found")
     await _session_repo.delete(sid)
     return {"ok": True}
+
+
+class InjectMessageRequest(BaseModel):
+    message: str
+
+
+@router.post("/sessions/{sid}/inject")
+async def inject_session_message(sid: str, body: InjectMessageRequest):
+    """Inject an operator message into the running agent's memory."""
+    from web import session_manager
+
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    msg = body.message.strip()
+    if not msg:
+        raise HTTPException(400, "Message cannot be empty")
+
+    ok = session_manager.inject_message(sid, msg)
+    return {"ok": ok}
+
+
+@router.post("/sessions/{sid}/pause")
+async def pause_session(sid: str):
+    """Pause the running agent between iterations."""
+    from web import session_manager
+
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    ok = session_manager.pause_session(sid)
+    if ok:
+        await session_manager.broadcast(sid, {
+            "type": "session_event",
+            "session_id": sid,
+            "event": "paused",
+            "data": {},
+        })
+    return {"ok": ok}
+
+
+@router.post("/sessions/{sid}/resume")
+async def resume_session(sid: str):
+    """Resume a paused agent."""
+    from web import session_manager
+
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    ok = session_manager.resume_session(sid)
+    if ok:
+        await session_manager.broadcast(sid, {
+            "type": "session_event",
+            "session_id": sid,
+            "event": "resumed",
+            "data": {},
+        })
+    return {"ok": ok}
 
 
 # ── Reports ────────────────────────────────────────────────────────────────────
