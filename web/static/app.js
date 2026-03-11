@@ -1443,8 +1443,10 @@ function initChatInput() {
 
 let availableModels = [];
 let activeModel = '';
-let activeProvider = 'ollama';  // 'ollama' | 'lmstudio'
+let activeProvider = 'ollama';  // 'ollama' | 'lmstudio' | 'openrouter'
 let ollamaBaseUrl = 'http://127.0.0.1:11434';
+let openRouterModels = [];
+let cloudModel = 'anthropic/claude-sonnet-4-6';
 
 // ─── LM Studio Status & Model Selector ───────────────────────────────────────
 
@@ -1614,7 +1616,9 @@ async function fetchOllamaStatus() {
 
 function updateModelLabel() {
     const lbl = document.getElementById('model-label');
-    const prefix = activeProvider === 'lmstudio' ? '[LMS] ' : '';
+    let prefix = '';
+    if (activeProvider === 'lmstudio') prefix = '[LMS] ';
+    else if (activeProvider === 'openrouter') prefix = '[OR] ';
     if (lbl) lbl.textContent = activeModel ? prefix + activeModel : '—';
 }
 
@@ -1677,6 +1681,47 @@ function populateModelDropdown() {
                     list.appendChild(item);
                 });
             }
+
+            // OpenRouter section
+            if (openRouterModels.length > 0) {
+                const sep = document.createElement('div');
+                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
+                sep.textContent = 'OpenRouter';
+                list.appendChild(sep);
+
+                openRouterModels.forEach(model => {
+                    const item = document.createElement('button');
+                    const isActive = activeProvider === 'openrouter' && model === activeModel;
+                    item.className = [
+                        'w-full text-left px-4 py-2 text-[11px] mono-text',
+                        'hover:bg-primary/10 hover:text-primary transition-colors',
+                        isActive ? 'text-primary' : 'text-slate-300',
+                    ].join(' ');
+                    item.textContent = model;
+                    if (isActive) {
+                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
+                    }
+                    item.addEventListener('click', () => selectModel(model, 'openrouter'));
+                    list.appendChild(item);
+                });
+            } else if (cloudModel) {
+                // Show current cloud model even without fetched list
+                const sep = document.createElement('div');
+                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
+                sep.textContent = 'OpenRouter';
+                list.appendChild(sep);
+                const item = document.createElement('button');
+                const isActive = activeProvider === 'openrouter';
+                item.className = [
+                    'w-full text-left px-4 py-2 text-[11px] mono-text',
+                    'hover:bg-primary/10 hover:text-primary transition-colors',
+                    isActive ? 'text-primary' : 'text-slate-300',
+                ].join(' ');
+                item.textContent = cloudModel;
+                if (isActive) item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
+                item.addEventListener('click', () => selectModel(cloudModel, 'openrouter'));
+                list.appendChild(item);
+            }
         }
     }
 
@@ -1718,6 +1763,91 @@ function populateCfgModelDropdown() {
     });
 }
 
+async function fetchOpenRouterModels() {
+    try {
+        const res = await fetch('/api/v1/openrouter/models');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.error && !data.models?.length) {
+            const list = document.getElementById('cfg-cloud-model-list');
+            if (list) list.innerHTML = `<div class="px-3 py-2 text-[10px] mono-text text-danger">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+        openRouterModels = data.models || [];
+        populateCfgCloudModelDropdown();
+        populateModelDropdown();
+    } catch { /* ignore */ }
+}
+
+function populateCfgCloudModelDropdown() {
+    const list = document.getElementById('cfg-cloud-model-list');
+    const label = document.getElementById('cfg-cloud-model-label');
+    const hidden = document.getElementById('cfg-cloud-model');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    if (!openRouterModels.length) {
+        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">Enter API key and click Fetch Models</div>';
+        return;
+    }
+
+    const current = (hidden?.value || cloudModel || '').trim();
+    if (label) label.textContent = current || openRouterModels[0] || '—';
+
+    openRouterModels.forEach(model => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = [
+            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
+            'hover:bg-primary/10 hover:text-primary transition-colors',
+            model === current ? 'text-primary' : 'text-slate-300',
+        ].join(' ');
+        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === current ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
+        item.addEventListener('click', () => {
+            cloudModel = model;
+            if (label) label.textContent = model;
+            if (hidden) hidden.value = model;
+            document.getElementById('cfg-cloud-model-dropdown')?.classList.add('hidden');
+            document.getElementById('cfg-cloud-model-chevron')?.textContent === 'expand_less' &&
+                (document.getElementById('cfg-cloud-model-chevron').textContent = 'expand_more');
+            populateCfgCloudModelDropdown();
+        });
+        list.appendChild(item);
+    });
+}
+
+function initCloudModelDropdown() {
+    const btn = document.getElementById('cfg-cloud-model-btn');
+    const dropdown = document.getElementById('cfg-cloud-model-dropdown');
+    const chevron = document.getElementById('cfg-cloud-model-chevron');
+
+    btn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const hidden = dropdown?.classList.contains('hidden');
+        dropdown?.classList.toggle('hidden');
+        if (chevron) chevron.textContent = hidden ? 'expand_less' : 'expand_more';
+        if (!hidden) return;
+        populateCfgCloudModelDropdown();
+    });
+
+    document.getElementById('fetch-or-models-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('fetch-or-models-btn');
+        if (btn) { btn.textContent = 'Fetching...'; btn.disabled = true; }
+        await fetchOpenRouterModels();
+        if (btn) { btn.innerHTML = '<span class="material-symbols-outlined text-[13px]">refresh</span> Fetch Models'; btn.disabled = false; }
+        dropdown?.classList.remove('hidden');
+        if (chevron) chevron.textContent = 'expand_less';
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!document.getElementById('cfg-cloud-model-wrapper')?.contains(e.target)) {
+            dropdown?.classList.add('hidden');
+            if (chevron) chevron.textContent = 'expand_more';
+        }
+    });
+}
+
 function selectModel(model, provider = 'ollama') {
     activeModel = model;
     activeProvider = provider;
@@ -1738,6 +1868,17 @@ function selectModel(model, provider = 'ollama') {
         const cfgLabel = document.getElementById('cfg-lmstudio-model-label');
         if (cfgLabel) cfgLabel.textContent = model;
         const cfgHidden = document.getElementById('cfg-lmstudio-model');
+        if (cfgHidden) cfgHidden.value = model;
+    } else if (provider === 'openrouter') {
+        cloudModel = model;
+        fetch('/api/v1/config/openrouter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cloud_model: model }),
+        });
+        const cfgLabel = document.getElementById('cfg-cloud-model-label');
+        if (cfgLabel) cfgLabel.textContent = model;
+        const cfgHidden = document.getElementById('cfg-cloud-model');
         if (cfgHidden) cfgHidden.value = model;
     } else {
         fetch('/api/v1/config/ollama', {
@@ -1848,6 +1989,15 @@ async function loadPersistedSettings() {
         if (data.openrouter_api_key) {
             const keyInput = document.getElementById('cfg-openrouter-key');
             if (keyInput) keyInput.value = data.openrouter_api_key;
+            // Fetch models in background if key is available
+            fetchOpenRouterModels();
+        }
+        if (data.cloud_model) {
+            cloudModel = data.cloud_model;
+            const cfgLabel = document.getElementById('cfg-cloud-model-label');
+            if (cfgLabel) cfgLabel.textContent = cloudModel;
+            const cfgHidden = document.getElementById('cfg-cloud-model');
+            if (cfgHidden) cfgHidden.value = cloudModel;
         }
         if (data.lmstudio_base_url) {
             lmStudioBaseUrl = data.lmstudio_base_url;
@@ -1867,11 +2017,12 @@ async function saveConfig() {
         document.getElementById('save-config-btn-bottom'),
     ].filter(Boolean);
 
-    const url      = document.getElementById('cfg-ollama-url')?.value?.trim()    || ollamaBaseUrl;
-    const model    = document.getElementById('cfg-ollama-model')?.value?.trim()  || activeModel;
-    const apiKey   = document.getElementById('cfg-openrouter-key')?.value?.trim() || '';
-    const lmsUrl   = document.getElementById('cfg-lmstudio-url')?.value?.trim()   || lmStudioBaseUrl;
-    const lmsModel = document.getElementById('cfg-lmstudio-model')?.value?.trim() || lmStudioModel;
+    const url        = document.getElementById('cfg-ollama-url')?.value?.trim()       || ollamaBaseUrl;
+    const model      = document.getElementById('cfg-ollama-model')?.value?.trim()     || activeModel;
+    const apiKey     = document.getElementById('cfg-openrouter-key')?.value?.trim()   || '';
+    const orModel    = document.getElementById('cfg-cloud-model')?.value?.trim()      || cloudModel;
+    const lmsUrl     = document.getElementById('cfg-lmstudio-url')?.value?.trim()     || lmStudioBaseUrl;
+    const lmsModel   = document.getElementById('cfg-lmstudio-model')?.value?.trim()   || lmStudioModel;
 
     btns.forEach(b => { b.textContent = 'Saving...'; b.disabled = true; });
 
@@ -1886,17 +2037,17 @@ async function saveConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ base_url: lmsUrl, model: lmsModel }),
         });
-        if (apiKey) {
-            await fetch('/api/v1/settings/openrouter_api_key', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ value: apiKey }),
-            });
-        }
+        await fetch('/api/v1/config/openrouter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: apiKey, cloud_model: orModel }),
+        });
+        cloudModel = orModel;
         ollamaBaseUrl = url;
         lmStudioBaseUrl = lmsUrl;
         lmStudioModel = lmsModel;
         if (activeProvider === 'ollama') activeModel = model;
+        else if (activeProvider === 'openrouter') activeModel = orModel;
         updateModelLabel();
         // Persist active selection
         fetch('/api/v1/settings/active_provider', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: activeProvider }) });
@@ -1963,6 +2114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initModelSelector();
     initCfgModelDropdown();
     initLMStudioModelDropdown();
+    initCloudModelDropdown();
     initConfigSave();
     initScrollTracking();
     loadPersistedSettings();
@@ -2123,7 +2275,21 @@ function handleSessionEvent(msg) {
     } else if (event === 'injected') {
         appendConsoleLine(`[INJECT] Operator instruction added to agent memory`, 'text-yellow-400');
 
+    } else if (event === 'operator_response') {
+        const thought = data.thought || '';
+        appendMissionCard(`
+            <div class="border-l-2 border-primary/60 bg-primary/5 pl-4 pr-4 py-3 font-mono text-xs">
+                <div class="flex items-center gap-2 text-primary/80 font-bold text-[10px] uppercase tracking-widest mb-1.5">
+                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">smart_toy</span>
+                    AGENT RESPONSE TO OPERATOR
+                </div>
+                <div class="text-slate-200 text-[11px] whitespace-pre-wrap leading-relaxed">${_esc(thought)}</div>
+            </div>
+        `);
+        appendConsoleLine(`[OPERATOR RESPONSE] ${thought.slice(0, 120)}`, 'text-primary');
+
     } else if (event === 'kill_switch') {
+        stopMissionUptime();
         showToast('Emergency stop activated');
         updateMissionStatusHeader('stopped', msg.session_id);
         appendConsoleLine('[KILL_SWITCH] Emergency stop triggered', 'text-danger');
@@ -2149,6 +2315,7 @@ function handleSessionDone(msg) {
     setAgentStatus('done');
     updateMissionStatusHeader('done', msg.session_id);
     stopMissionPoll();
+    stopMissionUptime();
     hidePauseMissionBtn();
     missionPaused = false;
     syncInputMode();
@@ -2178,6 +2345,7 @@ function handleSessionError(msg) {
     setAgentStatus('error', msg.error ? msg.error.slice(0, 60) : '');
     updateMissionStatusHeader('error', msg.session_id);
     stopMissionPoll();
+    stopMissionUptime();
     hidePauseMissionBtn();
     missionPaused = false;
     syncInputMode();
@@ -2290,6 +2458,7 @@ async function killMission() {
                     setAgentStatus('error', 'emergency stop');
                     updateMissionStatusHeader('stopped', activeMissionId);
                     stopMissionPoll();
+                    stopMissionUptime();
                     hidePauseMissionBtn();
                     missionPaused = false;
                     syncInputMode();
@@ -2314,16 +2483,24 @@ function stopMissionPoll() {
     if (missionPollHandle) { clearInterval(missionPollHandle); missionPollHandle = null; }
 }
 
-function startMissionUptime() {
-    if (missionUptimeHandle) clearInterval(missionUptimeHandle);
+function stopMissionUptime() {
+    if (missionUptimeHandle) { clearInterval(missionUptimeHandle); missionUptimeHandle = null; }
+}
+
+function setUptimeFromDuration(seconds) {
+    const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
+    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+    const s = String(Math.floor(seconds % 60)).padStart(2, '0');
+    setStatValue('stat-uptime', `${h}:${m}:${s}`);
+}
+
+function startMissionUptime(startTimeMs) {
+    stopMissionUptime();
+    if (startTimeMs !== undefined) missionStartTime = startTimeMs;
     missionUptimeHandle = setInterval(() => {
         if (!missionStartTime) return;
         const elapsed = Math.floor((Date.now() - missionStartTime) / 1000);
-        const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
-        const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
-        const s = String(elapsed % 60).padStart(2, '0');
-        const uptimeEl = document.getElementById('stat-uptime');
-        if (uptimeEl) uptimeEl.textContent = `${h}:${m}:${s}`;
+        setUptimeFromDuration(elapsed);
     }, 1000);
 }
 
@@ -2340,9 +2517,10 @@ async function refreshMissionStats(sessionId) {
         // Update phase bar based on agent's attack_phase
         updatePhaseFromSessionStatus(data.status);
 
-        // Stop polling if session is done/error
-        if (data.status === 'done' || data.status === 'error') {
+        // Stop polling if session is finished
+        if (data.status === 'done' || data.status === 'error' || data.status === 'stopped') {
             stopMissionPoll();
+            stopMissionUptime();
             updateMissionStatusHeader(data.status, sessionId);
         }
     } catch { /* ignore */ }
@@ -2745,7 +2923,7 @@ async function loadSessionsForSelects() {
             if (running) {
                 activeMissionId = running.id;
                 viewingSessionId = running.id;
-                missionStartTime = Date.now() - ((running.updated_at - running.created_at) * 1000);
+                missionStartTime = running.created_at * 1000;
                 updateMissionStatusHeader('running', running.id);
                 patchWsSessionHandler();
                 if (ws && wsReady) {
@@ -2794,6 +2972,7 @@ const _AGENT_STATUS = {
     paused:     { dot: 'bg-yellow-600',   text: 'Paused',                color: 'text-yellow-500',     pulse: false },
     done:       { dot: 'bg-primary',      text: 'Mission complete',      color: 'text-primary',        pulse: false },
     error:      { dot: 'bg-danger',       text: 'Error',                 color: 'text-danger',         pulse: false },
+    stopped:    { dot: 'bg-danger',       text: 'Stopped',               color: 'text-danger',         pulse: false },
 };
 
 function setAgentStatus(key, detail = '') {
@@ -2864,8 +3043,10 @@ async function openSessionSwitcher() {
         sessions.forEach(s => {
             const ts = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString() : '';
             const isRunning = s.is_running;
-            const statusLabel = isRunning ? 'RUNNING' : (s.status || 'done').toUpperCase();
-            const statusColor = isRunning ? 'text-primary' : (s.status === 'done' ? 'text-slate-400' : 'text-danger');
+            // DB status "running" but no live task means the server restarted mid-session
+            const effStatus = isRunning ? 'running' : (s.status === 'running' ? 'stopped' : (s.status || 'done'));
+            const statusLabel = effStatus.toUpperCase();
+            const statusColor = effStatus === 'running' ? 'text-primary' : (effStatus === 'done' ? 'text-slate-400' : 'text-danger');
             const isViewing = s.id === (viewingSessionId || activeMissionId);
 
             const item = document.createElement('button');
@@ -2906,10 +3087,11 @@ async function switchToSession(sessionId) {
 
         viewingSessionId = sessionId;
 
-        // Update header
+        // Treat DB status "running" with no live task as "stopped" (server restarted)
         const isRunning = session.is_running;
-        const status = isRunning ? 'running' : (session.status || 'done');
-        updateMissionStatusHeader(status, sessionId);
+        const dbStatus = session.status || 'done';
+        const effectiveStatus = isRunning ? 'running' : (dbStatus === 'running' ? 'stopped' : dbStatus);
+        updateMissionStatusHeader(effectiveStatus, sessionId);
 
         // Update stats
         setStatValue('stat-vulns', session.vulns_found ?? '—');
@@ -2921,22 +3103,30 @@ async function switchToSession(sessionId) {
         clearMissionFeed();
 
         if (isRunning) {
-            // Live session — subscribe to WS events
+            // Live session — subscribe to WS events and restart uptime from session start
             activeMissionId = sessionId;
             patchWsSessionHandler();
             if (ws && wsReady) {
                 ws.send(JSON.stringify({ type: 'subscribe_session', session_id: sessionId }));
             }
             startMissionPoll(sessionId);
+            startMissionUptime(session.created_at * 1000);
             showPauseMissionBtn();
             updatePauseButton();
             setAgentStatus('reasoning');
             syncInputMode();
         } else {
-            // Historical session — do NOT touch activeMissionId (new missions can still start)
+            // Historical session — stop timer, show fixed session duration
+            stopMissionUptime();
+            const dur = session.finished_at
+                ? Math.floor(session.finished_at - session.created_at)
+                : (session.updated_at ? Math.floor(session.updated_at - session.created_at) : 0);
+            setUptimeFromDuration(dur);
+            // do NOT touch activeMissionId (new missions can still start)
             renderHistoricalSession(session);
             hidePauseMissionBtn();
-            setAgentStatus(session.status === 'error' ? 'error' : 'done', `${session.target} — historical`);
+            const agentStatus = (effectiveStatus === 'error' || effectiveStatus === 'stopped') ? 'error' : 'done';
+            setAgentStatus(agentStatus, `${session.target} — historical`);
             syncInputMode();
         }
 

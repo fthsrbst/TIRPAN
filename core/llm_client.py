@@ -127,8 +127,18 @@ class OpenRouterClient(LLMClient):
         self.model = settings.llm.cloud_model
         self.timeout = 30.0
 
+    @property
+    def _current_key(self) -> str:
+        """Always read the live api_key from settings (may be updated at runtime)."""
+        return (settings.llm.api_key or self.api_key or "").strip()
+
+    @property
+    def _current_model(self) -> str:
+        """Always read the live model from settings (may be updated at runtime)."""
+        return settings.llm.cloud_model or self.model
+
     def _has_valid_key(self) -> bool:
-        key = (self.api_key or "").strip()
+        key = self._current_key
         return bool(key) and not key.startswith("sk-or-...")
 
     def _headers(self) -> dict:
@@ -138,7 +148,7 @@ class OpenRouterClient(LLMClient):
             "X-Title": "AEGIS",
         }
         if self._has_valid_key():
-            headers["Authorization"] = f"Bearer {self.api_key.strip()}"
+            headers["Authorization"] = f"Bearer {self._current_key}"
         return headers
 
     async def chat(self, messages: list[dict], stream: bool = False) -> str:
@@ -151,7 +161,7 @@ class OpenRouterClient(LLMClient):
                         f"{self._BASE}/chat/completions",
                         headers=self._headers(),
                         json={
-                            "model": self.model,
+                            "model": self._current_model,
                             "messages": messages,
                         },
                     )
@@ -179,7 +189,7 @@ class OpenRouterClient(LLMClient):
             f"{self._BASE}/chat/completions",
             headers=self._headers(),
             json={
-                "model": self.model,
+                "model": self._current_model,
                 "messages": messages,
                 "stream": True,
             },

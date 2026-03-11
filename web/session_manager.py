@@ -67,8 +67,12 @@ def cleanup(session_id: str) -> None:
 def kill(session_id: str) -> bool:
     """Trigger emergency stop on the running agent. Returns True if found."""
     guard = _guards.get(session_id)
+    task = _tasks.get(session_id)
     if guard:
         guard.emergency_stop()
+        # Cancel the asyncio task immediately so long-running tool calls stop fast
+        if task and not task.done():
+            task.cancel()
         logger.warning("Kill switch triggered for session %s", session_id)
         return True
     return False

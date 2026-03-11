@@ -104,7 +104,7 @@ class SessionRepository:
         error_message: str | None = None,
     ) -> bool:
         now = _now()
-        finished_at = now if status in ("done", "error") else None
+        finished_at = now if status in ("done", "error", "stopped") else None
         async with _connect(self._path) as db:
             await db.execute(
                 """UPDATE pentest_sessions
