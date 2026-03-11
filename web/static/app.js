@@ -76,6 +76,7 @@ function switchView(viewName) {
     if (target) target.classList.remove('hidden');
 
     currentView = viewName;
+    syncInputMode();
 
     // Update nav highlight
     document.querySelectorAll('.bottom-nav-item').forEach(item => {
@@ -1316,12 +1317,79 @@ function closeFullscreenInput(doSend) {
     }
 }
 
+/**
+ * Returns true if the current input should go to the running agent (inject)
+ * instead of the LLM chat. This is when:
+ *  - We are on the agent view
+ *  - There is an active running mission
+ */
+function isAgentInputMode() {
+    return currentView === 'agent' && activeMissionId && !isStreaming;
+}
+
+function syncInputMode() {
+    const input = document.getElementById('chat-input');
+    const badge = document.getElementById('input-mode-badge');
+    const iconEl = document.getElementById('chat-input-icon');
+    const agentMode = isAgentInputMode();
+
+    if (agentMode) {
+        if (input) {
+            input.style.borderColor = 'rgba(234,179,8,0.4)';
+            input.placeholder = 'Message to agent — will be injected into running mission...';
+        }
+        if (badge) badge.classList.replace('hidden', 'flex');
+        if (iconEl) iconEl.innerHTML = '<span class="material-symbols-outlined" style="color:rgba(234,179,8,0.8)">bolt</span>';
+    } else {
+        if (input) {
+            input.style.borderColor = '';
+            input.placeholder = 'Scan target, analyze vulnerabilities, build exploit chain...';
+        }
+        if (badge) badge.classList.replace('flex', 'hidden');
+        if (iconEl) iconEl.innerHTML = '<span class="material-symbols-outlined">chevron_right</span>';
+    }
+}
+
 function initChatInput() {
     const input = document.getElementById('chat-input');
     const sendBtn = document.getElementById('chat-send-btn');
     if (!input) return;
 
-    const doSend = () => {
+    const doSend = async () => {
+        if (isAgentInputMode()) {
+            // ── Agent inject mode ──────────────────────────────────────
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            autoResizeTextarea(input);
+            try {
+                const res = await fetch(`/api/v1/sessions/${activeMissionId}/inject`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text }),
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    appendMissionCard(`
+                        <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
+                            <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-1">
+                                <span class="material-symbols-outlined text-[12px]">person</span>
+                                OPERATOR INSTRUCTION
+                            </div>
+                            <div class="text-slate-200 text-[11px] whitespace-pre-wrap">${_esc(text)}</div>
+                        </div>
+                    `);
+                    showToast('Instruction injected into agent');
+                } else {
+                    showToast('Agent not running or session not found');
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message);
+            }
+            return;
+        }
+
+        // ── Normal LLM chat mode ──────────────────────────────────────
         if (isStreaming) {
             isStreaming = false;
             finalizeAssistantMessage();
@@ -1911,7 +1979,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initMissionControls();
     initSessionSwitcher();
     initPauseControls();
-    initAgentInject();
+    initNmapConfig();
     initAuditView();
     initReportView();
     loadSafetyConfig();
@@ -1976,12 +2044,14 @@ function handleSessionEvent(msg) {
 
     if (event === 'start') {
         setPhaseActive(1);
+        setAgentStatus('reasoning');
         updateMissionStatusHeader('running', msg.session_id);
         clearMissionFeed();
         renderMissionStart(data.target || '', data.mode || '');
         appendConsoleLine(`[START] Target: ${data.target || ''} · Mode: ${data.mode || ''}`, 'text-primary');
 
     } else if (event === 'reasoning') {
+        setAgentStatus('reasoning', data.action ? `→ ${data.action}` : '');
         renderMissionReasoning(data);
         updatePhaseFromEvent(data);
         appendConsoleLine(`[THINK] ${data.thought || data.action || ''}`, 'text-secondary-text');
@@ -1990,14 +2060,18 @@ function handleSessionEvent(msg) {
         }
 
     } else if (event === 'tool_call') {
+        const toolName = data.tool || data.tool_name || data.action || '';
+        setAgentStatus('acting', toolName);
         renderMissionToolCall(data);
         appendConsoleToolCall(data);
 
     } else if (event === 'tool_result') {
+        setAgentStatus('reasoning');
         renderMissionToolResult(data);
         appendConsoleToolResult(data);
 
     } else if (event === 'reflection') {
+        setAgentStatus('reflecting');
         renderMissionReflection(data);
         if (data.content) {
             appendConsoleLine(`[REFLECT] ${data.content.slice(0, 120)}`, 'text-purple-400');
@@ -2014,7 +2088,13 @@ function handleSessionEvent(msg) {
     } else if (event === 'phase_change' || event === 'discovery') {
         updatePhaseFromEvent(data);
 
+    } else if (event === 'generate_report') {
+        setPhaseActive(5);
+        setAgentStatus('reflecting', 'generating report');
+        appendConsoleLine('[REPORT] Generating final report…', 'text-primary');
+
     } else if (event === 'paused') {
+        setAgentStatus('paused');
         appendConsoleLine('[PAUSED] Agent paused by operator', 'text-yellow-400');
         appendMissionCard(`
             <div class="border border-yellow-500/30 bg-yellow-500/5 px-4 py-2 font-mono text-xs">
@@ -2053,12 +2133,9 @@ function handleSessionEvent(msg) {
         appendConsoleLine('[MAX_ITER] Maximum iterations reached — wrapping up', 'text-orange-400');
 
     } else if (event === 'error') {
+        setAgentStatus('error', data.error ? data.error.slice(0, 60) : '');
         renderMissionError(data);
         appendConsoleLine(`[ERROR] ${data.error || ''}`, 'text-danger');
-
-    } else if (event === 'generate_report') {
-        setPhaseActive(5);
-        appendConsoleLine('[REPORT] Generating final report…', 'text-primary');
     }
 
     if (activeMissionId) {
@@ -2069,11 +2146,12 @@ function handleSessionEvent(msg) {
 function handleSessionDone(msg) {
     const counts = msg.data || msg;
     setPhaseActive(5);
+    setAgentStatus('done');
     updateMissionStatusHeader('done', msg.session_id);
     stopMissionPoll();
-    hideAgentInjectBar();
     hidePauseMissionBtn();
     missionPaused = false;
+    syncInputMode();
     showToast('Mission complete');
     renderMissionDone({
         hosts: counts.hosts,
@@ -2097,11 +2175,12 @@ function handleSessionDone(msg) {
 }
 
 function handleSessionError(msg) {
+    setAgentStatus('error', msg.error ? msg.error.slice(0, 60) : '');
     updateMissionStatusHeader('error', msg.session_id);
     stopMissionPoll();
-    hideAgentInjectBar();
     hidePauseMissionBtn();
     missionPaused = false;
+    syncInputMode();
     showToast('Mission error: ' + (msg.error || 'unknown'), true);
     renderMissionError({ error: msg.error || 'Session failed' });
     appendConsoleLine(`[ERROR] Session failed: ${msg.error || ''}`, 'text-danger');
@@ -2165,9 +2244,10 @@ async function startMission() {
         renderMissionStart(target, mode);
         appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
         appendConsoleLine(`[TARGET]  ${target}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
-        showAgentInjectBar();
         showPauseMissionBtn();
         updatePauseButton();
+        setAgentStatus('reasoning');
+        syncInputMode();
 
         // Subscribe to session events via WebSocket
         patchWsSessionHandler();
@@ -2207,11 +2287,12 @@ async function killMission() {
                 const res = await fetch(`/api/v1/sessions/${activeMissionId}/kill`, { method: 'POST' });
                 const data = await res.json();
                 if (data.ok) {
+                    setAgentStatus('error', 'emergency stop');
                     updateMissionStatusHeader('stopped', activeMissionId);
                     stopMissionPoll();
-                    hideAgentInjectBar();
                     hidePauseMissionBtn();
                     missionPaused = false;
+                    syncInputMode();
                     showToast('Emergency stop sent');
                     appendConsoleLine('[KILL_SWITCH] Emergency stop triggered by user', 'text-danger');
                 }
@@ -2672,8 +2753,9 @@ async function loadSessionsForSelects() {
                 }
                 startMissionPoll(running.id);
                 startMissionUptime();
-                showAgentInjectBar();
                 showPauseMissionBtn();
+                setAgentStatus('reasoning');
+                syncInputMode();
             }
         }
 
@@ -2700,6 +2782,41 @@ async function loadSessionsForSelects() {
         }
 
     } catch { /* ignore */ }
+}
+
+// ─── Agent Status Bar ─────────────────────────────────────────────────────────
+
+const _AGENT_STATUS = {
+    idle:       { dot: 'bg-border-color',  text: 'No active mission',    color: 'text-secondary-text', pulse: false },
+    reasoning:  { dot: 'bg-yellow-400',   text: 'Reasoning...',          color: 'text-yellow-400',     pulse: true  },
+    acting:     { dot: 'bg-blue-400',     text: 'Executing',             color: 'text-blue-400',       pulse: true  },
+    reflecting: { dot: 'bg-purple-400',   text: 'Reflecting...',         color: 'text-purple-400',     pulse: true  },
+    paused:     { dot: 'bg-yellow-600',   text: 'Paused',                color: 'text-yellow-500',     pulse: false },
+    done:       { dot: 'bg-primary',      text: 'Mission complete',      color: 'text-primary',        pulse: false },
+    error:      { dot: 'bg-danger',       text: 'Error',                 color: 'text-danger',         pulse: false },
+};
+
+function setAgentStatus(key, detail = '') {
+    const s = _AGENT_STATUS[key] || _AGENT_STATUS.idle;
+    const dot = document.getElementById('agent-status-dot');
+    const text = document.getElementById('agent-status-text');
+    const detailEl = document.getElementById('agent-status-detail');
+
+    if (dot) {
+        dot.className = `w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${s.dot} ${s.pulse ? 'animate-pulse' : ''}`;
+    }
+    if (text) {
+        text.className = `text-[10px] mono-text uppercase tracking-widest transition-colors ${s.color}`;
+        text.textContent = s.text;
+    }
+    if (detailEl) {
+        if (detail) {
+            detailEl.textContent = '· ' + detail;
+            detailEl.classList.remove('hidden');
+        } else {
+            detailEl.classList.add('hidden');
+        }
+    }
 }
 
 // ─── Session Switcher ─────────────────────────────────────────────────────────
@@ -2811,14 +2928,16 @@ async function switchToSession(sessionId) {
                 ws.send(JSON.stringify({ type: 'subscribe_session', session_id: sessionId }));
             }
             startMissionPoll(sessionId);
-            showAgentInjectBar();
             showPauseMissionBtn();
             updatePauseButton();
+            setAgentStatus('reasoning');
+            syncInputMode();
         } else {
-            // Historical session — reconstruct from DB data
+            // Historical session — do NOT touch activeMissionId (new missions can still start)
             renderHistoricalSession(session);
-            hideAgentInjectBar();
             hidePauseMissionBtn();
+            setAgentStatus(session.status === 'error' ? 'error' : 'done', `${session.target} — historical`);
+            syncInputMode();
         }
 
     } catch (err) {
@@ -2945,61 +3064,34 @@ async function togglePauseMission() {
     }
 }
 
-// ─── Agent Inject ─────────────────────────────────────────────────────────────
+// ─── Nmap Config ──────────────────────────────────────────────────────────────
 
-function showAgentInjectBar() {
-    const bar = document.getElementById('agent-inject-bar');
-    if (bar) bar.classList.remove('hidden');
+async function loadNmapConfig() {
+    try {
+        const res = await fetch('/api/v1/config/nmap');
+        if (!res.ok) return;
+        const data = await res.json();
+        const cb = document.getElementById('cfg-nmap-sudo');
+        if (cb) cb.checked = !!data.nmap_sudo;
+    } catch (_) {}
 }
 
-function hideAgentInjectBar() {
-    const bar = document.getElementById('agent-inject-bar');
-    if (bar) bar.classList.add('hidden');
-}
-
-function initAgentInject() {
-    const injectBtn = document.getElementById('agent-inject-btn');
-    const injectInput = document.getElementById('agent-inject-input');
-
-    const doInject = async () => {
-        const sessionId = activeMissionId || viewingSessionId;
-        if (!sessionId) { showToast('No active session'); return; }
-        const message = injectInput ? injectInput.value.trim() : '';
-        if (!message) return;
-
-        try {
-            const res = await fetch(`/api/v1/sessions/${sessionId}/inject`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message }),
-            });
-            const data = await res.json();
-            if (data.ok) {
-                appendMissionCard(`
-                    <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
-                        <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-1">
-                            <span class="material-symbols-outlined text-[12px]">person</span>
-                            OPERATOR INSTRUCTION
-                        </div>
-                        <div class="text-slate-200 text-[11px] whitespace-pre-wrap">${_esc(message)}</div>
-                    </div>
-                `);
-                if (injectInput) injectInput.value = '';
-                showToast('Instruction injected into agent');
-            } else {
-                showToast('Agent not running or session not found');
-            }
-        } catch (err) {
-            showToast('Error: ' + err.message);
-        }
-    };
-
-    if (injectBtn) injectBtn.addEventListener('click', doInject);
-    if (injectInput) {
-        injectInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') doInject();
+async function saveNmapSudo(enabled) {
+    try {
+        await fetch('/api/v1/config/nmap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nmap_sudo: enabled }),
         });
+    } catch (_) {}
+}
+
+function initNmapConfig() {
+    const cb = document.getElementById('cfg-nmap-sudo');
+    if (cb) {
+        cb.addEventListener('change', () => saveNmapSudo(cb.checked));
     }
+    loadNmapConfig();
 }
 
 // ─── Audit Log View ────────────────────────────────────────────────────────────
