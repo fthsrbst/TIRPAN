@@ -328,16 +328,27 @@ class PentestAgent:
             return {"success": False, "output": None, "error": msg}
 
         # ── Execute ───────────────────────────────────────────────────────
-        self._emit("action", {"tool": tool_name, "params": params})
+        self._emit("tool_call", {"tool": tool_name, "params": params})
         try:
             result = await tool.execute(params)
         except Exception as exc:
             logger.error("Tool '%s' raised an exception: %s", tool_name, exc)
             result = {"success": False, "output": None, "error": str(exc)}
 
+        # Truncate raw output so the WS event stays under ~4 KB
+        raw_output = result.get("output") or result.get("error")
+        output_str = json.dumps(raw_output, ensure_ascii=False, default=str)
+        if len(output_str) > 3000:
+            output_str = output_str[:3000] + "\n... [truncated]"
+
         self._emit(
-            "action_result",
-            {"tool": tool_name, "success": result.get("success", False)},
+            "tool_result",
+            {
+                "tool": tool_name,
+                "success": result.get("success", False),
+                "output": output_str,
+                "error": result.get("error"),
+            },
         )
         return result
 
@@ -367,7 +378,11 @@ class PentestAgent:
         self.memory.add_tool_result(content, pinned=pinned)
 
         self._update_context(tool_name, result, action_dict)
-        self._emit("observation", {"tool": tool_name, "success": success})
+        self._emit("observation", {
+            "tool": tool_name,
+            "success": success,
+            "attack_phase": self._ctx.attack_phase,
+        })
 
     async def reflect(self) -> None:
         """
@@ -483,6 +498,10 @@ class PentestAgent:
                     "Phase → PORT_SCAN  (%d live hosts)",
                     len(self._ctx.discovered_hosts),
                 )
+                self._emit("phase_change", {
+                    "attack_phase": "PORT_SCAN",
+                    "hosts": len(self._ctx.discovered_hosts),
+                })
 
         if (
             scan_type in ("service", "os", "full")
@@ -491,6 +510,10 @@ class PentestAgent:
         ):
             self._ctx.attack_phase = "EXPLOIT_SEARCH"
             logger.info("Phase → EXPLOIT_SEARCH")
+            self._emit("phase_change", {
+                "attack_phase": "EXPLOIT_SEARCH",
+                "ports": self._ctx.total_ports,
+            })
 
     def _process_searchsploit_result(self, output: dict | list, params: dict) -> None:
         vulns: list = []
@@ -518,6 +541,10 @@ class PentestAgent:
         ):
             self._ctx.attack_phase = "EXPLOITATION"
             logger.info("Phase → EXPLOITATION")
+            self._emit("phase_change", {
+                "attack_phase": "EXPLOITATION",
+                "vulns": self._ctx.total_vulns,
+            })
 
     def _process_metasploit_result(self, output: dict | list, params: dict) -> None:
         module = str(params.get("module", "unknown"))

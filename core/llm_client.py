@@ -128,13 +128,19 @@ class OpenRouterClient(LLMClient):
         self.model = settings.llm.cloud_model
         self.timeout = 30.0
 
+    def _has_valid_key(self) -> bool:
+        key = (self.api_key or "").strip()
+        return bool(key) and not key.startswith("sk-or-...")
+
     def _headers(self) -> dict:
-        return {
-            "Authorization": f"Bearer {self.api_key}",
+        headers: dict = {
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/aegis-pentest",
             "X-Title": "AEGIS",
         }
+        if self._has_valid_key():
+            headers["Authorization"] = f"Bearer {self.api_key.strip()}"
+        return headers
 
     async def chat(self, messages: list[dict], stream: bool = False) -> str:
         last_error: Optional[Exception] = None
@@ -200,7 +206,7 @@ class OpenRouterClient(LLMClient):
                         continue
 
     async def is_available(self) -> bool:
-        if not self.api_key or self.api_key.startswith("sk-or-..."):
+        if not self._has_valid_key():
             return False
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -244,8 +250,16 @@ class LLMRouter:
         try:
             return await primary.chat(messages, stream=stream)
         except Exception as e:
-            logger.warning("Primary LLM failed (%s), trying fallback: %s", type(primary).__name__, e)
-            return await self._fallback().chat(messages, stream=stream)
+            fallback = self._fallback()
+            if not await fallback.is_available():
+                raise RuntimeError(
+                    f"Primary LLM ({type(primary).__name__}) failed and fallback is not available: {e}"
+                ) from e
+            logger.warning(
+                "Primary LLM failed (%s), trying fallback %s: %s",
+                type(primary).__name__, type(fallback).__name__, e,
+            )
+            return await fallback.chat(messages, stream=stream)
 
     async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
         primary = self._primary()
@@ -253,8 +267,16 @@ class LLMRouter:
             async for token in primary.stream_chat(messages):
                 yield token
         except Exception as e:
-            logger.warning("Primary stream failed (%s), trying fallback: %s", type(primary).__name__, e)
-            async for token in self._fallback().stream_chat(messages):
+            fallback = self._fallback()
+            if not await fallback.is_available():
+                raise RuntimeError(
+                    f"Primary stream ({type(primary).__name__}) failed and fallback is not available: {e}"
+                ) from e
+            logger.warning(
+                "Primary stream failed (%s), trying fallback %s: %s",
+                type(primary).__name__, type(fallback).__name__, e,
+            )
+            async for token in fallback.stream_chat(messages):
                 yield token
 
     async def active_provider(self) -> str:
