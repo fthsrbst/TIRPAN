@@ -24,6 +24,14 @@ from database.db import init_db
 async def lifespan(app: FastAPI):
     await init_db()
 
+    # Cleanup sessions that were left in "running" state from a previous crash/restart
+    from database.repositories import SessionRepository
+    _repo = SessionRepository()
+    _orphans = await _repo.list_all()
+    for _s in _orphans:
+        if _s.get("status") == "running":
+            await _repo.update_status(_s["id"], "error", "Server restarted — session interrupted")
+
     # Bootstrap tool registry
     from web.app_state import tool_registry
     from tools.nmap_tool import NmapTool
