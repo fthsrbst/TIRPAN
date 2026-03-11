@@ -8,7 +8,6 @@ Runs exploits and manages sessions.
 import asyncio
 import logging
 import time
-from typing import Optional
 
 from config import settings
 from models.exploit_result import ExploitResult
@@ -110,7 +109,7 @@ class MetasploitTool(BaseTool):
             return await self._list_sessions(client)
         try:
             return await self._run_exploit(client, params)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {"success": False, "output": None, "error": f"Exploit timed out ({EXPLOIT_TIMEOUT}s)"}
 
     # ------------------------------------------------------------------
@@ -137,7 +136,7 @@ class MetasploitTool(BaseTool):
                 ),
                 timeout=EXPLOIT_TIMEOUT,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "success": False,
                 "output": None,
@@ -189,7 +188,6 @@ class MetasploitTool(BaseTool):
                 payload = payloads[0]
 
             output = exploit.execute(payload=p)
-            job_id = output.get("job_id")
             session_id = output.get("session_id")
 
             return ExploitResult(

@@ -5,6 +5,7 @@ Every tool (core or plugin) implements this contract.
 """
 
 from abc import ABC, abstractmethod
+
 from pydantic import BaseModel
 
 

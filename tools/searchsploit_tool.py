@@ -9,7 +9,6 @@ import asyncio
 import json
 import re
 import subprocess
-from typing import Optional
 
 from models.vulnerability import Vulnerability
 from tools.base_tool import BaseTool, ToolMetadata
@@ -78,7 +77,7 @@ class SearchSploitTool(BaseTool):
                 "output": None,
                 "error": "searchsploit not found. Is ExploitDB installed? (apt install exploitdb)",
             }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {"success": False, "output": None, "error": "searchsploit timed out (30s)"}
 
         vulnerabilities = self._parse_output(raw, service, version, platform)
@@ -144,7 +143,7 @@ class SearchSploitTool(BaseTool):
 
             # --- Extract CVE ---
             cve_match = _CVE_PATTERN.search(title)
-            cve_id: Optional[str] = cve_match.group(0).upper() if cve_match else None
+            cve_id: str | None = cve_match.group(0).upper() if cve_match else None
 
             vuln = Vulnerability(
                 title=title,

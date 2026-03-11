@@ -1,7 +1,7 @@
-from pydantic_settings import BaseSettings
-from pydantic import BaseModel, Field
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings
 
 _ENV = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

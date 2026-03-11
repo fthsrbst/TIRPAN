@@ -1,8 +1,8 @@
-from .target import Target
-from .scan_result import Port, Host, ScanResult
-from .vulnerability import Vulnerability
 from .exploit_result import ExploitResult
+from .scan_result import Host, Port, ScanResult
 from .session import Session
+from .target import Target
+from .vulnerability import Vulnerability
 
 __all__ = [
     "Target",

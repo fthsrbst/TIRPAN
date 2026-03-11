@@ -20,11 +20,10 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
 
 import aiosqlite
 
-from database.db import DB_PATH, init_db
+from database.db import DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +68,7 @@ class SessionRepository:
         self,
         target: str,
         mode: str = "scan_only",
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> dict:
         sid = session_id or _uid()
         now = _now()
@@ -83,28 +82,26 @@ class SessionRepository:
             await db.commit()
         return await self.get(sid)
 
-    async def get(self, session_id: str) -> Optional[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                "SELECT * FROM pentest_sessions WHERE id=?", (session_id,)
-            ) as cur:
-                row = await cur.fetchone()
+    async def get(self, session_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM pentest_sessions WHERE id=?", (session_id,)
+        ) as cur:
+            row = await cur.fetchone()
         return dict(row) if row else None
 
     async def list_all(self, limit: int = 50) -> list[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                "SELECT * FROM pentest_sessions ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ) as cur:
-                rows = await cur.fetchall()
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM pentest_sessions ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ) as cur:
+            rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
     async def update_status(
         self,
         session_id: str,
         status: str,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> bool:
         now = _now()
         finished_at = now if status in ("done", "error") else None
@@ -194,12 +191,11 @@ class ScanResultRepository:
         }
 
     async def get_for_session(self, session_id: str) -> list[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                "SELECT * FROM scan_results WHERE session_id=? ORDER BY created_at ASC",
-                (session_id,),
-            ) as cur:
-                rows = await cur.fetchall()
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM scan_results WHERE session_id=? ORDER BY created_at ASC",
+            (session_id,),
+        ) as cur:
+            rows = await cur.fetchall()
         results = []
         for row in rows:
             r = dict(row)
@@ -207,12 +203,11 @@ class ScanResultRepository:
             results.append(r)
         return results
 
-    async def get(self, result_id: str) -> Optional[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                "SELECT * FROM scan_results WHERE id=?", (result_id,)
-            ) as cur:
-                row = await cur.fetchone()
+    async def get(self, result_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM scan_results WHERE id=?", (result_id,)
+        ) as cur:
+            row = await cur.fetchone()
         if not row:
             return None
         r = dict(row)
@@ -258,33 +253,30 @@ class VulnerabilityRepository:
         return {**vuln, "id": vid, "session_id": session_id, "created_at": now}
 
     async def get_for_session(self, session_id: str) -> list[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                """SELECT * FROM vulnerabilities
+        async with _connect(self._path) as db, db.execute(
+            """SELECT * FROM vulnerabilities
                    WHERE session_id=? ORDER BY cvss_score DESC""",
-                (session_id,),
-            ) as cur:
-                rows = await cur.fetchall()
+            (session_id,),
+        ) as cur:
+            rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
     async def get_by_min_cvss(self, session_id: str, min_cvss: float) -> list[dict]:
         """Return vulnerabilities with cvss_score >= min_cvss, sorted high-first."""
-        async with _connect(self._path) as db:
-            async with db.execute(
-                """SELECT * FROM vulnerabilities
+        async with _connect(self._path) as db, db.execute(
+            """SELECT * FROM vulnerabilities
                    WHERE session_id=? AND cvss_score>=?
                    ORDER BY cvss_score DESC""",
-                (session_id, min_cvss),
-            ) as cur:
-                rows = await cur.fetchall()
+            (session_id, min_cvss),
+        ) as cur:
+            rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
-    async def get(self, vuln_id: str) -> Optional[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                "SELECT * FROM vulnerabilities WHERE id=?", (vuln_id,)
-            ) as cur:
-                row = await cur.fetchone()
+    async def get(self, vuln_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM vulnerabilities WHERE id=?", (vuln_id,)
+        ) as cur:
+            row = await cur.fetchone()
         return dict(row) if row else None
 
     async def delete(self, vuln_id: str) -> bool:
@@ -329,13 +321,12 @@ class ExploitResultRepository:
         return {**result, "id": rid, "session_id": session_id, "created_at": now}
 
     async def get_for_session(self, session_id: str) -> list[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                """SELECT * FROM exploit_results
+        async with _connect(self._path) as db, db.execute(
+            """SELECT * FROM exploit_results
                    WHERE session_id=? ORDER BY created_at ASC""",
-                (session_id,),
-            ) as cur:
-                rows = await cur.fetchall()
+            (session_id,),
+        ) as cur:
+            rows = await cur.fetchall()
         results = []
         for row in rows:
             r = dict(row)
@@ -344,12 +335,11 @@ class ExploitResultRepository:
         return results
 
     async def get_successful(self, session_id: str) -> list[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                "SELECT * FROM exploit_results WHERE session_id=? AND success=1",
-                (session_id,),
-            ) as cur:
-                rows = await cur.fetchall()
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM exploit_results WHERE session_id=? AND success=1",
+            (session_id,),
+        ) as cur:
+            rows = await cur.fetchall()
         return [{**dict(r), "success": True} for r in rows]
 
 
@@ -367,7 +357,7 @@ class AuditLogRepository:
         session_id: str = "",
         tool_name: str = "",
         target: str = "",
-        details: Optional[dict] = None,
+        details: dict | None = None,
     ) -> int:
         """Append one audit event. Returns the auto-incremented row ID."""
         now = _now()
@@ -385,13 +375,12 @@ class AuditLogRepository:
                 return row[0] if row else 0
 
     async def get_for_session(self, session_id: str, limit: int = 200) -> list[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                """SELECT * FROM audit_log
+        async with _connect(self._path) as db, db.execute(
+            """SELECT * FROM audit_log
                    WHERE session_id=? ORDER BY created_at ASC LIMIT ?""",
-                (session_id, limit),
-            ) as cur:
-                rows = await cur.fetchall()
+            (session_id, limit),
+        ) as cur:
+            rows = await cur.fetchall()
         results = []
         for row in rows:
             r = dict(row)
@@ -403,12 +392,11 @@ class AuditLogRepository:
         return results
 
     async def get_recent(self, limit: int = 100) -> list[dict]:
-        async with _connect(self._path) as db:
-            async with db.execute(
-                "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ) as cur:
-                rows = await cur.fetchall()
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ) as cur:
+            rows = await cur.fetchall()
         results = []
         for row in rows:
             r = dict(row)

@@ -135,8 +135,8 @@ class PromptBuilder:
 
     def build_full_prompt(
         self,
-        context: "AgentContext",
-        memory: "SessionMemory",
+        context: AgentContext,
+        memory: SessionMemory,
         tools: list[dict],
     ) -> list[dict]:
         """
@@ -157,8 +157,8 @@ class PromptBuilder:
 
     def build_reflection_messages(
         self,
-        context: "AgentContext",
-        memory: "SessionMemory",
+        context: AgentContext,
+        memory: SessionMemory,
     ) -> list[dict]:
         """
         Assemble messages for the REFLECTION step.
@@ -190,14 +190,14 @@ class PromptBuilder:
 
     # ── Private builders ──────────────────────────────────────────────────────
 
-    def _build_system_text(self, tools: list[dict], context: "AgentContext") -> str:
+    def _build_system_text(self, tools: list[dict], context: AgentContext) -> str:
         parts = [_SYSTEM_PROMPT]
         if self._include_examples and self._should_include_examples(context):
             parts.append(_FEW_SHOT_EXAMPLES)
         parts.append(self._format_tools(tools))
         return "\n\n".join(parts)
 
-    def _build_action_user_text(self, context: "AgentContext") -> str:
+    def _build_action_user_text(self, context: AgentContext) -> str:
         return (
             f"{self._format_state(context)}\n\n"
             "Based on the current state above, choose your next action. "
@@ -215,7 +215,7 @@ class PromptBuilder:
             lines.append(f"Parameters schema:\n{params_str}")
         return "\n".join(lines)
 
-    def _format_state(self, context: "AgentContext") -> str:
+    def _format_state(self, context: AgentContext) -> str:
         lines = [
             f"TARGET       : {context.target}",
             f"MODE         : {context.mode}",
@@ -232,7 +232,7 @@ class PromptBuilder:
             lines.append("LIVE HOSTS: none discovered yet")
 
         if context.scan_results:
-            lines.append(f"\nOPEN SERVICES (last 5):")
+            lines.append("\nOPEN SERVICES (last 5):")
             for s in context.scan_results[-5:]:
                 lines.append(f"  {s}")
 
@@ -256,16 +256,14 @@ class PromptBuilder:
 
         return "\n".join(lines)
 
-    def _should_include_examples(self, context: "AgentContext") -> bool:
+    def _should_include_examples(self, context: AgentContext) -> bool:
         """
         Drop examples once we're deep into the exploitation phase to save tokens.
         Early phases benefit more from the examples than later ones.
         """
         if context.attack_phase in ("EXPLOITATION", "DONE"):
             return False
-        if context.iteration > 20:
-            return False
-        return True
+        return not context.iteration > 20
 
     # ── Utility ───────────────────────────────────────────────────────────────
 
