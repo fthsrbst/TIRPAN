@@ -216,12 +216,27 @@ class TestLLMRouter:
 
     @pytest.mark.asyncio
     async def test_router_fallback_on_primary_failure(self):
+        """Fallback is used when primary fails AND fallback is available."""
         router = LLMRouter()
 
         router._ollama.chat = AsyncMock(side_effect=Exception("ollama down"))
-        router._openrouter.chat = AsyncMock(return_value="fallback yanıt")
+        router._openrouter.chat = AsyncMock(return_value="fallback response")
+        # Mark fallback as available so the router will use it
+        router._openrouter.is_available = AsyncMock(return_value=True)
 
         with patch("core.llm_client.settings") as mock_settings:
             mock_settings.llm.provider = "ollama"
             result = await router.chat(MESSAGES)
-            assert result == "fallback yanıt"
+            assert result == "fallback response"
+
+    async def test_router_raises_when_fallback_unavailable(self):
+        """RuntimeError is raised when primary fails and fallback is not available."""
+        router = LLMRouter()
+
+        router._ollama.chat = AsyncMock(side_effect=Exception("ollama down"))
+        router._openrouter.is_available = AsyncMock(return_value=False)
+
+        with patch("core.llm_client.settings") as mock_settings:
+            mock_settings.llm.provider = "ollama"
+            with pytest.raises(RuntimeError, match="fallback is not available"):
+                await router.chat(MESSAGES)

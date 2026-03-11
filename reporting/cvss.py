@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
-
 
 # ── Metric weight tables (CVSS v3.1) ──────────────────────────────────────────
 
@@ -175,9 +173,7 @@ class CvssCalculator:
     def parse_vector_string(vector_string: str) -> CvssVector:
         """Parse a CVSS v3.1 vector string into a CvssVector object."""
         s = vector_string.strip()
-        if s.upper().startswith("CVSS:3.1/"):
-            s = s[9:]
-        elif s.upper().startswith("CVSS:3.0/"):
+        if s.upper().startswith("CVSS:3.1/") or s.upper().startswith("CVSS:3.0/"):
             s = s[9:]
 
         parts = s.split("/")

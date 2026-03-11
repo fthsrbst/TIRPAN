@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -27,7 +26,7 @@ from database.repositories import (
     SessionRepository,
     VulnerabilityRepository,
 )
-from reporting.cvss import CvssCalculator, cvss
+from reporting.cvss import cvss
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +89,7 @@ class ReportGenerator:
         path = await rg.save_report("session-id-here")    # saves both HTML + PDF
     """
 
-    def __init__(self, db_path: Optional[Path | str] = None):
+    def __init__(self, db_path: Path | str | None = None):
         self._db_path = db_path or DB_PATH
         self._jinja = Environment(
             loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -201,7 +200,7 @@ class ReportGenerator:
             "scan_results":   scan_rows,
             "vulnerabilities": vuln_rows,
             "exploit_results": exploit_rows,
-            "generated_at":   datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "generated_at":   datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         }
 
     # ── Data processing ───────────────────────────────────────────────────────
