@@ -54,7 +54,8 @@ plugins/
   "license": "MIT",
   "category": "web",
   "enabled": false,
-  "entry_point": "plugins.web_scanner.tool.WebScannerTool",
+  "entry_point": "plugins.web_scanner.tool",
+  "class_name": "WebScannerTool",
   "requires_packages": ["playwright>=1.40", "beautifulsoup4>=4.12"],
   "min_core_version": "2.0.0",
   "safety_level": "medium",
@@ -63,6 +64,9 @@ plugins/
 }
 ```
 
+> **Note:** `entry_point` is the Python module path and `class_name` is the class within that module.
+> The loader does: `cls = getattr(importlib.import_module(entry_point), class_name)`
+
 ### Field Descriptions
 
 | Field               | Type   | Description                                                       |
@@ -70,7 +74,8 @@ plugins/
 | `name`              | string | Unique plugin identifier (same as directory name)                 |
 | `version`           | semver | Plugin version                                                    |
 | `enabled`           | bool   | `false` → not loaded; set to `true` to activate                   |
-| `entry_point`       | string | `module.path.ClassName` (importlib uses this)                     |
+| `entry_point`       | string | Python module path (e.g. `"plugins.web_scanner.tool"`)            |
+| `class_name`        | string | Class name inside the module (e.g. `"WebScannerTool"`)            |
 | `requires_packages` | list   | pip dependencies to install                                       |
 | `min_core_version`  | semver | Minimum core version this plugin supports                         |
 | `safety_level`      | enum   | `"low"` / `"medium"` / `"high"` — shown to the user              |

@@ -95,19 +95,23 @@ class NmapTool(BaseTool):
         import os
         from config import settings
 
-        # Use sudo for privileged scans (OS detection, SYN) when configured
-        # or when not already running as root
-        use_sudo = settings.nmap_sudo and os.geteuid() != 0
-        base = (["sudo", "-n", "nmap", "-oX", "-"] if use_sudo else ["nmap", "-oX", "-"])
+        is_root = os.geteuid() == 0
+        # Use sudo when nmap_sudo is enabled and we're not already root
+        use_sudo = settings.nmap_sudo and not is_root
+        # OS/SYN scans need root; we have it either directly or via sudo
+        can_do_os = is_root or use_sudo
+
+        base = ["sudo", "-n", "nmap", "-oX", "-"] if use_sudo else ["nmap", "-oX", "-"]
 
         if scan_type == "ping":
             base += ["-sn"]
         elif scan_type == "service":
-            base += ["-sV", "-p", port_range]
+            # With root we can do a fast SYN scan (-sS) instead of TCP connect (-sT)
+            base += (["-sS", "-sV", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
         elif scan_type == "os":
-            base += ["-O", "-p", port_range]
+            base += (["-O", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
         elif scan_type == "full":
-            base += ["-sV", "-O", "-p", port_range]
+            base += (["-sS", "-sV", "-O", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
 
         base.append(target)
         return base

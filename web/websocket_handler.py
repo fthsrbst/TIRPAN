@@ -185,6 +185,91 @@ async def stream_lmstudio(
     return full_response
 
 
+async def stream_openrouter(
+    websocket: WebSocket,
+    user_message: str,
+    history: list[dict],
+    model: str,
+    api_key: str,
+    conversation_id: str | None = None,
+) -> str:
+    """Stream OpenRouter response tokens (OpenAI-compatible SSE) to the websocket client."""
+    msg_id = str(uuid.uuid4())[:8]
+    messages = history + [{"role": "user", "content": user_message}]
+    full_response = ""
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://github.com/aegis-pentest",
+        "X-Title": "AEGIS",
+    }
+    payload = {"model": model, "messages": messages, "stream": True}
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status_code != 200:
+                    body = await response.aread()
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": f"OpenRouter HTTP {response.status_code}: {body.decode()[:300]}",
+                    })
+                    return full_response
+
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    if line.strip() == "data: [DONE]":
+                        break
+                    if line.startswith("data: "):
+                        line = line[6:]
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    choice = chunk.get("choices", [{}])[0]
+                    token = choice.get("delta", {}).get("content", "")
+                    if token:
+                        full_response += token
+                        await websocket.send_json({"type": "token", "content": token, "msg_id": msg_id})
+
+                    if choice.get("finish_reason") and choice["finish_reason"] != "null":
+                        usage = chunk.get("usage", {})
+                        tokens_in = usage.get("prompt_tokens", 0)
+                        tokens_out = usage.get("completion_tokens", 0)
+                        token_counter.add(prompt_tokens=tokens_in, eval_tokens=tokens_out)
+                        if conversation_id:
+                            await database.add_message(conversation_id, "user", user_message)
+                            await database.add_message(
+                                conversation_id, "assistant", full_response,
+                                tokens_in=tokens_in, tokens_out=tokens_out,
+                            )
+                        await websocket.send_json({
+                            "type": "message_end",
+                            "msg_id": msg_id,
+                            "tokens_in": tokens_in,
+                            "tokens_out": tokens_out,
+                        })
+                        break
+
+    except httpx.ConnectError:
+        await websocket.send_json({
+            "type": "error",
+            "content": "Cannot connect to OpenRouter. Check your internet connection.",
+        })
+    except Exception as e:
+        await websocket.send_json({"type": "error", "content": str(e)})
+
+    return full_response
+
+
 async def handle_websocket(websocket: WebSocket) -> None:
     """Main WebSocket connection handler."""
     await websocket.accept()
@@ -234,6 +319,11 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 if provider == "lmstudio":
                     lms_model = model_override or settings.lmstudio.model
                     assistant_text = await stream_lmstudio(websocket, content, chat_history, lms_model, conversation_id)
+                elif provider == "openrouter":
+                    saved = await database.get_all_settings()
+                    api_key = saved.get("openrouter_api_key", settings.llm.api_key or "")
+                    or_model = model_override or saved.get("cloud_model", settings.llm.cloud_model)
+                    assistant_text = await stream_openrouter(websocket, content, chat_history, or_model, api_key, conversation_id)
                 else:
                     if model_override:
                         settings.ollama.model = model_override
