@@ -221,8 +221,12 @@ class PromptBuilder:
             f"MODE         : {context.mode}",
             f"ATTACK PHASE : {context.attack_phase}",
             f"ITERATION    : {context.iteration}",
+            f"PORT RANGE   : {context.port_range}  ← use this in every nmap_scan (service/os/full)",
             "",
         ]
+        if context.notes:
+            lines.append(f"OPERATOR NOTES: {context.notes}")
+            lines.append("")
 
         if context.discovered_hosts:
             lines.append(f"LIVE HOSTS ({len(context.discovered_hosts)}):")
