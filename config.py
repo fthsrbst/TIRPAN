@@ -85,9 +85,10 @@ class AppConfig(BaseSettings):
     server: ServerConfig = Field(default_factory=ServerConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
 
-    # Nmap: run with sudo for privileged scans (OS detection, SYN scan)
+    # Nmap: request elevated privileges for OS detection and SYN scans.
+    # Linux/macOS: uses sudo. Windows: requires the process to run as Administrator (no sudo).
     nmap_sudo: bool = Field(default=True, alias="NMAP_SUDO")
-    # Sudo password for privileged tool execution (stored in memory only, loaded from keychain at startup)
+    # sudo password (Linux/macOS only). Loaded from OS keychain at startup, never persisted to disk.
     sudo_password: str = Field(default="")
 
     def model_post_init(self, __context):
