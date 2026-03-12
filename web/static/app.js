@@ -61,7 +61,7 @@ function initSidebars() {
 let currentView = 'agent';
 let previousView = 'agent';
 
-const ALL_VIEWS = ['agent', 'console', 'audit', 'config', 'report', 'intel'];
+const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel'];
 
 function switchView(viewName) {
     if (!viewName) return;
@@ -506,7 +506,7 @@ function showToast(msg) {
 let autoScroll = true;
 
 function initScrollTracking() {
-    const container = document.querySelector('#view-agent .overflow-y-auto');
+    const container = document.getElementById('chat-scroll-area');
     if (!container) return;
     container.addEventListener('scroll', () => {
         const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
@@ -647,6 +647,7 @@ function createNewConversation(projectId = null) {
     if (ws && wsReady) ws.send(JSON.stringify({ type: 'new_conversation' }));
     renderConversationList();
     resetMessageStream();
+    switchView('chat');
 }
 
 function deleteConversation(id) {
@@ -682,8 +683,8 @@ function resetMessageStream() {
       <div id="chat-empty-state" class="flex flex-col items-center justify-center flex-1 py-24 gap-5 select-none pointer-events-none">
         <span class="material-symbols-outlined text-[48px]" style="color:#1A1A1A; font-variation-settings:'FILL' 1;">psychology</span>
         <div class="flex flex-col items-center gap-1">
-          <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">AEGIS Ready</p>
-          <p class="text-[11px] mono-text" style="color:#333;">Ask anything or configure a mission target →</p>
+          <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">AEGIS Chat</p>
+          <p class="text-[11px] mono-text" style="color:#333;">Ask anything — security questions, code analysis, threat intel…</p>
         </div>
       </div>`;
     autoScroll = true;
@@ -695,6 +696,11 @@ async function loadConversation(convId) {
     const stream = getMessageStream();
     if (!stream) return;
     stream.innerHTML = '';
+
+    // Update chat view title
+    const conv = conversations.find(c => c.id === convId);
+    const titleEl = document.getElementById('chat-conv-title');
+    if (titleEl && conv) titleEl.textContent = conv.title || 'New Chat';
 
     try {
         const res = await fetch(`/api/v1/conversations/${convId}`);
@@ -841,7 +847,7 @@ function buildChatRow(conv, renamingId) {
         ].join(' ');
         btn.title = conv.title;
         btn.textContent = conv.title;
-        btn.addEventListener('click', () => loadConversation(conv.id));
+        btn.addEventListener('click', () => { loadConversation(conv.id); switchView('chat'); });
 
         const renBtn = document.createElement('button');
         renBtn.className = 'shrink-0 w-5 h-5 flex items-center justify-center text-secondary-text opacity-0 group-hover:opacity-100 hover:text-primary transition-all';
@@ -981,7 +987,21 @@ async function initConversations() {
         resetMessageStream();
     } else {
         renderConversationList();
-        loadConversation(conversations[0].id);
+        // Load the most recent conversation into chat stream (no view switch — stay on agent view)
+        activeConvId = conversations[0].id;
+        const stream = getMessageStream();
+        if (stream) stream.innerHTML = '';
+        try {
+            const res = await fetch(`/api/v1/conversations/${activeConvId}`);
+            if (res.ok) {
+                const data = await res.json();
+                (data.messages || []).forEach(msg => {
+                    if (msg.role === 'user') appendUserMessageDOM(msg.content);
+                    else if (msg.role === 'assistant') appendAssistantMessageDOM(msg.content);
+                });
+            }
+        } catch { /* ignore */ }
+        if (ws && wsReady) ws.send(JSON.stringify({ type: 'load_conversation', conversation_id: activeConvId }));
     }
 
     const newChatBtn = document.getElementById('new-chat-btn');
@@ -1000,7 +1020,7 @@ let currentAssistantText = '';   // accumulated text for the current stream
 let isStreaming = false;
 
 function updateSendBtn() {
-    const btn = document.getElementById('chat-send-btn');
+    const btn = document.getElementById('chat-view-send-btn');
     if (!btn) return;
     if (isStreaming) {
         btn.textContent = 'stop_circle';
@@ -1083,7 +1103,7 @@ function setConnectionBadge(online) {
 }
 
 function getMessageStream() {
-    return document.getElementById('message-stream');
+    return document.getElementById('chat-message-stream');
 }
 
 function hideEmptyState() {
@@ -1262,7 +1282,7 @@ function scrollToBottom() {
 }
 
 function forceScrollToBottom() {
-    const container = document.querySelector('#view-agent .overflow-y-auto');
+    const container = document.getElementById('chat-scroll-area');
     if (container) container.scrollTop = container.scrollHeight;
 }
 
@@ -1272,6 +1292,8 @@ function escapeHtml(text) {
 
 function sendChatMessage(text) {
     if (!text.trim()) return;
+    // Ensure we're in chat view when sending
+    if (currentView !== 'chat') switchView('chat');
     if (!wsReady) {
         appendErrorMessage('Not connected to backend. Retrying...');
         return;
@@ -1322,35 +1344,23 @@ function closeFullscreenInput(doSend) {
 }
 
 /**
- * Returns true if the current input should go to the running agent (inject)
- * instead of the LLM chat. This is when:
- *  - We are on the agent view
- *  - There is an active running mission
+ * Returns true if input should inject into the running agent.
+ * Agent view is always injection-mode; chat view is never injection-mode.
  */
 function isAgentInputMode() {
-    return currentView === 'agent' && activeMissionId && !isStreaming;
+    return currentView === 'agent';
 }
 
 function syncInputMode() {
+    // Agent view input is always injection-mode — no visual toggle needed
     const input = document.getElementById('chat-input');
-    const badge = document.getElementById('input-mode-badge');
-    const iconEl = document.getElementById('chat-input-icon');
-    const agentMode = isAgentInputMode();
-
-    if (agentMode) {
-        if (input) {
-            input.style.borderColor = 'rgba(234,179,8,0.4)';
-            input.placeholder = 'Message to agent — will be injected into running mission...';
-        }
-        if (badge) badge.classList.replace('hidden', 'flex');
-        if (iconEl) iconEl.innerHTML = '<span class="material-symbols-outlined" style="color:rgba(234,179,8,0.8)">bolt</span>';
+    if (!input) return;
+    if (activeMissionId) {
+        input.disabled = false;
+        input.style.opacity = '';
     } else {
-        if (input) {
-            input.style.borderColor = '';
-            input.placeholder = 'Scan target, analyze vulnerabilities, build exploit chain...';
-        }
-        if (badge) badge.classList.replace('flex', 'hidden');
-        if (iconEl) iconEl.innerHTML = '<span class="material-symbols-outlined">chevron_right</span>';
+        input.disabled = false;
+        input.style.opacity = '0.5';
     }
 }
 
@@ -1360,40 +1370,64 @@ function initChatInput() {
     if (!input) return;
 
     const doSend = async () => {
-        if (isAgentInputMode()) {
-            // ── Agent inject mode ──────────────────────────────────────
-            const text = input.value.trim();
-            if (!text) return;
-            input.value = '';
-            autoResizeTextarea(input);
-            try {
-                const res = await fetch(`/api/v1/sessions/${activeMissionId}/inject`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text }),
-                });
-                const data = await res.json();
-                if (data.ok) {
-                    appendMissionCard(`
-                        <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
-                            <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-1">
-                                <span class="material-symbols-outlined text-[12px]">person</span>
-                                OPERATOR INSTRUCTION
-                            </div>
-                            <div class="text-slate-200 text-[11px] whitespace-pre-wrap">${_esc(text)}</div>
-                        </div>
-                    `);
-                    showToast('Instruction injected into agent');
-                } else {
-                    showToast('Agent not running or session not found');
-                }
-            } catch (err) {
-                showToast('Error: ' + err.message);
-            }
+        // Agent view is always injection mode
+        const text = input.value.trim();
+        if (!text) return;
+
+        if (!activeMissionId) {
+            showToast('No active mission — start a mission first');
             return;
         }
 
-        // ── Normal LLM chat mode ──────────────────────────────────────
+        input.value = '';
+        autoResizeTextarea(input);
+        try {
+            const res = await fetch(`/api/v1/sessions/${activeMissionId}/inject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                appendMissionCard(`
+                    <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
+                        <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-1">
+                            <span class="material-symbols-outlined text-[12px]">person</span>
+                            OPERATOR INSTRUCTION
+                        </div>
+                        <div class="text-slate-200 text-[11px] whitespace-pre-wrap">${_esc(text)}</div>
+                    </div>
+                `);
+                showToast('Instruction injected into agent');
+            } else {
+                showToast('Agent not running or session not found');
+            }
+        } catch (err) {
+            showToast('Error: ' + err.message);
+        }
+    };
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            doSend();
+        }
+    });
+
+    input.addEventListener('input', () => autoResizeTextarea(input));
+
+    if (sendBtn) sendBtn.addEventListener('click', doSend);
+}
+
+
+// ─── Chat View Input ──────────────────────────────────────────────────────────
+
+function initChatViewInput() {
+    const input = document.getElementById('chat-view-input');
+    const sendBtn = document.getElementById('chat-view-send-btn');
+    if (!input) return;
+
+    const doSend = () => {
         if (isStreaming) {
             isStreaming = false;
             finalizeAssistantMessage();
@@ -1412,35 +1446,8 @@ function initChatInput() {
             doSend();
         }
     });
-
     input.addEventListener('input', () => autoResizeTextarea(input));
-
     if (sendBtn) sendBtn.addEventListener('click', doSend);
-
-    const expandBtn = document.getElementById('chat-expand-btn');
-    if (expandBtn) {
-        expandBtn.addEventListener('click', () => openFullscreenInput(input.value));
-    }
-
-    // Fullscreen overlay buttons & keyboard
-    const fsOverlay = document.getElementById('input-fullscreen-overlay');
-    const fsCancelBtn = document.getElementById('fs-cancel-btn');
-    const fsSendBtn = document.getElementById('fs-send-btn');
-    const fsTa = document.getElementById('input-fullscreen-textarea');
-
-    if (fsCancelBtn) fsCancelBtn.addEventListener('click', () => closeFullscreenInput(false));
-    if (fsSendBtn) fsSendBtn.addEventListener('click', () => closeFullscreenInput(true));
-    if (fsOverlay) {
-        fsOverlay.addEventListener('click', (e) => {
-            if (e.target === fsOverlay) closeFullscreenInput(false);
-        });
-    }
-    if (fsTa) {
-        fsTa.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) closeFullscreenInput(true);
-            if (e.key === 'Escape') closeFullscreenInput(false);
-        });
-    }
 }
 
 // ─── Ollama Status & Model Selector ──────────────────────────────────────────
@@ -2122,6 +2129,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTopoFullscreen();
     initThemeToggle();
     initChatInput();
+    initChatViewInput();
     initModelSelector();
     initCfgModelDropdown();
     initLMStudioModelDropdown();
@@ -2252,7 +2260,7 @@ function handleSessionEvent(msg) {
     } else if (event === 'reflection') {
         setAgentStatus('reflecting');
         finalizeAgentStreamCard();
-        renderMissionReflection(data);
+        // Streaming card already shows the full reflection content — skip duplicate static card
         if (data.content) {
             appendConsoleLine(`[REFLECT] ${data.content.slice(0, 120)}`, 'text-purple-400');
         }
@@ -2431,7 +2439,7 @@ async function startMission() {
         missionPaused = false;
 
         // Update UI
-        updateMissionStatusHeader('running', activeMissionId);
+        updateMissionStatusHeader('running', activeMissionId, target);
         resetMissionStats();
         resetPhaseBar();
         setPhaseActive(1);
@@ -2623,16 +2631,19 @@ function updatePhaseFromSessionStatus(status) {
 
 // ─── Mission status header ─────────────────────────────────────────────────────
 
-function updateMissionStatusHeader(status, sessionId) {
+let _currentMissionName = '';
+
+function updateMissionStatusHeader(status, sessionId, missionName) {
     const dot = document.getElementById('mission-status-dot');
     const text = document.getElementById('mission-status-text');
-    const short = sessionId ? sessionId.slice(0, 8) : '';
+    if (missionName !== undefined) _currentMissionName = missionName;
+    const label = _currentMissionName || (sessionId ? sessionId.slice(0, 8) : '');
 
     const statusMap = {
-        running: { color: 'bg-primary', label: `Mission Active · ${short}` },
-        done:    { color: 'bg-primary', label: `Mission Done · ${short}` },
-        stopped: { color: 'bg-danger', label: `Mission Stopped · ${short}` },
-        error:   { color: 'bg-danger', label: `Mission Error · ${short}` },
+        running: { color: 'bg-primary', label: `${label} · ACTIVE` },
+        done:    { color: 'bg-primary', label: `${label} · DONE` },
+        stopped: { color: 'bg-danger',  label: `${label} · STOPPED` },
+        error:   { color: 'bg-danger',  label: `${label} · ERROR` },
         idle:    { color: 'bg-border-color', label: 'No Mission' },
     };
 
@@ -2754,7 +2765,8 @@ function getMissionFeed() {
     if (!feed) {
         const stream = document.getElementById('message-stream');
         if (!stream) return null;
-        const emptyState = document.getElementById('chat-empty-state');
+        // Hide the agent empty state
+        const emptyState = document.getElementById('agent-empty-state');
         if (emptyState) emptyState.style.display = 'none';
         feed = document.createElement('div');
         feed.id = 'mission-feed';
@@ -2780,7 +2792,7 @@ function clearMissionFeed() {
     const feed = document.getElementById('mission-feed');
     if (feed) feed.remove();
     _missionIteration = 0;
-    const emptyState = document.getElementById('chat-empty-state');
+    const emptyState = document.getElementById('agent-empty-state');
     if (emptyState) emptyState.style.display = '';
 }
 
@@ -3157,8 +3169,11 @@ async function openSessionSwitcher() {
                 closeSessionSwitcher();
                 switchToSession(s.id);
             });
+            const btnGroup = document.createElement('div');
+            btnGroup.className = 'flex flex-col gap-1 shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity mt-0.5';
+
             const renBtn = document.createElement('button');
-            renBtn.className = 'shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity text-secondary-text hover:text-primary mt-1';
+            renBtn.className = 'text-secondary-text hover:text-primary transition-colors';
             renBtn.title = 'Rename mission';
             renBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">edit</span>';
             renBtn.addEventListener('click', (e) => {
@@ -3177,13 +3192,41 @@ async function openSessionSwitcher() {
                                 body: JSON.stringify({ name }),
                             });
                             showToast('Mission renamed');
-                            loadSessionsForSelects();
+                            if (viewingSessionId === s.id || activeMissionId === s.id) {
+                                updateMissionStatusHeader(effStatus, s.id, name);
+                            }
+                            openSessionSwitcher();
                         } catch { showToast('Rename failed'); }
                     },
                 });
             });
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'text-secondary-text hover:text-danger transition-colors';
+            delBtn.title = 'Delete mission';
+            delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeSessionSwitcher();
+                showConfirm({
+                    title: 'Delete Mission',
+                    message: `Delete mission "${s.name || s.target}"? This cannot be undone.`,
+                    onConfirm: async () => {
+                        try {
+                            await fetch(`/api/v1/sessions/${s.id}`, { method: 'DELETE' });
+                            showToast('Mission deleted');
+                            if (viewingSessionId === s.id) { viewingSessionId = null; }
+                            if (activeMissionId === s.id) { activeMissionId = null; updateMissionStatusHeader('idle', null, ''); _currentMissionName = ''; }
+                            loadSessionsForSelects();
+                        } catch { showToast('Delete failed'); }
+                    },
+                });
+            });
+
+            btnGroup.appendChild(renBtn);
+            btnGroup.appendChild(delBtn);
             item.appendChild(clickArea);
-            item.appendChild(renBtn);
+            item.appendChild(btnGroup);
             list.appendChild(item);
         });
     } catch {
@@ -3209,7 +3252,8 @@ async function switchToSession(sessionId) {
         const isRunning = session.is_running;
         const dbStatus = session.status || 'done';
         const effectiveStatus = isRunning ? 'running' : (dbStatus === 'running' ? 'stopped' : dbStatus);
-        updateMissionStatusHeader(effectiveStatus, sessionId);
+        const missionDisplayName = session.name || session.target || sessionId.slice(0, 8);
+        updateMissionStatusHeader(effectiveStatus, sessionId, missionDisplayName);
 
         // Update stats
         setStatValue('stat-vulns', session.vulns_found ?? '—');
@@ -3241,15 +3285,63 @@ async function switchToSession(sessionId) {
                 : (session.updated_at ? Math.floor(session.updated_at - session.created_at) : 0);
             setUptimeFromDuration(dur);
             // do NOT touch activeMissionId (new missions can still start)
-            renderHistoricalSession(session);
             hidePauseMissionBtn();
             const agentStatus = (effectiveStatus === 'error' || effectiveStatus === 'stopped') ? 'error' : 'done';
-            setAgentStatus(agentStatus, `${session.target} — historical`);
+            setAgentStatus(agentStatus, `${missionDisplayName} — historical`);
             syncInputMode();
+
+            // Try to replay stored events; fall back to summary view
+            try {
+                const evRes = await fetch(`/api/v1/sessions/${sessionId}/events`);
+                const evData = evRes.ok ? await evRes.json() : null;
+                if (evData && evData.events && evData.events.length > 0) {
+                    renderMissionStart(session.target, session.mode);
+                    evData.events.forEach(ev => replaySessionEvent(ev.event_type, ev.data));
+                } else {
+                    renderHistoricalSession(session);
+                }
+            } catch {
+                renderHistoricalSession(session);
+            }
         }
 
     } catch (err) {
         showToast('Error loading session: ' + err.message);
+    }
+}
+
+function replaySessionEvent(event, data) {
+    switch (event) {
+        case 'reasoning':
+            _missionIteration++;
+            renderMissionReasoning(data);
+            updatePhaseFromEvent(data);
+            break;
+        case 'tool_call':
+            renderMissionToolCall(data);
+            break;
+        case 'tool_result':
+            renderMissionToolResult(data);
+            break;
+        case 'reflection':
+            renderMissionReflection(data);
+            break;
+        case 'safety_block':
+            renderMissionSafetyBlock(data);
+            break;
+        case 'error':
+            renderMissionError(data);
+            break;
+        case 'phase_change':
+        case 'observation':
+        case 'discovery':
+            updatePhaseFromEvent(data);
+            break;
+        case 'done':
+            setPhaseActive(5);
+            break;
+        default:
+            break;
     }
 }
 
