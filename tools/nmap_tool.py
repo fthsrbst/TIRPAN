@@ -92,12 +92,12 @@ class NmapTool(BaseTool):
     # ── Internals ──────────────────────────────────────────────────────────────
 
     def _build_command(self, target: str, scan_type: str, port_range: str) -> list[str]:
-        import os
         from config import settings
+        from core.platform_utils import IS_WINDOWS, is_elevated
 
-        is_root = os.geteuid() == 0
-        # Use sudo when nmap_sudo is enabled and we're not already root
-        use_sudo = settings.nmap_sudo and not is_root
+        is_root = is_elevated()
+        # sudo only makes sense on Linux/macOS
+        use_sudo = (not IS_WINDOWS) and settings.nmap_sudo and not is_root
         # OS/SYN scans need root; we have it either directly or via sudo
         can_do_os = is_root or use_sudo
 
