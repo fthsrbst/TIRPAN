@@ -119,6 +119,29 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v3 applied: add session name")
 
+        if version < 4:
+            # Add session_events table to store the full agent event stream
+            try:
+                await db.executescript("""
+                    CREATE TABLE IF NOT EXISTS session_events (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT    NOT NULL,
+                        event_type TEXT    NOT NULL,
+                        data_json  TEXT    NOT NULL DEFAULT '{}',
+                        created_at REAL    NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_session_events_sid
+                        ON session_events(session_id, created_at);
+                """)
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (4, time.time(), "session_events table"),
+            )
+            await db.commit()
+            logger.info("DB migration v4 applied: session_events table")
+
     logger.info("Database ready: %s", path)
 
 
