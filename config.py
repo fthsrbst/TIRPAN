@@ -87,6 +87,8 @@ class AppConfig(BaseSettings):
 
     # Nmap: run with sudo for privileged scans (OS detection, SYN scan)
     nmap_sudo: bool = Field(default=True, alias="NMAP_SUDO")
+    # Sudo password for privileged tool execution (stored in memory only, loaded from keychain at startup)
+    sudo_password: str = Field(default="")
 
     def model_post_init(self, __context):
         self.data_dir.mkdir(exist_ok=True)

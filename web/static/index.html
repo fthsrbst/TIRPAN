@@ -770,12 +770,21 @@
             <div class="bg-card border border-border-color p-4 flex items-center justify-between gap-4">
               <div class="flex flex-col gap-1">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Privileged Mode (sudo)</label>
-                <p class="text-[10px] text-secondary-text">Run nmap with sudo for OS detection and SYN scans. Requires passwordless sudo or running as root.</p>
+                <p class="text-[10px] text-secondary-text">Run nmap with sudo for OS detection and SYN scans.</p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer shrink-0">
                 <input id="cfg-nmap-sudo" type="checkbox" class="sr-only peer"/>
                 <div class="w-10 h-5 bg-border-color rounded-full peer peer-checked:bg-primary after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:w-4 after:h-4 after:transition-transform peer-checked:after:translate-x-5"></div>
               </label>
+            </div>
+            <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
+              <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Sudo Password</label>
+              <p class="text-[10px] text-secondary-text">Required for privileged scans (OS detection, SYN scan). Stored securely, never logged.</p>
+              <div class="relative">
+                <input id="cfg-sudo-pass" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-10" type="password" placeholder="••••••••"/>
+                <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] cursor-pointer hover:text-primary transition-colors" id="toggle-sudo-pass">visibility</span>
+              </div>
+              <button id="save-sudo-btn" class="self-start mt-1 px-3 py-1.5 bg-primary/10 border border-primary/30 text-primary text-[11px] mono-text hover:bg-primary/20 transition-colors">Save Password</button>
             </div>
           </div>
 

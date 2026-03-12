@@ -24,14 +24,28 @@ from database.db import init_db
 async def lifespan(app: FastAPI):
     await init_db()
 
-    # Load secrets from OS keychain into live settings
+    # Load secrets from OS keychain into live settings (DB fallback if keyring unavailable)
+    import re as _re
     from core.secure_store import async_get_secret
-    _or_key = await async_get_secret("openrouter_api_key")
+    from database.db import get_all_settings
+
+    _all_settings = await get_all_settings()
+
+    def _load_secret_sync(key: str) -> str:
+        from core.secure_store import get_secret
+        return get_secret(key) or _all_settings.get(key, "")
+
+    _or_key = _re.sub(r"[\s\x00-\x1f\x7f]", "", _load_secret_sync("openrouter_api_key"))
     if _or_key:
         settings.llm.api_key = _or_key
-    _msf_pw = await async_get_secret("msf_password")
+
+    _msf_pw = _load_secret_sync("msf_password")
     if _msf_pw:
         settings.msf.password = _msf_pw
+
+    _sudo_pw = _load_secret_sync("sudo_password")
+    if _sudo_pw:
+        settings.sudo_password = _sudo_pw
 
     # Cleanup sessions that were left in "running" state from a previous crash/restart
     from database.repositories import SessionRepository

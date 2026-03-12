@@ -24,6 +24,7 @@ from core.memory import SessionMemory
 from core.prompts import PromptBuilder
 from core.safety import AgentAction, SafetyGuard
 from core.tool_registry import ToolNotFoundError, ToolRegistry
+from database.repositories import ScanResultRepository, SessionRepository, VulnerabilityRepository
 from models.session import Session
 
 logger = logging.getLogger(__name__)
@@ -136,10 +137,16 @@ class PentestAgent:
         self._max_iterations = max_iterations
         self._progress_cb = progress_callback
         self._approval_cb = approval_callback
+        # DB repositories for real-time persistence
+        self._scan_repo = ScanResultRepository()
+        self._vuln_repo = VulnerabilityRepository()
+        self._session_repo = SessionRepository()
         # Pause/resume control
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # Not paused initially
         self._paused = False
+        # Signals the active LLM stream to abort immediately on pause
+        self._stream_abort = asyncio.Event()
         # Operator inject tracking
         self._has_pending_inject = False
 
@@ -160,13 +167,15 @@ class PentestAgent:
     # ── Pause / Resume / Inject ────────────────────────────────────────────────
 
     def pause(self) -> None:
-        """Pause the agent between iterations."""
+        """Pause the agent — aborts the active LLM stream and blocks next iteration."""
         self._pause_event.clear()
+        self._stream_abort.set()   # signals the running stream_chat loop to stop
         self._paused = True
         logger.info("Agent paused for session %s", self.session.id)
 
     def resume(self) -> None:
         """Resume the agent after pausing."""
+        self._stream_abort.clear()
         self._pause_event.set()
         self._paused = False
         logger.info("Agent resumed for session %s", self.session.id)
@@ -238,7 +247,10 @@ class PentestAgent:
             action_dict = await self.reason()
 
             if action_dict is None:
-                # LLM call failed; brief pause before retry
+                if self._stream_abort.is_set():
+                    # Pause was requested mid-stream — go back to top to hit the pause gate
+                    continue
+                # LLM call failed for another reason; brief pause before retry
                 await asyncio.sleep(1.0)
                 continue
 
@@ -275,7 +287,7 @@ class PentestAgent:
 
             # ── OBSERVING ────────────────────────────────────────────────
             self._state = AgentState.OBSERVING
-            self.observe(result, action_dict)
+            await self.observe(result, action_dict)
 
             # ── REFLECTING ───────────────────────────────────────────────
             self._state = AgentState.REFLECTING
@@ -324,6 +336,10 @@ class PentestAgent:
             self._emit("llm_thinking_start", {})
             response = ""
             async for token in self._llm.stream_chat(messages):
+                if self._stream_abort.is_set():
+                    # Pause was requested — discard partial response, stop streaming
+                    logger.info("LLM stream aborted by pause request")
+                    return None
                 response += token
                 self._emit("llm_token", {"token": token})
 
@@ -423,9 +439,9 @@ class PentestAgent:
         )
         return result
 
-    def observe(self, result: dict, action_dict: dict) -> None:
+    async def observe(self, result: dict, action_dict: dict) -> None:
         """
-        OBSERVE: add tool result to memory, update context statistics.
+        OBSERVE: add tool result to memory, update context statistics, persist to DB.
 
         Critical findings (vulns, successful exploits) are pinned in memory
         so they survive the sliding-window truncation.
@@ -454,6 +470,47 @@ class PentestAgent:
             "success": success,
             "attack_phase": self._ctx.attack_phase,
         })
+
+        # Persist findings to DB so reports and real-time stats are accurate
+        await self._persist_findings(tool_name, result, action_dict)
+
+    async def _persist_findings(self, tool_name: str, result: dict, action_dict: dict) -> None:
+        """Save scan results and vulnerabilities to DB after each tool call."""
+        if not result.get("success"):
+            return
+        output = result.get("output")
+        if output is None or not isinstance(output, dict):
+            return
+        params = action_dict.get("parameters", {})
+
+        try:
+            if tool_name == "nmap_scan":
+                hosts = output.get("hosts", [])
+                if hosts:
+                    await self._scan_repo.save(
+                        session_id=self.session.id,
+                        target=str(params.get("target", "")),
+                        scan_type=str(params.get("scan_type", "ping")),
+                        hosts=hosts,
+                        duration_seconds=float(output.get("duration_seconds", 0.0)),
+                    )
+
+            elif tool_name == "searchsploit_search":
+                vulns = output.get("vulnerabilities", [])
+                for v in vulns:
+                    await self._vuln_repo.save(session_id=self.session.id, vuln=v)
+
+            # Update live counters in the session record after every relevant tool call
+            if tool_name in ("nmap_scan", "searchsploit_search", "metasploit_run"):
+                await self._session_repo.update_stats(
+                    self.session.id,
+                    hosts_found=len(self._ctx.discovered_hosts),
+                    ports_found=len(self._ctx.scan_results),
+                    vulns_found=len(self._ctx.vulnerabilities),
+                    exploits_run=len(self._ctx.exploit_results),
+                )
+        except Exception as exc:
+            logger.warning("Failed to persist findings to DB: %s", exc)
 
     async def reflect(self) -> None:
         """

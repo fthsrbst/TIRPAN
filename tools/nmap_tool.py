@@ -101,7 +101,14 @@ class NmapTool(BaseTool):
         # OS/SYN scans need root; we have it either directly or via sudo
         can_do_os = is_root or use_sudo
 
-        base = ["sudo", "-n", "nmap", "-oX", "-"] if use_sudo else ["nmap", "-oX", "-"]
+        if use_sudo:
+            if settings.sudo_password:
+                # -S reads password from stdin; -k resets cached credentials first
+                base = ["sudo", "-S", "-k", "nmap", "-oX", "-"]
+            else:
+                base = ["sudo", "-n", "nmap", "-oX", "-"]
+        else:
+            base = ["nmap", "-oX", "-"]
 
         if scan_type == "ping":
             base += ["-sn"]
@@ -117,17 +124,32 @@ class NmapTool(BaseTool):
         return base
 
     async def _run_nmap(self, cmd: list[str]) -> str:
+        from config import settings
+
+        stdin_data: bytes | None = None
+        if cmd[0] == "sudo" and "-S" in cmd:
+            # Feed password to sudo via stdin (sudo -S reads from stdin)
+            stdin_data = (settings.sudo_password + "\n").encode()
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.PIPE if stdin_data else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(),
+            proc.communicate(input=stdin_data),
             timeout=SCAN_TIMEOUT,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"nmap error: {stderr.decode()}")
+            err = stderr.decode()
+            # sudo -n fails when no passwordless sudo is configured — retry without sudo
+            if cmd[0] == "sudo" and ("password is required" in err or "a password is required" in err):
+                settings.nmap_sudo = False
+                cmd_no_sudo = [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
+                cmd_no_sudo.insert(0, "nmap")
+                return await self._run_nmap(cmd_no_sudo)
+            raise RuntimeError(f"nmap error: {err}")
         return stdout.decode()
 
     def _parse_xml(
