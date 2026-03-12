@@ -15,10 +15,19 @@ import json
 import uuid
 import httpx
 from fastapi import WebSocket, WebSocketDisconnect
+import re
 from config import settings
-from core.secure_store import async_get_secret
+from core.secure_store import async_get_secret, get_secret
 from web.stats_state import token_counter
 from database import db as database
+
+
+def _get_openrouter_key_sync(saved: dict) -> str:
+    """Resolve OpenRouter key: keychain → DB → settings. Strips control chars."""
+    key = get_secret("openrouter_api_key")
+    if not key:
+        key = saved.get("openrouter_api_key", "") or settings.llm.api_key
+    return re.sub(r"[\s\x00-\x1f\x7f]", "", key or "")
 
 
 async def stream_ollama(
@@ -199,6 +208,13 @@ async def stream_openrouter(
     messages = history + [{"role": "user", "content": user_message}]
     full_response = ""
 
+    if not api_key:
+        await websocket.send_json({
+            "type": "error",
+            "content": "OpenRouter API key is not configured. Go to Settings and enter your API key.",
+        })
+        return full_response
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -322,7 +338,7 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     assistant_text = await stream_lmstudio(websocket, content, chat_history, lms_model, conversation_id)
                 elif provider == "openrouter":
                     saved = await database.get_all_settings()
-                    api_key = await async_get_secret("openrouter_api_key") or settings.llm.api_key or ""
+                    api_key = _get_openrouter_key_sync(saved)
                     or_model = model_override or saved.get("cloud_model", settings.llm.cloud_model)
                     assistant_text = await stream_openrouter(websocket, content, chat_history, or_model, api_key, conversation_id)
                 else:
@@ -343,10 +359,12 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 # Client wants real-time events for a pentest session
                 from web import session_manager
                 sid = msg.get("session_id", "")
-                if sid and sid not in watched_sessions:
-                    watched_sessions.append(sid)
+                if sid:
+                    if sid not in watched_sessions:
+                        watched_sessions.append(sid)
+                    # Always replay the buffer so switching back to a session
+                    # reconstructs the feed even if already subscribed
                     buffered = session_manager.subscribe(sid, _send)
-                    # Replay buffered events so the client catches up
                     for event in buffered:
                         await websocket.send_json(event)
                     await websocket.send_json({

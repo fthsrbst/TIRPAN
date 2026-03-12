@@ -104,6 +104,21 @@ async def init_db(db_path: Path | None = None) -> None:
             pentest_sql = await _read_pentest_schema()
             await _apply_migration(db, 2, pentest_sql, "pentest tables")
 
+        if version < 3:
+            # Add name column to pentest_sessions for user-friendly mission labels
+            try:
+                await db.execute(
+                    "ALTER TABLE pentest_sessions ADD COLUMN name TEXT NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass  # Column may already exist on partial migrations
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (3, time.time(), "add session name"),
+            )
+            await db.commit()
+            logger.info("DB migration v3 applied: add session name")
+
     logger.info("Database ready: %s", path)
 
 

@@ -306,17 +306,21 @@ function initAuditFilters() {
 
 function initApiKeyToggle() {
     const btn = document.getElementById('toggle-api-key');
-    if (!btn) return;
-    btn.addEventListener('click', () => {
-        const input = btn.closest('div').querySelector('input');
-        if (input.type === 'password') {
-            input.type = 'text';
-            btn.textContent = 'visibility_off';
-        } else {
-            input.type = 'password';
-            btn.textContent = 'visibility';
-        }
-    });
+    if (btn) {
+        btn.addEventListener('click', () => {
+            const input = btn.closest('div').querySelector('input');
+            if (input.type === 'password') { input.type = 'text'; btn.textContent = 'visibility_off'; }
+            else { input.type = 'password'; btn.textContent = 'visibility'; }
+        });
+    }
+    const sudoBtn = document.getElementById('toggle-sudo-pass');
+    if (sudoBtn) {
+        sudoBtn.addEventListener('click', () => {
+            const input = sudoBtn.closest('div').querySelector('input');
+            if (input.type === 'password') { input.type = 'text'; sudoBtn.textContent = 'visibility_off'; }
+            else { input.type = 'password'; sudoBtn.textContent = 'visibility'; }
+        });
+    }
 }
 
 // ─── Network Topology Fullscreen ─────────────────────────────────────────────
@@ -1630,8 +1634,9 @@ function populateModelDropdown() {
 
         const hasOllama = availableModels.length > 0;
         const hasLMS = lmStudioModels.length > 0;
+        const hasOR = openRouterModels.length > 0 || !!cloudModel;
 
-        if (!hasOllama && !hasLMS) {
+        if (!hasOllama && !hasLMS && !hasOR) {
             list.innerHTML = '<div class="px-4 py-2 text-[10px] mono-text text-secondary-text">No models found</div>';
         } else {
             // Ollama section
@@ -1682,7 +1687,7 @@ function populateModelDropdown() {
                 });
             }
 
-            // OpenRouter section
+            // OpenRouter section — always rendered independently of Ollama/LMStudio
             if (openRouterModels.length > 0) {
                 const sep = document.createElement('div');
                 sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
@@ -1986,11 +1991,17 @@ async function loadPersistedSettings() {
         }
         const cfgModel = document.getElementById('cfg-ollama-model');
         if (cfgModel && data.ollama_model) cfgModel.value = data.ollama_model;
+        // Restore OpenRouter API key input and fetch models if key exists
         if (data.openrouter_api_key) {
             const keyInput = document.getElementById('cfg-openrouter-key');
             if (keyInput) keyInput.value = data.openrouter_api_key;
-            // Fetch models in background if key is available
             fetchOpenRouterModels();
+        } else {
+            // Fallback: check keychain via dedicated endpoint (in case DB entry is missing)
+            fetch('/api/v1/config/openrouter')
+                .then(r => r.json())
+                .then(orCfg => { if (orCfg.has_api_key) fetchOpenRouterModels(); })
+                .catch(() => {});
         }
         if (data.cloud_model) {
             cloudModel = data.cloud_model;
@@ -2191,6 +2202,10 @@ wsConnect = function () {
 };
 
 function handleSessionEvent(msg) {
+    // Ignore events for sessions we are not currently viewing
+    if (msg.session_id && viewingSessionId && msg.session_id !== viewingSessionId) {
+        return;
+    }
     const event = msg.event;
     const data = msg.data || {};
 
@@ -2403,7 +2418,7 @@ async function startMission() {
         const res = await fetch('/api/v1/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target, mode, port_range: portRange, notes }),
+            body: JSON.stringify({ target, mode, port_range: portRange, notes, provider: activeProvider, model: activeModel }),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -2977,8 +2992,10 @@ async function loadSessionsForSelects() {
             sessions.forEach(s => {
                 const opt = document.createElement('option');
                 opt.value = s.id;
-                const ts = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString() : '';
-                opt.textContent = `${s.id.slice(0, 8)} · ${s.target} · ${s.status.toUpperCase()} · ${ts}`;
+                const d = s.created_at ? new Date(s.created_at * 1000) : null;
+                const ts = d ? d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+                const label = s.name ? `${s.name} (${s.target})` : s.target;
+                opt.textContent = `${s.id.slice(0, 8)} · ${label} · ${s.status.toUpperCase()} · ${ts}`;
                 auditSelect.appendChild(opt);
             });
             if (currentVal) auditSelect.value = currentVal;
@@ -3012,9 +3029,11 @@ async function loadSessionsForSelects() {
             sessions.forEach(s => {
                 const opt = document.createElement('option');
                 opt.value = s.id;
-                const ts = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString() : '';
+                const d = s.created_at ? new Date(s.created_at * 1000) : null;
+                const ts = d ? d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
                 const statusLabel = s.is_running ? 'RUNNING' : (s.status || 'done').toUpperCase();
-                opt.textContent = `${s.id.slice(0, 8)} · ${s.target} · ${statusLabel} · ${ts}`;
+                const label = s.name ? `${s.name} (${s.target})` : s.target;
+                opt.textContent = `${s.id.slice(0, 8)} · ${label} · ${statusLabel} · ${ts}`;
                 reportSelect.appendChild(opt);
             });
             if (currentReportVal) {
@@ -3108,31 +3127,63 @@ async function openSessionSwitcher() {
 
         list.innerHTML = '';
         sessions.forEach(s => {
-            const ts = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString() : '';
+            const d = s.created_at ? new Date(s.created_at * 1000) : null;
+            const ts = d ? d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
             const isRunning = s.is_running;
             // DB status "running" but no live task means the server restarted mid-session
             const effStatus = isRunning ? 'running' : (s.status === 'running' ? 'stopped' : (s.status || 'done'));
             const statusLabel = effStatus.toUpperCase();
             const statusColor = effStatus === 'running' ? 'text-primary' : (effStatus === 'done' ? 'text-slate-400' : 'text-danger');
             const isViewing = s.id === (viewingSessionId || activeMissionId);
+            const displayName = s.name ? s.name : s.target;
 
-            const item = document.createElement('button');
-            item.className = `w-full text-left px-4 py-2.5 hover:bg-primary/5 transition-colors border-b border-border-color/30 ${isViewing ? 'bg-primary/5' : ''}`;
+            const item = document.createElement('div');
+            item.className = `w-full text-left px-4 py-2.5 hover:bg-primary/5 transition-colors border-b border-border-color/30 ${isViewing ? 'bg-primary/5' : ''} group/sitem flex items-start gap-2`;
             item.dataset.sessionId = s.id;
-            item.innerHTML = `
+            const clickArea = document.createElement('button');
+            clickArea.className = 'flex-1 text-left min-w-0';
+            clickArea.innerHTML = `
                 <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-[10px] mono-text font-bold text-slate-200">${_esc(s.target)}</span>
-                    <span class="text-[9px] font-bold ${statusColor} uppercase">${statusLabel}</span>
+                    <span class="text-[10px] mono-text font-bold text-slate-200 truncate">${_esc(displayName)}</span>
+                    <span class="text-[9px] font-bold ${statusColor} uppercase ml-2 shrink-0">${statusLabel}</span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-[9px] mono-text text-secondary-text">${s.id.slice(0, 8).toUpperCase()}</span>
+                    ${s.name ? `<span class="text-[9px] mono-text text-secondary-text truncate">${_esc(s.target)}</span>` : ''}
                     <span class="text-[9px] mono-text text-secondary-text">${_esc(s.mode || '')}</span>
                     <span class="text-[9px] mono-text text-secondary-text">${ts}</span>
                 </div>`;
-            item.addEventListener('click', () => {
+            clickArea.addEventListener('click', () => {
                 closeSessionSwitcher();
                 switchToSession(s.id);
             });
+            const renBtn = document.createElement('button');
+            renBtn.className = 'shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity text-secondary-text hover:text-primary mt-1';
+            renBtn.title = 'Rename mission';
+            renBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">edit</span>';
+            renBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeSessionSwitcher();
+                showPrompt({
+                    title: 'Name Mission',
+                    label: 'Mission name',
+                    icon: 'edit',
+                    defaultValue: s.name || s.target,
+                    onConfirm: async (name) => {
+                        try {
+                            await fetch(`/api/v1/sessions/${s.id}/name`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name }),
+                            });
+                            showToast('Mission renamed');
+                            loadSessionsForSelects();
+                        } catch { showToast('Rename failed'); }
+                    },
+                });
+            });
+            item.appendChild(clickArea);
+            item.appendChild(renBtn);
             list.appendChild(item);
         });
     } catch {
@@ -3349,6 +3400,42 @@ function initNmapConfig() {
         cb.addEventListener('change', () => saveNmapSudo(cb.checked));
     }
     loadNmapConfig();
+
+    // Sudo password save
+    document.getElementById('save-sudo-btn')?.addEventListener('click', async () => {
+        const pw = document.getElementById('cfg-sudo-pass')?.value?.trim();
+        if (!pw) { showToast('Enter a sudo password first'); return; }
+        const btn = document.getElementById('save-sudo-btn');
+        if (btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+        try {
+            const res = await fetch('/api/v1/config/sudo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pw }),
+            });
+            if (res.ok) {
+                showToast('Sudo password saved');
+                // Clear input for security
+                const input = document.getElementById('cfg-sudo-pass');
+                if (input) input.value = '';
+            } else {
+                showToast('Failed to save sudo password');
+            }
+        } catch { showToast('Error saving sudo password'); }
+        finally {
+            if (btn) { btn.textContent = 'Save Password'; btn.disabled = false; }
+        }
+    });
+
+    // Show indicator if sudo password is already configured
+    fetch('/api/v1/config/sudo')
+        .then(r => r.json())
+        .then(d => {
+            if (d.has_password) {
+                const input = document.getElementById('cfg-sudo-pass');
+                if (input) input.placeholder = '(configured)';
+            }
+        }).catch(() => {});
 }
 
 // ─── Audit Log View ────────────────────────────────────────────────────────────

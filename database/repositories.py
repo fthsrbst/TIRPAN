@@ -144,6 +144,15 @@ class SessionRepository:
             await db.commit()
             return db.total_changes > 0
 
+    async def update_name(self, session_id: str, name: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE pentest_sessions SET name=?, updated_at=? WHERE id=?",
+                (name, _now(), session_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
     async def delete(self, session_id: str) -> bool:
         async with _connect(self._path) as db:
             await db.execute(
