@@ -767,25 +767,48 @@
               <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Nmap</span>
               <div class="h-[1px] flex-1 bg-border-color"></div>
             </div>
-            <div class="bg-card border border-border-color p-4 flex items-center justify-between gap-4">
-              <div class="flex flex-col gap-1">
-                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Privileged Mode (sudo)</label>
-                <p class="text-[10px] text-secondary-text">Run nmap with sudo for OS detection and SYN scans.</p>
+
+            <!-- Linux / macOS: sudo toggle + password -->
+            <div id="nmap-sudo-section" class="hidden flex flex-col gap-4">
+              <div class="bg-card border border-border-color p-4 flex items-center justify-between gap-4">
+                <div class="flex flex-col gap-1">
+                  <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Privileged Mode (sudo)</label>
+                  <p class="text-[10px] text-secondary-text">Run nmap with sudo for OS detection and SYN scans.</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input id="cfg-nmap-sudo" type="checkbox" class="sr-only peer"/>
+                  <div class="w-10 h-5 bg-border-color rounded-full peer peer-checked:bg-primary after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:w-4 after:h-4 after:transition-transform peer-checked:after:translate-x-5"></div>
+                </label>
               </div>
-              <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                <input id="cfg-nmap-sudo" type="checkbox" class="sr-only peer"/>
-                <div class="w-10 h-5 bg-border-color rounded-full peer peer-checked:bg-primary after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:w-4 after:h-4 after:transition-transform peer-checked:after:translate-x-5"></div>
-              </label>
-            </div>
-            <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
-              <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Sudo Password</label>
-              <p class="text-[10px] text-secondary-text">Required for privileged scans (OS detection, SYN scan). Stored securely, never logged.</p>
-              <div class="relative">
-                <input id="cfg-sudo-pass" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-10" type="password" placeholder="••••••••"/>
-                <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] cursor-pointer hover:text-primary transition-colors" id="toggle-sudo-pass">visibility</span>
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
+                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Sudo Password</label>
+                <p class="text-[10px] text-secondary-text">Required for privileged scans (OS detection, SYN scan). Stored securely, never logged.</p>
+                <div class="relative">
+                  <input id="cfg-sudo-pass" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-10" type="password" placeholder="••••••••"/>
+                  <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] cursor-pointer hover:text-primary transition-colors" id="toggle-sudo-pass">visibility</span>
+                </div>
+                <button id="save-sudo-btn" class="self-start mt-1 px-3 py-1.5 bg-primary/10 border border-primary/30 text-primary text-[11px] mono-text hover:bg-primary/20 transition-colors">Save Password</button>
               </div>
-              <button id="save-sudo-btn" class="self-start mt-1 px-3 py-1.5 bg-primary/10 border border-primary/30 text-primary text-[11px] mono-text hover:bg-primary/20 transition-colors">Save Password</button>
             </div>
+
+            <!-- Windows: Administrator privilege status -->
+            <div id="nmap-admin-section" class="hidden flex flex-col gap-4">
+              <div class="bg-card border border-border-color p-4 flex items-center justify-between gap-4">
+                <div class="flex flex-col gap-1">
+                  <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Privileged Mode (Administrator)</label>
+                  <p class="text-[10px] text-secondary-text">Nmap requires Administrator rights for OS detection and SYN scans on Windows.</p>
+                </div>
+                <span id="nmap-admin-badge" class="text-[10px] mono-text px-2 py-1 border border-secondary-text/30 text-secondary-text shrink-0">Checking…</span>
+              </div>
+              <div id="nmap-admin-hint" class="hidden bg-card border border-amber-500/30 p-4 flex flex-col gap-2">
+                <label class="text-[10px] font-display font-bold text-amber-400 uppercase tracking-widest">Not Running as Administrator</label>
+                <p class="text-[10px] text-secondary-text">
+                  Privileged scans (OS detection, SYN scan) are disabled. To enable them, restart AEGIS with elevated rights:
+                  right-click the terminal and choose <span class="text-primary mono-text">Run as Administrator</span>.
+                </p>
+              </div>
+            </div>
+
           </div>
 
           <!-- ── SECTION: Metasploit RPC ─────────────────────────────────── -->
