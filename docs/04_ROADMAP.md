@@ -37,19 +37,19 @@ V3 (XBOW Level):
 ### Core Features
 
 - [x] ReAct agent loop (Reason → Act → Observe → Reflect)
-- [ ] **ToolRegistry** — plugin loader infrastructure (core tools built-in)
-- [ ] Nmap port & service scanning
-- [ ] SearchSploit exploit search
-- [ ] Metasploit RPC exploit execution
-- [ ] OpenRouter (Claude) + Ollama LLM support
-- [ ] Full Auto + Ask Before Exploit modes
-- [ ] 10 safety guardrails + kill switch
-- [ ] Full audit logging
-- [ ] SQLite database + knowledge base
-- [ ] Session memory (chat history)
-- [ ] Web UI — real-time streaming (WebSocket)
-- [ ] PDF/HTML report + CVSS scoring
-- [ ] IP and CIDR targeting
+- [x] **ToolRegistry** — plugin loader infrastructure (core tools built-in)
+- [x] Nmap port & service scanning
+- [x] SearchSploit exploit search
+- [x] Metasploit RPC exploit execution
+- [x] OpenRouter (Claude) + Ollama + LM Studio LLM support
+- [x] Full Auto + Ask Before Exploit modes
+- [x] 10 safety guardrails + kill switch
+- [x] Full audit logging
+- [x] SQLite database + knowledge base
+- [x] Session memory (sliding window, pinned findings)
+- [x] Web UI — real-time streaming (WebSocket)
+- [x] PDF/HTML report + CVSS scoring
+- [x] IP and CIDR targeting
 
 ### V1 Scope Boundaries (Intentional)
 
