@@ -183,7 +183,7 @@ python main.py --enable-plugin web_scanner
 | `interactsh`           | 📋 Planned   | V2      | OOB (blind injection) detection      |
 | `sqlmap_plugin`        | 📋 Planned   | V2      | Automated SQL injection              |
 | `ffuf_plugin`          | 📋 Planned   | V2      | Web fuzzing                          |
-| `custom_payload`       | 📋 Planned   | V2      | LLM-written exploit scripts          |
+| `custom_payload`       | 📋 Planned   | V3      | LLM-written exploit scripts          |
 | `source_code_analyzer` | 📋 Planned   | V3      | Semgrep + LLM white-box analysis     |
 
 ---
