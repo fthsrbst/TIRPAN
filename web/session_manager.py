@@ -169,11 +169,16 @@ def inject_message(session_id: str, message: str) -> bool:
 
 def make_progress_callback(session_id: str) -> Callable[[str, dict], None]:
     """
-    Create a synchronous progress callback that schedules async broadcasts.
+    Create a synchronous progress callback that schedules async broadcasts
+    and persists events to the database.
 
     The callback signature matches what PentestAgent expects:
         callback(event_type: str, data: dict) -> None
     """
+    from database.repositories import SessionEventRepository
+    _event_repo = SessionEventRepository()
+
+    _STREAM_EVENTS = frozenset({"llm_token", "llm_thinking_start", "llm_reflecting_start"})
 
     def callback(event_type: str, data: dict) -> None:
         event = {
@@ -186,10 +191,12 @@ def make_progress_callback(session_id: str) -> Callable[[str, dict], None]:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # Streaming token events are high-frequency — don't buffer them
-                if event_type in ("llm_token", "llm_thinking_start", "llm_reflecting_start"):
+                if event_type in _STREAM_EVENTS:
                     loop.create_task(_broadcast_no_buffer(session_id, event))
                 else:
                     loop.create_task(broadcast(session_id, event))
+                    # Persist non-streaming events to DB for replay
+                    loop.create_task(_event_repo.save(session_id, event_type, data))
         except RuntimeError:
             pass
 

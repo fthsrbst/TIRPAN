@@ -21,6 +21,7 @@ from database.repositories import (
     AuditLogRepository,
     ExploitResultRepository,
     ScanResultRepository,
+    SessionEventRepository,
     SessionRepository,
     VulnerabilityRepository,
 )
@@ -36,6 +37,7 @@ _audit_repo = AuditLogRepository()
 _scan_repo = ScanResultRepository()
 _vuln_repo = VulnerabilityRepository()
 _exploit_repo = ExploitResultRepository()
+_event_repo = SessionEventRepository()
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -817,6 +819,18 @@ async def get_report_pdf(sid: str):
     except Exception as exc:
         logger.error("Report PDF generation failed: %s", exc)
         raise HTTPException(500, f"PDF generation failed: {exc}")
+
+
+# ── Session Events (full agent event stream) ───────────────────────────────────
+
+@router.get("/sessions/{sid}/events")
+async def get_session_events(sid: str, limit: int = 2000):
+    """Return the stored agent event stream for a session (for replay)."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    events = await _event_repo.get_for_session(sid, limit=limit)
+    return {"events": events}
 
 
 # ── Audit Log ──────────────────────────────────────────────────────────────────

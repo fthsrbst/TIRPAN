@@ -360,6 +360,7 @@ class PentestAgent:
                     "thought": action_dict.get("thought", ""),
                     "action": action_dict.get("action", ""),
                     "reasoning": action_dict.get("reasoning", ""),
+                    "attack_phase": self._ctx.attack_phase,
                 },
             )
             return action_dict

@@ -352,6 +352,45 @@ class ExploitResultRepository:
         return [{**dict(r), "success": True} for r in rows]
 
 
+# ── SessionEventRepository ────────────────────────────────────────────────────
+
+class SessionEventRepository:
+    """Stores the full agent event stream for replay."""
+
+    # Events that are too high-frequency or not worth persisting
+    _SKIP = frozenset({"llm_token", "llm_thinking_start", "llm_reflecting_start"})
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def save(self, session_id: str, event_type: str, data: dict) -> None:
+        if event_type in self._SKIP:
+            return
+        now = _now()
+        data_json = json.dumps(data, ensure_ascii=False)
+        async with _connect(self._path) as db:
+            await db.execute(
+                "INSERT INTO session_events (session_id, event_type, data_json, created_at) VALUES (?,?,?,?)",
+                (session_id, event_type, data_json, now),
+            )
+            await db.commit()
+
+    async def get_for_session(self, session_id: str, limit: int = 2000) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT event_type, data_json, created_at FROM session_events WHERE session_id=? ORDER BY created_at ASC LIMIT ?",
+            (session_id, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        results = []
+        for row in rows:
+            try:
+                data = json.loads(row["data_json"])
+            except Exception:
+                data = {}
+            results.append({"event_type": row["event_type"], "data": data, "created_at": row["created_at"]})
+        return results
+
+
 # ── AuditLogRepository ─────────────────────────────────────────────────────────
 
 class AuditLogRepository:
