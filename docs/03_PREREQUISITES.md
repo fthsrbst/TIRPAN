@@ -63,7 +63,11 @@ msfdb init
 msfrpcd -P your_password_here -S -a 127.0.0.1 -p 55553
 ```
 
-### Step 3: Ollama (Local LLM)
+### Step 3: Local LLM (Ollama or LM Studio)
+
+AEGIS supports two local inference backends. Install at least one, or skip both and use OpenRouter (cloud API).
+
+#### Option A — Ollama
 
 ```bash
 # Install Ollama
@@ -72,6 +76,24 @@ curl -fsSL https://ollama.com/install.sh | sh
 # Pull models for local inference
 ollama pull llama3:8b          # General purpose (4.7GB)
 ollama pull mistral:7b         # Good for parsing (4.1GB)
+```
+
+Ollama runs as a background service on `http://127.0.0.1:11434` by default.
+
+#### Option B — LM Studio
+
+LM Studio is a GUI-based local LLM runner that exposes an OpenAI-compatible REST API.
+
+1. Download from https://lmstudio.ai/ (Linux, macOS, Windows)
+2. Load any GGUF model from the *Model Catalog*
+3. In *Local Server* → start the server on port `1234` (default)
+4. In AEGIS Web UI → Settings → LM Studio → set Base URL to `http://127.0.0.1:1234` and choose the loaded model
+
+Default base URL used by AEGIS: `http://127.0.0.1:1234`
+
+```bash
+# Verify LM Studio server is running
+curl http://127.0.0.1:1234/v1/models
 ```
 
 ### Step 4: Python Project Setup
@@ -142,8 +164,11 @@ msfconsole --version          # Should show 6.x
 # Docker
 docker --version              # Should show 24.x+
 
-# Ollama
+# Ollama (if using Ollama)
 ollama list                   # Should show pulled models
+
+# LM Studio (if using LM Studio)
+curl http://127.0.0.1:1234/v1/models  # Should return JSON with model list
 
 # Metasploit RPC (test connection)
 curl -k https://127.0.0.1:55553  # Should respond (even if error)
