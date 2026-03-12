@@ -2,6 +2,7 @@
 
 > **Purpose:** Add new attack capabilities without touching the core.
 > V1 ships with 3 built-in tools — everything else arrives via plugins.
+> V2 introduces three plugin types so most tools need zero Python code.
 
 ---
 
@@ -170,7 +171,9 @@ python main.py --enable-plugin web_scanner
 
 ---
 
-## Current + Planned Plugin List
+## Current + Planned Plugin List (V1 View)
+
+> See the full V2 catalogue at the bottom of this document.
 
 | Plugin Name            | Status       | Version | Description                          |
 | ---------------------- | ------------ | ------- | ------------------------------------ |
@@ -204,22 +207,199 @@ At main.py startup:
 
 ---
 
+## V2: Three Plugin Types
+
+V1 supports only one plugin type — a Python class that implements `BaseTool`. V2 adds two configuration-only types so that wrapping a CLI binary or a REST API requires **no Python code**.
+
+> Full technical spec: [11_V2_FEATURE_SPEC.md — Section 5](11_V2_FEATURE_SPEC.md#5-plugin-architecture-v2--three-plugin-types)
+
+### Type Overview
+
+| `"type"` value  | Use case                                      | Python `tool.py` needed |
+| --------------- | --------------------------------------------- | ----------------------- |
+| `python_class`  | Complex logic, stateful tools, custom parsers | **Yes**                 |
+| `cli_wrapper`   | Any CLI binary with parseable output          | **No**                  |
+| `api_wrapper`   | REST API endpoints with authentication        | **No**                  |
+
+The `"type"` field must be present in `plugin.json`. If omitted, `"python_class"` is assumed for backward compatibility.
+
+---
+
+### Type A — `python_class` (V1 behaviour, unchanged)
+
+Declare `"type": "python_class"` in `plugin.json` and provide a `tool.py` that subclasses `BaseTool`. See the `tool.py` template above.
+
+---
+
+### Type B — `cli_wrapper`
+
+Wrap any CLI binary entirely through `plugin.json`. `ToolRegistry` generates a `GenericCLITool` instance automatically — there is no `tool.py`.
+
+**`plugin.json` for `cli_wrapper`:**
+
+```json
+{
+  "name": "nuclei_scan",
+  "type": "cli_wrapper",
+  "version": "1.0.0",
+  "display_name": "Nuclei Scanner",
+  "description": "Template-based vulnerability scanner. Best used after port scanning identifies open services.",
+  "category": "vuln-scan",
+  "enabled": true,
+  "binary": "nuclei",
+  "install_hint": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+  "args_template": ["-u", "{target}", "-t", "{templates}", "-o", "{output_file}", "-json", "-silent"],
+  "output_format": "jsonlines",
+  "timeout_seconds": 300,
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "target": {
+        "type": "string",
+        "description": "URL or IP to scan"
+      },
+      "templates": {
+        "type": "string",
+        "default": "cves/",
+        "description": "Nuclei template path or category"
+      }
+    },
+    "required": ["target"]
+  }
+}
+```
+
+**Key fields:**
+
+| Field             | Description                                                              |
+| ----------------- | ------------------------------------------------------------------------ |
+| `binary`          | Executable name; verified via `shutil.which()` at health check           |
+| `install_hint`    | Shown in UI when binary is not found                                     |
+| `args_template`   | Array of arguments; `{param}` placeholders are substituted at runtime   |
+| `{output_file}`   | Auto-generated temp file; content is read back after execution           |
+| `output_format`   | `"jsonlines"` / `"json"` / `"text"` / `"csv"` — determines how stdout is parsed |
+| `timeout_seconds` | Process killed after this duration; `ToolHealthStatus.degraded` set     |
+
+**`args_template` substitution rules:**
+- `{param_name}` → replaced with the LLM-supplied parameter value
+- Parameters not supplied use their JSON Schema `default` value
+- Missing required parameters → validation error before the subprocess starts
+
+---
+
+### Type C — `api_wrapper`
+
+Call a REST API entirely through `plugin.json`. `ToolRegistry` generates a `GenericAPITool` instance. Authentication is resolved from environment variables or `SecureStore`.
+
+**`plugin.json` for `api_wrapper`:**
+
+```json
+{
+  "name": "shodan_lookup",
+  "type": "api_wrapper",
+  "version": "1.0.0",
+  "display_name": "Shodan Lookup",
+  "description": "Query Shodan for a target IP to retrieve known open ports, services, and CVEs without active scanning.",
+  "category": "recon",
+  "enabled": true,
+  "base_url": "https://api.shodan.io",
+  "auth_type": "query_param",
+  "auth_param_name": "key",
+  "auth_env": "SHODAN_API_KEY",
+  "auth_secure_store_key": "shodan_api_key",
+  "endpoints": {
+    "host_lookup": {
+      "method": "GET",
+      "path": "/shodan/host/{ip}"
+    }
+  },
+  "timeout_seconds": 15,
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "ip": {
+        "type": "string",
+        "description": "IPv4 address to look up on Shodan"
+      }
+    },
+    "required": ["ip"]
+  }
+}
+```
+
+**Authentication resolution order:**
+1. Environment variable named by `auth_env`
+2. `SecureStore` (`core/secure_store.py`) key named by `auth_secure_store_key`
+3. Database `settings` table
+4. If none found → `health_check()` returns `available=False`, UI shows: "API key not configured"
+
+**`health_check()` for `api_wrapper`:** verifies credential presence only — no live API call is made (avoids billing charges).
+
+---
+
+### Type Routing in `ToolRegistry`
+
+`core/tool_registry.py` `_load_single_plugin()` dispatches on the `type` field:
+
+```python
+match cfg.get("type", "python_class"):
+    case "python_class":
+        # Existing importlib path (unchanged)
+        module = importlib.import_module(cfg["entry_point"])
+        cls = getattr(module, cfg["class_name"])
+        tool_instance = cls()
+    case "cli_wrapper":
+        from core.generic_tools import GenericCLITool
+        tool_instance = GenericCLITool(cfg)
+    case "api_wrapper":
+        from core.generic_tools import GenericAPITool
+        tool_instance = GenericAPITool(cfg)
+    case _:
+        logger.warning("Unknown plugin type '%s' — skipping", cfg.get("type"))
+        return
+```
+
+Both `GenericCLITool` and `GenericAPITool` are implemented in `core/generic_tools.py` and inherit from `BaseTool`. The `health_check()` method is implemented for both.
+
+---
+
 ## Plugin Authoring Guidelines
 
 ### ✅ Do
 
-- Inherit from `BaseTool`, honour the contract
+- Set `"type"` explicitly in `plugin.json`
+- For `python_class`: inherit from `BaseTool`, honour the return contract
 - Write a detailed `metadata.description` — the LLM reads this to decide when to use it
 - Always return `{"success": bool, "output": any, "error": str|None}`
-- Catch exceptions, never let them propagate unchecked
-- Specify `min_core_version` in `plugin.json`
+- Catch exceptions inside `execute()`; never let them propagate unchecked
+- Implement `health_check()` so the UI can report your tool's status
+- Specify `min_core_version` and `install_hint` in `plugin.json`
 
 ### ❌ Don't
 
 - Touch core files (`core/`, `tools/`, `database/`)
-- Hold global state (keep it stateless)
-- Import `config.py` directly → inject it through the constructor
-- Deliberately run blocked commands (`safety.py` will block them anyway)
+- Hold global mutable state across calls (keep `execute()` stateless)
+- Import `config.py` directly → receive settings through the constructor
+- Run commands that would be blocked by `safety.py` — they will be blocked regardless
+
+---
+
+## Current + Planned Plugin List
+
+| Plugin Name            | Type           | Status       | Version | Description                              |
+| ---------------------- | -------------- | ------------ | ------- | ---------------------------------------- |
+| `nuclei_scan`          | `cli_wrapper`  | 📋 Planned   | V2      | Nuclei template-based scanning           |
+| `gobuster_scan`        | `cli_wrapper`  | 📋 Planned   | V2      | Directory / file brute force             |
+| `ffuf_fuzz`            | `cli_wrapper`  | 📋 Planned   | V2      | Web fuzzing                              |
+| `sqlmap_scan`          | `cli_wrapper`  | 📋 Planned   | V2      | Automated SQL injection                  |
+| `nikto_scan`           | `cli_wrapper`  | 📋 Planned   | V2      | Web server vulnerability scan            |
+| `hydra_brute`          | `cli_wrapper`  | 📋 Planned   | V2      | Credential brute force                   |
+| `shodan_lookup`        | `api_wrapper`  | 📋 Planned   | V2      | Passive host recon via Shodan API        |
+| `virustotal_lookup`    | `api_wrapper`  | 📋 Planned   | V2      | Domain / hash reputation lookup          |
+| `web_scanner`          | `python_class` | 📋 Planned   | V2      | XSS, SQLi, SSRF via Playwright           |
+| `docker_escape`        | `python_class` | 📋 Planned   | V2      | Container escape detection & execution   |
+| `lateral_pivot`        | `python_class` | 📋 Planned   | V2      | Internal subnet pivoting                 |
+| `source_code_analyzer` | `python_class` | 📋 Planned   | V3      | Semgrep + LLM white-box analysis         |
 
 ---
 
