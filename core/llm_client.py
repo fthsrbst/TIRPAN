@@ -130,7 +130,9 @@ class OpenRouterClient(LLMClient):
     @property
     def _current_key(self) -> str:
         """Always read the live api_key from settings (may be updated at runtime)."""
-        return (settings.llm.api_key or self.api_key or "").strip()
+        import re
+        key = settings.llm.api_key or self.api_key or ""
+        return re.sub(r"[\s\x00-\x1f\x7f]", "", key)
 
     @property
     def _current_model(self) -> str:
@@ -167,7 +169,10 @@ class OpenRouterClient(LLMClient):
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    choices = data.get("choices") or []
+                    if not choices:
+                        raise ValueError(f"OpenRouter returned empty choices: {data}")
+                    return choices[0]["message"]["content"]
 
             except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
                 last_error = e
@@ -203,14 +208,13 @@ class OpenRouterClient(LLMClient):
                     break
                 try:
                     data = json.loads(raw)
-                    token = (
-                        data.get("choices", [{}])[0]
-                        .get("delta", {})
-                        .get("content", "")
-                    )
+                    choices = data.get("choices")
+                    if not choices:
+                        continue
+                    token = choices[0].get("delta", {}).get("content", "")
                     if token:
                         yield token
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, IndexError):
                     continue
 
     async def is_available(self) -> bool:

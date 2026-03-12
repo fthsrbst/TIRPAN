@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from config import SafetyConfig, settings
-from core.secure_store import async_get_secret, async_set_secret
+from core.secure_store import async_get_secret, async_set_secret, get_secret
 from database import db as database
 from database.repositories import (
     AuditLogRepository,
@@ -327,6 +327,26 @@ async def save_msf_config(body: MsfConfigRequest):
     return {"ok": True}
 
 
+# ── Sudo Config ───────────────────────────────────────────────────────────────
+
+class SudoConfigRequest(BaseModel):
+    password: str = ""
+
+
+@router.get("/config/sudo")
+async def get_sudo_config():
+    return {"has_password": bool(settings.sudo_password)}
+
+
+@router.post("/config/sudo")
+async def save_sudo_config(body: SudoConfigRequest):
+    if body.password:
+        await async_set_secret("sudo_password", body.password)
+        await database.set_setting("sudo_password", body.password)
+        settings.sudo_password = body.password
+    return {"ok": True}
+
+
 # ── OpenRouter Config ──────────────────────────────────────────────────────────
 
 class OpenRouterSettings(BaseModel):
@@ -334,10 +354,24 @@ class OpenRouterSettings(BaseModel):
     cloud_model: str = ""
 
 
+def _sanitize_api_key(key: str) -> str:
+    """Strip whitespace and control characters from an API key."""
+    import re
+    return re.sub(r"[\s\x00-\x1f\x7f]", "", key or "")
+
+
+def _resolve_openrouter_key(saved: dict) -> str:
+    """Resolve API key: keychain → DB fallback → env/settings."""
+    key = get_secret("openrouter_api_key")
+    if not key:
+        key = saved.get("openrouter_api_key", "") or settings.llm.api_key
+    return _sanitize_api_key(key)
+
+
 @router.get("/config/openrouter")
 async def get_openrouter_config():
     saved = await database.get_all_settings()
-    api_key = await async_get_secret("openrouter_api_key") or settings.llm.api_key
+    api_key = _resolve_openrouter_key(saved)
     return {
         "cloud_model": saved.get("cloud_model", settings.llm.cloud_model),
         "has_api_key": bool(api_key),
@@ -347,8 +381,12 @@ async def get_openrouter_config():
 @router.post("/config/openrouter")
 async def save_openrouter_config(body: OpenRouterSettings):
     if body.api_key:
-        await async_set_secret("openrouter_api_key", body.api_key)
-        settings.llm.api_key = body.api_key
+        clean_key = _sanitize_api_key(body.api_key)
+        if clean_key:
+            await async_set_secret("openrouter_api_key", clean_key)
+            # Also persist to DB so key survives if keyring is unavailable
+            await database.set_setting("openrouter_api_key", clean_key)
+            settings.llm.api_key = clean_key
     if body.cloud_model:
         await database.set_setting("cloud_model", body.cloud_model)
         settings.llm.cloud_model = body.cloud_model
@@ -359,8 +397,7 @@ async def save_openrouter_config(body: OpenRouterSettings):
 async def openrouter_models():
     """Fetch available models from OpenRouter API."""
     saved = await database.get_all_settings()
-    api_key = await async_get_secret("openrouter_api_key") or settings.llm.api_key or ""
-    key = (api_key or "").strip()
+    key = _resolve_openrouter_key(saved)
     if not key or key.startswith("sk-or-..."):
         return {"models": [], "error": "No API key configured"}
     try:
@@ -411,6 +448,9 @@ class StartSessionRequest(BaseModel):
     # Agent hints
     port_range: str = "1-65535"
     notes: str = ""
+    # LLM selection
+    provider: str = ""   # "ollama" | "lmstudio" | "openrouter"
+    model: str = ""
 
 
 async def _run_agent_task(
@@ -532,6 +572,15 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         updated_at=session_data["updated_at"],
     )
 
+    # Apply LLM provider/model overrides from the UI selection
+    if body.provider in ("ollama", "openrouter"):
+        settings.llm.provider = body.provider
+    if body.model:
+        if body.provider == "openrouter":
+            settings.llm.cloud_model = body.model
+        elif body.provider == "ollama":
+            settings.ollama.model = body.model
+
     # Build agent
     guard = SafetyGuard(safety_cfg)
     progress_cb = session_manager.make_progress_callback(session_id)
@@ -628,6 +677,22 @@ async def delete_session(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
     await _session_repo.delete(sid)
+    return {"ok": True}
+
+
+class RenameSessionRequest(BaseModel):
+    name: str
+
+
+@router.patch("/sessions/{sid}/name")
+async def rename_session(sid: str, body: RenameSessionRequest):
+    """Rename a pentest session with a user-friendly label."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    ok = await _session_repo.update_name(sid, body.name.strip())
+    if not ok:
+        raise HTTPException(404, "Session not found")
     return {"ok": True}
 
 
