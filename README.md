@@ -131,7 +131,7 @@ The agent loop, safety layer, and LLM client never change. Every attack capabili
 
 ```bash
 # 1. Clone
-git clone https://github.com/yourusername/aegis.git
+git clone https://github.com/fthsrbst/aegis.git
 cd aegis
 
 # 2. Install
