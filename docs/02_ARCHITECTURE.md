@@ -115,7 +115,9 @@ database/
 ├── db.py                 # aiosqlite connection manager
 ├── repositories.py       # CRUD per entity
 ├── knowledge_base.py     # "What worked where" lookup
-└── schema.sql            # 7 tables (pentest) + 4 tables (defense)
+└── schema.sql               # 7 tables: pentest_sessions, scan_results,
+                             #   vulnerabilities, exploit_results,
+                             #   knowledge_base, audit_log, schema_migrations
 ```
 
 ### Layer 5: Web & Reporting
@@ -136,13 +138,16 @@ reporting/
 
 ### Layer 6: Defense Module (Optional, started separately)
 
+> ⚠️ **Not yet implemented in V1.** The `defense/` directory exists but contains only `__init__.py`.
+> The files below describe the planned architecture for a future release.
+
 ```
-defense/
-├── sniffer.py            # Scapy packet capture
-├── analyzer.py           # Threat aggregation
-├── llm_defender.py       # LLM-based threat analysis
-├── responder.py          # iptables / alert / redirect
-├── honeypot.py           # LLM-powered fake service
+defense/                      # Planned — empty stub in V1
+├── sniffer.py                # Scapy packet capture
+├── analyzer.py               # Threat aggregation
+├── llm_defender.py           # LLM-based threat analysis
+├── responder.py              # iptables / alert / redirect
+├── honeypot.py               # LLM-powered fake service
 └── detectors/
     ├── port_scan.py
     ├── arp_spoof.py
@@ -213,13 +218,18 @@ class BaseTool(ABC):
   "description": "XSS, SQLi, SSRF detection using headless browser",
   "author": "community",
   "enabled": false,
-  "requires": ["playwright", "beautifulsoup4"],
+  "requires_packages": ["playwright>=1.40", "beautifulsoup4>=4.12"],
   "category": "web",
-  "entry_point": "plugins.web_scan.tool.WebScanTool",
+  "entry_point": "plugins.web_scan.tool",
+  "class_name": "WebScanTool",
   "min_core_version": "2.0.0",
   "safety_level": "medium"
 }
 ```
+
+> `entry_point` is the Python **module** path; `class_name` is the class within that module.
+> The loader does: `cls = getattr(importlib.import_module(entry_point), class_name)`
+> Both fields are required — missing either will cause the plugin to be skipped with a warning.
 
 ### Tool Registry Implementation (Summary)
 
@@ -254,17 +264,20 @@ class ToolRegistry:
 
     def load_plugins(self, plugins_dir: Path) -> None:
         """Scan plugin directory, import loadable plugins."""
+        if not plugins_dir.exists():
+            return
         for plugin_dir in plugins_dir.iterdir():
+            if not plugin_dir.is_dir():
+                continue
             manifest_path = plugin_dir / "plugin.json"
             if not manifest_path.exists():
                 continue
             manifest = json.loads(manifest_path.read_text())
             if not manifest.get("enabled", False):
                 continue
-            # Dynamic import
-            module_path, class_name = manifest["entry_point"].rsplit(".", 1)
-            module = importlib.import_module(module_path)
-            tool_class = getattr(module, class_name)
+            # entry_point = module path; class_name = class within that module
+            module = importlib.import_module(manifest["entry_point"])
+            tool_class = getattr(module, manifest["class_name"])
             self.register(tool_class())
 ```
 
@@ -451,9 +464,12 @@ AEGIS/
 │   └── schema.sql
 │
 ├── web/
-│   ├── app.py
-│   ├── routes.py
-│   ├── websocket_handler.py
+│   ├── app.py                  # FastAPI factory + lifespan startup
+│   ├── app_state.py            # Shared tool_registry singleton
+│   ├── routes.py               # REST endpoints
+│   ├── session_manager.py      # Active session / agent tracking
+│   ├── stats_state.py          # Live stats shared across requests
+│   ├── websocket_handler.py    # Real-time WebSocket streaming
 │   └── static/
 │       ├── index.html
 │       ├── app.js
