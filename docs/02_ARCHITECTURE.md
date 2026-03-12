@@ -514,7 +514,117 @@ AEGIS/
     ├── 06_LEARNING_CURRICULUM.md
     ├── 07_NETWORK_DEFENSE_MODULE.md
     ├── 08_MASTER_CHECKLIST.md
-    └── 09_PLUGIN_SYSTEM.md      ← NEW
+    ├── 09_PLUGIN_SYSTEM.md
+    ├── 10_LEARNING_ROADMAP.md
+    └── 11_V2_FEATURE_SPEC.md    ← NEW: V2 implementation spec
+```
+
+---
+
+## V2 Architecture Extensions
+
+The sections below describe the architectural additions planned for V2. The V1 layer structure above remains the stable foundation — none of these changes modify existing interfaces.
+
+Full specification: [11_V2_FEATURE_SPEC.md](11_V2_FEATURE_SPEC.md)
+
+---
+
+### V2 Addition: Tool Health Check Layer
+
+Every registered tool gains a `health_check()` method. At session start, `ToolRegistry.run_health_checks()` collects status from all tools. The LLM prompt only receives tools that pass (or degrade gracefully). Unavailable tools are excluded entirely.
+
+```
+Session Start
+    │
+    ▼
+ToolRegistry.run_health_checks()
+    ├── NmapTool.health_check()         → available=True  (nmap 7.94 found)
+    ├── SearchSploitTool.health_check() → available=False (binary missing)
+    └── MetasploitTool.health_check()   → degraded=True   (RPC down, CLI ok)
+    │
+    ▼
+registry.list_for_llm(healthy_only=True)
+    → Excludes SearchSploitTool from LLM prompt
+    → Adds degradation note to MetasploitTool description
+    │
+    ▼
+GET /api/v1/tools/status  → Web UI renders tool status strip with install hints
+```
+
+---
+
+### V2 Addition: Mission Brief
+
+A `MissionBrief` object (`models/mission.py`) is attached to `AgentContext` before the first ReAct iteration. It carries operator-supplied intelligence and permission flags that the agent respects throughout the session.
+
+```
+MissionBrief
+├── target_type         "ip" | "cidr" | "domain" | "webapp" | "auto"
+├── speed_profile       "stealth" | "normal" | "aggressive"
+├── scope_notes         Injected verbatim into every LLM system prompt
+├── known_tech          ["nginx/1.24", "php/8.1"] — skips re-discovery
+├── excluded_targets    ["10.0.0.1"] — hard boundary, safety-enforced
+└── Permission flags
+    ├── allow_exploitation
+    ├── allow_post_exploitation
+    ├── allow_lateral_movement
+    └── allow_docker_escape
+```
+
+When `MissionBrief` is not supplied, the agent applies conservative defaults: no exploitation, no lateral movement, `speed_profile=normal`.
+
+---
+
+### V2 Addition: Expanded Attack Phase FSM
+
+`AgentContext.attack_phase` expands from 5 states to 12. Each phase beyond `EXPLOITATION` is guarded by a `MissionBrief` permission flag.
+
+```
+DISCOVERY → WEB_RECON* → PORT_SCAN → VULN_SCAN* → EXPLOIT_SEARCH
+    → EXPLOITATION† → POST_EXPLOITATION† → LATERAL_MOVEMENT†
+    → PRIVILEGE_ESCALATION† → DOCKER_ESCAPE‡ → REPORTING → DONE
+
+  * Only when target_type is "webapp" or "domain"
+  † Only when the corresponding allow_* flag is True
+  ‡ Only when allow_docker_escape=True and container environment detected
+```
+
+Phase guard logic lives in `core/agent.py` → `_advance_phase()`. `core/safety.py` provides a complementary hard-block at the action level.
+
+---
+
+### V2 Addition: Plugin Type Routing
+
+`core/tool_registry.py` `_load_single_plugin()` dispatches on `plugin.json "type"`:
+
+```
+plugin.json "type"
+    ├── "python_class"  → importlib.import_module(entry_point).ClassName()  [V1 path]
+    ├── "cli_wrapper"   → core.generic_tools.GenericCLITool(cfg)            [V2 new]
+    └── "api_wrapper"   → core.generic_tools.GenericAPITool(cfg)            [V2 new]
+```
+
+New file `core/generic_tools.py` implements both generic types. Both inherit `BaseTool` and implement `health_check()`.
+
+---
+
+### V2 Addition: Finding System
+
+`AgentContext` replaces raw string lists with structured `Finding` objects (`models/finding.py`). All tool results containing vulnerability or post-exploitation data are recorded as `Finding` records persisted to a new `findings` table in SQLite.
+
+```
+Tool.execute() returns result
+    │
+    ▼
+agent._record_finding(result, tool_name, phase, target)
+    → Constructs Finding(id, severity, evidence, commands_run, screenshot, ...)
+    → FindingRepository.create(finding)
+    → AgentContext.findings.append(finding)
+    │
+    ▼
+REPORTING phase
+    → FindingRepository.get_by_session(session_id)
+    → report_generator.py renders Finding objects into HTML/PDF
 ```
 
 ---
@@ -530,3 +640,14 @@ AEGIS/
 | Defense as separate process                       | Stopping the pentest bot should not affect the defense module               |
 | SQLite (aiosqlite)                                | Zero setup, sufficient for capstone, migrate to PostgreSQL in V3            |
 | Single agent (V1)                                 | Easier to understand, every decision is traceable, multi-agent deferred to V3 |
+| health_check() on BaseTool (V2)                   | Tools self-report availability; agent adapts without crashing mid-run       |
+| Three plugin types (V2)                           | CLI wrappers and API tools are config-only; lowers contribution barrier     |
+| MissionBrief permission flags (V2)                | Operator controls blast radius; safety.py enforces at action level as well  |
+| Finding model replaces string lists (V2)          | Enables credible pentest reports with reproducible evidence                 |
+| Self-Correction via Reflect() step (V2)           | Prevents infinite retry loops without requiring multi-agent architecture    |
+| SARIF output (V2)                                 | Machine-readable findings for CI/CD and IDE integration                     |
+| Network proxy support (V2)                        | Analyst can intercept web recon traffic through Burp/mitmproxy              |
+| Vector search / RAG (V2)                          | Semantic KB lookup survives service name variations; uses Ollama embeddings |
+| Internal Reviewer as second LLM (V3)              | Dedicated validation pass requires multi-LLM coordination — deferred to V3 |
+| Docker-isolated tool execution (V3)               | Host filesystem safety requires container orchestration — deferred to V3    |
+| custom_payload LLM code generation (V3)           | Sandboxed arbitrary code execution requires V3 security infrastructure      |
