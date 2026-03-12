@@ -43,9 +43,12 @@ async def lifespan(app: FastAPI):
     if _msf_pw:
         settings.msf.password = _msf_pw
 
-    _sudo_pw = _load_secret_sync("sudo_password")
-    if _sudo_pw:
-        settings.sudo_password = _sudo_pw
+    # sudo password is only relevant on Linux/macOS
+    from core.platform_utils import IS_WINDOWS
+    if not IS_WINDOWS:
+        _sudo_pw = _load_secret_sync("sudo_password")
+        if _sudo_pw:
+            settings.sudo_password = _sudo_pw
 
     # Cleanup sessions that were left in "running" state from a previous crash/restart
     from database.repositories import SessionRepository

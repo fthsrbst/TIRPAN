@@ -3374,16 +3374,6 @@ async function togglePauseMission() {
 
 // ─── Nmap Config ──────────────────────────────────────────────────────────────
 
-async function loadNmapConfig() {
-    try {
-        const res = await fetch('/api/v1/config/nmap');
-        if (!res.ok) return;
-        const data = await res.json();
-        const cb = document.getElementById('cfg-nmap-sudo');
-        if (cb) cb.checked = !!data.nmap_sudo;
-    } catch (_) {}
-}
-
 async function saveNmapSudo(enabled) {
     try {
         await fetch('/api/v1/config/nmap', {
@@ -3394,48 +3384,81 @@ async function saveNmapSudo(enabled) {
     } catch (_) {}
 }
 
-function initNmapConfig() {
-    const cb = document.getElementById('cfg-nmap-sudo');
-    if (cb) {
-        cb.addEventListener('change', () => saveNmapSudo(cb.checked));
-    }
-    loadNmapConfig();
-
-    // Sudo password save
-    document.getElementById('save-sudo-btn')?.addEventListener('click', async () => {
-        const pw = document.getElementById('cfg-sudo-pass')?.value?.trim();
-        if (!pw) { showToast('Enter a sudo password first'); return; }
-        const btn = document.getElementById('save-sudo-btn');
-        if (btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
-        try {
-            const res = await fetch('/api/v1/config/sudo', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: pw }),
-            });
-            if (res.ok) {
-                showToast('Sudo password saved');
-                // Clear input for security
-                const input = document.getElementById('cfg-sudo-pass');
-                if (input) input.value = '';
-            } else {
-                showToast('Failed to save sudo password');
-            }
-        } catch { showToast('Error saving sudo password'); }
-        finally {
-            if (btn) { btn.textContent = 'Save Password'; btn.disabled = false; }
+async function initNmapConfig() {
+    // Fetch combined nmap config + platform info
+    let platform = 'linux';
+    let isElevated = false;
+    let nmapSudo = false;
+    try {
+        const res = await fetch('/api/v1/config/nmap');
+        if (res.ok) {
+            const d = await res.json();
+            platform = d.platform || 'linux';
+            isElevated = !!d.is_elevated;
+            nmapSudo = !!d.nmap_sudo;
         }
-    });
+    } catch (_) {}
 
-    // Show indicator if sudo password is already configured
-    fetch('/api/v1/config/sudo')
-        .then(r => r.json())
-        .then(d => {
-            if (d.has_password) {
-                const input = document.getElementById('cfg-sudo-pass');
-                if (input) input.placeholder = '(configured)';
+    if (platform === 'windows') {
+        // ── Windows: show admin status badge ──────────────────────────────────
+        document.getElementById('nmap-admin-section')?.classList.remove('hidden');
+        const badge = document.getElementById('nmap-admin-badge');
+        const hint  = document.getElementById('nmap-admin-hint');
+        if (badge) {
+            if (isElevated) {
+                badge.textContent = 'Administrator';
+                badge.className = 'text-[10px] mono-text px-2 py-1 border border-primary/40 text-primary bg-primary/10 shrink-0';
+            } else {
+                badge.textContent = 'Standard User';
+                badge.className = 'text-[10px] mono-text px-2 py-1 border border-amber-500/40 text-amber-400 bg-amber-500/10 shrink-0';
+                hint?.classList.remove('hidden');
             }
-        }).catch(() => {});
+        }
+    } else {
+        // ── Linux / macOS: show sudo toggle + password ─────────────────────────
+        document.getElementById('nmap-sudo-section')?.classList.remove('hidden');
+
+        const cb = document.getElementById('cfg-nmap-sudo');
+        if (cb) {
+            cb.checked = nmapSudo;
+            cb.addEventListener('change', () => saveNmapSudo(cb.checked));
+        }
+
+        // Sudo password save
+        document.getElementById('save-sudo-btn')?.addEventListener('click', async () => {
+            const pw = document.getElementById('cfg-sudo-pass')?.value?.trim();
+            if (!pw) { showToast('Enter a sudo password first'); return; }
+            const btn = document.getElementById('save-sudo-btn');
+            if (btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+            try {
+                const res = await fetch('/api/v1/config/sudo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pw }),
+                });
+                if (res.ok) {
+                    showToast('Sudo password saved');
+                    const input = document.getElementById('cfg-sudo-pass');
+                    if (input) input.value = '';
+                } else {
+                    showToast('Failed to save sudo password');
+                }
+            } catch { showToast('Error saving sudo password'); }
+            finally {
+                if (btn) { btn.textContent = 'Save Password'; btn.disabled = false; }
+            }
+        });
+
+        // Show indicator if sudo password is already configured
+        fetch('/api/v1/config/sudo')
+            .then(r => r.json())
+            .then(d => {
+                if (d.has_password) {
+                    const input = document.getElementById('cfg-sudo-pass');
+                    if (input) input.placeholder = '(configured)';
+                }
+            }).catch(() => {});
+    }
 }
 
 // ─── Audit Log View ────────────────────────────────────────────────────────────
