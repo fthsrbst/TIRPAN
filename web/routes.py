@@ -21,6 +21,7 @@ from database.repositories import (
     AuditLogRepository,
     ExploitResultRepository,
     ScanResultRepository,
+    SessionEventRepository,
     SessionRepository,
     VulnerabilityRepository,
 )
@@ -36,6 +37,7 @@ _audit_repo = AuditLogRepository()
 _scan_repo = ScanResultRepository()
 _vuln_repo = VulnerabilityRepository()
 _exploit_repo = ExploitResultRepository()
+_event_repo = SessionEventRepository()
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -90,6 +92,16 @@ def _gpu_percent() -> Optional[int]:
     except Exception:
         pass
     return None
+
+
+@router.get("/system/platform")
+async def system_platform():
+    """Return OS platform and privilege level for cross-platform UI adaptation."""
+    from core.platform_utils import platform_name, is_elevated
+    return {
+        "platform": platform_name(),
+        "is_elevated": is_elevated(),
+    }
 
 
 @router.get("/system/stats")
@@ -327,7 +339,7 @@ async def save_msf_config(body: MsfConfigRequest):
     return {"ok": True}
 
 
-# ── Sudo Config ───────────────────────────────────────────────────────────────
+# ── Sudo / Privilege Config ────────────────────────────────────────────────────
 
 class SudoConfigRequest(BaseModel):
     password: str = ""
@@ -335,14 +347,21 @@ class SudoConfigRequest(BaseModel):
 
 @router.get("/config/sudo")
 async def get_sudo_config():
-    return {"has_password": bool(settings.sudo_password)}
+    from core.platform_utils import IS_WINDOWS, is_elevated
+    if IS_WINDOWS:
+        # Windows uses Administrator privileges — no password concept
+        return {"platform": "windows", "is_elevated": is_elevated(), "has_password": False}
+    return {"platform": "linux", "is_elevated": is_elevated(), "has_password": bool(settings.sudo_password)}
 
 
 @router.post("/config/sudo")
 async def save_sudo_config(body: SudoConfigRequest):
+    from core.platform_utils import IS_WINDOWS
+    if IS_WINDOWS:
+        # No sudo password on Windows — silently succeed
+        return {"ok": True}
     if body.password:
         await async_set_secret("sudo_password", body.password)
-        await database.set_setting("sudo_password", body.password)
         settings.sudo_password = body.password
     return {"ok": True}
 
@@ -418,9 +437,12 @@ async def openrouter_models():
 
 @router.get("/config/nmap")
 async def get_nmap_config():
+    from core.platform_utils import IS_WINDOWS, is_elevated, platform_name
     saved = await database.get_all_settings()
     return {
         "nmap_sudo": saved.get("nmap_sudo", "false") == "true",
+        "platform": platform_name(),
+        "is_elevated": is_elevated(),
     }
 
 
@@ -797,6 +819,18 @@ async def get_report_pdf(sid: str):
     except Exception as exc:
         logger.error("Report PDF generation failed: %s", exc)
         raise HTTPException(500, f"PDF generation failed: {exc}")
+
+
+# ── Session Events (full agent event stream) ───────────────────────────────────
+
+@router.get("/sessions/{sid}/events")
+async def get_session_events(sid: str, limit: int = 2000):
+    """Return the stored agent event stream for a session (for replay)."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    events = await _event_repo.get_for_session(sid, limit=limit)
+    return {"events": events}
 
 
 # ── Audit Log ──────────────────────────────────────────────────────────────────
