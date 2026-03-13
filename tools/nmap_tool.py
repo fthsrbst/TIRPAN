@@ -77,7 +77,6 @@ class NmapTool(BaseTool):
 
         cmd = self._build_command(target, scan_type, port_range)
 
-        logger.info("nmap cmd: %s", cmd)
         try:
             start = time.time()
             xml_output = await self._run_nmap(cmd)
@@ -91,8 +90,8 @@ class NmapTool(BaseTool):
         except FileNotFoundError:
             return {"success": False, "output": None, "error": "nmap not found — install nmap first"}
         except Exception as e:
-            logger.error("nmap execute failed: %s: %r", type(e).__name__, str(e))
-            return {"success": False, "output": None, "error": str(e) or f"{type(e).__name__} (no message)"}
+            logger.error("nmap failed: %s: %s", type(e).__name__, e)
+            return {"success": False, "output": None, "error": str(e)}
 
     # ── Internals ──────────────────────────────────────────────────────────────
 
@@ -138,17 +137,19 @@ class NmapTool(BaseTool):
 
         def _run_sync() -> tuple[int, bytes, bytes]:
             import subprocess as _sp
-            result = _sp.run(
-                cmd,
-                input=stdin_data,
-                stdout=_sp.PIPE,
-                stderr=_sp.PIPE,
-                timeout=SCAN_TIMEOUT,
-            )
-            return result.returncode, result.stdout, result.stderr
+            try:
+                result = _sp.run(
+                    cmd,
+                    input=stdin_data,
+                    stdout=_sp.PIPE,
+                    stderr=_sp.PIPE,
+                    timeout=SCAN_TIMEOUT,
+                )
+                return result.returncode, result.stdout, result.stderr
+            except _sp.TimeoutExpired:
+                raise TimeoutError(f"nmap timed out after {SCAN_TIMEOUT}s")
 
         returncode, stdout, stderr = await asyncio.to_thread(_run_sync)
-        logger.debug("nmap returncode=%d stdout_len=%d", returncode, len(stdout))
 
         if returncode != 0:
             err = stderr.decode().strip()
