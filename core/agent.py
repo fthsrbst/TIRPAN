@@ -419,9 +419,11 @@ class PentestAgent:
         self._emit("tool_call", {"tool": tool_name, "params": params})
         try:
             result = await tool.execute(params)
-        except Exception as exc:
-            logger.error("Tool '%s' raised an exception: %s", tool_name, exc)
-            result = {"success": False, "output": None, "error": str(exc)}
+        except BaseException as exc:
+            logger.error("Tool '%s' raised %s: %r", tool_name, type(exc).__name__, str(exc))
+            result = {"success": False, "output": None, "error": str(exc) or f"{type(exc).__name__} (no message)"}
+            if not isinstance(exc, Exception):
+                raise
 
         # Truncate raw output so the WS event stays under ~4 KB
         raw_output = result.get("output") or result.get("error")
