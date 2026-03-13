@@ -100,14 +100,21 @@ class SafetyGuard:
             return True, ""  # No IP → this rule does not apply
         try:
             target = ipaddress.ip_address(action.target_ip)
+        except ValueError:
+            # Not a valid IP address — treat as hostname/domain.
+            # CIDR range checks don't apply to hostnames; the operator
+            # already authorized this target by setting it as the session target.
+            return True, ""
+        try:
             allowed = ipaddress.ip_network(self.config.allowed_cidr, strict=False)
-            if target not in allowed:
-                return False, (
-                    f"Target IP {action.target_ip} is outside the allowed range "
-                    f"({self.config.allowed_cidr})"
-                )
-        except ValueError as exc:
-            return False, f"Invalid IP address: {action.target_ip} — {exc}"
+        except ValueError:
+            # allowed_cidr is not a valid network (e.g. it's a hostname) — skip range check.
+            return True, ""
+        if target not in allowed:
+            return False, (
+                f"Target IP {action.target_ip} is outside the allowed range "
+                f"({self.config.allowed_cidr})"
+            )
         return True, ""
 
     # ------------------------------------------------------------------

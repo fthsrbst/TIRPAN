@@ -2415,7 +2415,7 @@ async function startMission() {
     const notes = notesInput ? notesInput.value.trim() : '';
 
     if (!target) {
-        showToast('Enter a target IP or CIDR range');
+        showToast('Enter a target IP, CIDR range, or domain');
         if (targetInput) targetInput.focus();
         return;
     }
