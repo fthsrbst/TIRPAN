@@ -29,6 +29,7 @@ The agent scans the network, identifies open services, searches for known exploi
 
 ## Demo
 
+[![AEGIS Demo](https://img.youtube.com/vi/L7qgV6r2qiA/maxresdefault.jpg)](https://youtu.be/L7qgV6r2qiA)
 
 ![AEGIS Dashboard](docs/screenshot.png)
 
@@ -428,8 +429,6 @@ By using this software, you agree that:
 ---
 
 <div align="center">
-
-**Built to become the open-source XBOW.**
 
 [⭐ Star if you find this useful](https://github.com/yourusername/aegis) · [🐛 Report a bug](https://github.com/yourusername/aegis/issues) · [💡 Request a feature](https://github.com/yourusername/aegis/issues)
 
