@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="logo.png" alt="AEGIS Logo" width="180"/>
+
 <h1>AEGIS</h1>
 <h3>Autonomous Ethical Guardrailed Intelligence System</h3>
 
@@ -31,7 +33,6 @@ The agent scans the network, identifies open services, searches for known exploi
 
 [![AEGIS Demo](https://img.youtube.com/vi/L7qgV6r2qiA/maxresdefault.jpg)](https://youtu.be/L7qgV6r2qiA)
 
-![AEGIS Dashboard](docs/screenshot.png)
 
 ---
 
