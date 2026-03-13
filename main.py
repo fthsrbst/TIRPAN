@@ -407,6 +407,7 @@ def main() -> int:
                 host=args.host,
                 port=args.port,
                 reload=reload,
+                reload_excludes=[".venv", "*.pyc", "__pycache__", "data", "reports"],
                 log_level=args.log_level,
             )
         except KeyboardInterrupt:
