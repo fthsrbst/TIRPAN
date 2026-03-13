@@ -11,11 +11,14 @@ Scan tipleri:
 """
 
 import asyncio
+import logging
 import time
 import xml.etree.ElementTree as ET
 
 from models.scan_result import Host, Port, ScanResult
 from tools.base_tool import BaseTool, ToolMetadata
+
+logger = logging.getLogger(__name__)
 
 SCAN_TIMEOUT = 300  # 5 dakika maks
 
@@ -74,6 +77,7 @@ class NmapTool(BaseTool):
 
         cmd = self._build_command(target, scan_type, port_range)
 
+        logger.info("nmap cmd: %s", cmd)
         try:
             start = time.time()
             xml_output = await self._run_nmap(cmd)
@@ -87,7 +91,8 @@ class NmapTool(BaseTool):
         except FileNotFoundError:
             return {"success": False, "output": None, "error": "nmap not found — install nmap first"}
         except Exception as e:
-            return {"success": False, "output": None, "error": str(e)}
+            logger.error("nmap execute failed: %s: %r", type(e).__name__, str(e))
+            return {"success": False, "output": None, "error": str(e) or f"{type(e).__name__} (no message)"}
 
     # ── Internals ──────────────────────────────────────────────────────────────
 
@@ -124,32 +129,38 @@ class NmapTool(BaseTool):
         return base
 
     async def _run_nmap(self, cmd: list[str]) -> str:
+        """Run nmap in a thread pool to avoid asyncio subprocess issues on Windows."""
         from config import settings
 
         stdin_data: bytes | None = None
         if cmd[0] == "sudo" and "-S" in cmd:
-            # Feed password to sudo via stdin (sudo -S reads from stdin)
             stdin_data = (settings.sudo_password + "\n").encode()
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE if stdin_data else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=stdin_data),
-            timeout=SCAN_TIMEOUT,
-        )
-        if proc.returncode != 0:
-            err = stderr.decode()
+        def _run_sync() -> tuple[int, bytes, bytes]:
+            import subprocess as _sp
+            result = _sp.run(
+                cmd,
+                input=stdin_data,
+                stdout=_sp.PIPE,
+                stderr=_sp.PIPE,
+                timeout=SCAN_TIMEOUT,
+            )
+            return result.returncode, result.stdout, result.stderr
+
+        returncode, stdout, stderr = await asyncio.to_thread(_run_sync)
+        logger.debug("nmap returncode=%d stdout_len=%d", returncode, len(stdout))
+
+        if returncode != 0:
+            err = stderr.decode().strip()
+            out = stdout.decode().strip()
             # sudo -n fails when no passwordless sudo is configured — retry without sudo
             if cmd[0] == "sudo" and ("password is required" in err or "a password is required" in err):
                 settings.nmap_sudo = False
                 cmd_no_sudo = [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
                 cmd_no_sudo.insert(0, "nmap")
                 return await self._run_nmap(cmd_no_sudo)
-            raise RuntimeError(f"nmap error: {err}")
+            details = err or out or f"exit code {returncode}"
+            raise RuntimeError(f"nmap failed (rc={returncode}): {details}")
         return stdout.decode()
 
     def _parse_xml(
