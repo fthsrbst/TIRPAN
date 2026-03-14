@@ -80,38 +80,32 @@
 
     <!-- Mission config -->
     <div class="px-6 flex flex-col gap-6">
-      <div class="flex flex-col gap-4">
+      <div class="flex flex-col gap-3">
 
-        <div class="flex flex-col gap-1.5">
-          <label class="text-[11px] font-display font-bold text-secondary-text uppercase tracking-widest">Target IP / CIDR / Domain</label>
-          <input id="mission-target" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm focus:border-primary transition-colors" placeholder="192.168.1.1 or 10.0.0.0/24 or example.com" type="text"/>
-        </div>
+        <!-- New Mission → full-page config view -->
+        <button onclick="openAdvModal()"
+          class="w-full bg-primary text-black font-display font-bold text-sm py-3 uppercase tracking-tighter hover:brightness-90 transition-all flex items-center justify-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">add_circle</span>
+          New Mission
+        </button>
 
-        <div class="flex flex-col gap-1.5">
-          <label class="text-[11px] font-display font-bold text-secondary-text uppercase tracking-widest">Mode</label>
-          <select id="mission-mode" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm appearance-none cursor-pointer">
-            <option value="scan_only">SCAN ONLY</option>
-            <option value="full_auto">FULL AUTO</option>
-            <option value="ask_before_exploit">ASK BEFORE EXPLOIT</option>
-          </select>
-        </div>
-
-        <!-- Quick port range (inline) -->
-        <div class="flex flex-col gap-1">
-          <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Port Range</label>
-          <input id="mission-port-range" class="bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-xs focus:border-primary transition-colors" placeholder="1-65535 or 9021,9022,9080" type="text" value="1-65535"/>
-        </div>
-
-        <!-- Launch buttons -->
-        <div class="flex gap-2 mt-2">
-          <button id="start-mission-btn" class="flex-1 bg-primary text-black font-display font-bold text-sm py-2.5 px-3 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
-            Launch
-          </button>
-          <button onclick="openAdvModal()" title="Advanced Configuration"
-            class="w-10 h-10 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors rounded-full shrink-0">
-            <span class="material-symbols-outlined text-[18px]">tune</span>
+        <!-- Quick launch row (last-used target) -->
+        <div class="flex gap-2">
+          <input id="mission-target" class="flex-1 min-w-0 bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-xs font-mono focus:border-primary transition-colors" placeholder="quick target override…" type="text"/>
+          <button id="start-mission-btn" title="Quick launch (last settings)"
+            class="shrink-0 w-9 h-9 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[18px]">play_arrow</span>
           </button>
         </div>
+        <p class="text-[9px] text-secondary-text -mt-1">Quick launch reuses last settings · <button class="text-primary/60 hover:text-primary underline" onclick="openAdvModal()">full config →</button></p>
+
+        <!-- Hidden compat fields consumed by startMission() -->
+        <select id="mission-mode" class="hidden">
+          <option value="scan_only">SCAN ONLY</option>
+          <option value="full_auto">FULL AUTO</option>
+          <option value="ask_before_exploit">ASK BEFORE EXPLOIT</option>
+        </select>
+        <input id="mission-port-range" type="hidden" value="1-65535"/>
       </div>
 
       <!-- Stats grid -->
@@ -155,6 +149,10 @@
 
     <!-- Bottom nav -->
     <div class="p-6 flex flex-col gap-3 shrink-0">
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="mission">
+        <span class="material-symbols-outlined text-sm">tune</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Mission</span>
+      </div>
       <div class="bottom-nav-item flex items-center gap-3 text-primary cursor-pointer hover:text-primary transition-colors" data-view="agent">
         <span class="material-symbols-outlined text-sm" style='font-variation-settings: "FILL" 1;'>psychology</span>
         <span class="text-xs font-medium uppercase tracking-wider">Agent</span>
@@ -429,10 +427,18 @@
             <span class="material-symbols-outlined text-[14px]">bolt</span>
             <span class="text-[10px] font-mono font-bold tracking-wider">MSFCONSOLE</span>
           </div>
+
+          <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="shells">
+            <span class="material-symbols-outlined text-[14px]">cable</span>
+            <span class="text-[10px] font-mono font-bold tracking-wider">SHELLS</span>
+            <span id="shell-count-badge" class="hidden bg-danger text-white text-[8px] font-bold px-1.5 rounded-full leading-tight animate-pulse">0</span>
+          </div>
+
+          <div class="console-tab px-4 h-full flex items-center gap-2 border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="terminal">
+            <span class="material-symbols-outlined text-[14px]">keyboard</span>
+            <span class="text-[10px] font-mono font-bold tracking-wider">TERMINAL</span>
+          </div>
         </div>
-        <button class="p-1 ml-2 text-secondary-text hover:text-white">
-          <span class="material-symbols-outlined text-[18px]">add</span>
-        </button>
       </div>
 
       <!-- Terminal body: BASH — live agent event log -->
@@ -456,6 +462,45 @@
         <div id="console-msf-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none">
           <span class="material-symbols-outlined text-3xl opacity-40">bolt</span>
           <span class="text-[11px] tracking-widest uppercase opacity-60">No Metasploit activity yet</span>
+        </div>
+      </div>
+
+      <!-- Terminal body: SHELLS — reverse shell session manager -->
+      <div id="console-shells" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="shells">
+        <!-- Sub-tab bar for individual shell sessions -->
+        <div id="shell-subtab-bar" class="flex items-center bg-black/80 border-b border-border-color shrink-0 px-2 h-8 gap-1 overflow-x-auto scrollbar-hide">
+          <div id="shell-empty-msg" class="flex items-center gap-2 text-[10px] text-secondary-text italic px-2">
+            <span class="material-symbols-outlined text-[14px] opacity-40">cable</span>
+            Waiting for reverse shell… set up listener with <code class="text-primary/70 bg-white/5 px-1">nc -lvnp 4444</code>
+          </div>
+        </div>
+        <!-- Shell output -->
+        <div id="shell-output-area" class="flex-1 overflow-y-auto p-4 font-mono text-xs text-green-400 scrollbar-hide leading-relaxed"></div>
+        <!-- Shell input line -->
+        <div id="shell-input-row" class="hidden border-t border-border-color bg-black/90 px-3 py-2.5 flex items-center gap-3 shrink-0">
+          <span id="shell-prompt" class="text-green-400 font-mono text-xs shrink-0 select-none">shell#</span>
+          <input id="shell-cmd-input" class="flex-1 bg-transparent text-green-300 font-mono text-xs outline-none border-none caret-green-400" placeholder="type command and press Enter…" type="text" autocomplete="off" spellcheck="false"/>
+          <button onclick="sendShellCommand()" class="text-secondary-text hover:text-primary transition-colors shrink-0">
+            <span class="material-symbols-outlined text-[16px]">send</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Terminal body: TERMINAL — interactive agent terminal -->
+      <div id="console-terminal" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="terminal">
+        <!-- Output history -->
+        <div id="terminal-output" class="flex-1 overflow-y-auto p-4 font-mono text-xs scrollbar-hide flex flex-col gap-0.5">
+          <div class="text-secondary-text select-none mb-3 border-b border-border-color pb-3">
+            <p class="text-primary font-bold mb-1">AEGIS Interactive Terminal</p>
+            <p>Commands typed here are injected directly into the active agent session.</p>
+            <p class="text-secondary-text/60 mt-1">Type <span class="text-primary">/help</span> for built-in commands · <span class="text-primary">/shells</span> to list active reverse shells</p>
+          </div>
+        </div>
+        <!-- Input bar -->
+        <div class="border-t border-border-color bg-black/90 px-4 py-2.5 flex items-center gap-3 shrink-0">
+          <span class="text-primary font-mono text-xs shrink-0 select-none">aegis&gt;</span>
+          <input id="terminal-cmd-input" class="flex-1 bg-transparent text-slate-200 font-mono text-xs outline-none border-none caret-primary" placeholder="inject task, instruction, or command to active agent…" type="text" autocomplete="off" spellcheck="false"/>
+          <kbd class="text-[9px] text-secondary-text font-mono shrink-0 select-none">↵ Enter</kbd>
         </div>
       </div>
     </div>
@@ -1783,6 +1828,406 @@
       </div>
     </div>
 
+    <!-- ── VIEW: MISSION CONFIGURATION ──────────────────────────────────── -->
+    <div id="view-mission" class="hidden flex-1 flex flex-col min-h-0 bg-background-dark">
+
+      <!-- Top bar -->
+      <div class="px-6 py-4 bg-surface border-b border-border-color flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-4">
+          <button onclick="closeAdvModal()" class="flex items-center gap-1.5 text-secondary-text hover:text-white transition-colors text-[11px] font-display uppercase tracking-wider">
+            <span class="material-symbols-outlined text-[16px]">arrow_back</span> Back
+          </button>
+          <div class="w-px h-5 bg-border-color"></div>
+          <span class="material-symbols-outlined text-primary text-[18px]">tune</span>
+          <span class="font-display font-bold text-sm uppercase tracking-widest">Mission Configuration</span>
+          <span id="adv-footer-status" class="text-[10px] text-secondary-text hidden sm:inline"></span>
+        </div>
+        <button onclick="launchAdvancedMission()" id="adv-launch-btn"
+          class="bg-primary text-black font-display font-bold text-sm py-2.5 px-8 uppercase tracking-tighter hover:brightness-90 transition-all flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">rocket_launch</span>
+          Launch Mission
+        </button>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="flex border-b border-border-color shrink-0 overflow-x-auto bg-surface">
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="targets">01 Targets</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="scope">02 Scope</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="credentials">03 Credentials</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="discovery">04 Discovery</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="policy">05 Policy</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap" data-tab="profiles">06 Profiles</button>
+      </div>
+
+      <!-- Tab bodies (scrollable area) -->
+      <div class="flex-1 overflow-y-auto">
+
+        <!-- ── TAB 1: TARGETS ─────────────────────────────────────────────── -->
+        <div id="adv-tab-targets" class="adv-tab-body max-w-5xl mx-auto px-8 py-6 flex flex-col gap-6">
+
+          <!-- Mission Briefing — primary LLM context field -->
+          <div class="flex flex-col gap-2">
+            <label class="adv-label flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px]">psychology</span>
+              Mission Briefing
+              <span class="text-secondary-text font-normal normal-case text-[9px] ml-1">injected as agent context — describe goals, constraints, what happens after key objectives</span>
+            </label>
+            <textarea id="adv-mission-briefing" class="adv-input h-36 resize-y" placeholder="Describe what the agent should achieve in plain language.
+
+Examples:
+• Scan 192.168.1.0/24, find open ports and services, identify CVEs — no exploitation.
+• Get a reverse shell on 10.0.0.5. Once you have shell access, stop and notify me — I'll take over from there.
+• Audit the web app at https://target.com — test for SQLi, XSS, broken auth. Do NOT brute-force.
+• Internal AD audit: enumerate users, find misconfigs, check for pass-the-hash opportunities."></textarea>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="flex flex-col gap-1.5">
+              <label class="adv-label">Primary Target</label>
+              <input id="adv-primary-target" class="adv-input font-mono" placeholder="192.168.1.0/24  or  10.0.0.5  or  example.com" type="text"/>
+              <p class="text-[9px] text-secondary-text">IP, CIDR, hostname, or URL</p>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <label class="adv-label">Target Type</label>
+              <select id="adv-target-type" class="adv-select">
+                <option value="auto">Auto-detect</option>
+                <option value="ip">Single IP</option>
+                <option value="cidr">IP Range / CIDR</option>
+                <option value="domain">Domain / Hostname</option>
+                <option value="webapp">Web Application (URL)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="flex flex-col gap-1.5">
+              <label class="adv-label">Mission Name <span class="text-secondary-text font-normal normal-case">(optional label)</span></label>
+              <input id="adv-mission-name" class="adv-input" placeholder="e.g. Internal Network Q1 2026" type="text"/>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <label class="adv-label">Known Technology Stack</label>
+              <input id="adv-known-tech" class="adv-input font-mono" placeholder="nginx/1.24, php/8.1 (comma-separated)"/>
+              <p class="text-[9px] text-secondary-text">Skip auto-discovery for known components</p>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="adv-label">Mode</label>
+            <div class="flex gap-2">
+              <button class="adv-mode-btn active flex-1" data-mode="scan_only">Scan Only</button>
+              <button class="adv-mode-btn flex-1" data-mode="ask_before_exploit">Ask Before Exploit</button>
+              <button class="adv-mode-btn flex-1" data-mode="full_auto">Full Auto</button>
+            </div>
+            <p id="adv-mode-desc" class="text-[9px] text-secondary-text">Scan and identify vulnerabilities — no exploitation.</p>
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <label class="adv-label">Additional Targets</label>
+              <button onclick="advAddAdditionalTarget()" class="adv-btn-sm">+ Add Target</button>
+            </div>
+            <div id="adv-additional-targets" class="flex flex-col gap-2"></div>
+          </div>
+        </div>
+
+        <!-- ── TAB 2: SCOPE & EXCLUSIONS ──────────────────────────────────── -->
+        <div id="adv-tab-scope" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-5">
+
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="adv-label">Allowed Scope (In-Scope CIDRs)</label>
+                <p class="text-[9px] text-secondary-text">Agent will only interact with hosts within these ranges</p>
+              </div>
+              <button onclick="advAddScopeEntry()" class="adv-btn-sm">+ Add CIDR</button>
+            </div>
+            <div id="adv-scope-entries" class="flex flex-col gap-2">
+              <div class="adv-scope-row flex gap-2">
+                <input class="adv-input flex-1 font-mono" placeholder="10.0.0.0/8" value="10.0.0.0/8"/>
+                <button onclick="this.closest('.adv-scope-row').remove()" class="w-8 h-8 flex items-center justify-center text-secondary-text hover:text-danger transition-colors shrink-0"><span class="material-symbols-outlined text-sm">delete</span></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-5 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="adv-label flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-danger animate-pulse"></span>
+                  Never-Scan List (HARD BLOCK)
+                </label>
+                <p class="text-[9px] text-secondary-text">Agent will NEVER touch these IPs/ranges — safety violation if attempted</p>
+              </div>
+              <button onclick="advAddNeverScanEntry()" class="adv-btn-sm border-danger/40 text-danger hover:border-danger">+ Add Entry</button>
+            </div>
+            <div id="adv-global-never-scan" class="flex flex-col gap-1">
+              <p class="text-[9px] text-secondary-text/60 uppercase tracking-wider">Global (persistent)</p>
+            </div>
+            <div id="adv-never-scan-entries" class="flex flex-col gap-2 mt-1"></div>
+            <div class="flex items-center gap-2 mt-1">
+              <input id="adv-save-never-scan" type="checkbox" class="accent-primary"/>
+              <label class="text-[10px] text-secondary-text cursor-pointer" for="adv-save-never-scan">Save new entries globally (persist across sessions)</label>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-5 flex flex-col gap-1.5">
+            <label class="adv-label">Scope Notes <span class="text-secondary-text font-normal normal-case">(appended to every LLM prompt)</span></label>
+            <textarea id="adv-scope-notes" class="adv-input h-24 resize-none" placeholder="e.g. Production system — only scan ports 80 and 443. Do not pivot to 172.16.0.0/12."></textarea>
+          </div>
+        </div>
+
+        <!-- ── TAB 3: CREDENTIALS ──────────────────────────────────────────── -->
+        <div id="adv-tab-credentials" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-5">
+
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">terminal</span>SSH Credentials</label>
+              <button onclick="advAddSSHCred()" class="adv-btn-sm">+ Add SSH</button>
+            </div>
+            <div id="adv-ssh-creds" class="flex flex-col gap-3"></div>
+            <div id="adv-saved-creds" class="flex flex-col gap-1.5 mt-1">
+              <p class="text-[9px] text-secondary-text/60 uppercase tracking-wider">Saved credentials</p>
+              <div id="adv-saved-creds-list" class="flex flex-col gap-1"></div>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">desktop_windows</span>Windows / SMB</label>
+              <button onclick="advAddSMBCred()" class="adv-btn-sm">+ Add SMB</button>
+            </div>
+            <div id="adv-smb-creds" class="flex flex-col gap-3"></div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">router</span>SNMP</label>
+              <button onclick="advAddSNMPCred()" class="adv-btn-sm">+ Add SNMP</button>
+            </div>
+            <div id="adv-snmp-creds" class="flex flex-col gap-3"></div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">storage</span>Database</label>
+              <button onclick="advAddDBCred()" class="adv-btn-sm">+ Add Database</button>
+            </div>
+            <div id="adv-db-creds" class="flex flex-col gap-3"></div>
+          </div>
+
+          <div class="flex items-center gap-2 border-t border-border-color pt-4">
+            <input id="adv-save-creds" type="checkbox" class="accent-primary" checked/>
+            <label class="text-[10px] text-secondary-text cursor-pointer" for="adv-save-creds">Save credentials to encrypted store for reuse in future sessions</label>
+          </div>
+        </div>
+
+        <!-- ── TAB 4: DISCOVERY ────────────────────────────────────────────── -->
+        <div id="adv-tab-discovery" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-5">
+
+          <div class="flex flex-col gap-2">
+            <label class="adv-label">Speed Profile</label>
+            <div class="grid grid-cols-3 gap-3">
+              <button class="adv-speed-btn" data-speed="stealth">
+                <span class="material-symbols-outlined text-2xl mb-1">visibility_off</span>
+                <span class="font-bold text-xs uppercase tracking-wider">Stealth</span>
+                <span class="text-[9px] text-secondary-text mt-1">T1 · IDS evasion · Production</span>
+              </button>
+              <button class="adv-speed-btn active" data-speed="normal">
+                <span class="material-symbols-outlined text-2xl mb-1">balance</span>
+                <span class="font-bold text-xs uppercase tracking-wider">Normal</span>
+                <span class="text-[9px] text-secondary-text mt-1">T3 · Balanced · Default</span>
+              </button>
+              <button class="adv-speed-btn" data-speed="aggressive">
+                <span class="material-symbols-outlined text-2xl mb-1">bolt</span>
+                <span class="font-bold text-xs uppercase tracking-wider">Aggressive</span>
+                <span class="text-[9px] text-secondary-text mt-1">T5 · Max speed · Lab/CTF only</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <label class="adv-label">Host Discovery Methods</label>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-icmp" checked/> <span>ICMP Echo (Ping)</span></label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-tcp-syn"/> <span>TCP SYN Probe (80, 443)</span></label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-arp" checked/> <span>ARP (local network)</span></label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-udp"/> <span>UDP Probe</span></label>
+              <label class="adv-check-row col-span-2"><input type="checkbox" class="accent-primary" id="disc-assume-alive"/> <span>Assume all hosts alive (skip discovery)</span></label>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-3">
+            <label class="adv-label">Port Scanning</label>
+
+            <div class="flex flex-col gap-1.5">
+              <label class="text-[10px] text-secondary-text uppercase tracking-wider">Scan Type</label>
+              <div class="flex gap-2 flex-wrap">
+                <button class="adv-scan-type-btn active" data-stype="syn">SYN Stealth</button>
+                <button class="adv-scan-type-btn" data-stype="connect">TCP Connect</button>
+                <button class="adv-scan-type-btn" data-stype="udp">UDP</button>
+                <button class="adv-scan-type-btn" data-stype="full">Full (SYN+UDP+OS)</button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div class="flex flex-col gap-1.5">
+                <label class="text-[10px] text-secondary-text uppercase tracking-wider">Port Range</label>
+                <div class="flex gap-1.5 flex-wrap">
+                  <button class="adv-port-preset" data-range="1-1024">Top 1024</button>
+                  <button class="adv-port-preset" data-range="1-65535">All Ports</button>
+                  <button class="adv-port-preset" data-range="21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080">Common</button>
+                </div>
+                <input id="adv-port-range" class="adv-input font-mono text-xs" value="1-65535" placeholder="1-65535 or 22,80,443"/>
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <label class="text-[10px] text-secondary-text uppercase tracking-wider">Service Version Intensity (0-9)</label>
+                <div class="flex items-center gap-3">
+                  <input id="adv-version-intensity" type="range" min="0" max="9" value="5" class="flex-1 accent-primary"/>
+                  <span id="adv-version-intensity-val" class="text-primary font-mono text-sm w-4">5</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="adv-os-detect"/> <span>OS Detection (-O)</span></label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="adv-version-detect" checked/> <span>Version Detection (-sV)</span></label>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <label class="adv-label">NSE Script Categories</label>
+            <div class="grid grid-cols-3 gap-2">
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="auth"/> auth</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="default" checked/> default</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="discovery"/> discovery</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="vuln"/> vuln</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="safe"/> safe</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="version"/> version</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="brute"/> brute</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="intrusive"/> intrusive ⚠</label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="malware"/> malware</label>
+            </div>
+            <input id="adv-custom-scripts" class="adv-input font-mono text-xs" placeholder="Custom scripts (e.g. smb-vuln-ms17-010,http-shellshock)"/>
+          </div>
+        </div>
+
+        <!-- ── TAB 5: SCAN POLICY ──────────────────────────────────────────── -->
+        <div id="adv-tab-policy" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-5">
+
+          <div class="flex flex-col gap-3">
+            <label class="adv-label">Exploitation Permissions</label>
+            <div class="flex flex-col gap-2.5 p-4 border border-border-color bg-card">
+              <label class="adv-check-row">
+                <input type="checkbox" class="accent-primary" id="pol-allow-exploit"/>
+                <div><span class="font-semibold">Allow Exploitation</span><p class="text-[9px] text-secondary-text">Agent may run Metasploit modules against discovered vulnerabilities</p></div>
+              </label>
+              <label class="adv-check-row pl-4 border-l-2 border-border-color">
+                <input type="checkbox" class="accent-primary" id="pol-allow-post" disabled/>
+                <div><span class="font-semibold">Allow Post-Exploitation</span><p class="text-[9px] text-secondary-text">whoami, network discovery, credential files (requires exploitation)</p></div>
+              </label>
+              <label class="adv-check-row pl-4 border-l-2 border-border-color">
+                <input type="checkbox" class="accent-primary" id="pol-allow-lateral" disabled/>
+                <div><span class="font-semibold">Allow Lateral Movement</span><p class="text-[9px] text-secondary-text">Agent pivots into internal subnets discovered during post-exploitation</p></div>
+              </label>
+              <label class="adv-check-row pl-4 border-l-2 border-border-color">
+                <input type="checkbox" class="accent-primary" id="pol-allow-docker" disabled/>
+                <div><span class="font-semibold">Allow Docker Escape</span><p class="text-[9px] text-secondary-text">Attempt container escape if containerised environment detected</p></div>
+              </label>
+              <label class="adv-check-row">
+                <input type="checkbox" class="accent-primary" id="pol-allow-browser"/>
+                <div><span class="font-semibold">Allow Browser Recon</span><p class="text-[9px] text-secondary-text">Playwright headless browser for web application recon</p></div>
+              </label>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 grid grid-cols-2 gap-4">
+            <div class="flex flex-col gap-1.5">
+              <label class="adv-label">Max Exploit Severity (CVSS)</label>
+              <select id="pol-max-severity" class="adv-select">
+                <option value="CRITICAL">CRITICAL (10.0)</option>
+                <option value="HIGH">HIGH (8.9)</option>
+                <option value="MEDIUM">MEDIUM (6.9)</option>
+                <option value="LOW">LOW (3.9)</option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <label class="adv-label">Session Time Limit</label>
+              <div class="flex gap-2">
+                <input id="pol-time-limit" class="adv-input" type="number" min="60" value="3600" placeholder="seconds"/>
+                <span class="self-center text-secondary-text text-xs">sec</span>
+              </div>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <label class="adv-label">Rate Limit (req/s)</label>
+              <input id="pol-rate-limit" class="adv-input" type="number" min="1" value="10"/>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <label class="adv-label">Safety Guards (always enforced)</label>
+            <div class="flex flex-col gap-2 p-3 border border-border-color bg-card">
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="pol-block-dos" checked disabled/> <span>Block DoS / Flooding exploits</span></label>
+              <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="pol-block-destructive" checked disabled/> <span>Block destructive payloads (wipe, ransomware, format)</span></label>
+            </div>
+            <p class="text-[9px] text-secondary-text">These rules are hardcoded and cannot be disabled from this UI.</p>
+          </div>
+        </div>
+
+        <!-- ── TAB 6: PROFILES ─────────────────────────────────────────────── -->
+        <div id="adv-tab-profiles" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-5">
+
+          <div class="flex flex-col gap-2">
+            <label class="adv-label">Load a Saved Profile</label>
+            <div class="flex gap-2">
+              <select id="adv-profile-select" class="adv-select flex-1"><option value="">— Select profile —</option></select>
+              <button onclick="advLoadProfile()" class="adv-btn-sm px-4">Load</button>
+              <button onclick="advDeleteProfile()" class="adv-btn-sm px-3 border-danger/40 text-danger hover:border-danger">Delete</button>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <label class="adv-label">Quick Preset Profiles</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="advLoadPreset('quick_discovery')" class="adv-preset-card">
+                <span class="material-symbols-outlined text-primary">search</span>
+                <div class="text-left"><p class="font-semibold text-xs">Quick Discovery</p><p class="text-[9px] text-secondary-text">Ping sweep + top 1024 ports, no exploitation</p></div>
+              </button>
+              <button onclick="advLoadPreset('full_network_audit')" class="adv-preset-card">
+                <span class="material-symbols-outlined text-primary">network_check</span>
+                <div class="text-left"><p class="font-semibold text-xs">Full Network Audit</p><p class="text-[9px] text-secondary-text">All ports, OS detection, vuln scripts, no exploitation</p></div>
+              </button>
+              <button onclick="advLoadPreset('web_app_scan')" class="adv-preset-card">
+                <span class="material-symbols-outlined text-primary">language</span>
+                <div class="text-left"><p class="font-semibold text-xs">Web Application</p><p class="text-[9px] text-secondary-text">HTTP/HTTPS focus, web scripts, browser recon</p></div>
+              </button>
+              <button onclick="advLoadPreset('stealth_recon')" class="adv-preset-card">
+                <span class="material-symbols-outlined text-primary">visibility_off</span>
+                <div class="text-left"><p class="font-semibold text-xs">Stealth Recon</p><p class="text-[9px] text-secondary-text">T1 timing, minimal footprint, production-safe</p></div>
+              </button>
+            </div>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <label class="adv-label">Save Current Configuration as Profile</label>
+            <div class="flex gap-2">
+              <input id="adv-profile-name" class="adv-input flex-1" placeholder="Profile name (e.g. Internal Audit)"/>
+              <button onclick="advSaveProfile()" class="adv-btn-sm px-4 bg-primary text-black border-primary">Save</button>
+            </div>
+            <input id="adv-profile-desc" class="adv-input" placeholder="Description (optional)"/>
+          </div>
+
+          <div class="border-t border-border-color pt-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <label class="adv-label">Tool Health Status</label>
+              <button onclick="advRefreshToolStatus()" class="adv-btn-sm">Refresh</button>
+            </div>
+            <div id="adv-tool-status" class="flex flex-col gap-1.5"></div>
+          </div>
+        </div>
+
+      </div><!-- end tab bodies -->
+    </div><!-- end view-mission -->
+
   </main>
 
   <!-- ─── RIGHT SIDEBAR ─────────────────────────────────────────────────── -->
@@ -2359,431 +2804,11 @@
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 
-<!-- ═══════════════════════════════════════════════════════════════════════════
-     ADVANCED SCAN CONFIGURATION MODAL  (Nessus-style 6-tab popup)
-════════════════════════════════════════════════════════════════════════════ -->
-<div id="adv-config-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center">
-  <!-- Backdrop -->
-  <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="closeAdvModal()"></div>
-
-  <!-- Modal container -->
-  <div class="relative w-[960px] max-w-[96vw] max-h-[90vh] bg-surface border border-border-color flex flex-col shadow-2xl">
-
-    <!-- Header -->
-    <div class="flex items-center justify-between px-6 py-4 border-b border-border-color shrink-0">
-      <div class="flex items-center gap-3">
-        <span class="material-symbols-outlined text-primary text-xl">tune</span>
-        <div>
-          <h2 class="font-display font-bold text-sm uppercase tracking-widest">Advanced Scan Configuration</h2>
-          <p class="text-[10px] text-secondary-text mt-0.5">Enterprise-grade scan setup — Nessus / Greenbone style</p>
-        </div>
-      </div>
-      <button onclick="closeAdvModal()" class="w-8 h-8 flex items-center justify-center text-secondary-text hover:text-white transition-colors">
-        <span class="material-symbols-outlined">close</span>
-      </button>
-    </div>
-
-    <!-- Tab bar -->
-    <div class="flex border-b border-border-color shrink-0 overflow-x-auto">
-      <button class="adv-tab-btn px-5 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="targets">01 Targets</button>
-      <button class="adv-tab-btn px-5 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="scope">02 Scope</button>
-      <button class="adv-tab-btn px-5 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="credentials">03 Credentials</button>
-      <button class="adv-tab-btn px-5 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="discovery">04 Discovery</button>
-      <button class="adv-tab-btn px-5 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="policy">05 Policy</button>
-      <button class="adv-tab-btn px-5 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap" data-tab="profiles">06 Profiles</button>
-    </div>
-
-    <!-- Tab bodies -->
-    <div class="flex-1 overflow-y-auto">
-
-      <!-- ── TAB 1: TARGETS ──────────────────────────────────────────────── -->
-      <div id="adv-tab-targets" class="adv-tab-body p-6 flex flex-col gap-5">
-        <div class="grid grid-cols-2 gap-4">
-          <div class="flex flex-col gap-1.5">
-            <label class="adv-label">Mission Name</label>
-            <input id="adv-mission-name" class="adv-input" placeholder="e.g. Internal Network Q1 2026" type="text"/>
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <label class="adv-label">Target Type</label>
-            <select id="adv-target-type" class="adv-select">
-              <option value="auto">Auto-detect</option>
-              <option value="ip">Single IP</option>
-              <option value="cidr">IP Range / CIDR</option>
-              <option value="domain">Domain / Hostname</option>
-              <option value="webapp">Web Application (URL)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <label class="adv-label">Primary Target</label>
-          <input id="adv-primary-target" class="adv-input font-mono" placeholder="192.168.1.0/24  or  10.0.0.5  or  example.com"/>
-          <p class="text-[9px] text-secondary-text">IP, CIDR range, hostname, or URL</p>
-        </div>
-
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label class="adv-label">Additional Targets</label>
-            <button onclick="advAddAdditionalTarget()" class="adv-btn-sm">+ Add Target</button>
-          </div>
-          <div id="adv-additional-targets" class="flex flex-col gap-2"></div>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <label class="adv-label">Mode</label>
-          <div class="flex gap-2">
-            <button class="adv-mode-btn active" data-mode="scan_only">Scan Only</button>
-            <button class="adv-mode-btn" data-mode="ask_before_exploit">Ask Before Exploit</button>
-            <button class="adv-mode-btn" data-mode="full_auto">Full Auto</button>
-          </div>
-          <p id="adv-mode-desc" class="text-[9px] text-secondary-text">Scan and identify vulnerabilities — no exploitation.</p>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <label class="adv-label">Known Technology Stack <span class="text-secondary-text font-normal normal-case">(skip re-discovery)</span></label>
-          <input id="adv-known-tech" class="adv-input font-mono" placeholder="nginx/1.24, php/8.1, wordpress/6.4 (comma-separated)"/>
-        </div>
-      </div>
-
-      <!-- ── TAB 2: SCOPE & EXCLUSIONS ──────────────────────────────────── -->
-      <div id="adv-tab-scope" class="adv-tab-body hidden p-6 flex flex-col gap-5">
-
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <div>
-              <label class="adv-label">Allowed Scope (In-Scope CIDRs)</label>
-              <p class="text-[9px] text-secondary-text">Agent will only interact with hosts within these ranges</p>
-            </div>
-            <button onclick="advAddScopeEntry()" class="adv-btn-sm">+ Add CIDR</button>
-          </div>
-          <div id="adv-scope-entries" class="flex flex-col gap-2">
-            <div class="adv-scope-row flex gap-2">
-              <input class="adv-input flex-1 font-mono" placeholder="10.0.0.0/8" value="10.0.0.0/8"/>
-              <button onclick="this.closest('.adv-scope-row').remove()" class="w-8 h-8 flex items-center justify-center text-secondary-text hover:text-danger transition-colors shrink-0"><span class="material-symbols-outlined text-sm">delete</span></button>
-            </div>
-          </div>
-        </div>
-
-        <div class="border-t border-border-color pt-5 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <div>
-              <label class="adv-label flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-danger animate-pulse"></span>
-                Never-Scan List (HARD BLOCK)
-              </label>
-              <p class="text-[9px] text-secondary-text">Agent will NEVER touch these IPs/ranges — safety violation if attempted</p>
-            </div>
-            <button onclick="advAddNeverScanEntry()" class="adv-btn-sm border-danger/40 text-danger hover:border-danger">+ Add Entry</button>
-          </div>
-
-          <!-- Saved global never-scan entries from DB -->
-          <div id="adv-global-never-scan" class="flex flex-col gap-1">
-            <p class="text-[9px] text-secondary-text/60 uppercase tracking-wider">Global (persistent)</p>
-          </div>
-
-          <!-- Session-level never-scan -->
-          <div id="adv-never-scan-entries" class="flex flex-col gap-2 mt-1"></div>
-          <div class="flex items-center gap-2 mt-1">
-            <input id="adv-save-never-scan" type="checkbox" class="accent-primary"/>
-            <label class="text-[10px] text-secondary-text cursor-pointer" for="adv-save-never-scan">Save new entries globally (persist across sessions)</label>
-          </div>
-        </div>
-
-        <div class="border-t border-border-color pt-5 flex flex-col gap-1.5">
-          <label class="adv-label">Scope Notes <span class="text-secondary-text font-normal normal-case">(injected into every LLM prompt)</span></label>
-          <textarea id="adv-scope-notes" class="adv-input h-24 resize-none" placeholder="e.g. Production system — only scan ports 80 and 443. Do not pivot to 172.16.0.0/12."></textarea>
-        </div>
-      </div>
-
-      <!-- ── TAB 3: CREDENTIALS ──────────────────────────────────────────── -->
-      <div id="adv-tab-credentials" class="adv-tab-body hidden p-6 flex flex-col gap-5">
-
-        <!-- SSH Credentials -->
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">terminal</span>SSH Credentials</label>
-            <button onclick="advAddSSHCred()" class="adv-btn-sm">+ Add SSH</button>
-          </div>
-          <div id="adv-ssh-creds" class="flex flex-col gap-3"></div>
-
-          <!-- Saved SSH creds from DB -->
-          <div id="adv-saved-creds" class="flex flex-col gap-1.5">
-            <p class="text-[9px] text-secondary-text/60 uppercase tracking-wider">Saved credentials</p>
-            <div id="adv-saved-creds-list" class="flex flex-col gap-1"></div>
-          </div>
-        </div>
-
-        <!-- Windows/SMB -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">desktop_windows</span>Windows / SMB Credentials</label>
-            <button onclick="advAddSMBCred()" class="adv-btn-sm">+ Add SMB</button>
-          </div>
-          <div id="adv-smb-creds" class="flex flex-col gap-3"></div>
-        </div>
-
-        <!-- SNMP -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">router</span>SNMP Credentials</label>
-            <button onclick="advAddSNMPCred()" class="adv-btn-sm">+ Add SNMP</button>
-          </div>
-          <div id="adv-snmp-creds" class="flex flex-col gap-3"></div>
-        </div>
-
-        <!-- Database -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label class="adv-label flex items-center gap-2"><span class="material-symbols-outlined text-[14px] text-primary">storage</span>Database Credentials</label>
-            <button onclick="advAddDBCred()" class="adv-btn-sm">+ Add Database</button>
-          </div>
-          <div id="adv-db-creds" class="flex flex-col gap-3"></div>
-        </div>
-
-        <div class="flex items-center gap-2 border-t border-border-color pt-4">
-          <input id="adv-save-creds" type="checkbox" class="accent-primary" checked/>
-          <label class="text-[10px] text-secondary-text cursor-pointer" for="adv-save-creds">Save credentials to encrypted store for reuse in future sessions</label>
-        </div>
-      </div>
-
-      <!-- ── TAB 4: DISCOVERY ────────────────────────────────────────────── -->
-      <div id="adv-tab-discovery" class="adv-tab-body hidden p-6 flex flex-col gap-5">
-
-        <!-- Speed Profile -->
-        <div class="flex flex-col gap-2">
-          <label class="adv-label">Speed Profile</label>
-          <div class="grid grid-cols-3 gap-3">
-            <button class="adv-speed-btn" data-speed="stealth">
-              <span class="material-symbols-outlined text-2xl mb-1">visibility_off</span>
-              <span class="font-bold text-xs uppercase tracking-wider">Stealth</span>
-              <span class="text-[9px] text-secondary-text mt-1">T1 · IDS evasion · Production</span>
-            </button>
-            <button class="adv-speed-btn active" data-speed="normal">
-              <span class="material-symbols-outlined text-2xl mb-1">balance</span>
-              <span class="font-bold text-xs uppercase tracking-wider">Normal</span>
-              <span class="text-[9px] text-secondary-text mt-1">T3 · Balanced · Default</span>
-            </button>
-            <button class="adv-speed-btn" data-speed="aggressive">
-              <span class="material-symbols-outlined text-2xl mb-1">bolt</span>
-              <span class="font-bold text-xs uppercase tracking-wider">Aggressive</span>
-              <span class="text-[9px] text-secondary-text mt-1">T5 · Max speed · Lab/CTF only</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Host Discovery -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <label class="adv-label">Host Discovery Methods</label>
-          <div class="grid grid-cols-2 gap-2">
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-icmp" checked/> <span>ICMP Echo (Ping)</span></label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-tcp-syn"/> <span>TCP SYN Probe (80, 443)</span></label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-arp" checked/> <span>ARP (local network)</span></label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="disc-udp"/> <span>UDP Probe</span></label>
-            <label class="adv-check-row col-span-2"><input type="checkbox" class="accent-primary" id="disc-assume-alive"/> <span>Assume all hosts alive (skip discovery — use for known hosts)</span></label>
-          </div>
-        </div>
-
-        <!-- Port Scanning -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-3">
-          <label class="adv-label">Port Scanning</label>
-
-          <div class="flex flex-col gap-1.5">
-            <label class="text-[10px] text-secondary-text uppercase tracking-wider">Scan Type</label>
-            <div class="flex gap-2 flex-wrap">
-              <button class="adv-scan-type-btn active" data-stype="syn">SYN Stealth</button>
-              <button class="adv-scan-type-btn" data-stype="connect">TCP Connect</button>
-              <button class="adv-scan-type-btn" data-stype="udp">UDP</button>
-              <button class="adv-scan-type-btn" data-stype="full">Full (SYN+UDP+OS)</button>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div class="flex flex-col gap-1.5">
-              <label class="text-[10px] text-secondary-text uppercase tracking-wider">Port Range</label>
-              <div class="flex gap-1.5 flex-wrap">
-                <button class="adv-port-preset" data-range="1-1024">Top 1024</button>
-                <button class="adv-port-preset" data-range="1-65535">All Ports</button>
-                <button class="adv-port-preset" data-range="21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080">Common</button>
-              </div>
-              <input id="adv-port-range" class="adv-input font-mono text-xs" value="1-65535" placeholder="1-65535 or 22,80,443"/>
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <label class="text-[10px] text-secondary-text uppercase tracking-wider">Service Version Intensity (0-9)</label>
-              <div class="flex items-center gap-3">
-                <input id="adv-version-intensity" type="range" min="0" max="9" value="5" class="flex-1 accent-primary"/>
-                <span id="adv-version-intensity-val" class="text-primary font-mono text-sm w-4">5</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="adv-os-detect"/> <span>OS Detection (-O)</span></label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="adv-version-detect" checked/> <span>Version Detection (-sV)</span></label>
-          </div>
-        </div>
-
-        <!-- NSE Scripts -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <label class="adv-label">NSE Script Categories</label>
-          <div class="grid grid-cols-3 gap-2">
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="auth"/> auth</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="default" checked/> default</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="discovery"/> discovery</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="vuln"/> vuln</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="safe"/> safe</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="version"/> version</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="brute"/> brute</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="intrusive"/> intrusive ⚠</label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" data-nse="malware"/> malware</label>
-          </div>
-          <input id="adv-custom-scripts" class="adv-input font-mono text-xs" placeholder="Custom scripts (e.g. smb-vuln-ms17-010,http-shellshock)"/>
-        </div>
-      </div>
-
-      <!-- ── TAB 5: SCAN POLICY ──────────────────────────────────────────── -->
-      <div id="adv-tab-policy" class="adv-tab-body hidden p-6 flex flex-col gap-5">
-
-        <!-- Exploitation permissions -->
-        <div class="flex flex-col gap-3">
-          <label class="adv-label">Exploitation Permissions</label>
-          <div class="flex flex-col gap-2.5 p-4 border border-border-color bg-card">
-            <label class="adv-check-row">
-              <input type="checkbox" class="accent-primary" id="pol-allow-exploit"/>
-              <div><span class="font-semibold">Allow Exploitation</span><p class="text-[9px] text-secondary-text">Agent may run Metasploit modules against discovered vulnerabilities</p></div>
-            </label>
-            <label class="adv-check-row pl-4 border-l-2 border-border-color">
-              <input type="checkbox" class="accent-primary" id="pol-allow-post" disabled/>
-              <div><span class="font-semibold">Allow Post-Exploitation</span><p class="text-[9px] text-secondary-text">whoami, network discovery, credential files (requires exploitation)</p></div>
-            </label>
-            <label class="adv-check-row pl-4 border-l-2 border-border-color">
-              <input type="checkbox" class="accent-primary" id="pol-allow-lateral" disabled/>
-              <div><span class="font-semibold">Allow Lateral Movement</span><p class="text-[9px] text-secondary-text">Agent pivots into internal subnets discovered during post-exploitation</p></div>
-            </label>
-            <label class="adv-check-row pl-4 border-l-2 border-border-color">
-              <input type="checkbox" class="accent-primary" id="pol-allow-docker" disabled/>
-              <div><span class="font-semibold">Allow Docker Escape</span><p class="text-[9px] text-secondary-text">Attempt container escape if containerised environment detected</p></div>
-            </label>
-            <label class="adv-check-row">
-              <input type="checkbox" class="accent-primary" id="pol-allow-browser"/>
-              <div><span class="font-semibold">Allow Browser Recon</span><p class="text-[9px] text-secondary-text">Playwright headless browser for web application recon (requires playwright)</p></div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Safety overrides -->
-        <div class="border-t border-border-color pt-4 grid grid-cols-2 gap-4">
-          <div class="flex flex-col gap-1.5">
-            <label class="adv-label">Max Exploit Severity (CVSS)</label>
-            <select id="pol-max-severity" class="adv-select">
-              <option value="CRITICAL">CRITICAL (10.0)</option>
-              <option value="HIGH">HIGH (8.9)</option>
-              <option value="MEDIUM">MEDIUM (6.9)</option>
-              <option value="LOW">LOW (3.9)</option>
-            </select>
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <label class="adv-label">Session Time Limit</label>
-            <div class="flex gap-2">
-              <input id="pol-time-limit" class="adv-input" type="number" min="60" value="3600" placeholder="seconds"/>
-              <span class="self-center text-secondary-text text-xs">sec</span>
-            </div>
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <label class="adv-label">Rate Limit (req/s)</label>
-            <input id="pol-rate-limit" class="adv-input" type="number" min="1" value="10"/>
-          </div>
-        </div>
-
-        <!-- DoS / Destructive guards -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <label class="adv-label">Safety Guards (always enforced)</label>
-          <div class="flex flex-col gap-2 p-3 border border-border-color bg-card">
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="pol-block-dos" checked disabled/> <span>Block DoS / Flooding exploits</span></label>
-            <label class="adv-check-row"><input type="checkbox" class="accent-primary" id="pol-block-destructive" checked disabled/> <span>Block destructive payloads (wipe, ransomware, format)</span></label>
-          </div>
-          <p class="text-[9px] text-secondary-text">These rules are hardcoded and cannot be disabled from this UI.</p>
-        </div>
-      </div>
-
-      <!-- ── TAB 6: PROFILES ─────────────────────────────────────────────── -->
-      <div id="adv-tab-profiles" class="adv-tab-body hidden p-6 flex flex-col gap-5">
-
-        <!-- Load profile -->
-        <div class="flex flex-col gap-2">
-          <label class="adv-label">Load a Saved Profile</label>
-          <div class="flex gap-2">
-            <select id="adv-profile-select" class="adv-select flex-1">
-              <option value="">— Select profile —</option>
-            </select>
-            <button onclick="advLoadProfile()" class="adv-btn-sm px-4">Load</button>
-            <button onclick="advDeleteProfile()" class="adv-btn-sm px-3 border-danger/40 text-danger hover:border-danger">Delete</button>
-          </div>
-        </div>
-
-        <!-- Preset profiles -->
-        <div class="flex flex-col gap-2">
-          <label class="adv-label">Quick Preset Profiles</label>
-          <div class="grid grid-cols-2 gap-2">
-            <button onclick="advLoadPreset('quick_discovery')" class="adv-preset-card">
-              <span class="material-symbols-outlined text-primary">search</span>
-              <div class="text-left"><p class="font-semibold text-xs">Quick Discovery</p><p class="text-[9px] text-secondary-text">Ping sweep + top 1024 ports, no exploitation</p></div>
-            </button>
-            <button onclick="advLoadPreset('full_network_audit')" class="adv-preset-card">
-              <span class="material-symbols-outlined text-primary">network_check</span>
-              <div class="text-left"><p class="font-semibold text-xs">Full Network Audit</p><p class="text-[9px] text-secondary-text">All ports, OS detection, vuln scripts, no exploitation</p></div>
-            </button>
-            <button onclick="advLoadPreset('web_app_scan')" class="adv-preset-card">
-              <span class="material-symbols-outlined text-primary">language</span>
-              <div class="text-left"><p class="font-semibold text-xs">Web Application</p><p class="text-[9px] text-secondary-text">HTTP/HTTPS focus, web scripts, browser recon</p></div>
-            </button>
-            <button onclick="advLoadPreset('stealth_recon')" class="adv-preset-card">
-              <span class="material-symbols-outlined text-primary">visibility_off</span>
-              <div class="text-left"><p class="font-semibold text-xs">Stealth Recon</p><p class="text-[9px] text-secondary-text">T1 timing, minimal footprint, production-safe</p></div>
-            </button>
-          </div>
-        </div>
-
-        <!-- Save current config -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <label class="adv-label">Save Current Configuration as Profile</label>
-          <div class="flex gap-2">
-            <input id="adv-profile-name" class="adv-input flex-1" placeholder="Profile name (e.g. Internal Audit)"/>
-            <button onclick="advSaveProfile()" class="adv-btn-sm px-4 bg-primary text-black border-primary">Save</button>
-          </div>
-          <input id="adv-profile-desc" class="adv-input" placeholder="Description (optional)"/>
-        </div>
-
-        <!-- Tool health status -->
-        <div class="border-t border-border-color pt-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <label class="adv-label">Tool Health Status</label>
-            <button onclick="advRefreshToolStatus()" class="adv-btn-sm">Refresh</button>
-          </div>
-          <div id="adv-tool-status" class="flex flex-col gap-1.5"></div>
-        </div>
-      </div>
-
-    </div><!-- end tab bodies -->
-
-    <!-- Footer -->
-    <div class="border-t border-border-color px-6 py-4 flex items-center justify-between shrink-0 bg-surface">
-      <div class="flex items-center gap-3">
-        <button onclick="closeAdvModal()" class="px-4 py-2 border border-border-color text-secondary-text text-xs font-display uppercase tracking-wider hover:text-white hover:border-white/30 transition-colors">Cancel</button>
-        <span class="text-[10px] text-secondary-text" id="adv-footer-status"></span>
-      </div>
-      <button onclick="launchAdvancedMission()" class="bg-primary text-black font-display font-bold text-sm py-2.5 px-8 uppercase tracking-tighter hover:brightness-90 transition-all flex items-center gap-2">
-        <span class="material-symbols-outlined text-[18px]">rocket_launch</span>
-        Launch Mission
-      </button>
-    </div>
-
-  </div><!-- end modal container -->
-</div><!-- end modal overlay -->
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
