@@ -3653,20 +3653,34 @@ function exportAuditCSV() {
         showToast('No entries to export — load logs first');
         return;
     }
-    const header = ['Timestamp', 'Session', 'Event', 'Tool / Action', 'Target', 'Status'];
+    // Excel uses ';' as CSV delimiter when the system decimal separator is ',' (e.g. Turkish, German)
+    // and ',' when the decimal separator is '.' (e.g. English). Auto-detect via locale.
+    const SEP = (1.1).toLocaleString().includes(',') ? ';' : ',';
+    const q = v => '"' + String(v ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '""') + '"';
+
+    const header = ['Timestamp', 'Session', 'Event', 'Tool', 'Target', 'Details', 'Status'];
     const rows = _auditLastEntries.map(entry => {
         const ts = entry.created_at
             ? new Date(entry.created_at * 1000).toISOString().replace('T', ' ').slice(0, 19)
             : '';
         const sid = entry.session_id ? entry.session_id.slice(0, 8).toUpperCase() : '';
         const event = entry.event_type || '';
-        const tool = entry.tool_name || (entry.details ? JSON.stringify(entry.details).slice(0, 80) : '');
+        const tool = entry.tool_name || '';
         const target = entry.target || '';
+        let details = '';
+        if (entry.details && typeof entry.details === 'object') {
+            details = JSON.stringify(entry.details);
+        } else if (entry.details) {
+            details = String(entry.details);
+        }
         const status = _auditStatusText(event);
-        return [ts, sid, event, tool, target, status].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+        return [ts, sid, event, tool, target, details, status].map(q).join(SEP);
     });
-    const csv = [header.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+
+    // UTF-8 BOM so Excel opens with correct encoding
+    const bom = '\uFEFF';
+    const csv = bom + [header.map(q).join(SEP), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -3690,17 +3704,44 @@ function buildAuditRow(entry) {
         : '—';
     const sid = entry.session_id ? entry.session_id.slice(0, 8).toUpperCase() : '—';
     const event = entry.event_type || '—';
-    const tool = entry.tool_name || (entry.details ? JSON.stringify(entry.details).slice(0, 60) : '—');
     const target = entry.target || '—';
 
-    const eventColor = getAuditEventColor(event);
-    const statusBadge = getAuditStatusBadge(event);
+    // Parse details JSON if stored as string
+    let details = entry.details || {};
+    if (typeof details === 'string') {
+        try { details = JSON.parse(details); } catch (_) { details = {}; }
+    }
 
-    return `<tr class="border-b border-border-color hover:bg-surface transition-colors${event.includes('KILL') || event.includes('BLOCK') ? ' bg-danger/5' : ''}">
+    // Build a human-readable action/detail summary
+    let actionText = entry.tool_name || '';
+    if (event === 'NMAP_SCAN') {
+        const hp = `${details.hosts_found ?? '?'} host(s), ${(details.open_ports || []).length} open port(s)`;
+        actionText = `nmap_scan → ${hp}`;
+    } else if (event === 'EXPLOIT_FOUND') {
+        actionText = `searchsploit → ${details.count ?? '?'} exploit(s) found`;
+    } else if (event === 'METASPLOIT_RUN') {
+        actionText = `${details.module || 'metasploit'} → ${details.session_opened ? 'SESSION OPENED' : 'no session'}`;
+    } else if (event === 'TOOL_CALL') {
+        const paramsStr = details.params ? JSON.stringify(details.params).slice(0, 80) : '';
+        actionText = `${entry.tool_name}${paramsStr ? ' ' + paramsStr : ''}`;
+    } else if (event === 'TOOL_RESULT') {
+        actionText = `${entry.tool_name} → ${details.success ? 'success' : (details.error || 'failed')}`;
+    } else if (event === 'SAFETY_BLOCK') {
+        actionText = `${entry.tool_name} blocked: ${details.reason || ''}`;
+    } else if (!actionText) {
+        actionText = details ? JSON.stringify(details).slice(0, 80) : '—';
+    }
+
+    const eventColor = getAuditEventColor(event);
+    const statusBadge = getAuditStatusBadge(event, details);
+    const rowBg = event.includes('KILL') || event.includes('BLOCK') ? ' bg-danger/5'
+        : event === 'METASPLOIT_RUN' && details.session_opened ? ' bg-orange-500/5' : '';
+
+    return `<tr class="border-b border-border-color hover:bg-surface transition-colors${rowBg}">
       <td class="px-6 py-3 text-secondary-text">${escapeHtml(ts)}</td>
       <td class="px-4 py-3 text-slate-400">${escapeHtml(sid)}</td>
       <td class="px-4 py-3"><span class="${eventColor} font-bold">${escapeHtml(event)}</span></td>
-      <td class="px-4 py-3 text-slate-300">${escapeHtml(tool)}</td>
+      <td class="px-4 py-3 text-slate-300 max-w-[400px] truncate" title="${escapeHtml(actionText)}">${escapeHtml(actionText)}</td>
       <td class="px-4 py-3 text-slate-300">${escapeHtml(target)}</td>
       <td class="px-4 py-3">${statusBadge}</td>
     </tr>`;
@@ -3708,19 +3749,35 @@ function buildAuditRow(entry) {
 
 function getAuditEventColor(event) {
     if (event.includes('KILL') || event.includes('BLOCK') || event.includes('ERROR')) return 'text-danger';
+    if (event === 'METASPLOIT_RUN' || event === 'EXPLOIT_FOUND') return 'text-orange-400';
+    if (event === 'NMAP_SCAN') return 'text-sky-400';
+    if (event === 'TOOL_CALL') return 'text-slate-300';
+    if (event === 'TOOL_RESULT') return 'text-slate-400';
     if (event.includes('START') || event.includes('SUCCESS') || event.includes('OK')) return 'text-primary';
     if (event.includes('END') || event.includes('DONE')) return 'text-secondary-text';
     return 'text-slate-300';
 }
 
-function getAuditStatusBadge(event) {
+function getAuditStatusBadge(event, details) {
     if (event.includes('KILL') || event.includes('BLOCK')) {
         return '<span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">BLOCKED</span>';
     }
     if (event.includes('ERROR')) {
         return '<span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">ERROR</span>';
     }
-    if (event.includes('SUCCESS') || event.includes('START')) {
+    if (event === 'TOOL_RESULT') {
+        const ok = details && (details.success === true || details.success === 'true');
+        return ok
+            ? '<span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[8px] font-bold uppercase">OK</span>'
+            : '<span class="px-2 py-0.5 bg-danger/10 border border-danger/20 text-danger text-[8px] font-bold uppercase">FAIL</span>';
+    }
+    if (event === 'METASPLOIT_RUN') {
+        const pwned = details && details.session_opened;
+        return pwned
+            ? '<span class="px-2 py-0.5 bg-orange-500/20 border border-orange-500/30 text-orange-400 text-[8px] font-bold uppercase">PWNED</span>'
+            : '<span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[8px] font-bold uppercase">NO SESSION</span>';
+    }
+    if (event.includes('START') || event === 'TOOL_CALL' || event === 'NMAP_SCAN' || event === 'EXPLOIT_FOUND') {
         return '<span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[8px] font-bold uppercase">OK</span>';
     }
     if (event.includes('END') || event.includes('DONE')) {
@@ -4025,3 +4082,816 @@ showToast = function (msg, isError = false) {
     clearTimeout(toast._hideTimer);
     toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
 };
+
+// ─── Advanced Config Modal ─────────────────────────────────────────────────────
+
+// ── State ──────────────────────────────────────────────────────────────────────
+const _adv = {
+    savedCredIds: [],      // credential IDs loaded from DB (to include in session start)
+    globalNeverScan: [],   // never_scan entries from DB (id + value)
+};
+
+// ── Open / Close ───────────────────────────────────────────────────────────────
+
+function openAdvModal() {
+    const modal = document.getElementById('adv-config-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+
+    // Sync primary target from sidebar input
+    const sidebarTarget = document.getElementById('mission-target');
+    if (sidebarTarget && sidebarTarget.value.trim()) {
+        const advTarget = document.getElementById('adv-primary-target');
+        if (advTarget && !advTarget.value.trim()) advTarget.value = sidebarTarget.value.trim();
+    }
+
+    // Activate first tab
+    _advSwitchTab('targets');
+
+    // Load async data
+    _advLoadGlobalNeverScan();
+    _advLoadSavedCredentials();
+    _advLoadProfilesList();
+    advRefreshToolStatus();
+}
+
+function closeAdvModal() {
+    const modal = document.getElementById('adv-config-modal');
+    if (modal) modal.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+// Init modal on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+    _advInitTabs();
+    _advInitModeButtons();
+    _advInitSpeedButtons();
+    _advInitScanTypeButtons();
+    _advInitPortPresets();
+    _advInitExploitCascade();
+    _advInitVersionSlider();
+});
+
+// ── Tab Switching ──────────────────────────────────────────────────────────────
+
+function _advInitTabs() {
+    document.querySelectorAll('.adv-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => _advSwitchTab(btn.dataset.tab));
+    });
+}
+
+function _advSwitchTab(tabName) {
+    document.querySelectorAll('.adv-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === tabName);
+    });
+    document.querySelectorAll('.adv-tab-body').forEach(body => {
+        const id = body.id.replace('adv-tab-', '');
+        body.classList.toggle('hidden', id !== tabName);
+    });
+}
+
+// ── Mode buttons (Scan Only / Ask / Full Auto) ─────────────────────────────────
+
+const _advModeDesc = {
+    scan_only: 'Scan and identify vulnerabilities — no exploitation.',
+    ask_before_exploit: 'Agent will ask for confirmation before running any exploit.',
+    full_auto: 'Agent exploits autonomously within configured safety limits.',
+};
+
+function _advInitModeButtons() {
+    document.querySelectorAll('.adv-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.adv-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const desc = document.getElementById('adv-mode-desc');
+            if (desc) desc.textContent = _advModeDesc[btn.dataset.mode] || '';
+        });
+    });
+}
+
+function _advGetMode() {
+    const active = document.querySelector('.adv-mode-btn.active');
+    return active ? active.dataset.mode : 'scan_only';
+}
+
+// ── Speed profile buttons ──────────────────────────────────────────────────────
+
+function _advInitSpeedButtons() {
+    document.querySelectorAll('.adv-speed-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.adv-speed-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+}
+
+function _advGetSpeedProfile() {
+    const active = document.querySelector('.adv-speed-btn.active');
+    return active ? active.dataset.speed : 'normal';
+}
+
+// ── Scan type buttons ──────────────────────────────────────────────────────────
+
+function _advInitScanTypeButtons() {
+    document.querySelectorAll('.adv-scan-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.adv-scan-type-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+}
+
+function _advGetScanType() {
+    const scanTypeMap = { syn: 'service', connect: 'service', udp: 'service', full: 'full' };
+    const active = document.querySelector('.adv-scan-type-btn.active');
+    return scanTypeMap[active ? active.dataset.stype : 'syn'] || 'service';
+}
+
+// ── Port range presets ─────────────────────────────────────────────────────────
+
+function _advInitPortPresets() {
+    document.querySelectorAll('.adv-port-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('adv-port-range').value = btn.dataset.range;
+        });
+    });
+}
+
+// ── Version intensity slider ───────────────────────────────────────────────────
+
+function _advInitVersionSlider() {
+    const slider = document.getElementById('adv-version-intensity');
+    const val = document.getElementById('adv-version-intensity-val');
+    if (slider && val) {
+        slider.addEventListener('input', () => { val.textContent = slider.value; });
+    }
+}
+
+// ── Exploit permission cascade ─────────────────────────────────────────────────
+
+function _advInitExploitCascade() {
+    const exploit = document.getElementById('pol-allow-exploit');
+    if (!exploit) return;
+    exploit.addEventListener('change', () => {
+        const enabled = exploit.checked;
+        ['pol-allow-post', 'pol-allow-lateral', 'pol-allow-docker'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.disabled = !enabled;
+                if (!enabled) el.checked = false;
+            }
+        });
+    });
+}
+
+// ── Dynamic list builders ──────────────────────────────────────────────────────
+
+function advAddAdditionalTarget() {
+    const container = document.getElementById('adv-additional-targets');
+    const row = document.createElement('div');
+    row.className = 'flex gap-2';
+    row.innerHTML = `
+        <input class="adv-input flex-1 font-mono" placeholder="IP, CIDR, or hostname" type="text"/>
+        <button onclick="this.parentElement.remove()" class="w-8 h-8 flex items-center justify-center text-secondary-text hover:text-danger transition-colors shrink-0">
+            <span class="material-symbols-outlined text-sm">delete</span>
+        </button>`;
+    container.appendChild(row);
+}
+
+function advAddScopeEntry() {
+    const container = document.getElementById('adv-scope-entries');
+    const row = document.createElement('div');
+    row.className = 'adv-scope-row flex gap-2';
+    row.innerHTML = `
+        <input class="adv-input flex-1 font-mono" placeholder="10.0.0.0/24" type="text"/>
+        <button onclick="this.closest('.adv-scope-row').remove()" class="w-8 h-8 flex items-center justify-center text-secondary-text hover:text-danger transition-colors shrink-0">
+            <span class="material-symbols-outlined text-sm">delete</span>
+        </button>`;
+    container.appendChild(row);
+}
+
+function advAddNeverScanEntry() {
+    const container = document.getElementById('adv-never-scan-entries');
+    const row = document.createElement('div');
+    row.className = 'adv-never-scan-row flex gap-2';
+    row.innerHTML = `
+        <input class="adv-input flex-1 font-mono border-danger/30 focus:border-danger" placeholder="IP or CIDR (e.g. 192.168.1.1 or 10.0.0.0/24)" type="text"/>
+        <button onclick="this.closest('.adv-never-scan-row').remove()" class="w-8 h-8 flex items-center justify-center text-secondary-text hover:text-danger transition-colors shrink-0">
+            <span class="material-symbols-outlined text-sm">delete</span>
+        </button>`;
+    container.appendChild(row);
+}
+
+// ── Global never-scan loader ───────────────────────────────────────────────────
+
+async function _advLoadGlobalNeverScan() {
+    const container = document.getElementById('adv-global-never-scan');
+    if (!container) return;
+    try {
+        const res = await fetch('/api/v1/never-scan');
+        if (!res.ok) return;
+        const entries = await res.json();
+        _adv.globalNeverScan = entries;
+        const header = container.querySelector('p');
+        // Remove old entries (keep header)
+        [...container.children].forEach(c => { if (c !== header) c.remove(); });
+        if (entries.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'text-[9px] text-secondary-text italic';
+            empty.textContent = 'No global entries — add session entries below or check "Save globally"';
+            container.appendChild(empty);
+            return;
+        }
+        entries.forEach(e => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-2 py-1';
+            row.innerHTML = `
+                <span class="w-2 h-2 rounded-full bg-danger shrink-0"></span>
+                <span class="font-mono text-[10px] text-slate-300 flex-1">${_escHtml(e.value)}</span>
+                <span class="text-[9px] text-secondary-text flex-1 truncate">${_escHtml(e.reason || '')}</span>
+                <button onclick="_advDeleteGlobalNeverScan(${e.id}, this)" class="text-secondary-text hover:text-danger transition-colors shrink-0">
+                    <span class="material-symbols-outlined text-sm">delete</span>
+                </button>`;
+            container.appendChild(row);
+        });
+    } catch (_) {}
+}
+
+async function _advDeleteGlobalNeverScan(id, btn) {
+    try {
+        await fetch(`/api/v1/never-scan/${id}`, { method: 'DELETE' });
+        btn.closest('div').remove();
+        _adv.globalNeverScan = _adv.globalNeverScan.filter(e => e.id !== id);
+        showToast('Never-scan entry removed');
+    } catch (_) { showToast('Failed to delete entry', true); }
+}
+
+// ── Credential builders ────────────────────────────────────────────────────────
+
+function advAddSSHCred() {
+    const container = document.getElementById('adv-ssh-creds');
+    const idx = Date.now();
+    const card = document.createElement('div');
+    card.className = 'adv-cred-card';
+    card.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span class="adv-cred-label">SSH Credential</span>
+            <button onclick="this.closest('.adv-cred-card').remove()" class="text-secondary-text hover:text-danger transition-colors">
+                <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div><p class="adv-cred-label">Label / Host Pattern</p><input class="adv-input font-mono" data-field="name" placeholder="e.g. web-01 or 10.0.0.*" type="text"/></div>
+            <div><p class="adv-cred-label">Port</p><input class="adv-input font-mono" data-field="port" placeholder="22" type="number" value="22"/></div>
+            <div><p class="adv-cred-label">Username</p><input class="adv-input font-mono" data-field="username" placeholder="root" type="text"/></div>
+            <div><p class="adv-cred-label">Password</p><input class="adv-input font-mono" data-field="password" placeholder="(leave empty for key auth)" type="password"/></div>
+        </div>
+        <div><p class="adv-cred-label">Private Key (PEM — optional)</p><textarea class="adv-input h-16 resize-none font-mono text-xs" data-field="private_key" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></div>
+        <div class="grid grid-cols-2 gap-2">
+            <div><p class="adv-cred-label">Escalation</p>
+                <select class="adv-select" data-field="escalation">
+                    <option value="none">None</option>
+                    <option value="sudo">sudo</option>
+                    <option value="su">su</option>
+                    <option value="pbrun">pbrun</option>
+                    <option value="dzdo">dzdo</option>
+                    <option value="pfexec">pfexec</option>
+                    <option value="doas">doas</option>
+                </select>
+            </div>
+            <div><p class="adv-cred-label">Escalation Password</p><input class="adv-input font-mono" data-field="escalation_password" placeholder="(if different)" type="password"/></div>
+        </div>`;
+    card.dataset.credType = 'ssh';
+    container.appendChild(card);
+}
+
+function advAddSMBCred() {
+    const container = document.getElementById('adv-smb-creds');
+    const card = document.createElement('div');
+    card.className = 'adv-cred-card';
+    card.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span class="adv-cred-label">SMB / Windows Credential</span>
+            <button onclick="this.closest('.adv-cred-card').remove()" class="text-secondary-text hover:text-danger transition-colors">
+                <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div><p class="adv-cred-label">Label / Host Pattern</p><input class="adv-input font-mono" data-field="name" placeholder="e.g. DC-01 or 10.0.0.*" type="text"/></div>
+            <div><p class="adv-cred-label">Domain</p><input class="adv-input font-mono" data-field="domain" placeholder="WORKGROUP" type="text"/></div>
+            <div><p class="adv-cred-label">Username</p><input class="adv-input font-mono" data-field="username" placeholder="Administrator" type="text"/></div>
+            <div><p class="adv-cred-label">Password</p><input class="adv-input font-mono" data-field="password" placeholder="" type="password"/></div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div><p class="adv-cred-label">Auth Type</p>
+                <select class="adv-select" data-field="auth_type">
+                    <option value="ntlm">NTLM</option>
+                    <option value="kerberos">Kerberos</option>
+                </select>
+            </div>
+            <div><p class="adv-cred-label">NTLM Hash (optional)</p><input class="adv-input font-mono" data-field="hash_value" placeholder="aad3b435...31d6cfe0" type="text"/></div>
+        </div>`;
+    card.dataset.credType = 'smb';
+    container.appendChild(card);
+}
+
+function advAddSNMPCred() {
+    const container = document.getElementById('adv-snmp-creds');
+    const card = document.createElement('div');
+    card.className = 'adv-cred-card';
+    card.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span class="adv-cred-label">SNMP Credential</span>
+            <button onclick="this.closest('.adv-cred-card').remove()" class="text-secondary-text hover:text-danger transition-colors">
+                <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+            <div><p class="adv-cred-label">Label / Host Pattern</p><input class="adv-input font-mono" data-field="name" placeholder="10.0.0.*" type="text"/></div>
+            <div><p class="adv-cred-label">Version</p>
+                <select class="adv-select" data-field="version">
+                    <option value="2c">v2c</option>
+                    <option value="1">v1</option>
+                    <option value="3">v3</option>
+                </select>
+            </div>
+            <div><p class="adv-cred-label">Community String</p><input class="adv-input font-mono" data-field="community" placeholder="public" type="text"/></div>
+        </div>`;
+    card.dataset.credType = 'snmp';
+    container.appendChild(card);
+}
+
+function advAddDBCred() {
+    const container = document.getElementById('adv-db-creds');
+    const card = document.createElement('div');
+    card.className = 'adv-cred-card';
+    card.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span class="adv-cred-label">Database Credential</span>
+            <button onclick="this.closest('.adv-cred-card').remove()" class="text-secondary-text hover:text-danger transition-colors">
+                <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div><p class="adv-cred-label">Label / Host Pattern</p><input class="adv-input font-mono" data-field="name" placeholder="db-server or 10.0.0.*" type="text"/></div>
+            <div><p class="adv-cred-label">DB Type</p>
+                <select class="adv-select" data-field="db_type">
+                    <option value="mysql">MySQL / MariaDB</option>
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="mssql">MSSQL</option>
+                    <option value="oracle">Oracle</option>
+                    <option value="mongodb">MongoDB</option>
+                    <option value="redis">Redis</option>
+                </select>
+            </div>
+            <div><p class="adv-cred-label">Username</p><input class="adv-input font-mono" data-field="username" placeholder="root" type="text"/></div>
+            <div><p class="adv-cred-label">Password</p><input class="adv-input font-mono" data-field="password" placeholder="" type="password"/></div>
+            <div><p class="adv-cred-label">Database Name</p><input class="adv-input font-mono" data-field="database" placeholder="(optional)" type="text"/></div>
+            <div><p class="adv-cred-label">Port</p><input class="adv-input font-mono" data-field="port" placeholder="3306" type="number"/></div>
+        </div>`;
+    card.dataset.credType = 'db';
+    container.appendChild(card);
+}
+
+// ── Collect credentials from DOM ───────────────────────────────────────────────
+
+function _advCollectCredentials() {
+    const creds = [];
+    document.querySelectorAll('.adv-cred-card').forEach(card => {
+        const type = card.dataset.credType;
+        const obj = { cred_type: type };
+        card.querySelectorAll('[data-field]').forEach(input => {
+            obj[input.dataset.field] = input.value;
+        });
+        creds.push(obj);
+    });
+    return creds;
+}
+
+// ── Load saved credentials from DB ────────────────────────────────────────────
+
+async function _advLoadSavedCredentials() {
+    const list = document.getElementById('adv-saved-creds-list');
+    if (!list) return;
+    try {
+        const res = await fetch('/api/v1/credentials');
+        if (!res.ok) return;
+        const creds = await res.json();
+        list.innerHTML = '';
+        _adv.savedCredIds = [];
+        if (creds.length === 0) {
+            list.innerHTML = '<p class="text-[9px] text-secondary-text italic">No saved credentials</p>';
+            return;
+        }
+        creds.forEach(c => {
+            const row = document.createElement('label');
+            row.className = 'adv-check-row text-[10px]';
+            row.innerHTML = `
+                <input type="checkbox" class="accent-primary" value="${c.id}" onchange="_advToggleSavedCred(${c.id}, this.checked)"/>
+                <span class="font-mono">${_escHtml(c.name)}</span>
+                <span class="text-secondary-text ml-1">[${_escHtml(c.cred_type)}]</span>
+                <button onclick="_advDeleteSavedCred(${c.id}, this)" class="ml-auto text-secondary-text hover:text-danger transition-colors">
+                    <span class="material-symbols-outlined text-sm">delete</span>
+                </button>`;
+            list.appendChild(row);
+        });
+    } catch (_) {}
+}
+
+function _advToggleSavedCred(id, checked) {
+    if (checked) {
+        if (!_adv.savedCredIds.includes(id)) _adv.savedCredIds.push(id);
+    } else {
+        _adv.savedCredIds = _adv.savedCredIds.filter(x => x !== id);
+    }
+}
+
+async function _advDeleteSavedCred(id, btn) {
+    if (!confirm('Delete this credential?')) return;
+    try {
+        await fetch(`/api/v1/credentials/${id}`, { method: 'DELETE' });
+        btn.closest('label').remove();
+        _adv.savedCredIds = _adv.savedCredIds.filter(x => x !== id);
+        showToast('Credential deleted');
+    } catch (_) { showToast('Failed to delete', true); }
+}
+
+// ── Profiles ───────────────────────────────────────────────────────────────────
+
+async function _advLoadProfilesList() {
+    const sel = document.getElementById('adv-profile-select');
+    if (!sel) return;
+    try {
+        const res = await fetch('/api/v1/scan-profiles');
+        if (!res.ok) return;
+        const profiles = await res.json();
+        // Keep placeholder, replace rest
+        sel.innerHTML = '<option value="">— Select profile —</option>';
+        profiles.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.name}${p.description ? ' — ' + p.description : ''}`;
+            sel.appendChild(opt);
+        });
+    } catch (_) {}
+}
+
+async function advLoadProfile() {
+    const sel = document.getElementById('adv-profile-select');
+    if (!sel || !sel.value) { showToast('Select a profile first', true); return; }
+    try {
+        const res = await fetch(`/api/v1/scan-profiles/${sel.value}`);
+        if (!res.ok) { showToast('Profile not found', true); return; }
+        const profile = await res.json();
+        const cfg = profile.config_json || {};
+        _advApplyConfig(cfg);
+        showToast(`Loaded: ${profile.name}`);
+    } catch (_) { showToast('Failed to load profile', true); }
+}
+
+async function advDeleteProfile() {
+    const sel = document.getElementById('adv-profile-select');
+    if (!sel || !sel.value) { showToast('Select a profile first', true); return; }
+    if (!confirm('Delete this scan profile?')) return;
+    try {
+        await fetch(`/api/v1/scan-profiles/${sel.value}`, { method: 'DELETE' });
+        sel.remove(sel.selectedIndex);
+        sel.value = '';
+        showToast('Profile deleted');
+    } catch (_) { showToast('Failed to delete', true); }
+}
+
+async function advSaveProfile() {
+    const name = document.getElementById('adv-profile-name').value.trim();
+    if (!name) { showToast('Enter a profile name', true); return; }
+    const desc = document.getElementById('adv-profile-desc').value.trim();
+    const config = _advCollectConfig();
+    try {
+        await fetch('/api/v1/scan-profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description: desc, config_json: config }),
+        });
+        showToast(`Saved: ${name}`);
+        document.getElementById('adv-profile-name').value = '';
+        document.getElementById('adv-profile-desc').value = '';
+        await _advLoadProfilesList();
+    } catch (_) { showToast('Save failed', true); }
+}
+
+// ── Preset loader ──────────────────────────────────────────────────────────────
+
+const _ADV_PRESETS = {
+    quick_discovery: {
+        speed_profile: 'normal',
+        scan_type: 'service',
+        port_range: '1-1024',
+        allow_exploitation: false,
+        nse_categories: [],
+        os_detection: false,
+        version_detection: true,
+    },
+    full_network_audit: {
+        speed_profile: 'normal',
+        scan_type: 'full',
+        port_range: '1-65535',
+        allow_exploitation: false,
+        nse_categories: ['default', 'vuln', 'safe'],
+        os_detection: true,
+        version_detection: true,
+    },
+    web_app_scan: {
+        speed_profile: 'normal',
+        scan_type: 'service',
+        port_range: '80,443,8080,8443,8000,8888,3000,4000,5000',
+        allow_exploitation: false,
+        nse_categories: ['http-*', 'default'],
+        os_detection: false,
+        version_detection: true,
+        allow_browser_recon: true,
+    },
+    stealth_recon: {
+        speed_profile: 'stealth',
+        scan_type: 'service',
+        port_range: '1-1024',
+        allow_exploitation: false,
+        nse_categories: [],
+        os_detection: false,
+        version_detection: false,
+    },
+};
+
+function advLoadPreset(name) {
+    const cfg = _ADV_PRESETS[name];
+    if (!cfg) return;
+    _advApplyConfig(cfg);
+    showToast(`Preset loaded: ${name.replace(/_/g, ' ')}`);
+    // Switch to discovery tab so user sees what changed
+    _advSwitchTab('discovery');
+}
+
+// ── Config apply / collect ─────────────────────────────────────────────────────
+
+function _advApplyConfig(cfg) {
+    if (cfg.speed_profile) {
+        document.querySelectorAll('.adv-speed-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.speed === cfg.speed_profile);
+        });
+    }
+    if (cfg.scan_type) {
+        const stypeMap = { service: 'syn', full: 'full' };
+        const stype = stypeMap[cfg.scan_type] || cfg.scan_type;
+        document.querySelectorAll('.adv-scan-type-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.stype === stype);
+        });
+    }
+    if (cfg.port_range) document.getElementById('adv-port-range').value = cfg.port_range;
+    if (cfg.nse_categories) {
+        document.querySelectorAll('[data-nse]').forEach(cb => {
+            cb.checked = cfg.nse_categories.includes(cb.dataset.nse);
+        });
+    }
+    if (typeof cfg.os_detection !== 'undefined') {
+        const el = document.getElementById('adv-os-detect');
+        if (el) el.checked = cfg.os_detection;
+    }
+    if (typeof cfg.version_detection !== 'undefined') {
+        const el = document.getElementById('adv-version-detect');
+        if (el) el.checked = cfg.version_detection;
+    }
+    if (typeof cfg.allow_exploitation !== 'undefined') {
+        const el = document.getElementById('pol-allow-exploit');
+        if (el) {
+            el.checked = cfg.allow_exploitation;
+            el.dispatchEvent(new Event('change'));
+        }
+    }
+    if (typeof cfg.allow_browser_recon !== 'undefined') {
+        const el = document.getElementById('pol-allow-browser');
+        if (el) el.checked = cfg.allow_browser_recon;
+    }
+    if (cfg.target_type) {
+        const el = document.getElementById('adv-target-type');
+        if (el) el.value = cfg.target_type;
+    }
+    if (cfg.mission_name) {
+        const el = document.getElementById('adv-mission-name');
+        if (el) el.value = cfg.mission_name;
+    }
+}
+
+function _advCollectConfig() {
+    const nse = [];
+    document.querySelectorAll('[data-nse]:checked').forEach(cb => nse.push(cb.dataset.nse));
+    const customScripts = document.getElementById('adv-custom-scripts').value.trim();
+    if (customScripts) nse.push(...customScripts.split(',').map(s => s.trim()).filter(Boolean));
+
+    return {
+        mission_name: document.getElementById('adv-mission-name').value.trim(),
+        target_type: document.getElementById('adv-target-type').value,
+        speed_profile: _advGetSpeedProfile(),
+        scan_type: _advGetScanType(),
+        port_range: document.getElementById('adv-port-range').value.trim() || '1-1024',
+        nse_categories: nse,
+        os_detection: document.getElementById('adv-os-detect').checked,
+        version_detection: document.getElementById('adv-version-detect').checked,
+        allow_exploitation: document.getElementById('pol-allow-exploit').checked,
+        allow_post_exploitation: document.getElementById('pol-allow-post').checked,
+        allow_lateral_movement: document.getElementById('pol-allow-lateral').checked,
+        allow_docker_escape: document.getElementById('pol-allow-docker').checked,
+        allow_browser_recon: document.getElementById('pol-allow-browser').checked,
+        mode: _advGetMode(),
+    };
+}
+
+// ── Tool health status ─────────────────────────────────────────────────────────
+
+async function advRefreshToolStatus() {
+    const container = document.getElementById('adv-tool-status');
+    if (!container) return;
+    container.innerHTML = '<p class="text-[9px] text-secondary-text animate-pulse">Checking tools…</p>';
+    try {
+        const res = await fetch('/api/v1/tools/status');
+        if (!res.ok) throw new Error('failed');
+        const data = await res.json();
+        container.innerHTML = '';
+        const tools = data.tools || data;
+        Object.entries(tools).forEach(([name, status]) => {
+            const row = document.createElement('div');
+            row.className = 'adv-tool-row';
+            const dotColor = !status.available ? '#FF3B3B'
+                           : status.degraded   ? '#f59e0b'
+                           : '#ccff00';
+            row.innerHTML = `
+                <span class="adv-tool-dot" style="background:${dotColor}"></span>
+                <span class="font-mono text-[10px] text-slate-300 w-36 shrink-0">${_escHtml(name)}</span>
+                <span class="text-[9px] text-secondary-text truncate">${_escHtml(status.message || 'OK')}</span>
+                ${status.install_hint ? `<span class="text-[9px] text-secondary-text/60 ml-2 font-mono truncate">${_escHtml(status.install_hint)}</span>` : ''}`;
+            container.appendChild(row);
+        });
+        if (Object.keys(tools).length === 0) {
+            container.innerHTML = '<p class="text-[9px] text-secondary-text italic">No tools registered</p>';
+        }
+    } catch (_) {
+        container.innerHTML = '<p class="text-[9px] text-danger">Failed to load tool status</p>';
+    }
+}
+
+// ── Launch mission ─────────────────────────────────────────────────────────────
+
+async function launchAdvancedMission() {
+    const primaryTarget = document.getElementById('adv-primary-target').value.trim();
+
+    if (!primaryTarget) {
+        showToast('Enter a primary target first', true);
+        _advSwitchTab('targets');
+        document.getElementById('adv-primary-target').focus();
+        return;
+    }
+
+    // Collect additional targets
+    const additionalTargets = [];
+    document.querySelectorAll('#adv-additional-targets input').forEach(inp => {
+        if (inp.value.trim()) additionalTargets.push(inp.value.trim());
+    });
+
+    // Collect excluded targets (never-scan session entries)
+    const excludedTargets = [];
+    document.querySelectorAll('#adv-never-scan-entries input').forEach(inp => {
+        if (inp.value.trim()) excludedTargets.push(inp.value.trim());
+    });
+
+    // Collect scope notes
+    const scopeNotes = document.getElementById('adv-scope-notes').value.trim();
+    const knownTech = document.getElementById('adv-known-tech').value.trim();
+    const cfg = _advCollectConfig();
+    const creds = _advCollectCredentials();
+
+    // If "save globally" checked, persist new never-scan entries
+    if (document.getElementById('adv-save-never-scan').checked && excludedTargets.length > 0) {
+        for (const val of excludedTargets) {
+            try {
+                await fetch('/api/v1/never-scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: val, reason: 'Added from Advanced Config modal' }),
+                });
+            } catch (_) {}
+        }
+    }
+
+    // Save new credentials to DB if requested
+    let newCredIds = [..._adv.savedCredIds];
+    if (document.getElementById('adv-save-creds').checked && creds.length > 0) {
+        for (const cred of creds) {
+            try {
+                const r = await fetch('/api/v1/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: cred.name || `${cred.cred_type}-${Date.now()}`,
+                        cred_type: cred.cred_type,
+                        host_pattern: cred.name || '*',
+                        data: cred,
+                    }),
+                });
+                if (r.ok) {
+                    const saved = await r.json();
+                    newCredIds.push(saved.id);
+                }
+            } catch (_) {}
+        }
+    }
+
+    // Build full session payload (maps to StartSessionRequest in routes.py)
+    const payload = {
+        target: primaryTarget,
+        mode: cfg.mode,
+        port_range: cfg.port_range,
+        provider: window.activeProvider || 'anthropic',
+        model: window.activeModel || undefined,
+        mission_name: cfg.mission_name || undefined,
+        target_type: cfg.target_type !== 'auto' ? cfg.target_type : undefined,
+        additional_targets: additionalTargets.length > 0 ? additionalTargets : undefined,
+        excluded_targets: excludedTargets.length > 0 ? excludedTargets : undefined,
+        speed_profile: cfg.speed_profile,
+        scan_type: cfg.scan_type,
+        nse_categories: cfg.nse_categories.length > 0 ? cfg.nse_categories : undefined,
+        os_detection: cfg.os_detection,
+        version_detection: cfg.version_detection,
+        allow_post_exploitation: cfg.allow_post_exploitation,
+        allow_lateral_movement: cfg.allow_lateral_movement,
+        allow_docker_escape: cfg.allow_docker_escape,
+        allow_browser_recon: cfg.allow_browser_recon,
+        known_tech: knownTech || undefined,
+        scope_notes: scopeNotes || undefined,
+        credential_ids: newCredIds.length > 0 ? newCredIds : undefined,
+    };
+
+    // Sync primary target back to sidebar
+    const sidebarTarget = document.getElementById('mission-target');
+    if (sidebarTarget) sidebarTarget.value = primaryTarget;
+
+    closeAdvModal();
+
+    try {
+        const res = await fetch('/api/v1/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Start failed');
+        }
+        const data = await res.json();
+
+        // Replicate session startup logic from startMission()
+        activeMissionId = data.session_id;
+        viewingSessionId = activeMissionId;
+        missionStartTime = Date.now();
+        missionPaused = false;
+
+        updateMissionStatusHeader('running', activeMissionId, primaryTarget);
+        resetMissionStats();
+        resetPhaseBar();
+        setPhaseActive(1);
+        clearConsoleOutput();
+        clearMissionFeed();
+        renderMissionStart(primaryTarget, cfg.mode);
+        appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
+        appendConsoleLine(
+            `[TARGET] ${primaryTarget}  [PROFILE] ${cfg.speed_profile.toUpperCase()}  [SCAN] ${cfg.scan_type.toUpperCase()}`,
+            'text-secondary-text'
+        );
+        showPauseMissionBtn();
+        updatePauseButton();
+        setAgentStatus('reasoning');
+        syncInputMode();
+
+        patchWsSessionHandler();
+        if (ws && wsReady) {
+            ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeMissionId }));
+        }
+
+        startMissionPoll(activeMissionId);
+        startMissionUptime();
+        switchView('agent');
+        showToast('Mission launched');
+
+    } catch (err) {
+        showToast('Launch failed: ' + err.message, true);
+        openAdvModal();  // re-open so the user can fix the problem
+    }
+}
+
+// ── HTML escape helper ─────────────────────────────────────────────────────────
+
+function _escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}

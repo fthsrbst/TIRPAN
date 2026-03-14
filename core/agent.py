@@ -24,7 +24,8 @@ from core.memory import SessionMemory
 from core.prompts import PromptBuilder
 from core.safety import AgentAction, SafetyGuard
 from core.tool_registry import ToolNotFoundError, ToolRegistry
-from database.repositories import ScanResultRepository, SessionRepository, VulnerabilityRepository
+from database.repositories import AuditLogRepository, ScanResultRepository, SessionRepository, VulnerabilityRepository
+from models.mission import MissionBrief
 from models.session import Session
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,11 @@ class AgentContext:
     attack_phase: str = "DISCOVERY"  # DISCOVERY|PORT_SCAN|EXPLOIT_SEARCH|EXPLOITATION|DONE
     port_range: str = "1-65535"      # nmap port range hint passed to the LLM via prompt
     notes: str = ""                  # operator-supplied notes injected into every prompt
+    mission: MissionBrief = None     # V2: full mission brief (set post-init)
+
+    def __post_init__(self):
+        if self.mission is None:
+            object.__setattr__(self, "mission", MissionBrief())
 
     # ── Convenience properties ─────────────────────────────────────────────
 
@@ -125,10 +131,19 @@ class PentestAgent:
         approval_callback: ApprovalCallback | None = None,
         port_range: str = "1-65535",
         notes: str = "",
+        audit_repo: AuditLogRepository | None = None,
+        mission: MissionBrief | None = None,
     ):
         self.session = session
         self.memory = SessionMemory()
-        self._ctx = AgentContext(target=target, mode=mode, port_range=port_range, notes=notes)
+        mb = mission or MissionBrief(port_range=port_range, scope_notes=notes)
+        self._ctx = AgentContext(
+            target=target,
+            mode=mode,
+            port_range=mb.port_range,
+            notes=mb.scope_notes or notes,
+            mission=mb,
+        )
         self._state = AgentState.IDLE
         self._registry = registry or ToolRegistry()
         self._safety = safety or SafetyGuard()
@@ -141,6 +156,7 @@ class PentestAgent:
         self._scan_repo = ScanResultRepository()
         self._vuln_repo = VulnerabilityRepository()
         self._session_repo = SessionRepository()
+        self._audit_repo = audit_repo or AuditLogRepository()
         # Pause/resume control
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # Not paused initially
@@ -401,6 +417,13 @@ class PentestAgent:
         ok, reason = self._safety.validate_action(agent_action)
         if not ok:
             self._emit("safety_block", {"reason": reason, "tool": tool_name})
+            await self._audit_repo.log(
+                "SAFETY_BLOCK",
+                session_id=self.session.id,
+                tool_name=tool_name,
+                target=raw_target,
+                details={"reason": reason},
+            )
             return {
                 "success": False,
                 "output": None,
@@ -417,6 +440,13 @@ class PentestAgent:
 
         # ── Execute ───────────────────────────────────────────────────────
         self._emit("tool_call", {"tool": tool_name, "params": params})
+        await self._audit_repo.log(
+            "TOOL_CALL",
+            session_id=self.session.id,
+            tool_name=tool_name,
+            target=raw_target,
+            details={"params": params},
+        )
         try:
             result = await tool.execute(params)
         except Exception as exc:
@@ -429,13 +459,25 @@ class PentestAgent:
         if len(output_str) > 3000:
             output_str = output_str[:3000] + "\n... [truncated]"
 
+        success = result.get("success", False)
         self._emit(
             "tool_result",
             {
                 "tool": tool_name,
-                "success": result.get("success", False),
+                "success": success,
                 "output": output_str,
                 "error": result.get("error"),
+            },
+        )
+        await self._audit_repo.log(
+            "TOOL_RESULT",
+            session_id=self.session.id,
+            tool_name=tool_name,
+            target=raw_target,
+            details={
+                "success": success,
+                "error": result.get("error"),
+                "summary": output_str[:500] if output_str else None,
             },
         )
         return result
@@ -495,11 +537,58 @@ class PentestAgent:
                         hosts=hosts,
                         duration_seconds=float(output.get("duration_seconds", 0.0)),
                     )
+                    open_ports = [
+                        f"{p['port']}/{p.get('protocol','tcp')} {p.get('service','')}"
+                        for h in hosts for p in h.get("ports", [])
+                        if p.get("state") == "open"
+                    ]
+                    await self._audit_repo.log(
+                        "NMAP_SCAN",
+                        session_id=self.session.id,
+                        tool_name="nmap_scan",
+                        target=str(params.get("target", "")),
+                        details={
+                            "hosts_found": len(hosts),
+                            "open_ports": open_ports[:30],
+                            "scan_type": str(params.get("scan_type", "ping")),
+                            "duration_seconds": float(output.get("duration_seconds", 0.0)),
+                        },
+                    )
 
             elif tool_name == "searchsploit_search":
                 vulns = output.get("vulnerabilities", [])
                 for v in vulns:
                     await self._vuln_repo.save(session_id=self.session.id, vuln=v)
+                if vulns:
+                    await self._audit_repo.log(
+                        "EXPLOIT_FOUND",
+                        session_id=self.session.id,
+                        tool_name="searchsploit_search",
+                        target=str(params.get("query", "")),
+                        details={
+                            "count": len(vulns),
+                            "exploits": [
+                                {"title": v.get("title", ""), "path": v.get("path", ""), "cvss": v.get("cvss_score")}
+                                for v in vulns[:10]
+                            ],
+                        },
+                    )
+
+            elif tool_name == "metasploit_run":
+                exploit_success = output.get("session_opened", False)
+                await self._audit_repo.log(
+                    "METASPLOIT_RUN",
+                    session_id=self.session.id,
+                    tool_name="metasploit_run",
+                    target=str(params.get("target_ip", params.get("target", ""))),
+                    details={
+                        "module": str(params.get("module", "")),
+                        "payload": str(params.get("payload", "")),
+                        "port": params.get("target_port") or params.get("port"),
+                        "session_opened": exploit_success,
+                        "output_summary": str(output.get("output", ""))[:300],
+                    },
+                )
 
             # Update live counters in the session record after every relevant tool call
             if tool_name in ("nmap_scan", "searchsploit_search", "metasploit_run"):

@@ -1,26 +1,31 @@
 """
 Phase 3 — NmapTool
 
-Scan tipleri:
+Scan types:
   ping    — host discovery (-sn)
-  service — port + servis tespiti (-sV)
-  os      — OS tespiti (-O)
-  full    — hepsi birden (-sV -O)
+  service — port + service detection (-sV)
+  os      — OS detection (-O)
+  full    — everything (-sV -O)
 
-Çıktı: ScanResult modeli
+V2 additions:
+  - health_check(): verifies nmap binary + sudo availability
+  - Speed profile integration: timing flags from config.SPEED_PROFILES
+  - NSE script support
+  - OS detection and version intensity controls
 """
 
 import asyncio
 import logging
+import shutil
 import time
 import xml.etree.ElementTree as ET
 
 from models.scan_result import Host, Port, ScanResult
-from tools.base_tool import BaseTool, ToolMetadata
+from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 
 logger = logging.getLogger(__name__)
 
-SCAN_TIMEOUT = 300  # 5 dakika maks
+SCAN_TIMEOUT = 600  # 10 minutes max (increased for large networks with stealth timing)
 
 
 class NmapTool(BaseTool):
@@ -32,7 +37,8 @@ class NmapTool(BaseTool):
             description=(
                 "Runs an nmap scan against a target IP or CIDR range. "
                 "Use scan_type='ping' for host discovery, 'service' for open ports and versions, "
-                "'os' for OS detection, 'full' for everything."
+                "'os' for OS detection, 'full' for everything. "
+                "Timing is automatically controlled by the active speed profile."
             ),
             parameters={
                 "type": "object",
@@ -52,11 +58,66 @@ class NmapTool(BaseTool):
                         "description": "Port range to scan (e.g. '1-1024'). Ignored for ping scans.",
                         "default": "1-1024",
                     },
+                    "scripts": {
+                        "type": "string",
+                        "description": "NSE script categories or names (e.g. 'vuln,auth' or 'default'). Optional.",
+                        "default": "",
+                    },
                 },
                 "required": ["target"],
             },
             category="recon",
         )
+
+    # ── Health Check (V2) ────────────────────────────────────────────────────
+
+    async def health_check(self) -> ToolHealthStatus:
+        import sys
+        from core.platform_utils import IS_WINDOWS, is_elevated
+
+        if not shutil.which("nmap"):
+            if sys.platform == "linux":
+                hint = "sudo apt install nmap   # Debian/Ubuntu/Kali"
+            elif sys.platform == "darwin":
+                hint = "brew install nmap"
+            else:
+                hint = "https://nmap.org/download.html"
+            return ToolHealthStatus(available=False, message="nmap not found", install_hint=hint)
+
+        # Verify version
+        try:
+            import subprocess
+            result = subprocess.run(["nmap", "--version"], capture_output=True, text=True, timeout=5)
+            version_line = result.stdout.splitlines()[0] if result.stdout else "nmap (version unknown)"
+        except Exception:
+            version_line = "nmap (version check failed)"
+
+        if IS_WINDOWS:
+            if is_elevated():
+                return ToolHealthStatus(available=True, message=f"{version_line} — Administrator")
+            return ToolHealthStatus(
+                available=True,
+                degraded=True,
+                message=f"{version_line} — no admin privileges; SYN/OS scans unavailable",
+            )
+
+        # Linux / macOS
+        from config import settings
+        if is_elevated():
+            return ToolHealthStatus(available=True, message=f"{version_line} — running as root")
+        if settings.nmap_sudo:
+            return ToolHealthStatus(
+                available=True,
+                degraded=False,
+                message=f"{version_line} — sudo mode enabled",
+            )
+        return ToolHealthStatus(
+            available=True,
+            degraded=True,
+            message=f"{version_line} — no sudo; SYN/OS scans unavailable (enable sudo in Config)",
+        )
+
+    # ── Validation ───────────────────────────────────────────────────────────
 
     async def validate(self, params: dict) -> tuple[bool, str]:
         if "target" not in params:
@@ -66,6 +127,8 @@ class NmapTool(BaseTool):
             return False, f"Invalid scan_type: {scan_type}"
         return True, ""
 
+    # ── Execute ──────────────────────────────────────────────────────────────
+
     async def execute(self, params: dict) -> dict:
         ok, err = await self.validate(params)
         if not ok:
@@ -74,8 +137,9 @@ class NmapTool(BaseTool):
         target = params["target"]
         scan_type = params.get("scan_type", "service")
         port_range = params.get("port_range", "1-1024")
+        scripts = params.get("scripts", "")
 
-        cmd = self._build_command(target, scan_type, port_range)
+        cmd = self._build_command(target, scan_type, port_range, scripts)
 
         try:
             start = time.time()
@@ -93,42 +157,51 @@ class NmapTool(BaseTool):
             logger.error("nmap failed: %s: %s", type(e).__name__, e)
             return {"success": False, "output": None, "error": str(e)}
 
-    # ── Internals ──────────────────────────────────────────────────────────────
+    # ── Internals ─────────────────────────────────────────────────────────────
 
-    def _build_command(self, target: str, scan_type: str, port_range: str) -> list[str]:
-        from config import settings
+    def _build_command(
+        self,
+        target: str,
+        scan_type: str,
+        port_range: str,
+        scripts: str = "",
+    ) -> list[str]:
+        from config import settings, SPEED_PROFILES
         from core.platform_utils import IS_WINDOWS, is_elevated
 
         is_root = is_elevated()
-        # sudo only makes sense on Linux/macOS
         use_sudo = (not IS_WINDOWS) and settings.nmap_sudo and not is_root
-        # OS/SYN scans need root; we have it either directly or via sudo
         can_do_os = is_root or use_sudo
+
+        # Speed profile timing
+        profile = SPEED_PROFILES.get(settings.speed_profile, SPEED_PROFILES["normal"])
+        timing_flags = [profile.nmap_timing] + profile.nmap_extra
 
         if use_sudo:
             if settings.sudo_password:
-                # -S reads password from stdin; -k resets cached credentials first
-                base = ["sudo", "-S", "-k", "nmap", "-oX", "-"]
+                base = ["sudo", "-S", "-k", "nmap", "-oX", "-"] + timing_flags
             else:
-                base = ["sudo", "-n", "nmap", "-oX", "-"]
+                base = ["sudo", "-n", "nmap", "-oX", "-"] + timing_flags
         else:
-            base = ["nmap", "-oX", "-"]
+            base = ["nmap", "-oX", "-"] + timing_flags
 
         if scan_type == "ping":
             base += ["-sn"]
         elif scan_type == "service":
-            # With root we can do a fast SYN scan (-sS) instead of TCP connect (-sT)
             base += (["-sS", "-sV", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
         elif scan_type == "os":
             base += (["-O", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
         elif scan_type == "full":
             base += (["-sS", "-sV", "-O", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
 
+        # NSE scripts
+        if scripts.strip() and scan_type != "ping":
+            base += ["--script", scripts.strip()]
+
         base.append(target)
         return base
 
     async def _run_nmap(self, cmd: list[str]) -> str:
-        """Run nmap in a thread pool to avoid asyncio subprocess issues on Windows."""
         from config import settings
 
         stdin_data: bytes | None = None
@@ -154,7 +227,6 @@ class NmapTool(BaseTool):
         if returncode != 0:
             err = stderr.decode().strip()
             out = stdout.decode().strip()
-            # sudo -n fails when no passwordless sudo is configured — retry without sudo
             if cmd[0] == "sudo" and ("password is required" in err or "a password is required" in err):
                 settings.nmap_sudo = False
                 cmd_no_sudo = [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
@@ -175,25 +247,21 @@ class NmapTool(BaseTool):
         hosts: list[Host] = []
 
         for host_el in root.findall("host"):
-            # state
             status_el = host_el.find("status")
             state = status_el.get("state", "unknown") if status_el is not None else "unknown"
 
-            # IP
             ip = ""
             hostname = ""
             for addr in host_el.findall("address"):
                 if addr.get("addrtype") == "ipv4":
                     ip = addr.get("addr", "")
 
-            # hostname
             hostnames_el = host_el.find("hostnames")
             if hostnames_el is not None:
                 hn = hostnames_el.find("hostname")
                 if hn is not None:
                     hostname = hn.get("name", "")
 
-            # OS
             os_name = ""
             os_accuracy = 0
             os_el = host_el.find("os")
@@ -203,7 +271,6 @@ class NmapTool(BaseTool):
                     os_name = match.get("name", "")
                     os_accuracy = int(match.get("accuracy", 0))
 
-            # Ports
             ports: list[Port] = []
             ports_el = host_el.find("ports")
             if ports_el is not None:

@@ -454,12 +454,218 @@ async def save_nmap_config(body: dict):
     return {"ok": True}
 
 
+# ── Credential Encryption Helper ───────────────────────────────────────────────
+
+def _cred_fernet():
+    """Return a Fernet instance keyed by the credential encryption key."""
+    try:
+        from cryptography.fernet import Fernet
+        from core.secure_store import get_secret, set_secret
+        key = get_secret("cred_encryption_key")
+        if not key:
+            key = Fernet.generate_key().decode()
+            set_secret("cred_encryption_key", key)
+            # File fallback for environments without a keyring daemon
+            fallback = settings.data_dir / ".credkey"
+            try:
+                fallback.write_text(key)
+                fallback.chmod(0o600)
+            except Exception:
+                pass
+        return Fernet(key.encode() if isinstance(key, str) else key)
+    except ImportError:
+        return None
+
+
+def encrypt_cred_data(data: str) -> str:
+    f = _cred_fernet()
+    if f is None:
+        return data  # cryptography not installed — store plain (warn at startup)
+    return f.encrypt(data.encode()).decode()
+
+
+def decrypt_cred_data(data: str) -> str:
+    f = _cred_fernet()
+    if f is None:
+        return data
+    try:
+        return f.decrypt(data.encode()).decode()
+    except Exception:
+        return data  # already plaintext (old entry before encryption was added)
+
+
+# ── Credentials API ────────────────────────────────────────────────────────────
+
+class CredentialCreate(BaseModel):
+    name: str
+    cred_type: str       # ssh | smb | snmp | database | web | api
+    host_pattern: str = "*"
+    data: dict           # plaintext credential fields — encrypted before storage
+
+
+@router.get("/credentials")
+async def list_credentials():
+    rows = await database.list_credentials()
+    # Return metadata only — no decrypted data in list response
+    return rows
+
+
+@router.post("/credentials")
+async def create_credential(body: CredentialCreate):
+    import json
+    encrypted = encrypt_cred_data(json.dumps(body.data))
+    row = await database.create_credential(
+        name=body.name,
+        cred_type=body.cred_type,
+        host_pattern=body.host_pattern,
+        data_enc=encrypted,
+    )
+    return {"ok": True, "id": row["id"], "name": row["name"]}
+
+
+@router.get("/credentials/{cid}")
+async def get_credential(cid: str):
+    import json
+    row = await database.get_credential(cid)
+    if not row:
+        raise HTTPException(404, "Credential not found")
+    try:
+        row["data"] = json.loads(decrypt_cred_data(row.get("data_enc", "{}")))
+        # Mask sensitive fields in response
+        for key in ("password", "private_key", "hash_value", "auth_password", "priv_password"):
+            if key in row["data"] and row["data"][key]:
+                row["data"][key] = "••••••••"
+    except Exception:
+        row["data"] = {}
+    row.pop("data_enc", None)
+    return row
+
+
+@router.delete("/credentials/{cid}")
+async def delete_credential(cid: str):
+    ok = await database.delete_credential(cid)
+    if not ok:
+        raise HTTPException(404, "Credential not found")
+    return {"ok": True}
+
+
+# ── Scan Profiles API ──────────────────────────────────────────────────────────
+
+class ScanProfileCreate(BaseModel):
+    name: str
+    description: str = ""
+    config: dict
+
+
+@router.get("/scan-profiles")
+async def list_scan_profiles():
+    import json
+    rows = await database.list_scan_profiles()
+    for row in rows:
+        try:
+            row["config"] = json.loads(row.get("config_json", "{}"))
+        except Exception:
+            row["config"] = {}
+        row.pop("config_json", None)
+    return rows
+
+
+@router.post("/scan-profiles")
+async def create_scan_profile(body: ScanProfileCreate):
+    import json
+    row = await database.upsert_scan_profile(
+        name=body.name,
+        description=body.description,
+        config_json=json.dumps(body.config),
+    )
+    return {"ok": True, "id": row["id"], "name": row["name"]}
+
+
+@router.get("/scan-profiles/{pid}")
+async def get_scan_profile(pid: str):
+    import json
+    row = await database.get_scan_profile(pid)
+    if not row:
+        raise HTTPException(404, "Profile not found")
+    try:
+        row["config"] = json.loads(row.get("config_json", "{}"))
+    except Exception:
+        row["config"] = {}
+    row.pop("config_json", None)
+    return row
+
+
+@router.delete("/scan-profiles/{pid}")
+async def delete_scan_profile(pid: str):
+    ok = await database.delete_scan_profile(pid)
+    if not ok:
+        raise HTTPException(404, "Profile not found")
+    return {"ok": True}
+
+
+# ── Never-Scan List API ────────────────────────────────────────────────────────
+
+class NeverScanEntry(BaseModel):
+    value: str    # IP or CIDR
+    reason: str = ""
+
+
+@router.get("/never-scan")
+async def list_never_scan():
+    return await database.list_never_scan()
+
+
+@router.post("/never-scan")
+async def add_never_scan(body: NeverScanEntry):
+    row = await database.add_never_scan(body.value, body.reason)
+    return {"ok": True, "id": row["id"]}
+
+
+@router.delete("/never-scan/{nid}")
+async def delete_never_scan(nid: str):
+    ok = await database.delete_never_scan(nid)
+    if not ok:
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True}
+
+
+# ── Tool Health Status API (V2) ────────────────────────────────────────────────
+
+@router.get("/tools/status")
+async def tools_status():
+    """Return health status of all registered tools."""
+    try:
+        from web.app_state import tool_registry as registry
+    except ImportError:
+        return {"tools": [], "error": "Tool registry not initialised"}
+
+    health = await registry.run_health_checks()
+    tools_out = []
+    for tool in registry.list_tools():
+        name = tool.metadata.name
+        st = health.get(name)
+        tools_out.append({
+            "name": name,
+            "display_name": name.replace("_", " ").title(),
+            "category": tool.metadata.category,
+            "version": tool.metadata.version,
+            "available": st.available if st else True,
+            "degraded": st.degraded if st else False,
+            "message": st.message if st else "OK",
+            "install_hint": st.install_hint if st else None,
+            "fallback_active": st.fallback_active if st else False,
+        })
+    return {"tools": tools_out}
+
+
 # ── Pentest Sessions ───────────────────────────────────────────────────────────
 
 class StartSessionRequest(BaseModel):
     target: str
     mode: str = "scan_only"
-    # Optional per-session safety overrides
+    mission_name: str = ""
+
+    # Safety overrides
     allowed_cidr: Optional[str] = None
     allow_exploit: Optional[bool] = None
     block_dos: Optional[bool] = None
@@ -467,12 +673,40 @@ class StartSessionRequest(BaseModel):
     max_severity: Optional[str] = None
     time_limit: Optional[int] = None
     rate_limit: Optional[int] = None
-    # Agent hints
+
+    # Scope
+    excluded_targets: list[str] = []     # per-session never-scan additions
+    additional_targets: list[str] = []
+
+    # Credentials (by stored ID)
+    credential_ids: list[str] = []
+
+    # Discovery & scan settings
+    speed_profile: str = "normal"        # stealth | normal | aggressive
+    target_type: str = "auto"
     port_range: str = "1-65535"
+    scan_type: str = "syn"               # syn | connect | udp | full
+    nse_categories: list[str] = []
+    os_detection: bool = False
+    version_detection: bool = True
+
+    # MissionBrief flags
+    allow_post_exploitation: bool = False
+    allow_lateral_movement: bool = False
+    allow_docker_escape: bool = False
+    allow_browser_recon: bool = False
+
+    # Known intelligence
+    known_tech: list[str] = []
+    scope_notes: str = ""
     notes: str = ""
+
     # LLM selection
-    provider: str = ""   # "ollama" | "lmstudio" | "openrouter"
+    provider: str = ""
     model: str = ""
+
+    # Profile load
+    profile_id: Optional[str] = None
 
 
 async def _run_agent_task(
@@ -554,9 +788,14 @@ async def _run_agent_task(
 @router.post("/sessions")
 async def start_session(body: StartSessionRequest, background_tasks: BackgroundTasks):
     """Create and start a new pentest session."""
+    import json as _json
     from web import session_manager
     from core.agent import PentestAgent
     from core.safety import SafetyGuard
+    from models.mission import (
+        MissionBrief, SSHCredential, SMBCredential, SNMPCredential,
+        DatabaseCredential, WebCredential,
+    )
     from models.session import Session
 
     # Validate mode
@@ -565,6 +804,22 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
     if not body.target.strip():
         raise HTTPException(400, "Target IP or CIDR is required")
+
+    # If a scan profile was selected, load and merge its config
+    if body.profile_id:
+        profile_row = await database.get_scan_profile(body.profile_id)
+        if profile_row:
+            try:
+                profile_cfg = _json.loads(profile_row.get("config_json", "{}"))
+                # Profile fields fill in blanks only (request values take precedence)
+                for k, v in profile_cfg.items():
+                    if not getattr(body, k, None):
+                        try:
+                            setattr(body, k, v)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
     # Build SafetyConfig — start from global settings, apply per-session overrides
     safety_cfg = SafetyConfig(
@@ -581,6 +836,102 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         max_requests_per_second=body.rate_limit if body.rate_limit is not None else settings.safety.max_requests_per_second,
     )
 
+    # Load global never-scan list from DB + per-session excluded_targets
+    global_never_scan = await database.list_never_scan()
+    never_scan_entries = [r["value"] for r in global_never_scan] + list(body.excluded_targets)
+
+    # Load stored credentials
+    ssh_creds: list[SSHCredential] = []
+    smb_creds: list[SMBCredential] = []
+    snmp_creds: list[SNMPCredential] = []
+    db_creds: list[DatabaseCredential] = []
+    web_creds: list[WebCredential] = []
+
+    for cid in body.credential_ids:
+        row = await database.get_credential(cid)
+        if not row:
+            continue
+        try:
+            data = _json.loads(decrypt_cred_data(row.get("data_enc", "{}")))
+        except Exception:
+            data = {}
+        ct = row.get("cred_type", "")
+        hp = row.get("host_pattern", "*")
+        if ct == "ssh":
+            ssh_creds.append(SSHCredential(
+                host_pattern=hp,
+                username=data.get("username", ""),
+                password=data.get("password", ""),
+                private_key=data.get("private_key", ""),
+                port=int(data.get("port", 22)),
+                escalation=data.get("escalation", "none"),
+                escalation_user=data.get("escalation_user", ""),
+                escalation_password=data.get("escalation_password", ""),
+            ))
+        elif ct == "smb":
+            smb_creds.append(SMBCredential(
+                host_pattern=hp,
+                username=data.get("username", ""),
+                password=data.get("password", ""),
+                domain=data.get("domain", ""),
+                auth_type=data.get("auth_type", "ntlmv2"),
+                hash_value=data.get("hash_value", ""),
+            ))
+        elif ct == "snmp":
+            snmp_creds.append(SNMPCredential(
+                host_pattern=hp,
+                version=data.get("version", "v2c"),
+                community=data.get("community", "public"),
+                username=data.get("username", ""),
+                auth_protocol=data.get("auth_protocol", "md5"),
+                auth_password=data.get("auth_password", ""),
+                priv_protocol=data.get("priv_protocol", "aes"),
+                priv_password=data.get("priv_password", ""),
+            ))
+        elif ct == "database":
+            db_creds.append(DatabaseCredential(
+                host_pattern=hp,
+                db_type=data.get("db_type", "mysql"),
+                username=data.get("username", ""),
+                password=data.get("password", ""),
+                database=data.get("database", ""),
+                port=int(data.get("port", 0)),
+            ))
+        elif ct == "web":
+            web_creds.append(WebCredential(
+                url_pattern=hp,
+                username=data.get("username", ""),
+                password=data.get("password", ""),
+                auth_type=data.get("auth_type", "basic"),
+                login_url=data.get("login_url", ""),
+                success_indicator=data.get("success_indicator", ""),
+            ))
+
+    # Build MissionBrief
+    mission = MissionBrief(
+        target_type=body.target_type,
+        known_tech=body.known_tech,
+        scope_notes=body.scope_notes or body.notes,
+        ssh_credentials=ssh_creds,
+        smb_credentials=smb_creds,
+        snmp_credentials=snmp_creds,
+        db_credentials=db_creds,
+        web_credentials=web_creds,
+        excluded_targets=list(body.excluded_targets),
+        speed_profile=body.speed_profile,
+        allow_exploitation=body.allow_exploit if body.allow_exploit is not None else settings.safety.allow_exploit,
+        allow_post_exploitation=body.allow_post_exploitation,
+        allow_lateral_movement=body.allow_lateral_movement,
+        allow_docker_escape=body.allow_docker_escape,
+        allow_browser_recon=body.allow_browser_recon,
+        port_range=body.port_range,
+        scan_type=body.scan_type,
+        nse_categories=body.nse_categories,
+    )
+
+    # Set global speed profile for this session
+    settings.speed_profile = body.speed_profile
+
     # Persist session record
     session_data = await _session_repo.create(body.target.strip(), body.mode)
     session_id = session_data["id"]
@@ -594,7 +945,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         updated_at=session_data["updated_at"],
     )
 
-    # Apply LLM provider/model overrides from the UI selection
+    # Apply LLM provider/model overrides
     if body.provider in ("ollama", "openrouter"):
         settings.llm.provider = body.provider
     if body.model:
@@ -603,8 +954,8 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         elif body.provider == "ollama":
             settings.ollama.model = body.model
 
-    # Build agent
-    guard = SafetyGuard(safety_cfg)
+    # Build SafetyGuard with never-scan list
+    guard = SafetyGuard(safety_cfg, never_scan_entries=never_scan_entries)
     progress_cb = session_manager.make_progress_callback(session_id)
 
     # Import tool registry bootstrapped in app lifespan
@@ -622,7 +973,9 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         safety=guard,
         progress_callback=progress_cb,
         port_range=body.port_range,
-        notes=body.notes,
+        notes=body.scope_notes or body.notes,
+        audit_repo=_audit_repo,
+        mission=mission,
     )
 
     # Launch background task
@@ -635,6 +988,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         "session_id": session_id,
         "target": body.target,
         "mode": body.mode,
+        "speed_profile": body.speed_profile,
         "status": "running",
     }
 
@@ -848,9 +1202,18 @@ async def get_audit_log(
     else:
         entries = await _audit_repo.get_recent(limit=limit)
 
-    # Filter by event type
+    # Filter by event category (prefix/keyword matching for grouped filters)
     if event_type and event_type.upper() != "ALL":
-        entries = [e for e in entries if e["event_type"].upper() == event_type.upper()]
+        cat = event_type.upper()
+        _CATEGORY_MAP = {
+            "TOOL":    lambda et: et.startswith("TOOL_"),
+            "NMAP":    lambda et: et == "NMAP_SCAN",
+            "EXPLOIT": lambda et: "EXPLOIT" in et or "METASPLOIT" in et,
+            "SAFETY":  lambda et: "SAFETY" in et or "BLOCK" in et,
+            "SESSION": lambda et: et.startswith("SESSION_") or et == "KILL_SWITCH",
+        }
+        matcher = _CATEGORY_MAP.get(cat, lambda et: et == cat)
+        entries = [e for e in entries if matcher(e["event_type"].upper())]
 
     # Filter by search string
     if search:
