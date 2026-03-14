@@ -61,7 +61,7 @@ function initSidebars() {
 let currentView = 'agent';
 let previousView = 'agent';
 
-const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel'];
+const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission'];
 
 function switchView(viewName) {
     if (!viewName) return;
@@ -4083,33 +4083,25 @@ showToast = function (msg, isError = false) {
     toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
 };
 
-// ─── Advanced Config Modal ─────────────────────────────────────────────────────
+// ─── Advanced Mission Config (full-page view) ─────────────────────────────────
 
 // ── State ──────────────────────────────────────────────────────────────────────
 const _adv = {
-    savedCredIds: [],      // credential IDs loaded from DB (to include in session start)
-    globalNeverScan: [],   // never_scan entries from DB (id + value)
+    savedCredIds: [],
+    globalNeverScan: [],
 };
 
-// ── Open / Close ───────────────────────────────────────────────────────────────
+// ── Open / Close (now uses switchView) ────────────────────────────────────────
 
 function openAdvModal() {
-    const modal = document.getElementById('adv-config-modal');
-    if (!modal) return;
-    modal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-
-    // Sync primary target from sidebar input
+    // Sync primary target from sidebar quick-launch field
     const sidebarTarget = document.getElementById('mission-target');
-    if (sidebarTarget && sidebarTarget.value.trim()) {
-        const advTarget = document.getElementById('adv-primary-target');
-        if (advTarget && !advTarget.value.trim()) advTarget.value = sidebarTarget.value.trim();
+    const advTarget = document.getElementById('adv-primary-target');
+    if (sidebarTarget && advTarget && sidebarTarget.value.trim() && !advTarget.value.trim()) {
+        advTarget.value = sidebarTarget.value.trim();
     }
-
-    // Activate first tab
+    switchView('mission');
     _advSwitchTab('targets');
-
-    // Load async data
     _advLoadGlobalNeverScan();
     _advLoadSavedCredentials();
     _advLoadProfilesList();
@@ -4117,12 +4109,10 @@ function openAdvModal() {
 }
 
 function closeAdvModal() {
-    const modal = document.getElementById('adv-config-modal');
-    if (modal) modal.classList.add('hidden');
-    document.body.style.overflow = '';
+    switchView(previousView || 'agent');
 }
 
-// Init modal on DOMContentLoaded
+// ── Init on DOMContentLoaded ───────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     _advInitTabs();
     _advInitModeButtons();
@@ -4131,6 +4121,9 @@ document.addEventListener('DOMContentLoaded', () => {
     _advInitPortPresets();
     _advInitExploitCascade();
     _advInitVersionSlider();
+    _initConsoleTabs();
+    _initTerminalInput();
+    _initShellInput();
 });
 
 // ── Tab Switching ──────────────────────────────────────────────────────────────
@@ -4544,7 +4537,7 @@ async function advLoadProfile() {
         const res = await fetch(`/api/v1/scan-profiles/${sel.value}`);
         if (!res.ok) { showToast('Profile not found', true); return; }
         const profile = await res.json();
-        const cfg = profile.config_json || {};
+        const cfg = profile.config || profile.config_json || {};
         _advApplyConfig(cfg);
         showToast(`Loaded: ${profile.name}`);
     } catch (_) { showToast('Failed to load profile', true); }
@@ -4571,7 +4564,7 @@ async function advSaveProfile() {
         await fetch('/api/v1/scan-profiles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description: desc, config_json: config }),
+            body: JSON.stringify({ name, description: desc, config: config }),
         });
         showToast(`Saved: ${name}`);
         document.getElementById('adv-profile-name').value = '';
@@ -4702,6 +4695,7 @@ function _advCollectConfig() {
         allow_docker_escape: document.getElementById('pol-allow-docker').checked,
         allow_browser_recon: document.getElementById('pol-allow-browser').checked,
         mode: _advGetMode(),
+        notes: (document.getElementById('adv-mission-briefing') || {}).value || '',
     };
 }
 
@@ -4716,23 +4710,23 @@ async function advRefreshToolStatus() {
         if (!res.ok) throw new Error('failed');
         const data = await res.json();
         container.innerHTML = '';
-        const tools = data.tools || data;
-        Object.entries(tools).forEach(([name, status]) => {
-            const row = document.createElement('div');
-            row.className = 'adv-tool-row';
-            const dotColor = !status.available ? '#FF3B3B'
-                           : status.degraded   ? '#f59e0b'
-                           : '#ccff00';
-            row.innerHTML = `
-                <span class="adv-tool-dot" style="background:${dotColor}"></span>
-                <span class="font-mono text-[10px] text-slate-300 w-36 shrink-0">${_escHtml(name)}</span>
-                <span class="text-[9px] text-secondary-text truncate">${_escHtml(status.message || 'OK')}</span>
-                ${status.install_hint ? `<span class="text-[9px] text-secondary-text/60 ml-2 font-mono truncate">${_escHtml(status.install_hint)}</span>` : ''}`;
-            container.appendChild(row);
-        });
-        if (Object.keys(tools).length === 0) {
+        // tools is a list [{name, available, degraded, message, ...}]
+        const toolsList = Array.isArray(data) ? data : (data.tools || []);
+        if (toolsList.length === 0) {
             container.innerHTML = '<p class="text-[9px] text-secondary-text italic">No tools registered</p>';
         }
+        toolsList.forEach(t => {
+            const row = document.createElement('div');
+            row.className = 'adv-tool-row';
+            const dotColor = !t.available ? '#FF3B3B' : t.degraded ? '#f59e0b' : '#ccff00';
+            row.innerHTML = `
+                <span class="adv-tool-dot" style="background:${dotColor}"></span>
+                <span class="font-mono text-[10px] text-slate-300 w-40 shrink-0">${_escHtml(t.display_name || t.name)}</span>
+                <span class="text-[9px] text-secondary-text/60 w-20 shrink-0">${_escHtml(t.category || '')}</span>
+                <span class="text-[9px] text-secondary-text truncate">${_escHtml(t.message || 'OK')}</span>
+                ${t.install_hint ? `<span class="text-[9px] text-secondary-text/40 ml-2 font-mono truncate">${_escHtml(t.install_hint)}</span>` : ''}`;
+            container.appendChild(row);
+        });
     } catch (_) {
         container.innerHTML = '<p class="text-[9px] text-danger">Failed to load tool status</p>';
     }
@@ -4826,12 +4820,18 @@ async function launchAdvancedMission() {
         allow_browser_recon: cfg.allow_browser_recon,
         known_tech: knownTech || undefined,
         scope_notes: scopeNotes || undefined,
+        notes: cfg.notes || undefined,
         credential_ids: newCredIds.length > 0 ? newCredIds : undefined,
     };
 
-    // Sync primary target back to sidebar
+    // Sync primary target back to sidebar quick-launch field
     const sidebarTarget = document.getElementById('mission-target');
     if (sidebarTarget) sidebarTarget.value = primaryTarget;
+    // Also sync hidden mode/port fields for quick-launch reuse
+    const hiddenMode = document.getElementById('mission-mode');
+    if (hiddenMode) hiddenMode.value = cfg.mode;
+    const hiddenPort = document.getElementById('mission-port-range');
+    if (hiddenPort) hiddenPort.value = cfg.port_range;
 
     closeAdvModal();
 
@@ -4894,4 +4894,218 @@ function _escHtml(str) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+// ─── Console Tab Switching ─────────────────────────────────────────────────────
+
+function _initConsoleTabs() {
+    document.querySelectorAll('#view-console .console-tab').forEach(tab => {
+        tab.addEventListener('click', () => _switchConsoleTab(tab.dataset.tab));
+    });
+}
+
+function _switchConsoleTab(tabName) {
+    document.querySelectorAll('#view-console .console-tab').forEach(t => {
+        const isActive = t.dataset.tab === tabName;
+        t.classList.toggle('bg-black', isActive);
+        t.classList.toggle('text-primary', isActive);
+        t.classList.toggle('border-t-2', isActive);
+        t.classList.toggle('border-t-primary', isActive);
+        t.classList.toggle('text-secondary-text', !isActive);
+    });
+    document.querySelectorAll('#view-console .console-body').forEach(body => {
+        body.classList.toggle('hidden', body.dataset.tab !== tabName);
+    });
+}
+
+// Called when a reverse shell arrives
+function _onReverseShellReceived(shellId, remoteAddr) {
+    const badge = document.getElementById('shell-count-badge');
+    const emptyMsg = document.getElementById('shell-empty-msg');
+    const inputRow = document.getElementById('shell-input-row');
+    const bar = document.getElementById('shell-subtab-bar');
+
+    const currentCount = parseInt(badge.dataset.count || '0') + 1;
+    badge.dataset.count = currentCount;
+    badge.textContent = currentCount;
+    badge.classList.remove('hidden');
+    if (emptyMsg) emptyMsg.classList.add('hidden');
+
+    const subTab = document.createElement('button');
+    subTab.className = 'shell-subtab px-3 py-1 text-[10px] font-mono border border-border-color hover:border-primary bg-black/60 whitespace-nowrap transition-colors';
+    subTab.textContent = `SHELL-${currentCount} [${remoteAddr}]`;
+    subTab.dataset.shellId = shellId;
+    subTab.onclick = () => _activateShell(shellId, remoteAddr);
+    bar.appendChild(subTab);
+
+    if (inputRow) inputRow.classList.remove('hidden');
+    _activateShell(shellId, remoteAddr);
+    _switchConsoleTab('shells');
+
+    if (currentView !== 'console') {
+        showToast(`Reverse shell received: ${remoteAddr} — Console → SHELLS`);
+    }
+}
+
+let _activeShellId = null;
+
+function _activateShell(shellId, remoteAddr) {
+    _activeShellId = shellId;
+    document.querySelectorAll('.shell-subtab').forEach(t => {
+        const active = t.dataset.shellId === shellId;
+        t.classList.toggle('text-primary', active);
+        t.classList.toggle('border-primary', active);
+        t.classList.toggle('text-secondary-text', !active);
+    });
+    const prompt = document.getElementById('shell-prompt');
+    if (prompt) prompt.textContent = `${remoteAddr}#`;
+    const inp = document.getElementById('shell-cmd-input');
+    if (inp) inp.focus();
+}
+
+// ─── Interactive Terminal ──────────────────────────────────────────────────────
+
+const _termHistory = [];
+let _termHistoryIdx = -1;
+
+function _initTerminalInput() {
+    const input = document.getElementById('terminal-cmd-input');
+    if (!input) return;
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); _termSubmit(); }
+        else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (_termHistoryIdx < _termHistory.length - 1) {
+                _termHistoryIdx++;
+                input.value = _termHistory[_termHistory.length - 1 - _termHistoryIdx];
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _termHistoryIdx > 0 ? (input.value = _termHistory[_termHistory.length - 1 - (--_termHistoryIdx)])
+                                : (_termHistoryIdx = -1, input.value = '');
+        }
+    });
+}
+
+async function _termSubmit() {
+    const input = document.getElementById('terminal-cmd-input');
+    const cmd = input.value.trim();
+    if (!cmd) return;
+    input.value = '';
+    _termHistoryIdx = -1;
+    _termHistory.push(cmd);
+    _termPrint(`<span class="text-primary">aegis&gt;</span> ${_escHtml(cmd)}`);
+
+    if (cmd === '/help') {
+        _termPrint(`<span class="text-secondary-text">  /help            show this help
+  /shells          list active reverse shells
+  /clear           clear output
+  /status          show active session
+  /view &lt;name&gt;     switch to a view
+  anything else    inject into active agent as task instruction</span>`);
+        return;
+    }
+    if (cmd === '/clear') {
+        const out = document.getElementById('terminal-output');
+        if (out) { const h = out.firstElementChild; out.innerHTML = ''; if (h) out.appendChild(h); }
+        return;
+    }
+    if (cmd === '/shells') {
+        const shells = document.querySelectorAll('.shell-subtab');
+        if (!shells.length) { _termPrint('<span class="text-secondary-text">No active shells</span>'); return; }
+        shells.forEach(s => _termPrint(`<span class="text-green-400">  ${_escHtml(s.textContent)}</span>`));
+        return;
+    }
+    if (cmd === '/status') {
+        _termPrint(`<span class="text-secondary-text">Session: ${activeMissionId || '(none)'}</span>`);
+        return;
+    }
+    if (cmd.startsWith('/view ')) {
+        switchView(cmd.slice(6).trim());
+        return;
+    }
+    if (!activeMissionId) {
+        _termPrint('<span class="text-danger">No active session — launch a mission first</span>');
+        return;
+    }
+    try {
+        const res = await fetch(`/api/v1/sessions/${activeMissionId}/inject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: cmd }),
+        });
+        _termPrint(res.ok
+            ? '<span class="text-secondary-text/60 text-[10px]">→ injected into agent</span>'
+            : '<span class="text-danger">Injection failed</span>');
+    } catch (_) {
+        _termPrint('<span class="text-danger">Network error</span>');
+    }
+}
+
+function _termPrint(htmlLine) {
+    const out = document.getElementById('terminal-output');
+    if (!out) return;
+    const d = document.createElement('div');
+    d.innerHTML = htmlLine;
+    out.appendChild(d);
+    out.scrollTop = out.scrollHeight;
+}
+
+// ─── Reverse Shell Input ───────────────────────────────────────────────────────
+
+const _shellCmdHistory = [];
+let _shellHistoryIdx = -1;
+
+function _initShellInput() {
+    const input = document.getElementById('shell-cmd-input');
+    if (!input) return;
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); sendShellCommand(); }
+        else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (_shellHistoryIdx < _shellCmdHistory.length - 1) {
+                _shellHistoryIdx++;
+                input.value = _shellCmdHistory[_shellCmdHistory.length - 1 - _shellHistoryIdx];
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _shellHistoryIdx > 0 ? (input.value = _shellCmdHistory[_shellCmdHistory.length - 1 - (--_shellHistoryIdx)])
+                                 : (_shellHistoryIdx = -1, input.value = '');
+        }
+    });
+}
+
+async function sendShellCommand() {
+    const input = document.getElementById('shell-cmd-input');
+    const cmd = input.value;
+    if (!_activeShellId) { showToast('No active shell', true); return; }
+    input.value = '';
+    _shellHistoryIdx = -1;
+    if (cmd.trim()) _shellCmdHistory.push(cmd);
+    _shellPrint(`<span class="text-green-300 select-none"># </span>${_escHtml(cmd)}`);
+    try {
+        const res = await fetch(`/api/v1/shells/${_activeShellId}/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: cmd }),
+        });
+        if (!res.ok) _shellPrint('<span class="text-danger">Send failed — shell may be closed</span>');
+    } catch (_) {
+        _shellPrint('<span class="text-danger">Connection error</span>');
+    }
+}
+
+// Called by WebSocket handler when shell output arrives
+function receiveShellOutput(shellId, data) {
+    if (_activeShellId !== shellId) return;
+    _shellPrint(_escHtml(data));
+}
+
+function _shellPrint(htmlContent) {
+    const out = document.getElementById('shell-output-area');
+    if (!out) return;
+    const d = document.createElement('div');
+    d.innerHTML = htmlContent;
+    out.appendChild(d);
+    out.scrollTop = out.scrollHeight;
 }

@@ -14,7 +14,12 @@
       "Read(///wsl.localhost/kali-linux/home/fatih/AEGIS/web/static/**)",
       "Read(///wsl.localhost/kali-linux/home/fatih/AEGIS/web/**)",
       "Read(//mnt/wsl/instances/kali-linux/home/fatih/AEGIS/web/**)",
-      "Read(///wsl.localhost/kali-linux//**)"
+      "Read(///wsl.localhost/kali-linux//**)",
+      "Bash(python3 -:*)",
+      "Bash(python3:*)",
+      "Read(///wsl.localhost/kali-linux/home/fatih/**)",
+      "Bash(curl -s http://localhost:8000/api/v1/sessions)",
+      "Bash(curl -s \"http://localhost:8000/api/v1/scan-profiles\" -X POST -H \"Content-Type: application/json\" -d '{\"\"\"\"name\"\"\"\":\"\"\"\"Test\"\"\"\",\"\"\"\"description\"\"\"\":\"\"\"\"\"\"\"\",\"\"\"\"config_json\"\"\"\":{\"\"\"\"speed\"\"\"\":\"\"\"\"normal\"\"\"\"}}')"
     ]
   }
 }
