@@ -546,38 +546,61 @@ html.light #input-fullscreen-textarea { color: #18181b !important; }
     color: #ccff00;
 }
 
-/* Inputs / textareas */
+/* Inputs / textareas — !important to override Tailwind forms plugin resets */
 .adv-input {
-    background: #0a0a0a;
-    border: 1px solid #1a1a1a;
-    color: #e2e8f0;
+    background: #0a0a0a !important;
+    background-color: #0a0a0a !important;
+    border: 1px solid #1a1a1a !important;
+    color: #e2e8f0 !important;
     font-size: 11px;
     padding: 7px 10px;
     width: 100%;
     font-family: 'Inter', sans-serif;
     transition: border-color 0.15s;
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 2px;
+    box-shadow: none !important;
 }
 .adv-input:focus {
-    outline: none;
+    outline: none !important;
     border-color: #ccff00 !important;
+    box-shadow: none !important;
+    background: #0a0a0a !important;
+    background-color: #0a0a0a !important;
 }
-.adv-input::placeholder { color: #444; }
+.adv-input::placeholder { color: #555 !important; }
 
 /* Selects */
 .adv-select {
-    background: #0a0a0a;
-    border: 1px solid #1a1a1a;
-    color: #e2e8f0;
+    background: #0a0a0a !important;
+    background-color: #0a0a0a !important;
+    border: 1px solid #1a1a1a !important;
+    color: #e2e8f0 !important;
     font-size: 11px;
     padding: 7px 10px;
     width: 100%;
     font-family: 'Inter', sans-serif;
     cursor: pointer;
     transition: border-color 0.15s;
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 2px;
+    box-shadow: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 10px center !important;
+    padding-right: 28px;
 }
 .adv-select:focus {
-    outline: none;
+    outline: none !important;
     border-color: #ccff00 !important;
+    box-shadow: none !important;
+    background-color: #0a0a0a !important;
+}
+.adv-select option {
+    background: #111 !important;
+    color: #e2e8f0 !important;
 }
 
 /* Small action buttons */
@@ -761,10 +784,17 @@ html.light #input-fullscreen-textarea { color: #18181b !important; }
 html.light .adv-input,
 html.light .adv-select {
     background: #f4f4f5 !important;
+    background-color: #f4f4f5 !important;
     color: #18181b !important;
     border-color: #d4d4d8 !important;
 }
+html.light .adv-input:focus,
+html.light .adv-select:focus {
+    background: #f4f4f5 !important;
+    background-color: #f4f4f5 !important;
+}
 html.light .adv-input::placeholder { color: #a1a1aa !important; }
+html.light .adv-select option { background: #fff !important; color: #18181b !important; }
 html.light .adv-mode-btn,
 html.light .adv-speed-btn,
 html.light .adv-scan-type-btn,
