@@ -94,6 +94,9 @@ async def init_db(db_path: Path | None = None) -> None:
     """
     path = db_path or DB_PATH
     async with aiosqlite.connect(path) as db:
+        # Enable WAL mode and busy timeout to avoid "database is locked" on startup
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA busy_timeout=5000")
         # Always ensure v1 base tables exist first
         await db.executescript(_SCHEMA_V1)
         await db.commit()
