@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -72,6 +73,47 @@ class ServerConfig(BaseSettings):
     reload: bool = Field(default=True, alias="SERVER_RELOAD")
 
 
+# ── V2: Speed Profiles ────────────────────────────────────────────────────────
+
+@dataclass
+class SpeedProfile:
+    """Controls scan timing and parallelism across all tools."""
+    nmap_timing: str                    # nmap -T flag  e.g. "-T1"
+    nmap_extra: list[str]               # extra nmap args
+    max_parallel_hosts: int             # 0 = unlimited
+    inter_request_delay_ms: int         # delay between HTTP requests in web tools
+    exploit_timeout_seconds: int        # per-exploit MSF timeout
+    description: str
+
+
+SPEED_PROFILES: dict[str, SpeedProfile] = {
+    "stealth": SpeedProfile(
+        nmap_timing="-T1",
+        nmap_extra=["--scan-delay", "5s", "--max-retries", "1"],
+        max_parallel_hosts=1,
+        inter_request_delay_ms=2000,
+        exploit_timeout_seconds=180,
+        description="IDS-evasive. Very slow. Use for production systems.",
+    ),
+    "normal": SpeedProfile(
+        nmap_timing="-T3",
+        nmap_extra=[],
+        max_parallel_hosts=5,
+        inter_request_delay_ms=200,
+        exploit_timeout_seconds=120,
+        description="Balanced. Default for most engagements.",
+    ),
+    "aggressive": SpeedProfile(
+        nmap_timing="-T5",
+        nmap_extra=["--min-rate", "5000"],
+        max_parallel_hosts=0,
+        inter_request_delay_ms=0,
+        exploit_timeout_seconds=90,
+        description="Maximum speed. Use only on lab / CTF targets.",
+    ),
+}
+
+
 class AppConfig(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
@@ -85,14 +127,21 @@ class AppConfig(BaseSettings):
     server: ServerConfig = Field(default_factory=ServerConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
 
+    # Active speed profile (can be overridden per session)
+    speed_profile: str = Field(default="normal", alias="SPEED_PROFILE")
+
     # Nmap: request elevated privileges for OS detection and SYN scans.
-    # Linux/macOS: uses sudo. Windows: requires the process to run as Administrator (no sudo).
+    # Linux/macOS: uses sudo. Windows: requires the process to run as Administrator.
     nmap_sudo: bool = Field(default=True, alias="NMAP_SUDO")
-    # sudo password (Linux/macOS only). Loaded from OS keychain at startup, never persisted to disk.
+    # sudo password (Linux/macOS only). Loaded from OS keychain at startup, never persisted.
     sudo_password: str = Field(default="")
 
     def model_post_init(self, __context):
         self.data_dir.mkdir(exist_ok=True)
+
+    def get_speed_profile(self) -> SpeedProfile:
+        """Return the active SpeedProfile object."""
+        return SPEED_PROFILES.get(self.speed_profile, SPEED_PROFILES["normal"])
 
 
 # Singleton

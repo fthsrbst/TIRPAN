@@ -10,7 +10,11 @@
       "Bash(reg query:*)",
       "Bash(find c:UsersfatihOneDriveMasaüstüAEGIS -type f \\\\\\(-iname *.png -o -iname *.jpg -o -iname *.jpeg -o -iname *.svg -o -iname *.ico -o -iname *.gif -o -iname *.webp \\\\\\))",
       "Bash(ls /home/fatih/AEGIS/data/*.db*)",
-      "Bash(cmd.exe /c 'dir \"\"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih\\\\AEGIS\\\\data\"\"')"
+      "Bash(cmd.exe /c 'dir \"\"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih\\\\AEGIS\\\\data\"\"')",
+      "Read(///wsl.localhost/kali-linux/home/fatih/AEGIS/web/static/**)",
+      "Read(///wsl.localhost/kali-linux/home/fatih/AEGIS/web/**)",
+      "Read(//mnt/wsl/instances/kali-linux/home/fatih/AEGIS/web/**)",
+      "Read(///wsl.localhost/kali-linux//**)"
     ]
   }
 }
