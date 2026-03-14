@@ -145,6 +145,41 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v4 applied: session_events table")
 
+        if version < 5:
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS credentials (
+                    id           TEXT PRIMARY KEY,
+                    name         TEXT NOT NULL,
+                    cred_type    TEXT NOT NULL,
+                    host_pattern TEXT NOT NULL DEFAULT '',
+                    data_enc     TEXT NOT NULL DEFAULT '{}',
+                    created_at   REAL NOT NULL,
+                    updated_at   REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS scan_profiles (
+                    id           TEXT PRIMARY KEY,
+                    name         TEXT NOT NULL UNIQUE,
+                    description  TEXT NOT NULL DEFAULT '',
+                    config_json  TEXT NOT NULL DEFAULT '{}',
+                    created_at   REAL NOT NULL,
+                    updated_at   REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS never_scan (
+                    id         TEXT PRIMARY KEY,
+                    value      TEXT NOT NULL UNIQUE,
+                    reason     TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL
+                );
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (5, time.time(), "credentials, scan_profiles, never_scan tables"),
+            )
+            await db.commit()
+            logger.info("DB migration v5 applied: credentials / scan_profiles / never_scan")
+
     logger.info("Database ready: %s", path)
 
 
@@ -271,3 +306,128 @@ async def get_all_settings() -> dict:
         async with db.execute("SELECT key, value FROM app_settings") as cur:
             rows = await cur.fetchall()
     return {r["key"]: json.loads(r["value"]) for r in rows}
+
+
+# ── Credentials ───────────────────────────────────────────────────────────────
+
+async def create_credential(name: str, cred_type: str, host_pattern: str, data_enc: str) -> dict:
+    now = time.time()
+    cid = str(uuid.uuid4())
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO credentials(id, name, cred_type, host_pattern, data_enc, created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
+            (cid, name, cred_type, host_pattern, data_enc, now, now),
+        )
+        await db.commit()
+    return {"id": cid, "name": name, "cred_type": cred_type, "host_pattern": host_pattern, "created_at": now}
+
+
+async def list_credentials() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, name, cred_type, host_pattern, created_at, updated_at FROM credentials ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_credential(cid: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM credentials WHERE id=?", (cid,)) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def delete_credential(cid: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM credentials WHERE id=?", (cid,))
+        await db.commit()
+        return db.total_changes > 0
+
+
+# ── Scan Profiles ─────────────────────────────────────────────────────────────
+
+async def create_scan_profile(name: str, description: str, config_json: str) -> dict:
+    now = time.time()
+    pid = str(uuid.uuid4())
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO scan_profiles(id, name, description, config_json, created_at, updated_at) VALUES(?,?,?,?,?,?)",
+            (pid, name, description, config_json, now, now),
+        )
+        await db.commit()
+    return {"id": pid, "name": name, "description": description, "created_at": now}
+
+
+async def list_scan_profiles() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, name, description, config_json, created_at, updated_at FROM scan_profiles ORDER BY name ASC"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_scan_profile(pid: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM scan_profiles WHERE id=?", (pid,)) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def delete_scan_profile(pid: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM scan_profiles WHERE id=?", (pid,))
+        await db.commit()
+        return db.total_changes > 0
+
+
+async def upsert_scan_profile(name: str, description: str, config_json: str) -> dict:
+    """Create or update a profile by name."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id FROM scan_profiles WHERE name=?", (name,)) as cur:
+            row = await cur.fetchone()
+        now = time.time()
+        if row:
+            pid = row["id"]
+            await db.execute(
+                "UPDATE scan_profiles SET description=?, config_json=?, updated_at=? WHERE id=?",
+                (description, config_json, now, pid),
+            )
+            await db.commit()
+            return {"id": pid, "name": name, "description": description, "updated_at": now}
+        return await create_scan_profile(name, description, config_json)
+
+
+# ── Never-Scan List ───────────────────────────────────────────────────────────
+
+async def add_never_scan(value: str, reason: str = "") -> dict:
+    now = time.time()
+    nid = str(uuid.uuid4())
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO never_scan(id, value, reason, created_at) VALUES(?,?,?,?)",
+            (nid, value, reason, now),
+        )
+        await db.commit()
+    return {"id": nid, "value": value, "reason": reason, "created_at": now}
+
+
+async def list_never_scan() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT id, value, reason, created_at FROM never_scan ORDER BY created_at DESC") as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def delete_never_scan(nid: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM never_scan WHERE id=?", (nid,))
+        await db.commit()
+        return db.total_changes > 0
