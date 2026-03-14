@@ -8,7 +8,9 @@
       "Bash(.venv/Scripts/python.exe --version)",
       "Bash(python -c \"import subprocess; r = subprocess.run\\([''where'', ''nmap''], capture_output=True, text=True\\); print\\(r.stdout\\); print\\(''PATH nmap check from subprocess:'', r.returncode\\)\")",
       "Bash(reg query:*)",
-      "Bash(find c:UsersfatihOneDriveMasaüstüAEGIS -type f \\\\\\(-iname *.png -o -iname *.jpg -o -iname *.jpeg -o -iname *.svg -o -iname *.ico -o -iname *.gif -o -iname *.webp \\\\\\))"
+      "Bash(find c:UsersfatihOneDriveMasaüstüAEGIS -type f \\\\\\(-iname *.png -o -iname *.jpg -o -iname *.jpeg -o -iname *.svg -o -iname *.ico -o -iname *.gif -o -iname *.webp \\\\\\))",
+      "Bash(ls /home/fatih/AEGIS/data/*.db*)",
+      "Bash(cmd.exe /c 'dir \"\"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih\\\\AEGIS\\\\data\"\"')"
     ]
   }
 }
