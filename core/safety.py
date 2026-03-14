@@ -3,6 +3,11 @@ Phase 6 — Safety System
 
 A 10-rule security pipeline. Runs before every agent action.
 If any rule is violated, returns (False, "reason").
+
+V2 additions:
+  - Rule 3 extended: CIDR-based excluded ranges + never-scan DB list loaded at session start
+  - NEVER_SCAN violation type: hard block with CRITICAL audit alarm
+  - never_scan_entries injected at SafetyGuard construction time
 """
 
 import ipaddress
@@ -37,15 +42,49 @@ class SafetyGuard:
     10-rule security pipeline.
 
     Usage:
-        guard = SafetyGuard(config)
+        guard = SafetyGuard(config, never_scan_entries=["10.0.0.1", "192.168.0.0/24"])
         ok, reason = guard.validate_action(action)
     """
 
-    def __init__(self, config: SafetyConfig | None = None):
+    def __init__(
+        self,
+        config: SafetyConfig | None = None,
+        never_scan_entries: list[str] | None = None,
+    ):
         self.config = config or settings.safety
         self._kill_switch = False
         self._session_start: float = time.time()
         self._request_timestamps: list[float] = []
+
+        # Never-scan entries: loaded from DB at session start + per-session excluded_targets
+        # Entries can be individual IPs or CIDR ranges
+        self._never_scan: list[str] = list(never_scan_entries or [])
+        # Pre-parse CIDR entries for fast lookup
+        self._never_scan_nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+        self._never_scan_ips: set[str] = set()
+        self._build_never_scan_index()
+
+    def add_never_scan(self, entries: list[str]) -> None:
+        """Add entries at runtime (e.g. from mission brief excluded_targets)."""
+        self._never_scan.extend(entries)
+        self._build_never_scan_index()
+
+    def _build_never_scan_index(self) -> None:
+        self._never_scan_nets = []
+        self._never_scan_ips = set()
+        for entry in self._never_scan:
+            entry = entry.strip()
+            if not entry:
+                continue
+            if "/" in entry:
+                try:
+                    self._never_scan_nets.append(
+                        ipaddress.ip_network(entry, strict=False)
+                    )
+                except ValueError:
+                    self._never_scan_ips.add(entry)
+            else:
+                self._never_scan_ips.add(entry)
 
     # ------------------------------------------------------------------
     # Public API
@@ -57,6 +96,7 @@ class SafetyGuard:
             return False, "Kill switch active — all actions are blocked"
 
         rules = [
+            self._rule_never_scan,          # ← NEW: checked first (hard boundary)
             self._rule1_target_scope,
             self._rule2_port_scope,
             self._rule3_excluded_ips,
@@ -84,7 +124,6 @@ class SafetyGuard:
         logger.critical("AEGIS EMERGENCY STOP — kill switch activated")
 
     def reset_kill_switch(self) -> None:
-        """Reset kill switch (for testing/administration purposes)."""
         self._kill_switch = False
 
     @property
@@ -92,23 +131,52 @@ class SafetyGuard:
         return self._kill_switch
 
     # ------------------------------------------------------------------
+    # NEW: Never-Scan Hard Block
+    # ------------------------------------------------------------------
+
+    def _rule_never_scan(self, action: AgentAction) -> tuple[bool, str]:
+        """
+        HARD BLOCK: The agent must never touch entries in the never-scan list.
+
+        This rule runs before all others. Violations are logged as CRITICAL
+        and include a NEVER_SCAN tag for the UI to display a red alarm.
+        """
+        if not action.target_ip:
+            return True, ""
+
+        # Check exact IP match
+        if action.target_ip in self._never_scan_ips:
+            msg = f"[NEVER_SCAN] CRITICAL: {action.target_ip} is in the never-scan list"
+            logger.critical(msg)
+            return False, msg
+
+        # Check CIDR range membership
+        try:
+            target_addr = ipaddress.ip_address(action.target_ip)
+            for net in self._never_scan_nets:
+                if target_addr in net:
+                    msg = f"[NEVER_SCAN] CRITICAL: {action.target_ip} is inside protected range {net}"
+                    logger.critical(msg)
+                    return False, msg
+        except ValueError:
+            pass  # hostname — skip CIDR check
+
+        return True, ""
+
+    # ------------------------------------------------------------------
     # Rule 1: Target CIDR scope
     # ------------------------------------------------------------------
 
     def _rule1_target_scope(self, action: AgentAction) -> tuple[bool, str]:
         if not action.target_ip:
-            return True, ""  # No IP → this rule does not apply
+            return True, ""
         try:
             target = ipaddress.ip_address(action.target_ip)
         except ValueError:
-            # Not a valid IP address — treat as hostname/domain.
-            # CIDR range checks don't apply to hostnames; the operator
-            # already authorized this target by setting it as the session target.
             return True, ""
         try:
             allowed = ipaddress.ip_network(self.config.allowed_cidr, strict=False)
         except ValueError:
-            # allowed_cidr is not a valid network (e.g. it's a hostname) — skip range check.
             return True, ""
         if target not in allowed:
             return False, (
@@ -130,7 +198,7 @@ class SafetyGuard:
         return True, ""
 
     # ------------------------------------------------------------------
-    # Rule 3: Excluded IPs
+    # Rule 3: Excluded IPs (static config list)
     # ------------------------------------------------------------------
 
     def _rule3_excluded_ips(self, action: AgentAction) -> tuple[bool, str]:
@@ -215,7 +283,6 @@ class SafetyGuard:
 
     def _rule10_rate_limit(self, action: AgentAction) -> tuple[bool, str]:
         now = time.time()
-        # Count requests in the last 1 second
         self._request_timestamps = [t for t in self._request_timestamps if now - t < 1.0]
         if len(self._request_timestamps) >= self.config.max_requests_per_second:
             return False, (
