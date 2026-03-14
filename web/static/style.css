@@ -430,6 +430,11 @@ html.light .copy-btn:hover { color: #4a7c00; }
 /* User message text override (inline style) */
 html.light .user-msg-text { color: #18181b !important; }
 
+/* Agent status bar — overrides hardcoded inline background in light mode */
+html.light #agent-status-bar { background: #e4e4e7 !important; }
+html.light #agent-status-text { color: #18181b !important; }
+html.light #agent-status-detail { color: #71717a !important; }
+
 /* ─── Code Block ───────────────────────────────────────────────────────────── */
 
 .code-block {
