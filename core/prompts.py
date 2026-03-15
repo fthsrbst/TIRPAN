@@ -30,26 +30,45 @@ _CHARS_PER_TOKEN = 4  # rough estimate
 
 _SYSTEM_PROMPT = """\
 You are AEGIS, an autonomous network penetration testing agent.
+You are a professional penetration tester with expertise in network reconnaissance,
+vulnerability assessment, exploitation, post-exploitation, and lateral movement.
 
 MISSION:
-Perform authorized network penetration tests by discovering live hosts, scanning
-open ports, searching for known exploits, attempting exploitation, and producing
-a structured report of every finding.
+Perform an authorized network penetration test by executing the ATTACK PHASES below.
+Follow operator instructions precisely. Respect every constraint listed.
 
-STRICT CONSTRAINTS (never violate):
-- Only target IPs inside the allowed CIDR range provided to you.
+STRICT CONSTRAINTS (never violate — hardcoded safety rules):
+- Only target IPs inside the allowed CIDR range shown in your state.
 - Never run DoS or denial-of-service exploit modules.
 - Never use destructive modules (format, wipe, ransomware, encrypt_disk).
-- Never run arbitrary shell commands — you may only call the tools listed below.
-- If the mode is "scan_only", perform recon only and then generate_report.
-- If an exploit is declined by the user, try a different approach.
+- Never run arbitrary shell commands — call only the listed tools.
+- Respect the POLICY FLAGS in your state — they override everything else.
+- Never touch EXCLUDED PORTS or NEVER-SCAN IPs if listed.
 
-ATTACK PHASES (follow in order):
+ATTACK PHASES (follow in order unless operator notes redirect you):
   1. DISCOVERY       — nmap_scan (ping sweep) to find live hosts
-  2. PORT_SCAN       — nmap_scan (service detection) on each live host
-  3. EXPLOIT_SEARCH  — searchsploit_search per open service/version found
-  4. EXPLOITATION    — metasploit_run per vulnerability (if mode allows)
-  5. DONE            — generate_report when all hosts are fully processed
+  2. PORT_SCAN       — nmap_scan (service/full) on each live host — use PORT RANGE from state
+  3. EXPLOIT_SEARCH  — searchsploit_search for each discovered service/version
+  4. EXPLOITATION    — metasploit_run per vulnerability (only if POLICY allows)
+  5. POST_EXPLOIT    — ssh_exec for system audit (only if POLICY allows post-exploitation)
+  6. DONE            — generate_report when all hosts fully processed
+
+MODE BEHAVIOUR:
+- scan_only          : Phases 1-3 only. Never call metasploit_run or ssh_exec for exploitation.
+- ask_before_exploit : Pause at phase 4. State "WAITING_FOR_APPROVAL: <exploit details>" and stop.
+                       Only proceed after the operator explicitly approves in a follow-up message.
+- full_auto          : Execute all permitted phases without pausing.
+
+SCAN CONFIGURATION:
+- Always use the PORT RANGE, SCAN TYPE, and NSE CATEGORIES from your state.
+- If KNOWN TECH is listed, skip discovery for those services — go straight to EXPLOIT_SEARCH.
+- If EXCLUDED PORTS is listed, always pass them as excluded_ports param in every nmap_scan call.
+- Apply OS detection and version detection flags exactly as configured.
+
+CREDENTIALS & SSH:
+- If SSH CREDENTIALS are listed in your state, use ssh_exec after gaining initial access
+  or for authenticated system audits — do not ignore them.
+- Match credentials to hosts using the host_pattern field.
 
 MANDATORY OUTPUT FORMAT:
 Respond with a single valid JSON object only. No prose, no markdown, no comments.
@@ -61,7 +80,7 @@ Respond with a single valid JSON object only. No prose, no markdown, no comments
   "reasoning": "<one sentence: why this action, why now>"
 }
 
-Available action values: nmap_scan, searchsploit_search, metasploit_run, generate_report\
+Available action values: nmap_scan, searchsploit_search, metasploit_run, ssh_exec, generate_report\
 """
 
 # ── Few-Shot Examples ──────────────────────────────────────────────────────────
@@ -69,33 +88,39 @@ Available action values: nmap_scan, searchsploit_search, metasploit_run, generat
 _FEW_SHOT_EXAMPLES = """\
 EXAMPLES OF CORRECT DECISIONS:
 
-Example 1 — Start: host discovery on a /24 network
+Example 1 — Host discovery on a /24 with excluded ports
 {
-  "thought": "No hosts discovered yet. First step is always a ping sweep.",
+  "thought": "No hosts discovered yet. First step is a ping sweep. Port range and excluded ports are set.",
   "action": "nmap_scan",
   "parameters": {"target": "192.168.1.0/24", "scan_type": "ping"},
-  "reasoning": "Host discovery must precede port scanning."
+  "reasoning": "Host discovery must precede port scanning. Ping scan ignores port exclusions."
 }
 
-Example 2 — Port scan a discovered host
+Example 2 — Full service scan respecting config
 {
-  "thought": "192.168.1.5 is alive. I need to identify running services.",
+  "thought": "192.168.1.5 is alive. Config says scan_type=full, port_range=1-65535, NSE=default,vuln. Excluded: 23,25.",
   "action": "nmap_scan",
-  "parameters": {"target": "192.168.1.5", "scan_type": "service"},
-  "reasoning": "Service version detection reveals exploitable software."
+  "parameters": {
+    "target": "192.168.1.5",
+    "scan_type": "full",
+    "port_range": "1-65535",
+    "scripts": "default,vuln",
+    "excluded_ports": "23,25"
+  },
+  "reasoning": "Full scan with configured NSE categories. Excluded ports passed as required."
 }
 
-Example 3 — Search exploits for a known service
+Example 3 — Skip discovery because known tech listed
 {
-  "thought": "Port 21 shows vsftpd 2.3.4 — a version with a known backdoor.",
+  "thought": "KNOWN TECH lists vsftpd/2.3.4 — no need to rediscover it. Go straight to exploit search.",
   "action": "searchsploit_search",
   "parameters": {"query": "vsftpd 2.3.4"},
-  "reasoning": "CVE-2011-2523 backdoor exists for this exact version."
+  "reasoning": "Known tech skips redundant discovery — operator already knows the version."
 }
 
-Example 4 — Execute a reliable exploit
+Example 4 — Execute exploit (full_auto mode, exploitation allowed)
 {
-  "thought": "searchsploit confirmed the vsftpd 234 backdoor module.",
+  "thought": "POLICY allows exploitation. vsftpd 234 backdoor confirmed by searchsploit. Mode is full_auto.",
   "action": "metasploit_run",
   "parameters": {
     "target_ip": "192.168.1.5",
@@ -103,15 +128,28 @@ Example 4 — Execute a reliable exploit
     "module": "exploit/unix/ftp/vsftpd_234_backdoor",
     "payload": "cmd/unix/interact"
   },
-  "reasoning": "CVSS 10.0, reliable exploit. High probability of success."
+  "reasoning": "CVSS 10.0 exploit. Policy permits. Full auto mode — no pause needed."
 }
 
-Example 5 — Generate report when all hosts processed
+Example 5 — Ask before exploit mode
 {
-  "thought": "All 3 live hosts have been fully scanned, exploits searched, and attempts made.",
+  "thought": "Mode is ask_before_exploit. I found a critical vuln but must not proceed without approval.",
   "action": "generate_report",
   "parameters": {},
-  "reasoning": "All attack phases complete. Time to compile the final report."
+  "reasoning": "WAITING_FOR_APPROVAL: vsftpd_234_backdoor on 192.168.1.5:21 (CVSS 10.0). Awaiting operator confirmation."
+}
+
+Example 6 — SSH audit after shell obtained
+{
+  "thought": "Shell obtained on 192.168.1.5. POLICY allows post-exploitation. SSH credentials available for this host.",
+  "action": "ssh_exec",
+  "parameters": {
+    "host": "192.168.1.5",
+    "username": "msfadmin",
+    "password": "msfadmin",
+    "action": "audit"
+  },
+  "reasoning": "Post-exploitation audit — collect system info, users, network, and persistence opportunities."
 }\
 """
 
@@ -216,18 +254,92 @@ class PromptBuilder:
         return "\n".join(lines)
 
     def _format_state(self, context: AgentContext) -> str:
+        m = context.mission  # shorthand — may be None on legacy contexts
+
         lines = [
             f"TARGET       : {context.target}",
             f"MODE         : {context.mode}",
             f"ATTACK PHASE : {context.attack_phase}",
             f"ITERATION    : {context.iteration}",
-            f"PORT RANGE   : {context.port_range}  ← use this in every nmap_scan (service/os/full)",
-            "",
+            f"PORT RANGE   : {context.port_range}  <- use this in every nmap_scan (service/os/full)",
         ]
+
+        # ── Scan configuration from MissionBrief ──────────────────────────────
+        if m:
+            scan_type = m.scan_type or "service"
+            lines.append(f"SCAN TYPE    : {scan_type}  <- use this scan_type in nmap_scan calls")
+
+            if m.nse_categories:
+                nse_str = ",".join(m.nse_categories)
+                lines.append(f"NSE SCRIPTS  : {nse_str}  <- pass as scripts= in nmap_scan calls")
+
+            flags = []
+            if m.os_detection:
+                flags.append("OS detection ON")
+            if m.version_detection:
+                flags.append("version detection ON")
+            if flags:
+                lines.append(f"SCAN FLAGS   : {', '.join(flags)}")
+
+            if m.target_type and m.target_type != "auto":
+                lines.append(f"TARGET TYPE  : {m.target_type}")
+
+        # ── Speed profile ──────────────────────────────────────────────────────
+        try:
+            from config import settings
+            sp = settings.speed_profile
+            lines.append(f"SPEED PROFILE: {sp}  <- timing already applied by nmap tool")
+        except Exception:
+            pass
+
+        lines.append("")
+
+        # ── Operator notes / scope notes ──────────────────────────────────────
         if context.notes:
-            lines.append(f"OPERATOR NOTES: {context.notes}")
+            lines.append(f"OPERATOR NOTES:\n{context.notes}")
             lines.append("")
 
+        # ── Known technology (skip redundant discovery) ────────────────────────
+        if m and m.known_tech:
+            tech_str = ", ".join(m.known_tech)
+            lines.append(f"KNOWN TECH   : {tech_str}")
+            lines.append("  -> Skip discovery for these — go directly to searchsploit_search")
+            lines.append("")
+
+        # ── Excluded ports (hard block) ────────────────────────────────────────
+        if m and m.excluded_ports:
+            ports_str = ",".join(str(p) for p in m.excluded_ports)
+            lines.append(f"EXCLUDED PORTS: {ports_str}")
+            lines.append(f"  -> NEVER scan these ports — always pass excluded_ports='{ports_str}' to every nmap_scan")
+            lines.append("")
+
+        # ── Policy flags ───────────────────────────────────────────────────────
+        if m:
+            policy_lines = ["POLICY FLAGS (hard limits — do not violate):"]
+            policy_lines.append(f"  allow_exploitation      : {'YES' if m.allow_exploitation else 'NO  <- do not call metasploit_run'}")
+            policy_lines.append(f"  allow_post_exploitation : {'YES  <- ssh_exec audit is permitted' if m.allow_post_exploitation else 'NO  <- do not run post-exploit actions'}")
+            policy_lines.append(f"  allow_lateral_movement  : {'YES  <- pivot to new subnets if discovered' if m.allow_lateral_movement else 'NO  <- stay on initial target subnet only'}")
+            policy_lines.append(f"  allow_docker_escape     : {'YES' if m.allow_docker_escape else 'NO'}")
+            policy_lines.append(f"  allow_browser_recon     : {'YES' if m.allow_browser_recon else 'NO'}")
+            lines.extend(policy_lines)
+            lines.append("")
+
+        # ── SSH credentials summary (awareness only — do not log passwords) ───
+        if m and m.ssh_credentials:
+            lines.append(f"SSH CREDENTIALS AVAILABLE: {len(m.ssh_credentials)} credential(s)")
+            for i, cred in enumerate(m.ssh_credentials, 1):
+                lines.append(f"  [{i}] host_pattern={cred.host_pattern}  user={cred.username}  port={cred.port}  escalation={cred.escalation}")
+            lines.append("  -> Use ssh_exec with matching host to run authenticated commands")
+            lines.append("")
+
+        # ── SMB credentials summary ────────────────────────────────────────────
+        if m and m.smb_credentials:
+            lines.append(f"SMB CREDENTIALS AVAILABLE: {len(m.smb_credentials)} credential(s)")
+            for cred in m.smb_credentials:
+                lines.append(f"  host_pattern={cred.host_pattern}  user={cred.domain}\\{cred.username}  auth={cred.auth_type}")
+            lines.append("")
+
+        # ── Discovered state ───────────────────────────────────────────────────
         if context.discovered_hosts:
             lines.append(f"LIVE HOSTS ({len(context.discovered_hosts)}):")
             for h in context.discovered_hosts:
@@ -236,7 +348,7 @@ class PromptBuilder:
             lines.append("LIVE HOSTS: none discovered yet")
 
         if context.scan_results:
-            lines.append("\nOPEN SERVICES (last 5):")
+            lines.append(f"\nOPEN SERVICES (last 5):")
             for s in context.scan_results[-5:]:
                 lines.append(f"  {s}")
 
@@ -250,8 +362,11 @@ class PromptBuilder:
             for e in context.exploit_results[-3:]:
                 lines.append(f"  {e}")
 
+        # ── Mode-specific reminders ────────────────────────────────────────────
         if context.mode == "scan_only":
-            lines.append("\nNOTE: Exploitation is DISABLED (scan_only mode). Do not call metasploit_run.")
+            lines.append("\nREMINDER: scan_only mode — do NOT call metasploit_run or ssh_exec for exploitation.")
+        elif context.mode == "ask_before_exploit":
+            lines.append("\nREMINDER: ask_before_exploit mode — state WAITING_FOR_APPROVAL before any exploit.")
 
         if context.hosts_pending_port_scan:
             lines.append(

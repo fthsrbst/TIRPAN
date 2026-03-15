@@ -174,13 +174,30 @@ class OpenRouterClient(LLMClient):
                         raise ValueError(f"OpenRouter returned empty choices: {data}")
                     return choices[0]["message"]["content"]
 
-            except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                try:
+                    body = e.response.json()
+                except Exception:
+                    body = e.response.text
+                logger.error(
+                    "OpenRouter HTTP %d on attempt %d/%d — model=%r body=%s",
+                    e.response.status_code, attempt + 1, self._MAX_RETRIES,
+                    self._current_model, body,
+                )
+                if e.response.status_code in (400, 401, 403):
+                    # Non-retryable auth/validation errors — fail immediately
+                    raise RuntimeError(f"OpenRouter {e.response.status_code}: {body}") from e
+                if attempt < self._MAX_RETRIES - 1:
+                    delay = self._RETRY_BASE_DELAY * (2 ** attempt)
+                    await asyncio.sleep(delay)
+            except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self._MAX_RETRIES - 1:
                     delay = self._RETRY_BASE_DELAY * (2 ** attempt)
                     logger.warning(
-                        "OpenRouter attempt %d/%d failed: %s — retrying in %.1fs",
-                        attempt + 1, self._MAX_RETRIES, e, delay,
+                        "OpenRouter timeout attempt %d/%d — retrying in %.1fs",
+                        attempt + 1, self._MAX_RETRIES, delay,
                     )
                     await asyncio.sleep(delay)
 

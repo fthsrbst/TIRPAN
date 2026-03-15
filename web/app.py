@@ -74,7 +74,18 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Factory used by tests and uvicorn."""
+    import logging
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+
     application = FastAPI(title="AEGIS", version="0.1.0", lifespan=lifespan)
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error_handler(request, exc):
+        logging.getLogger("aegis.validation").error(
+            "422 on %s: %s", request.url.path, exc.errors()
+        )
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     application.add_middleware(
         CORSMiddleware,
