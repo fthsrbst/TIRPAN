@@ -2275,6 +2275,14 @@ function handleSessionEvent(msg) {
         // Handled via tool_result; just update phase
         updatePhaseFromEvent(data);
 
+    } else if (event === 'parallel_start') {
+        const tools = (data.tools || []).join(', ');
+        setAgentStatus('acting', `⚡ parallel ×${data.count}`);
+        appendConsoleLine(`[PARALLEL] Starting ${data.count} tools simultaneously: ${tools}`, 'text-yellow-400');
+
+    } else if (event === 'parallel_done') {
+        appendConsoleLine(`[PARALLEL] ${data.count} tools completed`, 'text-green-400');
+
     } else if (event === 'phase_change' || event === 'discovery') {
         updatePhaseFromEvent(data);
 
