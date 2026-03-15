@@ -104,6 +104,9 @@ class MissionBrief:
     excluded_targets: list[str] = field(default_factory=list)
     # IPs / CIDRs the agent must NEVER touch — hard-blocked by SafetyGuard
 
+    excluded_ports: list[int] = field(default_factory=list)
+    # Ports the agent must NEVER scan — injected as --exclude-ports into every nmap call
+
     # ── Speed / timing ──────────────────────────────────────────────────
     speed_profile: str = "normal"    # stealth | normal | aggressive
 

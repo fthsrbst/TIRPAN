@@ -1824,6 +1824,8 @@ function populateCfgCloudModelDropdown() {
             document.getElementById('cfg-cloud-model-chevron')?.textContent === 'expand_less' &&
                 (document.getElementById('cfg-cloud-model-chevron').textContent = 'expand_more');
             populateCfgCloudModelDropdown();
+            // Activate this as the current session model
+            selectModel(model, 'openrouter');
         });
         list.appendChild(item);
     });
@@ -4276,6 +4278,16 @@ function advAddNeverScanEntry() {
     container.appendChild(row);
 }
 
+// ── Excluded ports quick-add helper ───────────────────────────────────────────
+
+function _advAddPortExclusion(ports) {
+    const input = document.getElementById('adv-excluded-ports');
+    if (!input) return;
+    const existing = input.value.split(',').map(p => p.trim()).filter(Boolean);
+    const toAdd = ports.split(',').map(p => p.trim()).filter(p => p && !existing.includes(p));
+    input.value = [...existing, ...toAdd].join(',');
+}
+
 // ── Global never-scan loader ───────────────────────────────────────────────────
 
 async function _advLoadGlobalNeverScan() {
@@ -4481,10 +4493,11 @@ async function _advLoadSavedCredentials() {
             const row = document.createElement('label');
             row.className = 'adv-check-row text-[10px]';
             row.innerHTML = `
-                <input type="checkbox" class="accent-primary" value="${c.id}" onchange="_advToggleSavedCred(${c.id}, this.checked)"/>
+                <input type="checkbox" class="accent-primary" value="${c.id}" onchange="_advToggleSavedCred('${c.id}', this.checked)"/>
                 <span class="font-mono">${_escHtml(c.name)}</span>
                 <span class="text-secondary-text ml-1">[${_escHtml(c.cred_type)}]</span>
-                <button onclick="_advDeleteSavedCred(${c.id}, this)" class="ml-auto text-secondary-text hover:text-danger transition-colors">
+                <span class="text-[9px] text-secondary-text ml-1">${_escHtml(c.host_pattern || '')}</span>
+                <button onclick="_advDeleteSavedCred('${c.id}', this)" class="ml-auto text-secondary-text hover:text-danger transition-colors shrink-0">
                     <span class="material-symbols-outlined text-sm">delete</span>
                 </button>`;
             list.appendChild(row);
@@ -4672,30 +4685,73 @@ function _advApplyConfig(cfg) {
         const el = document.getElementById('adv-mission-name');
         if (el) el.value = cfg.mission_name;
     }
+    if (cfg.mode) {
+        document.querySelectorAll('.adv-mode-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.mode === cfg.mode);
+        });
+        const desc = document.getElementById('adv-mode-desc');
+        if (desc && _advModeDesc[cfg.mode]) desc.textContent = _advModeDesc[cfg.mode];
+    }
+    if (cfg.known_tech) {
+        const el = document.getElementById('adv-known-tech');
+        if (el) el.value = cfg.known_tech;
+    }
+    if (cfg.scope_notes) {
+        const el = document.getElementById('adv-scope-notes');
+        if (el) el.value = cfg.scope_notes;
+    }
+    if (cfg.excluded_ports) {
+        const el = document.getElementById('adv-excluded-ports');
+        if (el) el.value = cfg.excluded_ports;
+    }
+    if (cfg.custom_scripts) {
+        const el = document.getElementById('adv-custom-scripts');
+        if (el) el.value = cfg.custom_scripts;
+    }
+    if (cfg.version_intensity) {
+        const sl = document.getElementById('adv-version-intensity');
+        const vl = document.getElementById('adv-version-intensity-val');
+        if (sl) sl.value = cfg.version_intensity;
+        if (vl) vl.textContent = cfg.version_intensity;
+    }
+    ['allow_post_exploitation','allow_lateral_movement','allow_docker_escape'].forEach(key => {
+        if (typeof cfg[key] !== 'undefined') {
+            const id = 'pol-' + key.replace('allow_','allow-').replace(/_/g,'-');
+            const el = document.getElementById(id);
+            if (el) el.checked = cfg[key];
+        }
+    });
 }
 
 function _advCollectConfig() {
     const nse = [];
     document.querySelectorAll('[data-nse]:checked').forEach(cb => nse.push(cb.dataset.nse));
-    const customScripts = document.getElementById('adv-custom-scripts').value.trim();
-    if (customScripts) nse.push(...customScripts.split(',').map(s => s.trim()).filter(Boolean));
+    const customScripts = (document.getElementById('adv-custom-scripts') || {}).value || '';
+    if (customScripts.trim()) nse.push(...customScripts.split(',').map(s => s.trim()).filter(Boolean));
+
+    const _v = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    const _c = id => { const el = document.getElementById(id); return el ? el.checked : false; };
 
     return {
-        mission_name: document.getElementById('adv-mission-name').value.trim(),
-        target_type: document.getElementById('adv-target-type').value,
-        speed_profile: _advGetSpeedProfile(),
-        scan_type: _advGetScanType(),
-        port_range: document.getElementById('adv-port-range').value.trim() || '1-1024',
-        nse_categories: nse,
-        os_detection: document.getElementById('adv-os-detect').checked,
-        version_detection: document.getElementById('adv-version-detect').checked,
-        allow_exploitation: document.getElementById('pol-allow-exploit').checked,
-        allow_post_exploitation: document.getElementById('pol-allow-post').checked,
-        allow_lateral_movement: document.getElementById('pol-allow-lateral').checked,
-        allow_docker_escape: document.getElementById('pol-allow-docker').checked,
-        allow_browser_recon: document.getElementById('pol-allow-browser').checked,
-        mode: _advGetMode(),
-        notes: (document.getElementById('adv-mission-briefing') || {}).value || '',
+        mission_name:           _v('adv-mission-name'),
+        target_type:            _v('adv-target-type') || 'auto',
+        mode:                   _advGetMode(),
+        speed_profile:          _advGetSpeedProfile(),
+        scan_type:              _advGetScanType(),
+        port_range:             _v('adv-port-range') || '1-1024',
+        nse_categories:         nse,
+        custom_scripts:         customScripts.trim(),
+        os_detection:           _c('adv-os-detect'),
+        version_detection:      _c('adv-version-detect'),
+        allow_exploitation:     _c('pol-allow-exploit'),
+        allow_post_exploitation: _c('pol-allow-post'),
+        allow_lateral_movement: _c('pol-allow-lateral'),
+        allow_docker_escape:    _c('pol-allow-docker'),
+        allow_browser_recon:    _c('pol-allow-browser'),
+        known_tech:             _v('adv-known-tech'),
+        scope_notes:            _v('adv-scope-notes'),
+        excluded_ports:         _v('adv-excluded-ports'),
+        version_intensity:      (() => { const el = document.getElementById('adv-version-intensity'); return el ? el.value : '5'; })(),
     };
 }
 
@@ -4756,6 +4812,12 @@ async function launchAdvancedMission() {
         if (inp.value.trim()) excludedTargets.push(inp.value.trim());
     });
 
+    // Collect excluded ports
+    const excludedPortsRaw = document.getElementById('adv-excluded-ports').value.trim();
+    const excludedPorts = excludedPortsRaw
+        ? excludedPortsRaw.split(',').map(p => p.trim()).filter(p => /^\d+$/.test(p))
+        : [];
+
     // Collect scope notes
     const scopeNotes = document.getElementById('adv-scope-notes').value.trim();
     const knownTech = document.getElementById('adv-known-tech').value.trim();
@@ -4799,16 +4861,18 @@ async function launchAdvancedMission() {
     }
 
     // Build full session payload (maps to StartSessionRequest in routes.py)
+    console.log('[ADV] cfg:', cfg);
     const payload = {
         target: primaryTarget,
         mode: cfg.mode,
         port_range: cfg.port_range,
-        provider: window.activeProvider || 'anthropic',
-        model: window.activeModel || undefined,
+        provider: activeProvider || 'ollama',
+        model: activeModel || undefined,
         mission_name: cfg.mission_name || undefined,
         target_type: cfg.target_type !== 'auto' ? cfg.target_type : undefined,
         additional_targets: additionalTargets.length > 0 ? additionalTargets : undefined,
         excluded_targets: excludedTargets.length > 0 ? excludedTargets : undefined,
+        excluded_ports: excludedPorts.length > 0 ? excludedPorts : undefined,
         speed_profile: cfg.speed_profile,
         scan_type: cfg.scan_type,
         nse_categories: cfg.nse_categories.length > 0 ? cfg.nse_categories : undefined,
@@ -4818,7 +4882,7 @@ async function launchAdvancedMission() {
         allow_lateral_movement: cfg.allow_lateral_movement,
         allow_docker_escape: cfg.allow_docker_escape,
         allow_browser_recon: cfg.allow_browser_recon,
-        known_tech: knownTech || undefined,
+        known_tech: knownTech ? knownTech.split(',').map(s => s.trim()).filter(Boolean) : undefined,
         scope_notes: scopeNotes || undefined,
         notes: cfg.notes || undefined,
         credential_ids: newCredIds.length > 0 ? newCredIds : undefined,
@@ -4834,6 +4898,7 @@ async function launchAdvancedMission() {
     if (hiddenPort) hiddenPort.value = cfg.port_range;
 
     closeAdvModal();
+    console.log('[ADV] payload:', JSON.stringify(payload, null, 2));
 
     try {
         const res = await fetch('/api/v1/sessions', {
@@ -4842,8 +4907,18 @@ async function launchAdvancedMission() {
             body: JSON.stringify(payload),
         });
         if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || 'Start failed');
+            const errBody = await res.json().catch(() => ({}));
+            // FastAPI 422 returns detail as array of validation errors
+            let msg = 'Start failed';
+            if (errBody.detail) {
+                if (Array.isArray(errBody.detail)) {
+                    msg = errBody.detail.map(e => `${e.loc?.join('.')}: ${e.msg}`).join(' | ');
+                } else {
+                    msg = String(errBody.detail);
+                }
+            }
+            console.error('Session start error:', errBody);
+            throw new Error(`${res.status}: ${msg}`);
         }
         const data = await res.json();
 
