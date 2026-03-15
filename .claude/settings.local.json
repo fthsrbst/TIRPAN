@@ -21,7 +21,8 @@
       "Bash(curl -s http://localhost:8000/api/v1/sessions)",
       "Bash(curl -s \"http://localhost:8000/api/v1/scan-profiles\" -X POST -H \"Content-Type: application/json\" -d '{\"\"\"\"name\"\"\"\":\"\"\"\"Test\"\"\"\",\"\"\"\"description\"\"\"\":\"\"\"\"\"\"\"\",\"\"\"\"config_json\"\"\"\":{\"\"\"\"speed\"\"\"\":\"\"\"\"normal\"\"\"\"}}')",
       "Read(///wsl.localhost/kali-linux/home/fatih/AEGIS/**)",
-      "Bash(echo 'no docs dir' ls //wsl.localhost/kali-linux/home/fatih/AEGIS/)"
+      "Bash(echo 'no docs dir' ls //wsl.localhost/kali-linux/home/fatih/AEGIS/)",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih\\\\AEGIS\\\\core\\\\\")"
     ]
   }
 }
