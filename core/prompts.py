@@ -80,7 +80,29 @@ Respond with a single valid JSON object only. No prose, no markdown, no comments
   "reasoning": "<one sentence: why this action, why now>"
 }
 
-Available action values: nmap_scan, searchsploit_search, metasploit_run, ssh_exec, generate_report\
+Available action values: nmap_scan, searchsploit_search, metasploit_run, ssh_exec, generate_report, parallel_tools
+
+PARALLEL EXECUTION:
+When multiple tool calls are fully independent (e.g. searchsploit for 5 different services after a port scan),
+use "parallel_tools" instead of repeating single actions. This runs all listed tools simultaneously.
+
+Format:
+{
+  "thought": "<reasoning>",
+  "action": "parallel_tools",
+  "tools": [
+    {"action": "<tool>", "parameters": {...}},
+    {"action": "<tool>", "parameters": {...}}
+  ],
+  "reasoning": "<why parallel>"
+}
+
+Rules for parallel_tools:
+- Only use when tools are truly independent (results of one do not affect others)
+- Maximum 10 tools per batch
+- Best use case: searchsploit_search for multiple services after a port scan
+- Do NOT use for nmap scans that must run sequentially (discovery → port scan)
+- Do NOT use when one tool's output is needed as input for another\
 """
 
 # ── Few-Shot Examples ──────────────────────────────────────────────────────────
@@ -150,6 +172,20 @@ Example 6 — SSH audit after shell obtained
     "action": "audit"
   },
   "reasoning": "Post-exploitation audit — collect system info, users, network, and persistence opportunities."
+}
+
+Example 7 — Parallel exploit search for multiple services (best use of parallel_tools)
+{
+  "thought": "Port scan complete on 192.168.1.5. Found 5 services: vsftpd/2.3.4, openssh/4.7p1, apache/2.2.8, samba/3.0.20, mysql/5.0.51. All searchsploit queries are independent — running them in parallel saves 4 LLM iterations.",
+  "action": "parallel_tools",
+  "tools": [
+    {"action": "searchsploit_search", "parameters": {"query": "vsftpd 2.3.4"}},
+    {"action": "searchsploit_search", "parameters": {"query": "openssh 4.7p1"}},
+    {"action": "searchsploit_search", "parameters": {"query": "apache 2.2.8"}},
+    {"action": "searchsploit_search", "parameters": {"query": "samba 3.0.20"}},
+    {"action": "searchsploit_search", "parameters": {"query": "mysql 5.0.51"}}
+  ],
+  "reasoning": "5 independent exploit searches — parallel_tools saves 4 sequential iterations."
 }\
 """
 

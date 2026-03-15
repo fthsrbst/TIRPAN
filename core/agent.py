@@ -297,13 +297,48 @@ class PentestAgent:
                     self._state = AgentState.REASONING
                     continue
 
-            # ── ACTING ───────────────────────────────────────────────────
-            self._state = AgentState.ACTING
-            result = await self.act(action_dict)
+            # ── Parallel tool execution ───────────────────────────────────
+            if action_dict.get("action") == "parallel_tools":
+                tool_calls = action_dict.get("tools") or []
+                if not tool_calls:
+                    self.memory.add_tool_result(
+                        "TOOL_RESULT: parallel_tools\nSUCCESS: False\n"
+                        "OUTPUT: parallel_tools received empty tools list"
+                    )
+                    self._state = AgentState.REASONING
+                    continue
 
-            # ── OBSERVING ────────────────────────────────────────────────
-            self._state = AgentState.OBSERVING
-            await self.observe(result, action_dict)
+                try:
+                    self._state = AgentState.ACTING
+                    pairs = await self.act_parallel(tool_calls)
+
+                    self._state = AgentState.OBSERVING
+                    for sub_action, sub_result in pairs:
+                        await self.observe(sub_result, sub_action)
+                except Exception as exc:
+                    logger.error("parallel_tools iteration failed: %s", exc)
+                    self._emit("error", {"error": f"parallel_tools failed: {exc}"})
+
+                self._state = AgentState.REFLECTING
+                await self.reflect()
+                self._state = AgentState.REASONING
+                continue
+
+            # ── ACTING ───────────────────────────────────────────────────
+            try:
+                self._state = AgentState.ACTING
+                result = await self.act(action_dict)
+
+                # ── OBSERVING ────────────────────────────────────────────
+                self._state = AgentState.OBSERVING
+                await self.observe(result, action_dict)
+            except Exception as exc:
+                logger.error("act/observe failed: %s", exc)
+                self._emit("error", {"error": f"act/observe failed: {exc}"})
+                self.memory.add_tool_result(
+                    f"TOOL_RESULT: {action_dict.get('action', 'unknown')}\n"
+                    f"SUCCESS: False\nOUTPUT: Internal error: {exc}"
+                )
 
             # ── REFLECTING ───────────────────────────────────────────────
             self._state = AgentState.REFLECTING
@@ -481,6 +516,42 @@ class PentestAgent:
             },
         )
         return result
+
+    async def act_parallel(self, tool_calls: list[dict]) -> list[tuple[dict, dict]]:
+        """
+        Execute multiple independent tool calls concurrently via asyncio.gather.
+
+        Each call goes through the full act() pipeline (safety check → execute → audit).
+        Returns a list of (action_dict, result) pairs — one per successfully dispatched call.
+        """
+        # Hard cap to prevent runaway parallelism
+        capped = tool_calls[:10]
+        if len(tool_calls) > 10:
+            logger.warning(
+                "parallel_tools: capped %d calls to 10", len(tool_calls)
+            )
+
+        self._emit("parallel_start", {"count": len(capped), "tools": [c.get("action") for c in capped]})
+
+        async def _safe_act(call: dict) -> tuple[dict, dict]:
+            try:
+                result = await self.act(call)
+            except Exception as exc:
+                logger.error("parallel_tools: act() raised for %s: %s", call.get("action"), exc)
+                result = {"success": False, "output": None, "error": str(exc)}
+            return call, result
+
+        raw = await asyncio.gather(*[_safe_act(c) for c in capped], return_exceptions=True)
+
+        pairs: list[tuple[dict, dict]] = []
+        for item in raw:
+            if isinstance(item, Exception):
+                logger.error("parallel_tools: gather raised: %s", item)
+            else:
+                pairs.append(item)
+
+        self._emit("parallel_done", {"count": len(pairs)})
+        return pairs
 
     async def observe(self, result: dict, action_dict: dict) -> None:
         """

@@ -25,7 +25,7 @@ from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 
 logger = logging.getLogger(__name__)
 
-SCAN_TIMEOUT = 600  # 10 minutes max (increased for large networks with stealth timing)
+SCAN_TIMEOUT = 1800  # 30 minutes max (full-range vuln scans can take 20+ minutes)
 
 
 class NmapTool(BaseTool):
@@ -203,7 +203,7 @@ class NmapTool(BaseTool):
 
         # NSE scripts
         if scripts.strip() and scan_type != "ping":
-            base += ["--script", scripts.strip()]
+            base += ["--script", scripts.strip(), "--script-timeout", "30s"]
 
         # Port exclusions — merge tool param + global safety config
         all_excluded: list[str] = []
