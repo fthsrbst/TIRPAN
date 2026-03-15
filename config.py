@@ -64,6 +64,9 @@ class MetasploitConfig(BaseSettings):
     port: int = Field(default=55553, alias="MSF_RPC_PORT")
     password: str = Field(default="msfrpc", alias="MSF_RPC_PASSWORD")
     ssl: bool = Field(default=False, alias="MSF_RPC_SSL")
+    # Override LHOST for reverse shells — set to the IP reachable FROM targets
+    # e.g. VirtualBox host-only adapter: MSF_LHOST_OVERRIDE=192.168.56.1
+    lhost_override: str = Field(default="", alias="MSF_LHOST_OVERRIDE")
 
 
 class ServerConfig(BaseSettings):

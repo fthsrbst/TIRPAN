@@ -319,16 +319,46 @@ class LLMRouter:
     @staticmethod
     def parse_json(response: str) -> dict:
         """
-        Extract JSON from an LLM response.
-        The LLM sometimes wraps it in a ```json ... ``` block — this cleans that up.
+        Extract a JSON object from an LLM response.
+
+        Handles:
+        - Plain JSON
+        - ```json ... ``` fenced blocks (anywhere in the text)
+        - Chain-of-thought prose followed by a JSON object
+        - Mixed prose + JSON (picks the last top-level ``{...}`` block)
         """
+        import re as _re
+
         text = response.strip()
-        if text.startswith("```"):
-            lines = text.splitlines()
-            # Drop the first and last ``` lines
-            inner = [line for line in lines[1:] if line.strip() != "```"]
-            text = "\n".join(inner)
-        return json.loads(text)
+        if not text:
+            raise json.JSONDecodeError("Empty response", text, 0)
+
+        # 1. Plain JSON — fastest path
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # 2. Fenced ```json ... ``` or ``` ... ``` block anywhere in the text
+        m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, _re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # 3. Scan every '{' position (left-to-right) and try to parse from there.
+        #    The LLM often writes chain-of-thought before the JSON object, so the
+        #    first valid top-level object we encounter is the intended response.
+        for i, ch in enumerate(text):
+            if ch == "{":
+                try:
+                    return json.loads(text[i:])
+                except json.JSONDecodeError:
+                    continue
+
+        # 4. Nothing worked — re-raise a clean error
+        raise json.JSONDecodeError("No JSON object found in response", text, 0)
 
 
 # Singleton
