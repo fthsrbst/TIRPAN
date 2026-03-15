@@ -661,9 +661,14 @@ async def tools_status():
 # ── Pentest Sessions ───────────────────────────────────────────────────────────
 
 class StartSessionRequest(BaseModel):
-    target: str
+    target: str = ""   # optional when resume_from_session_id is set
     mode: str = "scan_only"
     mission_name: str = ""
+
+    # Resume from a saved mission (load scan + vulns, skip re-scanning)
+    resume_from_session_id: Optional[str] = None
+    # Fork from a specific iteration (Cursor-style checkpoint restore)
+    resume_iteration: Optional[int] = None
 
     # Safety overrides
     allowed_cidr: Optional[str] = None
@@ -748,6 +753,7 @@ async def _run_agent_task(
             "type": "session_done",
             "session_id": session_id,
             "hosts": len(ctx.discovered_hosts),
+            "ports": ctx.total_ports,
             "vulns": ctx.total_vulns,
             "exploits": ctx.total_exploits,
         })
@@ -803,8 +809,61 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     if body.mode not in ("full_auto", "ask_before_exploit", "scan_only"):
         raise HTTPException(400, f"Invalid mode: {body.mode}")
 
+    # Resume from saved mission: load target + findings from that session
+    resume_scan_results: list[dict] = []
+    resume_vulnerabilities: list[dict] = []
+    resume_exploit_results: list[dict] = []
+    resume_events: list[dict] = []
+    resume_attack_phase: str = "EXPLOITATION"
+    if body.resume_from_session_id:
+        resumed = await _session_repo.get(body.resume_from_session_id)
+        if not resumed:
+            raise HTTPException(404, f"Resume session not found: {body.resume_from_session_id}")
+        if not body.target.strip():
+            body.target = (resumed.get("target") or "").strip()
+
+        if body.resume_iteration is not None:
+            # Fork from a specific iteration — load events up to that point,
+            # use the last event's timestamp to filter scan_results/vulns/exploits
+            resume_events = await _event_repo.get_up_to_iteration(
+                body.resume_from_session_id, body.resume_iteration,
+            )
+            if not resume_events:
+                raise HTTPException(400, f"No events found for iteration {body.resume_iteration}")
+            cutoff_ts = resume_events[-1]["created_at"]
+
+            # Determine attack_phase from the last reasoning event in the range
+            for ev in reversed(resume_events):
+                if ev["event_type"] == "reasoning" and ev["data"].get("attack_phase"):
+                    resume_attack_phase = ev["data"]["attack_phase"]
+                    break
+
+            resume_scan_results = await _scan_repo.get_for_session(
+                body.resume_from_session_id, before=cutoff_ts,
+            )
+            resume_vulnerabilities = await _vuln_repo.get_for_session(
+                body.resume_from_session_id, before=cutoff_ts,
+            )
+            resume_exploit_results = await _exploit_repo.get_for_session(
+                body.resume_from_session_id, before=cutoff_ts,
+            )
+            logger.info(
+                "Forking session %s from iteration %d (cutoff=%.1f): %d scans, %d vulns, %d exploits, %d events",
+                body.resume_from_session_id[:8], body.resume_iteration, cutoff_ts,
+                len(resume_scan_results), len(resume_vulnerabilities),
+                len(resume_exploit_results), len(resume_events),
+            )
+        else:
+            # Resume from end of session (original behavior)
+            resume_scan_results = await _scan_repo.get_for_session(body.resume_from_session_id)
+            resume_vulnerabilities = await _vuln_repo.get_for_session(body.resume_from_session_id)
+            logger.info(
+                "Resuming from session %s: %d scan results, %d vulns",
+                body.resume_from_session_id[:8], len(resume_scan_results), len(resume_vulnerabilities),
+            )
+
     if not body.target.strip():
-        raise HTTPException(400, "Target IP or CIDR is required")
+        raise HTTPException(400, "Target IP or CIDR is required (or set resume_from_session_id)")
 
     # If a scan profile was selected, load and merge its config
     if body.profile_id:
@@ -991,6 +1050,16 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         audit_repo=_audit_repo,
         mission=mission,
     )
+
+    if body.resume_from_session_id and (resume_scan_results or resume_vulnerabilities or resume_events):
+        agent.seed_context_from_findings(
+            resume_scan_results,
+            resume_vulnerabilities,
+            attack_phase=resume_attack_phase,
+            exploit_results_from_db=resume_exploit_results or None,
+            events_up_to=resume_events or None,
+            source_iteration=body.resume_iteration,
+        )
 
     # Launch background task
     task = asyncio.create_task(
@@ -1193,12 +1262,22 @@ async def get_report_pdf(sid: str):
 
 @router.get("/sessions/{sid}/events")
 async def get_session_events(sid: str, limit: int = 2000):
-    """Return the stored agent event stream for a session (for replay)."""
+    """Return the stored agent event stream for a session (for replay).
+
+    Each event is annotated with an `iteration` field (1-based) derived from
+    the sequence of 'reasoning' events. Non-reasoning events inherit the
+    iteration of the preceding reasoning event.
+    """
     session = await _session_repo.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
     events = await _event_repo.get_for_session(sid, limit=limit)
-    return {"events": events}
+    current_iter = 0
+    for ev in events:
+        if ev["event_type"] == "reasoning":
+            current_iter += 1
+        ev["iteration"] = current_iter
+    return {"events": events, "total_iterations": current_iter}
 
 
 # ── Audit Log ──────────────────────────────────────────────────────────────────

@@ -50,12 +50,14 @@ async def lifespan(app: FastAPI):
         if _sudo_pw:
             settings.sudo_password = _sudo_pw
 
-    # Cleanup sessions that were left in "running" state from a previous crash/restart
+    # Cleanup sessions that were left in "running" or "idle" state from a previous crash/restart.
+    # "idle" sessions were created but the background task was killed before it could set status
+    # to "running" (e.g. server reloaded immediately after a mission was launched).
     from database.repositories import SessionRepository
     _repo = SessionRepository()
     _orphans = await _repo.list_all()
     for _s in _orphans:
-        if _s.get("status") == "running":
+        if _s.get("status") in ("running", "idle"):
             await _repo.update_status(_s["id"], "error", "Server restarted — session interrupted")
 
     # Bootstrap tool registry
@@ -63,10 +65,12 @@ async def lifespan(app: FastAPI):
     from tools.nmap_tool import NmapTool
     from tools.searchsploit_tool import SearchSploitTool
     from tools.metasploit_tool import MetasploitTool
+    from tools.ssh_tool import SSHTool
 
     tool_registry.register(NmapTool())
     tool_registry.register(SearchSploitTool())
     tool_registry.register(MetasploitTool())
+    tool_registry.register(SSHTool())
     tool_registry.load_plugins(Path("plugins/"))
 
     yield
