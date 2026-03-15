@@ -74,8 +74,11 @@ class AgentContext:
     hosts_pending_port_scan: list[str] = field(default_factory=list)
     hosts_pending_exploit_search: list[str] = field(default_factory=list)
 
+    # Active MSF sessions (session_id → target_ip)
+    active_sessions: dict[int, str] = field(default_factory=dict)
+
     iteration: int = 0
-    attack_phase: str = "DISCOVERY"  # DISCOVERY|PORT_SCAN|EXPLOIT_SEARCH|EXPLOITATION|DONE
+    attack_phase: str = "DISCOVERY"  # DISCOVERY|PORT_SCAN|EXPLOIT_SEARCH|EXPLOITATION|POST_EXPLOIT|DONE
     port_range: str = "1-65535"      # nmap port range hint passed to the LLM via prompt
     notes: str = ""                  # operator-supplied notes injected into every prompt
     mission: MissionBrief = None     # V2: full mission brief (set post-init)
@@ -83,6 +86,23 @@ class AgentContext:
     def __post_init__(self):
         if self.mission is None:
             object.__setattr__(self, "mission", MissionBrief())
+
+        # If target is a single IP (not CIDR), pre-register it as discovered so
+        # the agent can proceed directly to PORT_SCAN without a redundant ping sweep.
+        import re as _re
+        if (
+            self.target
+            and "/" not in self.target
+            and _re.match(r"^\d{1,3}(\.\d{1,3}){3}$", self.target)
+            and self.target not in self.discovered_hosts
+        ):
+            self.discovered_hosts.append(self.target)
+            self.hosts_pending_port_scan.append(self.target)
+            self.attack_phase = "PORT_SCAN"
+            logger.debug(
+                "Single-IP target — pre-registered %s as discovered, phase=PORT_SCAN",
+                self.target,
+            )
 
     # ── Convenience properties ─────────────────────────────────────────────
 
@@ -179,6 +199,125 @@ class PentestAgent:
     @property
     def is_paused(self) -> bool:
         return self._paused
+
+    # ── Seed context (resume from saved mission) ────────────────────────────────
+
+    def seed_context_from_findings(
+        self,
+        scan_results_from_db: list[dict],
+        vulnerabilities_from_db: list[dict],
+        attack_phase: str = "EXPLOITATION",
+        exploit_results_from_db: list[dict] | None = None,
+        events_up_to: list[dict] | None = None,
+        source_iteration: int | None = None,
+    ) -> None:
+        """Load saved findings into context so the agent can resume.
+
+        Parameters
+        ----------
+        scan_results_from_db : nmap scan results from DB
+        vulnerabilities_from_db : vuln records from DB
+        attack_phase : phase to set on the context
+        exploit_results_from_db : past exploit attempts from DB (optional)
+        events_up_to : session events up to the selected iteration (optional)
+            Used to replay conversation history into SessionMemory.
+        source_iteration : which iteration we're forking from (optional, for logging)
+        """
+        for sr in scan_results_from_db:
+            hosts = sr.get("hosts") or []
+            for host in hosts:
+                ip = str(host.get("ip", ""))
+                state = str(host.get("state", "up"))
+                if ip and state == "up" and ip not in self._ctx.discovered_hosts:
+                    self._ctx.discovered_hosts.append(ip)
+                for port in host.get("ports") or []:
+                    if port.get("state") != "open":
+                        continue
+                    port_num = port.get("number", 0)
+                    service = str(port.get("service", ""))
+                    version = str(port.get("version", ""))
+                    summary = f"{ip}:{port_num} {service} {version}".strip()
+                    if summary and summary not in self._ctx.scan_results:
+                        self._ctx.scan_results.append(summary)
+
+        for v in vulnerabilities_from_db:
+            title = str(v.get("title", v))
+            cve = str(v.get("cve_id", ""))
+            summary = f"{title} [{cve}]".strip() if cve else title
+            if summary and summary not in self._ctx.vulnerabilities:
+                self._ctx.vulnerabilities.append(summary)
+
+        if exploit_results_from_db:
+            for er in exploit_results_from_db:
+                module = er.get("module", "")
+                success = er.get("success", False)
+                error = er.get("error", "")
+                summary = f"{'✓' if success else '✗'} {module}"
+                if error:
+                    summary += f" — {error[:80]}"
+                if summary not in self._ctx.exploit_results:
+                    self._ctx.exploit_results.append(summary)
+
+        # Replay events into SessionMemory so the LLM has conversation context
+        if events_up_to:
+            self._replay_events_into_memory(events_up_to, source_iteration)
+
+        self._ctx.hosts_pending_port_scan.clear()
+        self._ctx.hosts_pending_exploit_search.clear()
+        self._ctx.attack_phase = attack_phase
+        self._ctx.iteration = source_iteration or 0
+        logger.info(
+            "Context seeded: %d hosts, %d ports, %d vulns, %d exploits → phase=%s (from iter %s)",
+            len(self._ctx.discovered_hosts),
+            len(self._ctx.scan_results),
+            len(self._ctx.vulnerabilities),
+            len(self._ctx.exploit_results),
+            attack_phase,
+            source_iteration,
+        )
+        self._emit("phase_change", {"attack_phase": attack_phase})
+
+    def _replay_events_into_memory(self, events: list[dict], source_iteration: int | None) -> None:
+        """Replay session events into the agent's SessionMemory.
+
+        Reconstructs the assistant/tool conversation so the LLM has prior
+        context when resuming from a specific iteration.
+        """
+        summary_parts = []
+        for ev in events:
+            et = ev.get("event_type", "")
+            data = ev.get("data", {})
+            if et == "reasoning":
+                thought = data.get("thought", "")
+                action = data.get("action", "")
+                reasoning = data.get("reasoning", "")
+                entry = f"THOUGHT: {thought}"
+                if reasoning:
+                    entry += f"\nREASONING: {reasoning}"
+                if action:
+                    entry += f"\nACTION: {action}"
+                summary_parts.append(entry)
+            elif et == "tool_result":
+                tool = data.get("tool", "")
+                success = data.get("success", False)
+                output = str(data.get("output", ""))[:500]
+                summary_parts.append(
+                    f"TOOL_RESULT: {tool}\nSUCCESS: {success}\nOUTPUT: {output}"
+                )
+            elif et == "reflection":
+                refl = data.get("reflection", "")
+                if refl:
+                    summary_parts.append(f"REFLECTION: {refl}")
+
+        if summary_parts:
+            iter_label = f" (iteration {source_iteration})" if source_iteration else ""
+            header = (
+                f"[SYSTEM] You are resuming a pentest mission from a checkpoint{iter_label}. "
+                f"Below is a summary of what was done before this checkpoint. "
+                f"Continue from where the previous run left off. Do NOT repeat already-completed actions.\n\n"
+            )
+            full_summary = header + "\n---\n".join(summary_parts[-30:])
+            self.memory.add_user(full_summary)
 
     # ── Pause / Resume / Inject ────────────────────────────────────────────────
 
@@ -417,8 +556,19 @@ class PentestAgent:
             return action_dict
 
         except json.JSONDecodeError as exc:
-            logger.error("LLM returned invalid JSON: %s", exc)
+            logger.error("LLM returned invalid JSON: %s | response=%r", exc, response[:200] if response else "")
             self._emit("error", {"error": f"Invalid JSON from LLM: {exc}"})
+            # Inject a corrective hint — covers both empty and prose-only responses
+            hint = (
+                "Your last response was empty. You MUST respond with a single valid JSON object. No prose."
+                if not response.strip()
+                else (
+                    "Your last response contained prose/chain-of-thought but no valid JSON object. "
+                    "You MUST respond with ONLY a single valid JSON object — no explanatory text, "
+                    "no [REFLECTION] blocks, no markdown. Just the raw JSON."
+                )
+            )
+            self.memory.add_user(hint)
             return None
 
         except Exception as exc:
@@ -825,11 +975,13 @@ class PentestAgent:
             if summary not in self._ctx.vulnerabilities:
                 self._ctx.vulnerabilities.append(summary)
 
-        # Advance phase when we have vulnerabilities and exploitation is allowed
+        # Advance phase when we have vulnerabilities and exploitation is allowed.
+        # Also fires if agent skipped discovery (KNOWN TECH shortcut) — in that
+        # case attack_phase may still be DISCOVERY or PORT_SCAN.
         if (
             self._ctx.vulnerabilities
             and self._ctx.mode != "scan_only"
-            and self._ctx.attack_phase == "EXPLOIT_SEARCH"
+            and self._ctx.attack_phase in ("DISCOVERY", "PORT_SCAN", "EXPLOIT_SEARCH")
         ):
             self._ctx.attack_phase = "EXPLOITATION"
             logger.info("Phase → EXPLOITATION")
@@ -839,8 +991,14 @@ class PentestAgent:
             })
 
     def _process_metasploit_result(self, output: dict | list, params: dict) -> None:
+        action = str(params.get("action", "run"))
         module = str(params.get("module", "unknown"))
         target_ip = str(params.get("target_ip", ""))
+
+        if action == "session_exec":
+            # session_exec doesn't produce a new exploit result — it's post-exploitation
+            return
+
         session_id = None
         if isinstance(output, dict):
             session_id = output.get("session_id")
@@ -850,3 +1008,16 @@ class PentestAgent:
         )
         self._ctx.exploit_results.append(summary)
         logger.info("Exploit result recorded: %s", summary)
+
+        # Track opened sessions so the agent knows which shells are available
+        if session_id is not None:
+            self._ctx.active_sessions[session_id] = target_ip
+            logger.info("Session %s registered for %s", session_id, target_ip)
+
+            if self._ctx.attack_phase == "EXPLOITATION":
+                self._ctx.attack_phase = "POST_EXPLOIT"
+                logger.info("Phase → POST_EXPLOIT (session %s opened)", session_id)
+                self._emit("phase_change", {
+                    "attack_phase": "POST_EXPLOIT",
+                    "session_id": session_id,
+                })

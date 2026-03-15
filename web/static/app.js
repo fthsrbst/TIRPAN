@@ -2375,7 +2375,7 @@ function handleSessionDone(msg) {
 
     if (counts.hosts    !== undefined) setStatValue('stat-hosts', counts.hosts);
     if (counts.vulns    !== undefined) setStatValue('stat-vulns', counts.vulns);
-    if (counts.exploits !== undefined) setStatValue('stat-ports', counts.exploits);
+    if (counts.ports    !== undefined) setStatValue('stat-ports', counts.ports);
 
     // Sync report view to completed session
     if (activeMissionId) {
@@ -2447,6 +2447,7 @@ async function startMission() {
         viewingSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
+        hideResumeFromSessionBtn();
 
         // Update UI
         updateMissionStatusHeader('running', activeMissionId, target);
@@ -2486,6 +2487,119 @@ async function startMission() {
             startBtn.disabled = false;
         }
     }
+}
+
+/** Start a new mission using a saved session's scan results and vulns (skip re-scan). */
+async function resumeMissionFromSession(sessionId) {
+    if (!sessionId) { showToast('No session selected'); return; }
+    const modeSelect = document.getElementById('mission-mode');
+    const mode = modeSelect ? modeSelect.value : 'full_auto';
+
+    try {
+        const res = await fetch('/api/v1/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resume_from_session_id: sessionId, mode, target: '' }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || (err.detail && err.detail[0] ? err.detail[0].msg : 'Resume failed'));
+        }
+        const data = await res.json();
+        activeMissionId = data.session_id;
+        viewingSessionId = activeMissionId;
+        missionStartTime = Date.now();
+        missionPaused = false;
+
+        updateMissionStatusHeader('running', activeMissionId, data.target || 'Resumed');
+        resetMissionStats();
+        resetPhaseBar();
+        setPhaseActive(4);
+        clearConsoleOutput();
+        clearMissionFeed();
+        renderMissionStart(data.target || sessionId.slice(0, 8), mode);
+        appendConsoleLine(`[RESUME] From session ${sessionId.slice(0, 8)}…`, 'text-primary');
+        appendConsoleLine(`[TARGET] ${data.target || '—'}  [MODE] ${(data.mode || mode).toUpperCase()}`, 'text-secondary-text');
+        hideResumeFromSessionBtn();
+        showPauseMissionBtn();
+        updatePauseButton();
+        setAgentStatus('reasoning');
+        syncInputMode();
+
+        patchWsSessionHandler();
+        if (ws && wsReady) {
+            ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeMissionId }));
+        }
+        startMissionPoll(activeMissionId);
+        startMissionUptime();
+        switchView('agent');
+        showToast('Mission resumed from saved state — exploitation phase');
+    } catch (err) {
+        showToast('Resume failed: ' + err.message, true);
+    }
+}
+
+/** Fork from a specific iteration — Cursor-style checkpoint restore. */
+async function forkFromIteration(iteration) {
+    const sourceSessionId = viewingSessionId || activeMissionId;
+    if (!sourceSessionId) { showToast('No session selected'); return; }
+
+    showConfirm({
+        title: 'Iteration Fork',
+        message: `Iteration ${iteration} noktasından yeni bir mission başlatılacak. Devam edilsin mi?`,
+        icon: 'fork_right',
+        onConfirm: async () => {
+            try {
+                const modeSelect = document.getElementById('mission-mode');
+                const mode = modeSelect ? modeSelect.value : 'full_auto';
+
+                const res = await fetch('/api/v1/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        resume_from_session_id: sourceSessionId,
+                        resume_iteration: iteration,
+                        mode,
+                        target: '',
+                    }),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Fork failed');
+                }
+                const data = await res.json();
+                activeMissionId = data.session_id;
+                viewingSessionId = activeMissionId;
+                missionStartTime = Date.now();
+                missionPaused = false;
+
+                updateMissionStatusHeader('running', activeMissionId, data.target || 'Forked');
+                resetMissionStats();
+                resetPhaseBar();
+                clearConsoleOutput();
+                clearMissionFeed();
+                renderMissionStart(data.target || sourceSessionId.slice(0, 8), mode);
+                appendConsoleLine(`[FORK] From session ${sourceSessionId.slice(0, 8)}… iteration ${iteration}`, 'text-primary');
+                appendConsoleLine(`[TARGET] ${data.target || '—'}  [MODE] ${(data.mode || mode).toUpperCase()}`, 'text-secondary-text');
+                hideResumeFromSessionBtn();
+                showPauseMissionBtn();
+                updatePauseButton();
+                setAgentStatus('reasoning');
+                syncInputMode();
+
+                patchWsSessionHandler();
+                if (ws && wsReady) {
+                    ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeMissionId }));
+                }
+                startMissionPoll(activeMissionId);
+                startMissionUptime();
+                switchView('agent');
+                showToast(`Iteration ${iteration} noktasından devam ediliyor`);
+            } catch (err) {
+                showToast('Fork failed: ' + err.message, true);
+            }
+        },
+    });
 }
 
 async function killMission() {
@@ -2569,6 +2683,14 @@ async function refreshMissionStats(sessionId) {
             stopMissionUptime();
             updateMissionStatusHeader(data.status, sessionId);
         }
+
+        // Detect orphaned sessions: DB says running/idle but no live task (e.g. server restarted)
+        if ((data.status === 'running' || data.status === 'idle') && data.is_running === false) {
+            stopMissionPoll();
+            stopMissionUptime();
+            updateMissionStatusHeader('error', sessionId);
+            appendConsoleLine('[SERVER] Agent task lost — server may have restarted. Start a new mission.', 'text-danger');
+        }
     } catch { /* ignore */ }
 }
 
@@ -2628,15 +2750,27 @@ function updatePhaseFromEvent(data) {
     const phase = data.attack_phase || data.phase || '';
     const phaseMap = {
         'DISCOVERY': 1, 'PORT_SCAN': 2, 'EXPLOIT_SEARCH': 3,
-        'EXPLOITATION': 4, 'DONE': 5,
+        'EXPLOITATION': 4, 'POST_EXPLOIT': 4, 'DONE': 5,
     };
     const n = phaseMap[phase.toUpperCase()];
-    if (n) setPhaseActive(n);
+    if (n) _setPhaseFromEvent(n);
 }
 
+let _currentPhase = 0;  // tracked locally; only terminal states force override
+
 function updatePhaseFromSessionStatus(status) {
-    if (status === 'running') setPhaseActive(1);
-    else if (status === 'done') setPhaseActive(5);
+    // Never reset phase backwards during a running session —
+    // WebSocket phase_change events are the authoritative source.
+    if (status === 'done') setPhaseActive(5);
+    else if (status === 'error' || status === 'stopped') { /* keep last phase */ }
+    // 'running' → do nothing here; phase_change WS events update the bar
+}
+
+function _setPhaseFromEvent(n) {
+    if (n > _currentPhase) {
+        _currentPhase = n;
+        setPhaseActive(n);
+    }
 }
 
 // ─── Mission status header ─────────────────────────────────────────────────────
@@ -2875,14 +3009,21 @@ function finalizeAgentStreamCard() {
 
 function renderMissionReasoning(data) {
     _missionIteration++;
+    const iter = _missionIteration;
     const thought   = _esc(data.thought || '');
     const reasoning = _esc(data.reasoning || '');
     const action    = _esc(data.action || '');
     appendMissionCard(`
-        <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+        <div class="group/iter border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs relative" data-iteration="${iter}">
             <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-2">
                 <span class="material-symbols-outlined text-[13px]">psychology</span>
-                REASONING &nbsp;·&nbsp; Iteration ${_missionIteration}
+                REASONING &nbsp;·&nbsp; Iteration ${iter}
+                <button class="iter-fork-btn ml-auto opacity-0 group-hover/iter:opacity-100 transition-opacity flex items-center gap-1 text-[9px] text-secondary-text hover:text-primary cursor-pointer bg-bg/70 rounded px-2 py-0.5"
+                        onclick="forkFromIteration(${iter})"
+                        title="Bu noktadan devam et">
+                    <span class="material-symbols-outlined text-[11px]">fork_right</span>
+                    Buradan devam et
+                </button>
             </div>
             ${thought    ? `<div class="text-slate-300 leading-relaxed mb-2 whitespace-pre-wrap">${thought}</div>` : ''}
             ${reasoning  ? `<div class="text-secondary-text text-[11px] leading-relaxed mb-2 whitespace-pre-wrap italic">${reasoning}</div>` : ''}
@@ -3275,6 +3416,7 @@ async function switchToSession(sessionId) {
         clearMissionFeed();
 
         if (isRunning) {
+            hideResumeFromSessionBtn();
             // Live session — subscribe to WS events and restart uptime from session start
             activeMissionId = sessionId;
             patchWsSessionHandler();
@@ -3296,6 +3438,7 @@ async function switchToSession(sessionId) {
             setUptimeFromDuration(dur);
             // do NOT touch activeMissionId (new missions can still start)
             hidePauseMissionBtn();
+            showResumeFromSessionBtn();
             const agentStatus = (effectiveStatus === 'error' || effectiveStatus === 'stopped') ? 'error' : 'done';
             setAgentStatus(agentStatus, `${missionDisplayName} — historical`);
             syncInputMode();
@@ -3323,7 +3466,6 @@ async function switchToSession(sessionId) {
 function replaySessionEvent(event, data) {
     switch (event) {
         case 'reasoning':
-            _missionIteration++;
             renderMissionReasoning(data);
             updatePhaseFromEvent(data);
             break;
@@ -3441,6 +3583,16 @@ function hidePauseMissionBtn() {
     if (btn) btn.classList.add('hidden');
 }
 
+function showResumeFromSessionBtn() {
+    const btn = document.getElementById('resume-from-session-btn');
+    if (btn) btn.classList.remove('hidden');
+}
+
+function hideResumeFromSessionBtn() {
+    const btn = document.getElementById('resume-from-session-btn');
+    if (btn) btn.classList.add('hidden');
+}
+
 function updatePauseButton() {
     const btn = document.getElementById('pause-mission-btn');
     if (!btn) return;
@@ -3458,6 +3610,13 @@ function updatePauseButton() {
 function initPauseControls() {
     const pauseBtn = document.getElementById('pause-mission-btn');
     if (pauseBtn) pauseBtn.addEventListener('click', togglePauseMission);
+    const resumeFromBtn = document.getElementById('resume-from-session-btn');
+    if (resumeFromBtn) {
+        resumeFromBtn.addEventListener('click', () => {
+            if (viewingSessionId) resumeMissionFromSession(viewingSessionId);
+            else showToast('Select a session first');
+        });
+    }
 }
 
 async function togglePauseMission() {
@@ -4116,6 +4275,59 @@ function openAdvModal() {
     _advLoadSavedCredentials();
     _advLoadProfilesList();
     advRefreshToolStatus();
+    _advRestoreLastConfig();
+}
+
+async function _advRestoreLastConfig() {
+    try {
+        const res = await fetch('/api/v1/settings');
+        if (!res.ok) return;
+        const data = await res.json();
+        const raw = data.last_mission_config;
+        if (!raw) return;
+        const saved = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!saved || typeof saved !== 'object') return;
+
+        // Restore target + extra targets
+        if (saved.primaryTarget) {
+            const el = document.getElementById('adv-primary-target');
+            if (el && !el.value.trim()) el.value = saved.primaryTarget;
+        }
+        if (saved.scopeNotes) {
+            const el = document.getElementById('adv-scope-notes');
+            if (el) el.value = saved.scopeNotes;
+        }
+        if (saved.knownTech) {
+            const el = document.getElementById('adv-known-tech');
+            if (el) el.value = saved.knownTech;
+        }
+        if (saved.excludedPortsRaw) {
+            const el = document.getElementById('adv-excluded-ports');
+            if (el) el.value = saved.excludedPortsRaw;
+        }
+        if (saved.missionName) {
+            const el = document.getElementById('adv-mission-name');
+            if (el) el.value = saved.missionName;
+        }
+        if (saved.cfg) _advApplyConfig(saved.cfg);
+    } catch (_) {}
+}
+
+async function _advPersistConfig() {
+    try {
+        const cfg = _advCollectConfig();
+        const primaryTarget = document.getElementById('adv-primary-target')?.value.trim() || '';
+        const scopeNotes = document.getElementById('adv-scope-notes')?.value.trim() || '';
+        const knownTech = document.getElementById('adv-known-tech')?.value.trim() || '';
+        const excludedPortsRaw = document.getElementById('adv-excluded-ports')?.value.trim() || '';
+        const missionName = document.getElementById('adv-mission-name')?.value.trim() || '';
+        const payload = JSON.stringify({ primaryTarget, scopeNotes, knownTech, excludedPortsRaw, missionName, cfg });
+        await fetch('/api/v1/settings/last_mission_config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: payload }),
+        });
+    } catch (_) {}
 }
 
 function closeAdvModal() {
@@ -4905,6 +5117,7 @@ async function launchAdvancedMission() {
     const hiddenPort = document.getElementById('mission-port-range');
     if (hiddenPort) hiddenPort.value = cfg.port_range;
 
+    _advPersistConfig();   // save to DB before closing
     closeAdvModal();
     console.log('[ADV] payload:', JSON.stringify(payload, null, 2));
 
@@ -4935,6 +5148,7 @@ async function launchAdvancedMission() {
         viewingSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
+        hideResumeFromSessionBtn();
 
         updateMissionStatusHeader('running', activeMissionId, primaryTarget);
         resetMissionStats();
