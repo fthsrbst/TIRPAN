@@ -199,11 +199,14 @@ class ScanResultRepository:
             "created_at": now,
         }
 
-    async def get_for_session(self, session_id: str) -> list[dict]:
-        async with _connect(self._path) as db, db.execute(
-            "SELECT * FROM scan_results WHERE session_id=? ORDER BY created_at ASC",
-            (session_id,),
-        ) as cur:
+    async def get_for_session(self, session_id: str, before: float | None = None) -> list[dict]:
+        if before is not None:
+            query = "SELECT * FROM scan_results WHERE session_id=? AND created_at<=? ORDER BY created_at ASC"
+            params = (session_id, before)
+        else:
+            query = "SELECT * FROM scan_results WHERE session_id=? ORDER BY created_at ASC"
+            params = (session_id,)
+        async with _connect(self._path) as db, db.execute(query, params) as cur:
             rows = await cur.fetchall()
         results = []
         for row in rows:
@@ -261,12 +264,14 @@ class VulnerabilityRepository:
             await db.commit()
         return {**vuln, "id": vid, "session_id": session_id, "created_at": now}
 
-    async def get_for_session(self, session_id: str) -> list[dict]:
-        async with _connect(self._path) as db, db.execute(
-            """SELECT * FROM vulnerabilities
-                   WHERE session_id=? ORDER BY cvss_score DESC""",
-            (session_id,),
-        ) as cur:
+    async def get_for_session(self, session_id: str, before: float | None = None) -> list[dict]:
+        if before is not None:
+            query = "SELECT * FROM vulnerabilities WHERE session_id=? AND created_at<=? ORDER BY cvss_score DESC"
+            params = (session_id, before)
+        else:
+            query = "SELECT * FROM vulnerabilities WHERE session_id=? ORDER BY cvss_score DESC"
+            params = (session_id,)
+        async with _connect(self._path) as db, db.execute(query, params) as cur:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
@@ -329,12 +334,14 @@ class ExploitResultRepository:
             await db.commit()
         return {**result, "id": rid, "session_id": session_id, "created_at": now}
 
-    async def get_for_session(self, session_id: str) -> list[dict]:
-        async with _connect(self._path) as db, db.execute(
-            """SELECT * FROM exploit_results
-                   WHERE session_id=? ORDER BY created_at ASC""",
-            (session_id,),
-        ) as cur:
+    async def get_for_session(self, session_id: str, before: float | None = None) -> list[dict]:
+        if before is not None:
+            query = "SELECT * FROM exploit_results WHERE session_id=? AND created_at<=? ORDER BY created_at ASC"
+            params = (session_id, before)
+        else:
+            query = "SELECT * FROM exploit_results WHERE session_id=? ORDER BY created_at ASC"
+            params = (session_id,)
+        async with _connect(self._path) as db, db.execute(query, params) as cur:
             rows = await cur.fetchall()
         results = []
         for row in rows:
@@ -377,7 +384,7 @@ class SessionEventRepository:
 
     async def get_for_session(self, session_id: str, limit: int = 2000) -> list[dict]:
         async with _connect(self._path) as db, db.execute(
-            "SELECT event_type, data_json, created_at FROM session_events WHERE session_id=? ORDER BY created_at ASC LIMIT ?",
+            "SELECT id, event_type, data_json, created_at FROM session_events WHERE session_id=? ORDER BY created_at ASC LIMIT ?",
             (session_id, limit),
         ) as cur:
             rows = await cur.fetchall()
@@ -387,8 +394,30 @@ class SessionEventRepository:
                 data = json.loads(row["data_json"])
             except Exception:
                 data = {}
-            results.append({"event_type": row["event_type"], "data": data, "created_at": row["created_at"]})
+            results.append({
+                "id": row["id"],
+                "event_type": row["event_type"],
+                "data": data,
+                "created_at": row["created_at"],
+            })
         return results
+
+    async def get_up_to_iteration(self, session_id: str, iteration: int) -> list[dict]:
+        """Return events up to (and including) the Nth reasoning iteration.
+
+        Each 'reasoning' event marks a new iteration. Iteration 1 = first
+        reasoning event through to just before the second one, etc.
+        """
+        all_events = await self.get_for_session(session_id)
+        reasoning_count = 0
+        cutoff_idx = len(all_events)
+        for i, ev in enumerate(all_events):
+            if ev["event_type"] == "reasoning":
+                reasoning_count += 1
+                if reasoning_count > iteration:
+                    cutoff_idx = i
+                    break
+        return all_events[:cutoff_idx]
 
 
 # ── AuditLogRepository ─────────────────────────────────────────────────────────

@@ -245,8 +245,13 @@ class NmapTool(BaseTool):
             out = stdout.decode().strip()
             if cmd[0] == "sudo" and ("password is required" in err or "a password is required" in err):
                 settings.nmap_sudo = False
-                cmd_no_sudo = [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
-                cmd_no_sudo.insert(0, "nmap")
+                # Strip sudo prefix entirely: ["sudo", "-n", "nmap", ...] → ["nmap", ...]
+                # Find the first "nmap" element (the actual binary) and keep everything from there.
+                try:
+                    nmap_idx = cmd.index("nmap")
+                    cmd_no_sudo = cmd[nmap_idx:]
+                except ValueError:
+                    cmd_no_sudo = ["nmap"] + [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
                 return await self._run_nmap(cmd_no_sudo)
             details = err or out or f"exit code {returncode}"
             raise RuntimeError(f"nmap failed (rc={returncode}): {details}")
