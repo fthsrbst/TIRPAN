@@ -1970,6 +1970,29 @@ Examples:
             </div>
           </div>
 
+          <!-- Excluded Ports -->
+          <div class="border-t border-border-color pt-5 flex flex-col gap-2">
+            <div>
+              <label class="adv-label flex items-center gap-2">
+                <span class="material-symbols-outlined text-[13px] text-warning">block</span>
+                Excluded Ports (Never Scan)
+              </label>
+              <p class="text-[9px] text-secondary-text mt-0.5">Ports nmap will skip with <span class="font-mono">--exclude-ports</span>. Hard-enforced at tool level.</p>
+            </div>
+            <input id="adv-excluded-ports"
+                   class="adv-input font-mono"
+                   placeholder="e.g. 23,25,5900,512,513,514"
+                   type="text"/>
+            <div class="flex flex-wrap gap-1.5 mt-0.5">
+              <button onclick="_advAddPortExclusion('23')"    class="adv-port-preset">23 Telnet</button>
+              <button onclick="_advAddPortExclusion('25')"    class="adv-port-preset">25 SMTP</button>
+              <button onclick="_advAddPortExclusion('5900')"  class="adv-port-preset">5900 VNC</button>
+              <button onclick="_advAddPortExclusion('512,513,514')" class="adv-port-preset">512-514 rsh</button>
+              <button onclick="_advAddPortExclusion('6667')"  class="adv-port-preset">6667 IRC</button>
+              <button onclick="_advAddPortExclusion('3389')"  class="adv-port-preset">3389 RDP</button>
+            </div>
+          </div>
+
           <div class="border-t border-border-color pt-5 flex flex-col gap-1.5">
             <label class="adv-label">Scope Notes <span class="text-secondary-text font-normal normal-case">(appended to every LLM prompt)</span></label>
             <textarea id="adv-scope-notes" class="adv-input h-24 resize-none" placeholder="e.g. Production system — only scan ports 80 and 443. Do not pivot to 172.16.0.0/12."></textarea>
@@ -2804,11 +2827,6 @@ Examples:
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=4"></script>
-
-
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

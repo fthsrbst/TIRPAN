@@ -675,7 +675,8 @@ class StartSessionRequest(BaseModel):
     rate_limit: Optional[int] = None
 
     # Scope
-    excluded_targets: list[str] = []     # per-session never-scan additions
+    excluded_targets: list[str] = []     # per-session never-scan additions (IPs/CIDRs)
+    excluded_ports: list[str] = []       # per-session port exclusions (e.g. ["23","25","5900"])
     additional_targets: list[str] = []
 
     # Credentials (by stored ID)
@@ -827,7 +828,9 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         allowed_port_min=settings.safety.allowed_port_min,
         allowed_port_max=settings.safety.allowed_port_max,
         excluded_ips=list(settings.safety.excluded_ips),
-        excluded_ports=list(settings.safety.excluded_ports),
+        excluded_ports=list(settings.safety.excluded_ports) + [
+            int(p) for p in body.excluded_ports if p.strip().isdigit()
+        ],
         allow_exploit=body.allow_exploit if body.allow_exploit is not None else settings.safety.allow_exploit,
         block_dos_exploits=body.block_dos if body.block_dos is not None else settings.safety.block_dos_exploits,
         block_destructive=body.block_destructive if body.block_destructive is not None else settings.safety.block_destructive,
@@ -918,6 +921,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         db_credentials=db_creds,
         web_credentials=web_creds,
         excluded_targets=list(body.excluded_targets),
+        excluded_ports=[int(p) for p in body.excluded_ports if p.strip().isdigit()],
         speed_profile=body.speed_profile,
         allow_exploitation=body.allow_exploit if body.allow_exploit is not None else settings.safety.allow_exploit,
         allow_post_exploitation=body.allow_post_exploitation,
@@ -931,6 +935,12 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
     # Set global speed profile for this session
     settings.speed_profile = body.speed_profile
+
+    # Merge per-session excluded ports into global safety so NmapTool reads them automatically
+    if body.excluded_ports:
+        per_session_ports = [int(p) for p in body.excluded_ports if p.strip().isdigit()]
+        existing = list(settings.safety.excluded_ports)
+        settings.safety.excluded_ports = list(set(existing) | set(per_session_ports))
 
     # Persist session record
     session_data = await _session_repo.create(body.target.strip(), body.mode)
@@ -946,13 +956,17 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     )
 
     # Apply LLM provider/model overrides
-    if body.provider in ("ollama", "openrouter"):
-        settings.llm.provider = body.provider
+    # Supported: ollama | openrouter | lmstudio | anthropic (direct Anthropic API)
+    _provider = body.provider.lower() if body.provider else ""
+    if _provider in ("ollama", "openrouter", "lmstudio", "anthropic"):
+        settings.llm.provider = _provider
     if body.model:
-        if body.provider == "openrouter":
+        if _provider in ("openrouter", "anthropic"):
             settings.llm.cloud_model = body.model
-        elif body.provider == "ollama":
+        elif _provider == "ollama":
             settings.ollama.model = body.model
+        elif _provider == "lmstudio":
+            settings.lmstudio.model = body.model
 
     # Build SafetyGuard with never-scan list
     guard = SafetyGuard(safety_cfg, never_scan_entries=never_scan_entries)

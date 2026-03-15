@@ -63,6 +63,11 @@ class NmapTool(BaseTool):
                         "description": "NSE script categories or names (e.g. 'vuln,auth' or 'default'). Optional.",
                         "default": "",
                     },
+                    "excluded_ports": {
+                        "type": "string",
+                        "description": "Comma-separated ports to exclude from scan (e.g. '23,25,5900'). Optional.",
+                        "default": "",
+                    },
                 },
                 "required": ["target"],
             },
@@ -138,8 +143,9 @@ class NmapTool(BaseTool):
         scan_type = params.get("scan_type", "service")
         port_range = params.get("port_range", "1-1024")
         scripts = params.get("scripts", "")
+        excluded_ports = params.get("excluded_ports", "")
 
-        cmd = self._build_command(target, scan_type, port_range, scripts)
+        cmd = self._build_command(target, scan_type, port_range, scripts, excluded_ports)
 
         try:
             start = time.time()
@@ -165,6 +171,7 @@ class NmapTool(BaseTool):
         scan_type: str,
         port_range: str,
         scripts: str = "",
+        excluded_ports: str = "",
     ) -> list[str]:
         from config import settings, SPEED_PROFILES
         from core.platform_utils import IS_WINDOWS, is_elevated
@@ -197,6 +204,15 @@ class NmapTool(BaseTool):
         # NSE scripts
         if scripts.strip() and scan_type != "ping":
             base += ["--script", scripts.strip()]
+
+        # Port exclusions — merge tool param + global safety config
+        all_excluded: list[str] = []
+        if excluded_ports.strip():
+            all_excluded += [p.strip() for p in excluded_ports.split(",") if p.strip()]
+        global_exc = [str(p) for p in settings.safety.excluded_ports if p]
+        all_excluded += [p for p in global_exc if p not in all_excluded]
+        if all_excluded and scan_type != "ping":
+            base += ["--exclude-ports", ",".join(all_excluded)]
 
         base.append(target)
         return base
