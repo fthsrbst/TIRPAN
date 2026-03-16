@@ -24,7 +24,7 @@ from core.memory import SessionMemory
 from core.prompts import PromptBuilder
 from core.safety import AgentAction, SafetyGuard
 from core.tool_registry import ToolNotFoundError, ToolRegistry
-from database.repositories import AuditLogRepository, ScanResultRepository, SessionRepository, VulnerabilityRepository
+from database.repositories import AuditLogRepository, ExploitResultRepository, ScanResultRepository, SessionRepository, VulnerabilityRepository
 from models.mission import MissionBrief
 from models.session import Session
 
@@ -181,6 +181,7 @@ class PentestAgent:
         # DB repositories for real-time persistence
         self._scan_repo = ScanResultRepository()
         self._vuln_repo = VulnerabilityRepository()
+        self._exploit_repo = ExploitResultRepository()
         self._session_repo = SessionRepository()
         self._audit_repo = audit_repo or AuditLogRepository()
         # Pause/resume control
@@ -374,6 +375,12 @@ class PentestAgent:
         self._emit("start", {"target": self._ctx.target, "mode": self._ctx.mode})
         self._state = AgentState.REASONING
 
+        # Repeated-failure guard: track (tool, error_fingerprint) → consecutive count.
+        # After _MAX_SAME_FAIL identical failures we inject a system message so the
+        # LLM stops retrying a broken/unavailable tool.
+        _MAX_SAME_FAIL = 3
+        _failure_counts: dict[str, int] = {}  # key: "tool_name|error_prefix"
+
         while self._state not in (AgentState.DONE, AgentState.ERROR):
 
             # ── Kill switch ───────────────────────────────────────────────
@@ -490,10 +497,34 @@ class PentestAgent:
             except Exception as exc:
                 logger.error("act/observe failed: %s", exc)
                 self._emit("error", {"error": f"act/observe failed: {exc}"})
+                result = {"success": False, "output": None, "error": str(exc)}
                 self.memory.add_tool_result(
                     f"TOOL_RESULT: {action_dict.get('action', 'unknown')}\n"
                     f"SUCCESS: False\nOUTPUT: Internal error: {exc}"
                 )
+
+            # ── Repeated-failure guard ────────────────────────────────────
+            if not result.get("success"):
+                _tool = action_dict.get("action", "unknown")
+                _err = str(result.get("error") or "")[:120]
+                _fkey = f"{_tool}|{_err}"
+                _failure_counts[_fkey] = _failure_counts.get(_fkey, 0) + 1
+                if _failure_counts[_fkey] >= _MAX_SAME_FAIL:
+                    _failure_counts[_fkey] = 0   # reset so one more attempt is possible after inject
+                    _msg = (
+                        f"[SYSTEM] Tool '{_tool}' has failed {_MAX_SAME_FAIL} times in a row "
+                        f"with the same error: {_err!r}. "
+                        f"Do NOT retry this tool call again. "
+                        f"Move on to the next task or a different tool."
+                    )
+                    logger.warning("Repeated-failure guard fired for %s: %s", _tool, _err)
+                    self.memory.add_tool_result(_msg)
+            else:
+                # Reset failure count on success
+                _tool = action_dict.get("action", "unknown")
+                for k in list(_failure_counts.keys()):
+                    if k.startswith(f"{_tool}|"):
+                        _failure_counts[k] = 0
 
             # ── REFLECTING ───────────────────────────────────────────────
             self._state = AgentState.REFLECTING
@@ -812,7 +843,27 @@ class PentestAgent:
                     )
 
             elif tool_name == "metasploit_run":
-                exploit_success = output.get("session_opened", False)
+                action = str(params.get("action", "run"))
+                exploit_success = bool(output.get("session_opened"))
+                poc_out = output.get("post_command_output", "")
+
+                # Save exploit attempt record (always, even on failure)
+                if action == "run":
+                    await self._exploit_repo.save(
+                        session_id=self.session.id,
+                        result={
+                            "host_ip": str(params.get("target_ip", params.get("target", ""))),
+                            "port": int(params.get("target_port") or params.get("port") or 0),
+                            "module": str(params.get("module", "")),
+                            "payload": str(params.get("payload", output.get("payload", ""))),
+                            "success": exploit_success,
+                            "session_opened": int(output.get("session_opened") or 0),
+                            "output": str(output.get("output", ""))[:2000],
+                            "error": str(output.get("error", "")),
+                            "poc_output": poc_out,
+                        },
+                    )
+
                 await self._audit_repo.log(
                     "METASPLOIT_RUN",
                     session_id=self.session.id,

@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS exploit_results (
     session_opened INTEGER NOT NULL DEFAULT 0,   -- Metasploit session ID (0 = none)
     output         TEXT    NOT NULL DEFAULT '',
     error          TEXT    NOT NULL DEFAULT '',
+    poc_output     TEXT    NOT NULL DEFAULT '',
     created_at     REAL    NOT NULL
 );
 

@@ -180,6 +180,21 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v5 applied: credentials / scan_profiles / never_scan")
 
+        if version < 6:
+            # Add poc_output column to exploit_results for PoC evidence in reports
+            try:
+                await db.execute(
+                    "ALTER TABLE exploit_results ADD COLUMN poc_output TEXT NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass  # Column may already exist
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (6, time.time(), "add poc_output to exploit_results"),
+            )
+            await db.commit()
+            logger.info("DB migration v6 applied: poc_output column in exploit_results")
+
     logger.info("Database ready: %s", path)
 
 

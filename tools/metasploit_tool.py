@@ -775,8 +775,24 @@ class MetasploitTool(BaseTool):
                 return output
             if "Backdoor already in-use" in output or "already exploited" in output.lower():
                 return output
-            if "is not valid" in output or "Invalid payload" in output:
-                logger.warning("[MSF] Payload %s not valid, trying next candidate", candidate)
+
+            # CRITICAL: if the backdoor was spawned but payload failed, port 6200 is now
+            # occupied on the target. Any further payload attempt will find port 6200
+            # "already open / not fresh shell" and fail. Stop iterating immediately.
+            if "Backdoor has been spawned" in output and not _session_opened(output):
+                logger.warning(
+                    "[MSF] Backdoor triggered by %s but payload connection failed — "
+                    "port 6200 now occupied on target. Stopping payload iteration to "
+                    "avoid 'Already exploited?' errors on next attempt.",
+                    candidate,
+                )
+                return output
+
+            # NOTE: "The value specified for PAYLOAD is not valid." comes from
+            # `set --clear PAYLOAD` and is a FALSE POSITIVE — do NOT match it.
+            # Only match genuine payload incompatibility messages from MSF.
+            if "is not compatible" in output or "No compatible payloads" in output or "Invalid payload" in output:
+                logger.warning("[MSF] Payload %s not compatible, trying next candidate", candidate)
                 continue
             # Other failure (e.g. connection refused) — try next candidate
             if "Connection refused" in output or "Failed to connect" in output:
