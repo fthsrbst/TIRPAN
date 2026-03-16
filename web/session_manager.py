@@ -165,6 +165,11 @@ def inject_message(session_id: str, message: str) -> bool:
     return False
 
 
+def get_agent(session_id: str):
+    """Return the agent instance for a session, or None if not found."""
+    return _agents.get(session_id)
+
+
 # ── Progress callback factory ──────────────────────────────────────────────────
 
 def make_progress_callback(session_id: str) -> Callable[[str, dict], None]:

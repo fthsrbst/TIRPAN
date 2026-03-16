@@ -2318,6 +2318,21 @@ function handleSessionEvent(msg) {
         missionPaused = false;
         updatePauseButton();
 
+    } else if (event === 'rolled_back') {
+        const iter = data.iteration || '?';
+        const phase = data.attack_phase || '';
+        appendConsoleLine(`[ROLLBACK] Iteration ${iter} noktasına geri dönüldü`, 'text-primary');
+        appendMissionCard(`
+            <div class="border border-primary/20 bg-primary/5 px-4 py-2 font-mono text-xs">
+                <div class="flex items-center gap-2 text-primary font-bold">
+                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">history</span>
+                    ROLLBACK — Iteration ${iter}${phase ? ' · ' + phase : ''}
+                </div>
+            </div>
+        `);
+        missionPaused = false;
+        updatePauseButton();
+
     } else if (event === 'injected') {
         appendConsoleLine(`[INJECT] Operator instruction added to agent memory`, 'text-yellow-400');
 
@@ -2539,48 +2554,89 @@ async function resumeMissionFromSession(sessionId) {
     }
 }
 
-/** Fork from a specific iteration — Cursor-style checkpoint restore. */
+/** Continue from a specific iteration checkpoint.
+ *  - Running session: rollback in-place (same session ID, deletes events after cutoff).
+ *  - Historical session: fork into a new session seeded from the checkpoint.
+ *  In both cases, existing messages up to the checkpoint are replayed so the
+ *  feed is not wiped — only events AFTER the checkpoint disappear.
+ */
 async function forkFromIteration(iteration) {
-    const sourceSessionId = viewingSessionId || activeMissionId;
-    if (!sourceSessionId) { showToast('No session selected'); return; }
+    const sessionId = viewingSessionId || activeMissionId;
+    if (!sessionId) { showToast('No session selected'); return; }
+
+    const isHistorical = !activeMissionId || sessionId !== activeMissionId;
 
     showConfirm({
-        title: 'Iteration Fork',
-        message: `Iteration ${iteration} noktasından yeni bir mission başlatılacak. Devam edilsin mi?`,
-        icon: 'fork_right',
+        title: 'Continue from here',
+        message: `Continue from iteration ${iteration}? Steps after this checkpoint will be discarded and the agent will resume from here.`,
+        icon: 'history',
         onConfirm: async () => {
             try {
-                const modeSelect = document.getElementById('mission-mode');
-                const mode = modeSelect ? modeSelect.value : 'full_auto';
+                let activeSessionId = sessionId;
+                let attackPhase = 'EXPLOITATION';
+                let eventsSourceId = sessionId;  // session whose events we replay
 
-                const res = await fetch('/api/v1/sessions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        resume_from_session_id: sourceSessionId,
-                        resume_iteration: iteration,
-                        mode,
-                        target: '',
-                    }),
-                });
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    throw new Error(err.detail || 'Fork failed');
+                if (isHistorical) {
+                    // Historical session: create a new forked session from this checkpoint
+                    const modeSelect = document.getElementById('mission-mode');
+                    const mode = modeSelect ? modeSelect.value : 'full_auto';
+                    const res = await fetch('/api/v1/sessions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            resume_from_session_id: sessionId,
+                            resume_iteration: iteration,
+                            mode,
+                            target: '',
+                        }),
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.detail || 'Fork failed');
+                    }
+                    const data = await res.json();
+                    activeSessionId = data.session_id;
+                    // Replay from the original session up to the selected iteration
+                    eventsSourceId = sessionId;
+                } else {
+                    // Running session: rollback in-place
+                    const res = await fetch(`/api/v1/sessions/${sessionId}/rollback/${iteration}`, {
+                        method: 'POST',
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.detail || 'Rollback failed');
+                    }
+                    const data = await res.json();
+                    attackPhase = data.attack_phase || 'EXPLOITATION';
+                    eventsSourceId = sessionId;
                 }
-                const data = await res.json();
-                activeMissionId = data.session_id;
-                viewingSessionId = activeMissionId;
-                missionStartTime = Date.now();
+
+                activeMissionId = activeSessionId;
+                viewingSessionId = activeSessionId;
                 missionPaused = false;
 
-                updateMissionStatusHeader('running', activeMissionId, data.target || 'Forked');
-                resetMissionStats();
-                resetPhaseBar();
-                clearConsoleOutput();
+                updateMissionStatusHeader('running', activeSessionId);
+
+                // Replay events up to the checkpoint so messages are preserved
                 clearMissionFeed();
-                renderMissionStart(data.target || sourceSessionId.slice(0, 8), mode);
-                appendConsoleLine(`[FORK] From session ${sourceSessionId.slice(0, 8)}… iteration ${iteration}`, 'text-primary');
-                appendConsoleLine(`[TARGET] ${data.target || '—'}  [MODE] ${(data.mode || mode).toUpperCase()}`, 'text-secondary-text');
+                clearConsoleOutput();
+                try {
+                    const sessionRes = await fetch(`/api/v1/sessions/${eventsSourceId}`);
+                    const sessionInfo = sessionRes.ok ? await sessionRes.json() : null;
+                    const evRes = await fetch(`/api/v1/sessions/${eventsSourceId}/events`);
+                    const evData = evRes.ok ? await evRes.json() : null;
+                    if (evData && evData.events && evData.events.length > 0) {
+                        const eventsUpTo = evData.events.filter(ev => (ev.iteration || 0) <= iteration);
+                        const target = sessionInfo?.target || sessionId.slice(0, 8);
+                        const mode = sessionInfo?.mode || 'full_auto';
+                        renderMissionStart(target, mode);
+                        eventsUpTo.forEach(ev => replaySessionEvent(ev.event_type, ev.data));
+                    }
+                } catch (_) { /* replay best-effort */ }
+
+                appendConsoleLine(`[RESUME] Continuing from iteration ${iteration}`, 'text-primary');
+                appendConsoleLine(`[PHASE] ${attackPhase}`, 'text-secondary-text');
                 hideResumeFromSessionBtn();
                 showPauseMissionBtn();
                 updatePauseButton();
@@ -2589,14 +2645,14 @@ async function forkFromIteration(iteration) {
 
                 patchWsSessionHandler();
                 if (ws && wsReady) {
-                    ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeMissionId }));
+                    ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeSessionId }));
                 }
-                startMissionPoll(activeMissionId);
+                startMissionPoll(activeSessionId);
                 startMissionUptime();
                 switchView('agent');
-                showToast(`Iteration ${iteration} noktasından devam ediliyor`);
+                showToast(`Continuing from iteration ${iteration}`);
             } catch (err) {
-                showToast('Fork failed: ' + err.message, true);
+                showToast('Continue failed: ' + err.message, true);
             }
         },
     });
@@ -3020,9 +3076,9 @@ function renderMissionReasoning(data) {
                 REASONING &nbsp;·&nbsp; Iteration ${iter}
                 <button class="iter-fork-btn ml-auto opacity-0 group-hover/iter:opacity-100 transition-opacity flex items-center gap-1 text-[9px] text-secondary-text hover:text-primary cursor-pointer bg-bg/70 rounded px-2 py-0.5"
                         onclick="forkFromIteration(${iter})"
-                        title="Bu noktadan devam et">
+                        title="Continue from this checkpoint">
                     <span class="material-symbols-outlined text-[11px]">fork_right</span>
-                    Buradan devam et
+                    Continue from here
                 </button>
             </div>
             ${thought    ? `<div class="text-slate-300 leading-relaxed mb-2 whitespace-pre-wrap">${thought}</div>` : ''}

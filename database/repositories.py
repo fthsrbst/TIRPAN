@@ -215,6 +215,15 @@ class ScanResultRepository:
             results.append(r)
         return results
 
+    async def delete_after(self, session_id: str, timestamp: float) -> None:
+        """Delete scan results created after the given timestamp."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "DELETE FROM scan_results WHERE session_id=? AND created_at>?",
+                (session_id, timestamp),
+            )
+            await db.commit()
+
     async def get(self, result_id: str) -> dict | None:
         async with _connect(self._path) as db, db.execute(
             "SELECT * FROM scan_results WHERE id=?", (result_id,)
@@ -299,6 +308,15 @@ class VulnerabilityRepository:
             await db.commit()
             return db.total_changes > 0
 
+    async def delete_after(self, session_id: str, timestamp: float) -> None:
+        """Delete vulnerabilities created after the given timestamp."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "DELETE FROM vulnerabilities WHERE session_id=? AND created_at>?",
+                (session_id, timestamp),
+            )
+            await db.commit()
+
 
 # ── ExploitResultRepository ────────────────────────────────────────────────────
 
@@ -358,6 +376,15 @@ class ExploitResultRepository:
             rows = await cur.fetchall()
         return [{**dict(r), "success": True} for r in rows]
 
+    async def delete_after(self, session_id: str, timestamp: float) -> None:
+        """Delete exploit results created after the given timestamp."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "DELETE FROM exploit_results WHERE session_id=? AND created_at>?",
+                (session_id, timestamp),
+            )
+            await db.commit()
+
 
 # ── SessionEventRepository ────────────────────────────────────────────────────
 
@@ -401,6 +428,15 @@ class SessionEventRepository:
                 "created_at": row["created_at"],
             })
         return results
+
+    async def delete_after(self, session_id: str, timestamp: float) -> None:
+        """Delete session events created after the given timestamp."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "DELETE FROM session_events WHERE session_id=? AND created_at>?",
+                (session_id, timestamp),
+            )
+            await db.commit()
 
     async def get_up_to_iteration(self, session_id: str, iteration: int) -> list[dict]:
         """Return events up to (and including) the Nth reasoning iteration.

