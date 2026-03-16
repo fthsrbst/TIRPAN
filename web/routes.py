@@ -1216,6 +1216,69 @@ async def resume_session(sid: str):
     return {"ok": ok}
 
 
+@router.post("/sessions/{sid}/rollback/{iteration}")
+async def rollback_session(sid: str, iteration: int):
+    """Rollback a session to a specific iteration in-place.
+
+    Deletes all events/findings after the given iteration's cutoff timestamp,
+    resets the agent context, and re-seeds it with the surviving data so the
+    agent can continue from that point without creating a new mission.
+    """
+    from web import session_manager
+
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    events = await _event_repo.get_up_to_iteration(sid, iteration)
+    if not events:
+        raise HTTPException(400, f"No events found for iteration {iteration}")
+
+    cutoff_ts = events[-1]["created_at"]
+
+    # Determine attack_phase from last reasoning event in range
+    attack_phase = "EXPLOITATION"
+    for ev in reversed(events):
+        if ev["event_type"] == "reasoning" and ev["data"].get("attack_phase"):
+            attack_phase = ev["data"]["attack_phase"]
+            break
+
+    # Load surviving data (up to cutoff)
+    scan_results = await _scan_repo.get_for_session(sid, before=cutoff_ts)
+    vulns = await _vuln_repo.get_for_session(sid, before=cutoff_ts)
+    exploit_results = await _exploit_repo.get_for_session(sid, before=cutoff_ts)
+
+    # Delete everything after cutoff
+    await _event_repo.delete_after(sid, cutoff_ts)
+    await _scan_repo.delete_after(sid, cutoff_ts)
+    await _vuln_repo.delete_after(sid, cutoff_ts)
+    await _exploit_repo.delete_after(sid, cutoff_ts)
+
+    # Reset and re-seed agent context
+    agent = session_manager.get_agent(sid)
+    if agent:
+        agent.reset_context()
+        agent.seed_context_from_findings(
+            scan_results,
+            vulns,
+            attack_phase=attack_phase,
+            exploit_results_from_db=exploit_results or None,
+            events_up_to=events,
+            source_iteration=iteration,
+        )
+        # Ensure agent is not paused
+        if getattr(agent, "_paused", False):
+            agent.resume()
+
+    await session_manager.broadcast(sid, {
+        "type": "session_event",
+        "session_id": sid,
+        "event": "rolled_back",
+        "data": {"iteration": iteration, "attack_phase": attack_phase},
+    })
+    return {"ok": True, "iteration": iteration, "attack_phase": attack_phase}
+
+
 # ── Reports ────────────────────────────────────────────────────────────────────
 
 @router.get("/sessions/{sid}/report/html", response_class=HTMLResponse)
