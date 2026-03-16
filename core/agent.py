@@ -74,8 +74,14 @@ class AgentContext:
     hosts_pending_port_scan: list[str] = field(default_factory=list)
     hosts_pending_exploit_search: list[str] = field(default_factory=list)
 
-    # Active MSF sessions (session_id → target_ip)
+    # Active MSF sessions (session_id → target_ip).
+    # NOTE: msfconsole fallback sessions are NOT persistent — they close when
+    # msfconsole exits. Do NOT use session_exec on these; use post_commands instead.
     active_sessions: dict[int, str] = field(default_factory=dict)
+
+    # Post-exploitation recon collected via post_commands in the run call.
+    # Keyed by target_ip, value is the collected output.
+    post_exploit_data: dict[str, str] = field(default_factory=dict)
 
     iteration: int = 0
     attack_phase: str = "DISCOVERY"  # DISCOVERY|PORT_SCAN|EXPLOIT_SEARCH|EXPLOITATION|POST_EXPLOIT|DONE
@@ -201,6 +207,16 @@ class PentestAgent:
         return self._paused
 
     # ── Seed context (resume from saved mission) ────────────────────────────────
+
+    def reset_context(self) -> None:
+        """Clear all accumulated findings and memory so context can be re-seeded."""
+        self._ctx.discovered_hosts.clear()
+        self._ctx.scan_results.clear()
+        self._ctx.vulnerabilities.clear()
+        self._ctx.exploit_results.clear()
+        self._ctx.hosts_pending_port_scan.clear()
+        self._ctx.hosts_pending_exploit_search.clear()
+        self.memory = type(self.memory)()  # fresh SessionMemory instance
 
     def seed_context_from_findings(
         self,
@@ -1021,3 +1037,11 @@ class PentestAgent:
                     "attack_phase": "POST_EXPLOIT",
                     "session_id": session_id,
                 })
+
+        # Store post_command_output in context so every subsequent prompt sees it.
+        # This prevents the agent from trying session_exec to re-collect already-gathered data.
+        if isinstance(output, dict):
+            post_out = output.get("post_command_output")
+            if post_out and target_ip:
+                self._ctx.post_exploit_data[target_ip] = post_out
+                logger.info("post_exploit_data stored for %s (%d chars)", target_ip, len(post_out))
