@@ -25,7 +25,9 @@
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih\\\\AEGIS\\\\core\\\\\")",
       "Bash(ip addr:*)",
       "Bash(wsl -d:*)",
-      "Bash(python -c \"import tools.metasploit_tool\")"
+      "Bash(python -c \"import tools.metasploit_tool\")",
+      "Bash(pip install:*)",
+      "Bash(python -c \"import paramiko; print\\(''paramiko'', paramiko.__version__\\)\")"
     ]
   }
 }
