@@ -50,12 +50,15 @@ ATTACK PHASES (follow in order unless operator notes redirect you):
   2. PORT_SCAN       — nmap_scan (service/full) on each live host — use PORT RANGE from state
   3. EXPLOIT_SEARCH  — searchsploit_search for each discovered service/version
   4. EXPLOITATION    — metasploit_run (action=run) per vulnerability (only if POLICY allows)
+       *** CRITICAL: attempt EVERY HIGH/CRITICAL CVE found, even if you already have root.
+       *** Each exploit must be validated individually for the PoC report. Root access does
+       *** NOT mean mission complete — continue until ALL unexecuted CVEs have been tried.
   5. POST_EXPLOIT    — MANDATORY after each successful exploit:
        a. INITIAL RECON — include post_commands in the exploit run call (preferred), or use action=session_exec if msfrpcd is available
        b. SYSTEM AUDIT  — ssh_exec (action=audit) if SSH credentials are available
        c. PRIV ESC RECON — check: sudo -l, find SUID binaries, cron jobs, writable dirs
        d. ESCALATION     — attempt privilege escalation if not already root
-  6. DONE            — generate_report when all hosts fully processed
+  6. DONE            — generate_report ONLY after ALL CVEs have been attempted
 
 MODE BEHAVIOUR:
 - scan_only          : Phases 1-3 only. Never call metasploit_run or ssh_exec for exploitation.
@@ -487,9 +490,32 @@ class PromptBuilder:
                 lines.append(f"  {v}")
 
         if context.exploit_results:
-            lines.append(f"\nEXPLOIT ATTEMPTS ({len(context.exploit_results)}) (last 3):")
-            for e in context.exploit_results[-3:]:
+            lines.append(f"\nEXPLOIT ATTEMPTS ({len(context.exploit_results)}) (last 5):")
+            for e in context.exploit_results[-5:]:
                 lines.append(f"  {e}")
+
+        # Show which vulnerabilities still need exploitation — agent must not skip any
+        if context.vulnerabilities and context.attack_phase in ("EXPLOITATION", "POST_EXPLOIT"):
+            attempted = {e for e in context.exploit_results}
+            # Build a simplified list of vuln identifiers already attempted
+            attempted_modules = set()
+            for e in context.exploit_results:
+                for part in e.split("|"):
+                    part = part.strip()
+                    if part.startswith("exploit/") or part.startswith("✓") or part.startswith("✗"):
+                        attempted_modules.add(part.lstrip("✓✗ "))
+            unattempted = [
+                v for v in context.vulnerabilities
+                if not any(a in v for a in attempted_modules)
+            ]
+            if unattempted:
+                lines.append(f"\nUNEXECUTED CVEs ({len(unattempted)}) — MUST attempt before generate_report:")
+                for v in unattempted[:10]:
+                    lines.append(f"  ! {v}")
+                if len(unattempted) > 10:
+                    lines.append(f"  ... and {len(unattempted) - 10} more")
+            else:
+                lines.append("\nALL CVEs ATTEMPTED — may now call generate_report.")
 
         # ── Mode-specific reminders ────────────────────────────────────────────
         if context.mode == "scan_only":
