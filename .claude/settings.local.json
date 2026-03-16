@@ -24,7 +24,8 @@
       "Bash(echo 'no docs dir' ls //wsl.localhost/kali-linux/home/fatih/AEGIS/)",
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih\\\\AEGIS\\\\core\\\\\")",
       "Bash(ip addr:*)",
-      "Bash(wsl -d:*)"
+      "Bash(wsl -d:*)",
+      "Bash(python -c \"import tools.metasploit_tool\")"
     ]
   }
 }
