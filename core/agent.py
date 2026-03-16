@@ -192,6 +192,10 @@ class PentestAgent:
         self._stream_abort = asyncio.Event()
         # Operator inject tracking
         self._has_pending_inject = False
+        # Hard-block registry: tool or tool:module combos that have exceeded the
+        # failure guard. These are blocked at act() level — the LLM cannot bypass
+        # them by ignoring injected memory messages.
+        self._session_blocked_calls: dict[str, int] = {}
 
     # ── Public properties ─────────────────────────────────────────────────────
 
@@ -510,14 +514,26 @@ class PentestAgent:
                 _fkey = f"{_tool}|{_err}"
                 _failure_counts[_fkey] = _failure_counts.get(_fkey, 0) + 1
                 if _failure_counts[_fkey] >= _MAX_SAME_FAIL:
-                    _failure_counts[_fkey] = 0   # reset so one more attempt is possible after inject
-                    _msg = (
-                        f"[SYSTEM] Tool '{_tool}' has failed {_MAX_SAME_FAIL} times in a row "
-                        f"with the same error: {_err!r}. "
-                        f"Do NOT retry this tool call again. "
-                        f"Move on to the next task or a different tool."
+                    # Keep at _MAX_SAME_FAIL-1 so the guard fires again after just 1 more failure
+                    _failure_counts[_fkey] = _MAX_SAME_FAIL - 1
+                    # Build block key (tool, or tool:module for metasploit)
+                    _blk_params = action_dict.get("parameters", {})
+                    _blk_key = _tool
+                    _blk_module = ""
+                    if _tool == "metasploit_run" and _blk_params.get("module"):
+                        _blk_module = _blk_params["module"]
+                        _blk_key = f"{_tool}:{_blk_module}"
+                    self._session_blocked_calls[_blk_key] = (
+                        self._session_blocked_calls.get(_blk_key, 0) + 1
                     )
-                    logger.warning("Repeated-failure guard fired for %s: %s", _tool, _err)
+                    _msg = (
+                        f"[SYSTEM] '{_blk_key}' has failed {_MAX_SAME_FAIL} times with the "
+                        f"same error: {_err!r}. It is now PERMANENTLY BLOCKED this session — "
+                        f"any future call to it will be rejected automatically. "
+                        f"You MUST move to a completely different exploit module or tool. "
+                        f"Do not attempt '{_blk_key}' again."
+                    )
+                    logger.warning("Repeated-failure guard fired + hard-blocked %s: %s", _blk_key, _err)
                     self.memory.add_tool_result(_msg)
             else:
                 # Reset failure count on success
@@ -631,6 +647,21 @@ class PentestAgent:
         """
         tool_name = action_dict.get("action", "")
         params = action_dict.get("parameters", {})
+
+        # ── Hard block: repeated-failure blacklist ─────────────────────────
+        # Keys are "tool_name" or "tool_name:module_path" for metasploit calls.
+        # Once a combo lands here it cannot run again in this session.
+        _block_key = tool_name
+        if tool_name == "metasploit_run" and params.get("module"):
+            _block_key = f"{tool_name}:{params['module']}"
+        if self._session_blocked_calls.get(_block_key, 0) > 0:
+            _block_msg = (
+                f"[SYSTEM] '{_block_key}' is permanently blocked this session after "
+                f"repeated identical failures. This call will NOT execute. "
+                f"You MUST choose a completely different approach or tool."
+            )
+            logger.warning("Hard block prevented call to %s", _block_key)
+            return {"success": False, "output": None, "error": _block_msg}
 
         # ── Safety check ─────────────────────────────────────────────────
         raw_target = str(params.get("target") or params.get("target_ip") or "")
@@ -750,6 +781,65 @@ class PentestAgent:
         self._emit("parallel_done", {"count": len(pairs)})
         return pairs
 
+    @staticmethod
+    def _summarize_tool_output(tool_name: str, raw_output, success: bool) -> str:
+        """
+        Convert raw tool output to a compact, LLM-friendly summary.
+
+        Strategy (from published research):
+        - metasploit_run : extract MSF key lines ([+]/[-]/[!]) + critical fields
+        - nmap_scan      : compact ip:port:service rows, drop raw host blobs
+        - others         : hard truncation at 2000 chars
+
+        This prevents context bloat from multi-KB MSF console dumps while
+        preserving the information the agent actually needs to reason about.
+        """
+        import re as _re
+
+        _ANSI = _re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+
+        if tool_name == "metasploit_run" and isinstance(raw_output, dict):
+            msf_raw = raw_output.get("output", "")
+            key_lines: list[str] = []
+            if isinstance(msf_raw, str):
+                for line in msf_raw.splitlines():
+                    clean = _ANSI.sub("", line).strip()
+                    # Keep important MSF status lines and AEGIS debug tags
+                    if _re.match(r"^\[[\+\-!\*]\]", clean) or "AEGIS_CMD_OUT" in clean:
+                        key_lines.append(clean)
+            summary = {
+                "success":              raw_output.get("success"),
+                "session_id":           raw_output.get("session_id"),
+                "error":                raw_output.get("error"),
+                "post_command_output":  (raw_output.get("post_command_output") or "")[:600],
+                "key_lines":            key_lines[-25:],   # last 25 important lines
+            }
+            return json.dumps(summary, ensure_ascii=False)
+
+        if tool_name == "nmap_scan" and isinstance(raw_output, dict):
+            rows: list[str] = []
+            for host in raw_output.get("hosts", []):
+                ip = host.get("ip", "")
+                for port in host.get("ports", []):
+                    if port.get("state") == "open":
+                        rows.append(
+                            f"{ip}:{port['number']} {port.get('service','')} "
+                            f"{port.get('version','')}".strip()
+                        )
+            compact = {
+                "target":     raw_output.get("target"),
+                "hosts_up":   len([h for h in raw_output.get("hosts", []) if h.get("state") == "up"]),
+                "open_ports": rows[:60],
+                "os":         next((h.get("os") for h in raw_output.get("hosts", []) if h.get("os")), None),
+            }
+            return json.dumps(compact, ensure_ascii=False)
+
+        # Default: JSON dump with hard cap
+        result_str = json.dumps(raw_output, ensure_ascii=False, default=str)
+        if len(result_str) > 2000:
+            result_str = result_str[:2000] + " ... [truncated]"
+        return result_str
+
     async def observe(self, result: dict, action_dict: dict) -> None:
         """
         OBSERVE: add tool result to memory, update context statistics, persist to DB.
@@ -764,9 +854,7 @@ class PentestAgent:
         pinned = success and tool_name in {"searchsploit_search", "metasploit_run"}
 
         raw_output = result.get("output") or result.get("error")
-        output_str = json.dumps(raw_output, ensure_ascii=False, default=str)
-        if len(output_str) > 3000:
-            output_str = output_str[:3000] + " ... [truncated]"
+        output_str = self._summarize_tool_output(tool_name, raw_output, success)
 
         content = (
             f"TOOL_RESULT: {tool_name}\n"

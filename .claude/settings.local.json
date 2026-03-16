@@ -27,7 +27,17 @@
       "Bash(wsl -d:*)",
       "Bash(python -c \"import tools.metasploit_tool\")",
       "Bash(pip install:*)",
-      "Bash(python -c \"import paramiko; print\\(''paramiko'', paramiko.__version__\\)\")"
+      "Bash(python -c \"import paramiko; print\\(''paramiko'', paramiko.__version__\\)\")",
+      "Bash(gh api:*)",
+      "Bash(gh search:*)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:xbow.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Bash(__NEW_LINE_26f7c601dd11a410__ gh:*)",
+      "Bash(/dev/null echo:*)",
+      "Bash(wsl python3:*)"
     ]
   }
 }

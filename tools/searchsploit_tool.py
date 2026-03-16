@@ -9,6 +9,7 @@ import asyncio
 import json
 import re
 import subprocess
+from pathlib import Path
 
 from models.vulnerability import Vulnerability
 from tools.base_tool import BaseTool, ToolMetadata
@@ -116,6 +117,45 @@ class SearchSploitTool(BaseTool):
 
         return json.loads(result.stdout)
 
+    @staticmethod
+    def _read_exploit_description(path: str) -> str:
+        """
+        Read the comment header of an ExploitDB file to extract a description.
+
+        Most ExploitDB files start with a comment block containing metadata:
+          # Title: vsftpd 2.3.4 - Backdoor Command Execution
+          # CVE : CVE-2011-2523
+          # Description: ...
+
+        Returns up to 300 chars of the most informative comment lines,
+        or empty string if the file is unreadable.
+        """
+        try:
+            p = Path(path)
+            if not p.exists() or p.stat().st_size == 0:
+                return ""
+            lines: list[str] = []
+            with p.open(encoding="utf-8", errors="replace") as f:
+                for i, line in enumerate(f):
+                    if i >= 30:
+                        break
+                    stripped = line.strip()
+                    # Collect comment lines (Python/Ruby/Bash/C styles)
+                    if stripped.startswith(("#", "//", "*", ";")):
+                        # Skip shebang, empty comment lines, and separator lines
+                        if stripped in ("#", "//", "") or stripped.startswith(("#!/", "#!/")):
+                            continue
+                        if re.match(r"^[#\-=*]{4,}$", stripped):
+                            continue
+                        lines.append(stripped.lstrip("#/*; ").strip())
+                    elif lines:
+                        # Stop at first non-comment line after we've collected some
+                        break
+            description = " | ".join(l for l in lines if l)[:300]
+            return description
+        except Exception:
+            return ""
+
     def _parse_output(
         self,
         raw: dict,
@@ -141,12 +181,22 @@ class SearchSploitTool(BaseTool):
             if platform_filter and platform_filter.lower() not in platform:
                 continue
 
-            # --- Extract CVE ---
+            # --- Extract CVE (from title first, then file header) ---
             cve_match = _CVE_PATTERN.search(title)
             cve_id: str | None = cve_match.group(0).upper() if cve_match else None
 
+            # --- Read description from exploit file header ---
+            description = self._read_exploit_description(path)
+
+            # If CVE not found in title, try to find it in the file header
+            if not cve_id and description:
+                cve_match2 = _CVE_PATTERN.search(description)
+                if cve_match2:
+                    cve_id = cve_match2.group(0).upper()
+
             vuln = Vulnerability(
                 title=title,
+                description=description,
                 cve_id=cve_id,
                 exploit_path=path,
                 exploit_type=exploit_type,

