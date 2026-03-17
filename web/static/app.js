@@ -2415,9 +2415,27 @@ function handleSessionDone(msg) {
     });
     appendConsoleLine('[SESSION] Agent finished — report available in the Report tab', 'text-primary');
 
-    if (counts.hosts    !== undefined) setStatValue('stat-hosts', counts.hosts);
-    if (counts.vulns    !== undefined) setStatValue('stat-vulns', counts.vulns);
-    if (counts.ports    !== undefined) setStatValue('stat-ports', counts.ports);
+    // Only overwrite sidebar stats if user is viewing this session
+    if (!viewingSessionId || viewingSessionId === activeMissionId) {
+        if (counts.hosts    !== undefined) setStatValue('stat-hosts', counts.hosts);
+        if (counts.vulns    !== undefined) setStatValue('stat-vulns', counts.vulns);
+        if (counts.ports    !== undefined) setStatValue('stat-ports', counts.ports);
+    }
+
+    // Refresh intel panels from final session data
+    if (activeMissionId) {
+        fetch(`/api/v1/sessions/${activeMissionId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data) return;
+                if (Array.isArray(data.vulnerabilities) && data.vulnerabilities.length > 0) {
+                    _analysisVulns = data.vulnerabilities;
+                    updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: data.vulnerabilities }) });
+                }
+                updateNetworkPanelFromSession(data);
+            })
+            .catch(() => {});
+    }
 
     // Sync report view to completed session
     if (activeMissionId) {
@@ -2724,18 +2742,22 @@ async function refreshMissionStats(sessionId) {
         if (!res.ok) return;
         const data = await res.json();
 
-        // Use live array lengths during mission; fall back to DB fields after done
-        const liveVulns = data.vulnerabilities?.length;
+        // Skip stat update if user is viewing a different session
+        if (viewingSessionId && viewingSessionId !== sessionId) return;
+
         // Count individual open ports across all scan result blobs (not scan record count)
-        const livePorts = data.scan_results
-            ? data.scan_results.flatMap(r => (r.hosts || []).flatMap(h => h.ports || [])).length
-            : undefined;
-        const liveHosts = data.scan_results
-            ? new Set(data.scan_results.flatMap(r => (r.hosts || []).map(h => h.ip)).filter(Boolean)).size
-            : undefined;
-        setStatValue('stat-vulns', liveVulns ?? data.vulns_found ?? '—');
-        setStatValue('stat-hosts', liveHosts ?? data.hosts_found ?? '—');
-        setStatValue('stat-ports', livePorts ?? data.ports_found ?? '—');
+        const livePorts = (data.scan_results || [])
+            .flatMap(r => (r.hosts || []).flatMap(h => (h.ports || []).filter(p => p.state === 'open')))
+            .length;
+        const liveHosts = new Set(
+            (data.scan_results || []).flatMap(r => (r.hosts || []).map(h => h.ip)).filter(Boolean)
+        ).size;
+        const liveVulns = (data.vulnerabilities || []).length;
+
+        // Use live counts; fall back to DB summary fields if live counts are still 0
+        setStatValue('stat-vulns', liveVulns || data.vulns_found || '—');
+        setStatValue('stat-hosts', liveHosts || data.hosts_found || '—');
+        setStatValue('stat-ports', livePorts || data.ports_found || '—');
 
         // Update network panel with live scan data
         updateNetworkPanelFromSession(data);
@@ -2847,6 +2869,83 @@ function updateAnalysisPanelFromSearchsploit(data) {
         const svcSet = new Set(_analysisVulns.map(v => v.service).filter(Boolean));
         summary.textContent = `${_analysisVulns.length} vulnerabilit${_analysisVulns.length === 1 ? 'y' : 'ies'} across ${svcSet.size || '?'} service(s). Max CVSS ${maxCvss.toFixed(1)} — ${gaugeLabel}.`;
     }
+
+    // Also update the expanded analysis page
+    _updateAnalysisExpanded(_analysisVulns);
+}
+
+function _updateAnalysisExpanded(vulns) {
+    if (!Array.isArray(vulns)) return;
+    const total    = vulns.length;
+    const critical = vulns.filter(v => (v.cvss_score ?? v.cvss ?? v.score ?? 0) >= 9).length;
+    const high     = vulns.filter(v => { const s = v.cvss_score ?? v.cvss ?? v.score ?? 0; return s >= 7 && s < 9; }).length;
+    const medium   = vulns.filter(v => { const s = v.cvss_score ?? v.cvss ?? v.score ?? 0; return s >= 4 && s < 7; }).length;
+    const low      = vulns.filter(v => (v.cvss_score ?? v.cvss ?? v.score ?? 0) < 4).length;
+    const maxCvss  = total > 0 ? Math.max(...vulns.map(v => v.cvss_score ?? v.cvss ?? v.score ?? 0)) : 0;
+    const pct      = Math.round(Math.min(maxCvss / 10, 1) * 100);
+    const gaugeColor = maxCvss >= 9 ? '#FF3B3B' : maxCvss >= 7 ? '#FF8C00' : maxCvss >= 4 ? '#ccff00' : '#666666';
+    const gaugeLabel = maxCvss >= 9 ? 'CRITICAL' : maxCvss >= 7 ? 'HIGH' : maxCvss >= 4 ? 'MEDIUM' : total > 0 ? 'LOW' : 'NO DATA';
+
+    // Stats row
+    const setT = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const setC = (id, c) => { const el = document.getElementById(id); if (el) el.style.color = c; };
+    setT('analysis-exp-threat-score', total > 0 ? pct + '%' : '—');
+    setT('analysis-exp-threat-label', gaugeLabel);
+    setC('analysis-exp-threat-score', total > 0 ? gaugeColor : '');
+    setT('analysis-exp-critical', critical);
+    setT('analysis-exp-high', high);
+    setT('analysis-exp-total', total);
+
+    // Criticality gauge
+    const circ = document.getElementById('analysis-exp-gauge-circle');
+    if (circ) { circ.setAttribute('stroke', total > 0 ? gaugeColor : '#444'); circ.setAttribute('stroke-dashoffset', (314.2 * (1 - pct / 100)).toFixed(1)); }
+    setT('analysis-exp-gauge-pct', total > 0 ? pct + '%' : '—');
+    setC('analysis-exp-gauge-pct', total > 0 ? gaugeColor : '');
+    setT('analysis-exp-gauge-lbl', gaugeLabel);
+
+    // CVSS distribution bars
+    const barMax = Math.max(critical, high, medium, low, 1);
+    const setBar = (barId, numId, count, color) => {
+        const bar = document.getElementById(barId); if (bar) bar.style.width = Math.round(count / barMax * 100) + '%';
+        const num = document.getElementById(numId); if (num) { num.textContent = count; num.style.color = color; }
+    };
+    setBar('analysis-exp-bar-critical', 'analysis-exp-n-critical', critical, '#FF3B3B');
+    setBar('analysis-exp-bar-high',     'analysis-exp-n-high',     high,     '#FF8C00');
+    setBar('analysis-exp-bar-medium',   'analysis-exp-n-medium',   medium,   '#EAB308');
+    setBar('analysis-exp-bar-low',      'analysis-exp-n-low',      low,      '#888');
+
+    // CVE table
+    const tbody = document.getElementById('analysis-exp-cve-tbody');
+    const cntEl = document.getElementById('analysis-exp-cve-count');
+    if (cntEl) cntEl.textContent = total + ' total';
+    if (tbody) {
+        if (total === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="px-5 py-4 text-center text-secondary-text text-[10px]">No vulnerability data yet</td></tr>';
+        } else {
+            tbody.innerHTML = vulns.slice(0, 50).map(v => {
+                const cvss  = v.cvss_score ?? v.cvss ?? v.score ?? null;
+                const col   = cvss == null ? 'text-secondary-text' : cvss >= 9 ? 'text-danger' : cvss >= 7 ? 'text-orange-400' : cvss >= 4 ? 'text-yellow-400' : 'text-secondary-text';
+                const badge = cvss != null ? cvss.toFixed(1) : '?';
+                const title = _esc(v.title || v.description || 'Unknown');
+                const cveId = v.cve_id ? `<span class="text-primary">${_esc(v.cve_id)}</span>` : `<span class="text-secondary-text text-[9px]">${title.slice(0, 40)}</span>`;
+                const svc   = _esc(v.service || '—');
+                const type  = _esc(v.exploit_type || '—');
+                return `<tr class="border-b border-border-color hover:bg-surface transition-colors">
+                    <td class="px-5 py-2 font-bold mono-text text-xs">${cveId}</td>
+                    <td class="px-4 py-2"><span class="${col} font-bold">${badge}</span></td>
+                    <td class="px-4 py-2 text-slate-300 text-[10px]">${svc}</td>
+                    <td class="px-4 py-2 text-slate-400 text-[10px]">${type}</td>
+                </tr>`;
+            }).join('');
+        }
+    }
+
+    // Summary text
+    const sumEl = document.getElementById('analysis-exp-summary');
+    if (sumEl && total > 0) {
+        const svcSet = new Set(vulns.map(v => v.service).filter(Boolean));
+        sumEl.textContent = `${total} vulnerabilit${total === 1 ? 'y' : 'ies'} across ${svcSet.size || '?'} service(s). Max CVSS ${maxCvss.toFixed(1)} — ${gaugeLabel}. ${critical} critical, ${high} high severity findings.`;
+    }
 }
 
 // ─── Intel Panel: Network ──────────────────────────────────────────────────────
@@ -2871,29 +2970,189 @@ function resetNetworkPanel(target) {
     setStatValue('network-ports-count', '0');
     setStatValue('network-vulns-count', '0');
 
-    renderNetworkTopology([], 0);
+    renderNetworkTopology([], []);
+}
+
+// ─── Port risk classification ──────────────────────────────────────────────────
+
+const _HIGH_RISK_PORTS  = new Set([23, 512, 513, 514, 1524, 5900, 6000]);
+const _MED_RISK_PORTS   = new Set([21, 22, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 1099, 2049, 3306, 3389, 5432, 8009, 8080, 8443]);
+
+function _portRiskColor(portNum) {
+    if (_HIGH_RISK_PORTS.has(portNum)) return '#FF3B3B';
+    if (_MED_RISK_PORTS.has(portNum))  return '#FF8C00';
+    return '#555555';
+}
+
+function _portRiskLabel(portNum) {
+    if (_HIGH_RISK_PORTS.has(portNum)) return 'CRIT';
+    if (_MED_RISK_PORTS.has(portNum))  return 'HIGH';
+    return 'LOW';
+}
+
+// Merge duplicate host entries (multiple scans can return the same IP)
+function _mergeHosts(allHosts) {
+    const map = new Map();
+    for (const h of allHosts) {
+        const ip = h.ip || '';
+        if (!ip) continue;
+        if (!map.has(ip)) {
+            map.set(ip, { ip, hostname: h.hostname || '', os: h.os || '', ports: new Map() });
+        }
+        const merged = map.get(ip);
+        for (const p of (h.ports || [])) {
+            const key = `${p.number}/${p.protocol || 'tcp'}`;
+            if (!merged.ports.has(key)) merged.ports.set(key, p);
+        }
+    }
+    // Convert port Maps back to arrays sorted by port number
+    const result = [];
+    for (const [, host] of map) {
+        result.push({ ...host, ports: [...host.ports.values()].sort((a, b) => a.number - b.number) });
+    }
+    return result;
 }
 
 function updateNetworkPanelFromSession(data) {
-    const scanResults = data.scan_results || [];
-    const vulnCount   = data.vulnerabilities?.length ?? data.vulns_found ?? 0;
-    _networkScanResults = scanResults;
-    _networkVulnCount   = vulnCount;
+    const scanResults    = data.scan_results    || [];
+    const exploitResults = data.exploit_results || [];
+    const vulnCount      = (data.vulnerabilities || []).length || data.vulns_found || 0;
+    _networkScanResults  = scanResults;
+    _networkVulnCount    = vulnCount;
 
-    const hosts = new Set(scanResults.map(r => r.ip).filter(Boolean));
-    setStatValue('network-hosts-count', hosts.size || '0');
-    setStatValue('network-ports-count', scanResults.length || '0');
-    setStatValue('network-vulns-count', vulnCount || '0');
+    const allHosts   = _mergeHosts(scanResults.flatMap(r => r.hosts || []));
+    const openPorts  = allHosts.flatMap(h => h.ports.filter(p => p.state === 'open'));
+    const portCount  = openPorts.length;
 
-    // Hosts with at least one found vulnerability (approximated via vuln count > 0)
-    renderNetworkTopology([...hosts], vulnCount);
+    setStatValue('network-hosts-count', allHosts.length || '0');
+    setStatValue('network-ports-count', portCount        || '0');
+    setStatValue('network-vulns-count', vulnCount        || '0');
 
-    // Update status dot once we have data
+    renderNetworkTopology(allHosts, exploitResults);
+
     if (scanResults.length > 0) {
         const dot = document.getElementById('network-status-dot');
         if (dot) { dot.style.backgroundColor = '#ccff00'; dot.style.boxShadow = '0 0 4px #ccff00'; }
         const txt = document.getElementById('network-status-text');
         if (txt) { txt.textContent = 'Scanning'; txt.style.color = '#ccff00'; }
+    }
+
+    _updateNetworkExpanded(data, allHosts, portCount, vulnCount, exploitResults);
+}
+
+function _updateNetworkExpanded(data, allHosts, portCount, vulnCount, exploitResults) {
+    const setT = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setT('network-exp-target', data.target || data.name || '—');
+    setT('network-exp-hosts',  allHosts.length || '0');
+    setT('network-exp-ports',  portCount || '0');
+    setT('network-exp-vulns',  vulnCount || '0');
+
+    // Render topology directly into expanded SVG (no ID swap)
+    const expSvg = document.getElementById('network-exp-topology-svg');
+    if (expSvg) _renderTopologySVG(expSvg, allHosts, exploitResults);
+
+    // Build exploit lookup: ip → set of exploited port numbers
+    const exploitedPorts = {};
+    (exploitResults || []).forEach(e => {
+        if (e.success && e.host_ip) {
+            if (!exploitedPorts[e.host_ip]) exploitedPorts[e.host_ip] = new Set();
+            exploitedPorts[e.host_ip].add(Number(e.port));
+        }
+    });
+
+    // Host details table
+    const tbody = document.getElementById('network-exp-hosts-tbody');
+    if (tbody) {
+        if (allHosts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-4 text-center text-secondary-text text-[10px]">No scan data yet</td></tr>';
+        } else {
+            tbody.innerHTML = allHosts.map(h => {
+                const openCount   = h.ports.filter(p => p.state === 'open').length;
+                const isExploited = !!(exploitedPorts[h.ip]?.size > 0);
+                const hasVuln     = vulnCount > 0;
+                const ipColor     = isExploited ? 'text-danger font-bold' : (hasVuln ? 'text-orange-400' : 'text-slate-300');
+                const statusBadge = isExploited
+                    ? '<span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30 bg-danger/10">PWNED</span>'
+                    : (hasVuln
+                        ? '<span class="text-[7px] text-orange-400 uppercase px-1.5 py-0.5 border border-orange-400/30 bg-orange-400/10">VULN</span>'
+                        : '<span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30">UP</span>');
+                const exploitPortStr = exploitedPorts[h.ip]
+                    ? [...exploitedPorts[h.ip]].join(',') : '—';
+
+                // Render open ports as colored chips
+                const portChips = h.ports.filter(p => p.state === 'open').slice(0, 10).map(p => {
+                    const col = _portRiskColor(p.number);
+                    const isExp = exploitedPorts[h.ip]?.has(p.number);
+                    const style = isExp
+                        ? `background:#3a0000;border:1px solid ${col};color:${col};font-weight:bold;`
+                        : `background:#111;border:1px solid #333;color:${col};`;
+                    const prefix = isExp ? '⚡' : '';
+                    return `<span style="${style}padding:1px 4px;font-size:8px;font-family:monospace;border-radius:2px;margin:1px;">${prefix}${p.number}</span>`;
+                }).join('');
+
+                return `<tr class="border-b border-border-color hover:bg-surface transition-colors">
+                    <td class="px-3 py-2 ${ipColor} mono-text text-[10px]">${_esc(h.ip || '?')}</td>
+                    <td class="px-3 py-2 text-secondary-text text-[9px]">${_esc(h.os || '—')}</td>
+                    <td class="px-3 py-2 text-primary mono-text text-[10px]">${openCount}</td>
+                    <td class="px-3 py-2">${portChips || '<span class="text-secondary-text text-[9px]">—</span>'}</td>
+                    <td class="px-3 py-2">${statusBadge}</td>
+                </tr>`;
+            }).join('');
+        }
+    }
+
+    // Services chips with risk coloring
+    const svcDiv = document.getElementById('network-exp-services');
+    if (svcDiv) {
+        const svcMap = new Map();
+        allHosts.forEach(h => {
+            h.ports.filter(p => p.state === 'open').forEach(p => {
+                const key = p.number;
+                if (!svcMap.has(key)) {
+                    svcMap.set(key, {
+                        port: p.number,
+                        proto: p.protocol || 'tcp',
+                        service: p.service || '',
+                        version: p.version || '',
+                        risk: _portRiskLabel(p.number),
+                        color: _portRiskColor(p.number),
+                        hosts: 0,
+                        exploited: false,
+                    });
+                }
+                const entry = svcMap.get(key);
+                entry.hosts++;
+                if (exploitedPorts[h.ip]?.has(p.number)) entry.exploited = true;
+            });
+        });
+
+        const entries = [...svcMap.values()].sort((a, b) => {
+            const rOrder = { CRIT: 0, HIGH: 1, LOW: 2 };
+            return (rOrder[a.risk] ?? 2) - (rOrder[b.risk] ?? 2) || a.port - b.port;
+        });
+
+        if (entries.length === 0) {
+            svcDiv.innerHTML = '<p class="text-[10px] text-secondary-text mono-text">No services detected yet</p>';
+        } else {
+            svcDiv.innerHTML = entries.map(e => {
+                const exploitBadge = e.exploited
+                    ? '<span style="background:#3a0000;border:1px solid #ff3b3b;color:#ff6666;padding:1px 4px;font-size:7px;border-radius:2px;margin-left:4px;">⚡EXPLOITED</span>'
+                    : '';
+                const riskBadge = `<span style="color:${e.color};font-size:7px;">${e.risk}</span>`;
+                const cls = e.exploited
+                    ? 'border-danger/50 bg-danger/5'
+                    : (e.risk === 'CRIT' ? 'border-danger/30' : e.risk === 'HIGH' ? 'border-orange-500/30' : 'border-border-color');
+                const dotColor = e.exploited ? '#FF3B3B' : (e.risk !== 'LOW' ? e.color : '#444');
+                return `<div class="flex items-center gap-2 px-3 py-1.5 bg-surface border ${cls} mono-text text-[10px]">
+                    <span class="w-1.5 h-1.5 rounded-full" style="background:${dotColor};${e.exploited ? 'animation:pulse 1s infinite;' : ''}"></span>
+                    <span style="color:${e.color};font-weight:bold;">${e.port}</span>
+                    <span class="text-slate-400">/${e.proto}</span>
+                    <span class="text-slate-300">${_esc(e.service)}</span>
+                    ${e.version ? `<span class="text-secondary-text text-[9px]">${_esc(e.version)}</span>` : ''}
+                    <span class="ml-auto text-secondary-text text-[9px]">${riskBadge} ${e.hosts}h${exploitBadge}</span>
+                </div>`;
+            }).join('');
+        }
     }
 }
 
@@ -2904,60 +3163,99 @@ function stopNetworkPanel() {
     if (txt) { txt.textContent = 'Done'; txt.style.color = ''; }
 }
 
-function renderNetworkTopology(hosts, vulnCount) {
+function renderNetworkTopology(allHosts, exploitResults) {
     const svg = document.getElementById('network-topology-svg');
     if (!svg) return;
+    _renderTopologySVG(svg, allHosts, exploitResults);
+}
 
-    if (!hosts || hosts.length === 0) {
+// Core topology renderer — works for both sidebar and expanded SVG elements
+function _renderTopologySVG(svg, allHosts, exploitResults) {
+    if (!allHosts || allHosts.length === 0) {
         svg.innerHTML = `
-            <text x="110" y="85" text-anchor="middle" fill="#333" font-family="monospace" font-size="9">Waiting for scan results…</text>
-            <rect x="2" y="4" width="44" height="22" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1"/>
-            <text x="24" y="14" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="5.5" font-weight="bold">AEGIS</text>
-            <text x="24" y="23" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
+            <text x="110" y="90" text-anchor="middle" fill="#333" font-family="monospace" font-size="9">Waiting for scan results…</text>
+            <rect x="83" y="10" width="54" height="26" rx="2" fill="#0c0c00" stroke="#ccff00" stroke-width="1.5"/>
+            <text x="110" y="22" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6.5" font-weight="bold">AEGIS</text>
+            <text x="110" y="32" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
         return;
     }
 
-    const CX = 110, CY = 30;   // AEGIS position
-    const R  = 60;             // radius for host circle layout
-    const hostR = 18;
+    // Build exploit lookup: ip → set of exploited port numbers
+    const exploitedPorts = {};
+    (exploitResults || []).forEach(e => {
+        if (e.success && e.host_ip) {
+            if (!exploitedPorts[e.host_ip]) exploitedPorts[e.host_ip] = new Set();
+            exploitedPorts[e.host_ip].add(Number(e.port));
+        }
+    });
+
+    const CX = 110, CY = 28;  // AEGIS box center-bottom
+    const R  = 62;             // radius for host layout
+    const hostR = 20;
 
     let inner = `
-        <rect x="86" y="16" width="48" height="28" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1"/>
-        <text x="${CX}" y="28" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6" font-weight="bold">AEGIS</text>
-        <text x="${CX}" y="38" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
+        <rect x="83" y="10" width="54" height="26" rx="2" fill="#0c0c00" stroke="#ccff00" stroke-width="1.5"/>
+        <text x="${CX}" y="22" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6.5" font-weight="bold">AEGIS</text>
+        <text x="${CX}" y="32" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
 
-    const count = Math.min(hosts.length, 8);
-    const startAngle = count === 1 ? Math.PI / 2 : Math.PI * 0.3;
-    const endAngle   = count === 1 ? Math.PI / 2 : Math.PI * 2.7;
+    const count = Math.min(allHosts.length, 8);
+    const startAngle = count === 1 ? Math.PI / 2 : Math.PI * 0.15;
+    const endAngle   = count === 1 ? Math.PI / 2 : Math.PI * 0.85;
 
     for (let i = 0; i < count; i++) {
         const angle = count === 1 ? Math.PI / 2
             : startAngle + (endAngle - startAngle) * (i / (count - 1));
         const hx = CX + R * Math.cos(angle);
-        const hy = CY + 55 + R * 0.6 * Math.sin(angle);
-        const ip  = hosts[i] || `host${i + 1}`;
+        const hy = CY + 80 + R * 0.65 * Math.sin(angle);
+        const host = allHosts[i];
+        const ip   = host.ip || `host${i + 1}`;
+
+        const isExploited  = !!(exploitedPorts[ip]?.size > 0);
+        const openPorts    = host.ports.filter(p => p.state === 'open');
+        const hasRiskyPort = openPorts.some(p => _HIGH_RISK_PORTS.has(p.number) || _MED_RISK_PORTS.has(p.number));
+
+        // Host node color
+        const stroke   = isExploited ? '#FF3B3B' : (hasRiskyPort ? '#FF8C00' : '#444444');
+        const fill     = isExploited ? '#1a0000' : (hasRiskyPort ? '#1a0a00' : '#111111');
+        const txtColor = isExploited ? '#ff6666' : (hasRiskyPort ? '#FF8C00' : '#aaaaaa');
+
+        // Line from AEGIS to host
+        const lineStroke = isExploited ? '#FF3B3B' : '#333333';
+        const lineDash   = isExploited ? 'stroke-dasharray="4,2"' : '';
+
+        // Entry port label for exploited hosts
+        const entryPorts = exploitedPorts[ip] ? [...exploitedPorts[ip]].join(',') : '';
+        const entryLabel = isExploited ? `⚡${entryPorts}` : '';
+
+        // Top 3 open port dots rendered around host circle
+        const portDots = openPorts.slice(0, 6).map((p, pi) => {
+            const da = (pi - (Math.min(openPorts.length, 6) - 1) / 2) * (Math.PI / 8);
+            const px = hx + hostR * 1.35 * Math.cos(-Math.PI / 2 + da);
+            const py = hy + hostR * 1.35 * Math.sin(-Math.PI / 2 + da);
+            const pc = _portRiskColor(p.number);
+            const pw = exploitedPorts[ip]?.has(p.number) ? 2.5 : 1.5;
+            return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.5" fill="#0a0a0a" stroke="${pc}" stroke-width="${pw}"/>
+                    <text x="${px.toFixed(1)}" y="${(py + 1.5).toFixed(1)}" text-anchor="middle" fill="${pc}" font-family="monospace" font-size="3.5">${p.number}</text>`;
+        }).join('');
+
         const lastOctet = ip.split('.').pop() || ip;
-        // colour: assume first host is exploited if vulns found (simple heuristic)
-        const isVuln   = vulnCount > 0 && i < vulnCount;
-        const stroke   = isVuln ? '#FF3B3B' : '#333333';
-        const fill     = isVuln ? '#1a0000' : '#111111';
-        const txtColor = isVuln ? '#ff6666' : '#aaaaaa';
-        const label    = isVuln ? 'VULN' : 'UP';
-        const lcolor   = isVuln ? '#FF3B3B' : '#555';
 
         inner += `
-            <line x1="${CX}" y1="44" x2="${hx.toFixed(1)}" y2="${(hy - hostR).toFixed(1)}"
-                  stroke="${stroke}" stroke-width="1" opacity="0.5"/>
+            <line x1="${CX}" y1="36" x2="${hx.toFixed(1)}" y2="${(hy - hostR).toFixed(1)}"
+                  stroke="${lineStroke}" stroke-width="${isExploited ? 1.5 : 0.8}" opacity="${isExploited ? 0.9 : 0.4}" ${lineDash}/>
+            ${isExploited ? `<text x="${((CX + hx)/2).toFixed(1)}" y="${((36 + hy - hostR)/2 - 3).toFixed(1)}" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="5">:${entryPorts}</text>` : ''}
             <circle cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="${hostR}"
-                    fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
-            <text x="${hx.toFixed(1)}" y="${(hy - 4).toFixed(1)}" text-anchor="middle"
-                  fill="${txtColor}" font-family="monospace" font-size="7">.${_esc(lastOctet)}</text>
-            <text x="${hx.toFixed(1)}" y="${(hy + 6).toFixed(1)}" text-anchor="middle"
-                  fill="${lcolor}" font-family="monospace" font-size="5.5">${label}</text>`;
+                    fill="${fill}" stroke="${stroke}" stroke-width="${isExploited ? 2 : 1.2}"/>
+            ${isExploited ? `<circle cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="${hostR + 4}" fill="none" stroke="#FF3B3B" stroke-width="0.5" opacity="0.4" stroke-dasharray="3,3"/>` : ''}
+            <text x="${hx.toFixed(1)}" y="${(hy - 5).toFixed(1)}" text-anchor="middle"
+                  fill="${txtColor}" font-family="monospace" font-size="7" font-weight="${isExploited ? 'bold' : 'normal'}">.${_esc(lastOctet)}</text>
+            <text x="${hx.toFixed(1)}" y="${(hy + 5).toFixed(1)}" text-anchor="middle"
+                  fill="${stroke}" font-family="monospace" font-size="5">${isExploited ? 'PWNED' : (openPorts.length + 'pts')}</text>
+            ${portDots}`;
     }
 
-    if (hosts.length > 8) {
-        inner += `<text x="${CX}" y="170" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">+${hosts.length - 8} more</text>`;
+    if (allHosts.length > 8) {
+        inner += `<text x="${CX}" y="175" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">+${allHosts.length - 8} more hosts</text>`;
     }
 
     svg.innerHTML = inner;
@@ -3740,6 +4038,13 @@ async function switchToSession(sessionId) {
         setStatValue('stat-hosts', hostsFound || '—');
         setStatValue('stat-ports', portsFound || '—');
 
+        // Populate intel panels from stored session data
+        if (Array.isArray(session.vulnerabilities) && session.vulnerabilities.length > 0) {
+            _analysisVulns = session.vulnerabilities;
+            updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: session.vulnerabilities }) });
+        }
+        updateNetworkPanelFromSession(session);
+
         // Switch to agent view
         switchView('agent');
         clearMissionFeed();
@@ -3784,6 +4089,15 @@ async function switchToSession(sessionId) {
                 }
             } catch {
                 renderHistoricalSession(session);
+            }
+
+            // Show mission done card for completed sessions
+            if (effectiveStatus === 'done') {
+                renderMissionDone({
+                    hosts:    session.hosts_found   || hostsFound || 0,
+                    vulns:    session.vulns_found   || vulnsFound || 0,
+                    exploits: session.exploits_run  || 0,
+                });
             }
         }
 
