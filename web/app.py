@@ -66,11 +66,13 @@ async def lifespan(app: FastAPI):
     from tools.searchsploit_tool import SearchSploitTool
     from tools.metasploit_tool import MetasploitTool
     from tools.ssh_tool import SSHTool
+    from tools.shell_session_tool import ShellSessionTool
 
     tool_registry.register(NmapTool())
     tool_registry.register(SearchSploitTool())
     tool_registry.register(MetasploitTool())
     tool_registry.register(SSHTool())
+    tool_registry.register(ShellSessionTool())
     tool_registry.load_plugins(Path("plugins/"))
 
     yield

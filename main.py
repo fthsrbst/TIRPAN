@@ -407,7 +407,8 @@ def main() -> int:
                 host=args.host,
                 port=args.port,
                 reload=reload,
-                reload_excludes=[".venv", "*.pyc", "__pycache__", "data", "reports"],
+                reload_dirs=["web", "core", "tools"] if reload else None,
+                reload_excludes=["*.pyc", "*.db-shm", "*.db-wal"],
                 log_level=args.log_level,
             )
         except KeyboardInterrupt:

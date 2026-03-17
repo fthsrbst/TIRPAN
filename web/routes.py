@@ -1061,6 +1061,10 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             source_iteration=body.resume_iteration,
         )
 
+    # Run tool health checks once before the agent starts so unavailable tools
+    # (e.g. ssh_exec when paramiko is missing) are excluded from the LLM prompt.
+    await registry.run_health_checks()
+
     # Launch background task
     task = asyncio.create_task(
         _run_agent_task(session_id, agent, _session_repo, _audit_repo)

@@ -72,7 +72,11 @@ class AgentContext:
 
     # Internal work queues (drive the LLM's guidance)
     hosts_pending_port_scan: list[str] = field(default_factory=list)
+    # Services discovered by port scan that still need an exploit search.
+    # Each entry: "ip:port:service:version" — removed when searchsploit succeeds.
     hosts_pending_exploit_search: list[str] = field(default_factory=list)
+    # Set of "service:version" pairs already searched — prevents duplicate queries.
+    services_searched: set = field(default_factory=set)
 
     # Active MSF sessions (session_id → target_ip).
     # NOTE: msfconsole fallback sessions are NOT persistent — they close when
@@ -481,6 +485,34 @@ class PentestAgent:
                     self._state = AgentState.OBSERVING
                     for sub_action, sub_result in pairs:
                         await self.observe(sub_result, sub_action)
+
+                        # ── Repeated-failure guard for each parallel sub-call ─
+                        if not sub_result.get("success"):
+                            _ptool = sub_action.get("action", "unknown")
+                            _perr = str(sub_result.get("error") or "")[:120]
+                            _pfkey = f"{_ptool}|{_perr}"
+                            _failure_counts[_pfkey] = _failure_counts.get(_pfkey, 0) + 1
+                            if _failure_counts[_pfkey] >= _MAX_SAME_FAIL:
+                                _failure_counts[_pfkey] = _MAX_SAME_FAIL - 1
+                                _pblk_key = _ptool
+                                if _ptool == "metasploit_run" and sub_action.get("parameters", {}).get("module"):
+                                    _pblk_key = f"{_ptool}:{sub_action['parameters']['module']}"
+                                self._session_blocked_calls[_pblk_key] = (
+                                    self._session_blocked_calls.get(_pblk_key, 0) + 1
+                                )
+                                _pmsg = (
+                                    f"[SYSTEM] '{_pblk_key}' has failed {_MAX_SAME_FAIL} times "
+                                    f"with the same error: {_perr!r}. PERMANENTLY BLOCKED — "
+                                    f"do NOT call it again this session."
+                                )
+                                logger.warning("Parallel failure guard fired + hard-blocked %s: %s", _pblk_key, _perr)
+                                self.memory.add_tool_result(_pmsg, pinned=True)
+                        else:
+                            _ptool = sub_action.get("action", "unknown")
+                            for k in list(_failure_counts.keys()):
+                                if k.startswith(f"{_ptool}|"):
+                                    _failure_counts[k] = 0
+
                 except Exception as exc:
                     logger.error("parallel_tools iteration failed: %s", exc)
                     self._emit("error", {"error": f"parallel_tools failed: {exc}"})
@@ -534,7 +566,7 @@ class PentestAgent:
                         f"Do not attempt '{_blk_key}' again."
                     )
                     logger.warning("Repeated-failure guard fired + hard-blocked %s: %s", _blk_key, _err)
-                    self.memory.add_tool_result(_msg)
+                    self.memory.add_tool_result(_msg, pinned=True)
             else:
                 # Reset failure count on success
                 _tool = action_dict.get("action", "unknown")
@@ -932,7 +964,9 @@ class PentestAgent:
 
             elif tool_name == "metasploit_run":
                 action = str(params.get("action", "run"))
-                exploit_success = bool(output.get("session_opened"))
+                # ExploitResult.model_dump() uses "session_id", not "session_opened"
+                session_id_val = output.get("session_id")
+                exploit_success = session_id_val is not None and bool(session_id_val)
                 poc_out = output.get("post_command_output", "")
 
                 # Save exploit attempt record (always, even on failure)
@@ -945,7 +979,7 @@ class PentestAgent:
                             "module": str(params.get("module", "")),
                             "payload": str(params.get("payload", output.get("payload", ""))),
                             "success": exploit_success,
-                            "session_opened": int(output.get("session_opened") or 0),
+                            "session_opened": int(session_id_val or 0),
                             "output": str(output.get("output", ""))[:2000],
                             "error": str(output.get("error", "")),
                             "poc_output": poc_out,
@@ -962,6 +996,7 @@ class PentestAgent:
                         "payload": str(params.get("payload", "")),
                         "port": params.get("target_port") or params.get("port"),
                         "session_opened": exploit_success,
+                        "session_id": session_id_val,
                         "output_summary": str(output.get("output", ""))[:300],
                     },
                 )
@@ -1113,6 +1148,10 @@ class PentestAgent:
             })
 
     def _process_searchsploit_result(self, output: dict | list, params: dict) -> None:
+        service = str(params.get("service", "")).strip().lower()
+        version = str(params.get("version", "")).strip()
+        svc_key = f"{service}:{version}" if version else service
+
         vulns: list = []
         if isinstance(output, list):
             vulns = output
@@ -1130,20 +1169,68 @@ class PentestAgent:
             if summary not in self._ctx.vulnerabilities:
                 self._ctx.vulnerabilities.append(summary)
 
-        # Advance phase when we have vulnerabilities and exploitation is allowed.
-        # Also fires if agent skipped discovery (KNOWN TECH shortcut) — in that
-        # case attack_phase may still be DISCOVERY or PORT_SCAN.
+        # Mark this service as searched and remove matching entries from queue
+        self._ctx.services_searched.add(svc_key)
+        self._ctx.hosts_pending_exploit_search = [
+            entry for entry in self._ctx.hosts_pending_exploit_search
+            if not self._entry_matches_service(entry, service, version)
+        ]
+        logger.debug(
+            "Exploit search done for %s — queue remaining: %d",
+            svc_key, len(self._ctx.hosts_pending_exploit_search),
+        )
+
+        # Advance phase only when:
+        # 1. We have vulnerabilities AND mode allows exploitation
+        # 2. AND the exploit-search queue is empty (all discovered services searched)
+        # Exception: if queue is already empty (e.g. KNOWN TECH shortcut) advance immediately.
+        queue_clear = not self._ctx.hosts_pending_exploit_search
         if (
             self._ctx.vulnerabilities
             and self._ctx.mode != "scan_only"
             and self._ctx.attack_phase in ("DISCOVERY", "PORT_SCAN", "EXPLOIT_SEARCH")
+            and queue_clear
         ):
             self._ctx.attack_phase = "EXPLOITATION"
-            logger.info("Phase → EXPLOITATION")
+            logger.info("Phase → EXPLOITATION (queue empty, %d vulns)", self._ctx.total_vulns)
             self._emit("phase_change", {
                 "attack_phase": "EXPLOITATION",
                 "vulns": self._ctx.total_vulns,
             })
+
+    @staticmethod
+    def _entry_matches_service(entry: str, service: str, version: str) -> bool:
+        """Check if a queue entry 'ip:port:service:version' matches searched service.
+
+        Nmap uses protocol names (ftp, http, netbios-ssn) as the service field, but
+        the LLM searches by product names (vsftpd, apache, samba).  We match on either:
+          - exact protocol match  : entry_service == service  (mysql → mysql)
+          - product in version    : "vsftpd" in "vsftpd 2.3.4"  (ftp entry, vsftpd search)
+          - protocol in search    : "ftp" in "ftp"              (fallback)
+        """
+        parts = entry.split(":", 3)
+        if len(parts) < 3:
+            return False
+        entry_service = parts[2].lower().strip()
+        entry_version = parts[3].lower().strip() if len(parts) > 3 else ""
+        svc = service.lower().strip()
+        if not svc:
+            return False
+
+        # 1. Exact protocol/service name match (e.g. mysql, ssh, vnc)
+        if entry_service == svc:
+            return True
+
+        # 2. Search term found in the version string (e.g. "vsftpd" in "vsftpd 2.3.4",
+        #    "apache" in "apache httpd 2.2.8", "samba" in "samba smbd 3.0.20-debian")
+        if svc in entry_version:
+            return True
+
+        # 3. Partial protocol match (e.g. "ftp" search matches "ftp" entry)
+        if svc in entry_service or entry_service in svc:
+            return True
+
+        return False
 
     def _process_metasploit_result(self, output: dict | list, params: dict) -> None:
         action = str(params.get("action", "run"))

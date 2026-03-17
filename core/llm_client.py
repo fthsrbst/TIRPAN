@@ -323,9 +323,12 @@ class LLMRouter:
 
         Handles:
         - Plain JSON
-        - ```json ... ``` fenced blocks (anywhere in the text)
-        - Chain-of-thought prose followed by a JSON object
-        - Mixed prose + JSON (picks the last top-level ``{...}`` block)
+        - ```json ... ``` fenced blocks
+        - Chain-of-thought prose before/after JSON object
+        - Balanced-brace extraction (JSON embedded in XML or other text)
+        - MiniMax / Anthropic XML tool-call format:
+            <invoke name="tool_name"><parameter name="p">v</parameter></invoke>
+        - Parallel tools in XML: reconstructs {"action":"parallel_tools","tools":[...]}
         """
         import re as _re
 
@@ -339,7 +342,7 @@ class LLMRouter:
         except json.JSONDecodeError:
             pass
 
-        # 2. Fenced ```json ... ``` or ``` ... ``` block anywhere in the text
+        # 2. Fenced ```json ... ``` or ``` ... ``` block
         m = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, _re.DOTALL)
         if m:
             try:
@@ -347,17 +350,149 @@ class LLMRouter:
             except json.JSONDecodeError:
                 pass
 
-        # 3. Scan every '{' position (left-to-right) and try to parse from there.
-        #    The LLM often writes chain-of-thought before the JSON object, so the
-        #    first valid top-level object we encounter is the intended response.
+        # 3. Balanced-brace extraction — finds the outermost complete {...} block.
+        #    Unlike step 3 in the old version, this uses a brace counter so it
+        #    doesn't fail when there's trailing text after the JSON object.
+        depth = 0
+        start = -1
+        in_string = False
+        escape_next = False
         for i, ch in enumerate(text):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
             if ch == "{":
-                try:
-                    return json.loads(text[i:])
-                except json.JSONDecodeError:
-                    continue
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start != -1:
+                    candidate = text[start:i + 1]
+                    try:
+                        result = json.loads(candidate)
+                        if isinstance(result, dict):
+                            return result
+                    except json.JSONDecodeError:
+                        pass
+                    start = -1  # reset and keep scanning for next candidate
 
-        # 4. Nothing worked — re-raise a clean error
+        # 4. XML tool-call format — handles MiniMax, Anthropic-style, and similar:
+        #      <invoke name="tool_name">
+        #        <parameter name="p1">value</parameter>
+        #        <parameter name="p2">{"key": "val"}</parameter>
+        #      </invoke>
+        #    Also handles <minimax:tool_call> wrappers around the invoke.
+        invoke_match = _re.search(
+            r'<invoke\s+name=["\']([^"\']+)["\']>(.*?)</invoke>',
+            text, _re.DOTALL | _re.IGNORECASE,
+        )
+        if invoke_match:
+            tool_name = invoke_match.group(1).strip()
+            invoke_body = invoke_match.group(2)
+
+            # Extract all <parameter name="...">...</parameter> pairs
+            param_pairs = _re.findall(
+                r'<parameter\s+name=["\']([^"\']+)["\']>(.*?)</parameter>',
+                invoke_body, _re.DOTALL,
+            )
+
+            params: dict = {}
+            for pname, pvalue in param_pairs:
+                pvalue = pvalue.strip()
+                # Try to decode as JSON first (arrays, objects, numbers)
+                try:
+                    params[pname] = json.loads(pvalue)
+                except json.JSONDecodeError:
+                    params[pname] = pvalue  # keep as string
+
+            if tool_name == "parallel_tools":
+                # Reconstruct the AEGIS parallel_tools format
+                tools = params.get("tools", [])
+                reasoning = params.get("reasoning", "")
+                thought = params.get("thought", "Parallel tool execution.")
+                return {
+                    "thought": thought,
+                    "action": "parallel_tools",
+                    "tools": tools if isinstance(tools, list) else [],
+                    "reasoning": reasoning,
+                }
+            else:
+                # Single tool call — reconstruct as AEGIS action dict
+                thought = params.pop("thought", f"Calling {tool_name}.")
+                reasoning = params.pop("reasoning", "")
+                return {
+                    "thought": thought,
+                    "action": tool_name,
+                    "parameters": params,
+                    "reasoning": reasoning,
+                }
+
+        # 5. [TOOL_CALL]...[/TOOL_CALL] format — some models use this wrapper:
+        #      [TOOL_CALL]
+        #      {tool => "parallel_tools", args => {
+        #        --thought "..."
+        #        --action "parallel_tools"
+        #        --tools [{...}]
+        #        --reasoning "..."
+        #      }}
+        #      [/TOOL_CALL]
+        tool_call_block = _re.search(r'\[TOOL_CALL\](.*?)\[/TOOL_CALL\]', text, _re.DOTALL | _re.IGNORECASE)
+        if tool_call_block:
+            inner = tool_call_block.group(1)
+
+            # Extract tool name from:  tool => "name"  or  tool: "name"
+            name_m = _re.search(r'tool\s*(?:=>|:)\s*["\']([^"\']+)["\']', inner)
+            tool_name = name_m.group(1).strip() if name_m else "unknown"
+
+            # Extract --thought / --action / --reasoning as quoted strings
+            thought_m = _re.search(r'--thought\s+"((?:[^"\\]|\\.)*)"', inner, _re.DOTALL)
+            reasoning_m = _re.search(r'--reasoning\s+"((?:[^"\\]|\\.)*)"', inner, _re.DOTALL)
+            thought = thought_m.group(1) if thought_m else f"Calling {tool_name}."
+            reasoning = reasoning_m.group(1) if reasoning_m else ""
+
+            # Extract --tools [...] array — use bracket-depth to find the complete array
+            tools_start_m = _re.search(r'--tools\s*\[', inner)
+            if tools_start_m and tool_name == "parallel_tools":
+                arr_start = tools_start_m.end() - 1  # position of '['
+                depth = 0
+                arr_end = arr_start
+                for idx, ch in enumerate(inner[arr_start:], arr_start):
+                    if ch == '[':
+                        depth += 1
+                    elif ch == ']':
+                        depth -= 1
+                        if depth == 0:
+                            arr_end = idx + 1
+                            break
+                try:
+                    tools = json.loads(inner[arr_start:arr_end])
+                    return {
+                        "thought": thought,
+                        "action": "parallel_tools",
+                        "tools": tools if isinstance(tools, list) else [],
+                        "reasoning": reasoning,
+                    }
+                except json.JSONDecodeError:
+                    pass
+
+            # Single tool or fallback — return minimal action dict
+            return {
+                "thought": thought,
+                "action": tool_name,
+                "parameters": {},
+                "reasoning": reasoning,
+            }
+
+        # 6. Nothing worked — re-raise a clean error
         raise json.JSONDecodeError("No JSON object found in response", text, 0)
 
 

