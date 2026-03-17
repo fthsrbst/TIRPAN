@@ -195,6 +195,21 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v6 applied: poc_output column in exploit_results")
 
+        if version < 7:
+            # Store per-session safety config so rollback can restore original settings
+            try:
+                await db.execute(
+                    "ALTER TABLE pentest_sessions ADD COLUMN safety_cfg_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            except Exception:
+                pass  # Column may already exist
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (7, time.time(), "add safety_cfg_json to pentest_sessions"),
+            )
+            await db.commit()
+            logger.info("DB migration v7 applied: safety_cfg_json column in pentest_sessions")
+
     logger.info("Database ready: %s", path)
 
 
