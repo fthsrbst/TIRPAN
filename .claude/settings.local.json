@@ -37,7 +37,8 @@
       "Bash(do echo:*)",
       "Bash(__NEW_LINE_26f7c601dd11a410__ gh:*)",
       "Bash(/dev/null echo:*)",
-      "Bash(wsl python3:*)"
+      "Bash(wsl python3:*)",
+      "Bash(python -c \":*)"
     ]
   }
 }
