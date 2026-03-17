@@ -707,6 +707,11 @@ class StartSessionRequest(BaseModel):
     scope_notes: str = ""
     notes: str = ""
 
+    # Mission objectives — explicit success criteria for this engagement.
+    # e.g. ["find flag.txt", "dump /etc/shadow", "achieve root on all hosts"]
+    # Empty = maximum enumeration mode (try everything, full report).
+    objectives: list[str] = []
+
     # LLM selection
     provider: str = ""
     model: str = ""
@@ -761,6 +766,18 @@ async def _run_agent_task(
     except asyncio.CancelledError:
         # Task was cancelled by the kill switch — preserve all findings, just mark stopped
         logger.warning("Agent task cancelled (emergency stop) for session %s", session_id)
+        # Save whatever stats were collected before the kill
+        try:
+            _ctx = agent._ctx
+            await session_repo.update_stats(
+                session_id,
+                hosts_found=len(_ctx.discovered_hosts),
+                ports_found=_ctx.total_ports,
+                vulns_found=_ctx.total_vulns,
+                exploits_run=_ctx.total_exploits,
+            )
+        except Exception:
+            pass
         await session_repo.update_status(session_id, "stopped", "Emergency stop triggered by user")
         await audit_repo.log(
             "KILL_SWITCH",
@@ -776,6 +793,18 @@ async def _run_agent_task(
 
     except Exception as exc:
         logger.error("Agent task failed for session %s: %s", session_id, exc)
+        # Save whatever stats were collected before the error
+        try:
+            _ctx = agent._ctx
+            await session_repo.update_stats(
+                session_id,
+                hosts_found=len(_ctx.discovered_hosts),
+                ports_found=_ctx.total_ports,
+                vulns_found=_ctx.total_vulns,
+                exploits_run=_ctx.total_exploits,
+            )
+        except Exception:
+            pass
         await session_repo.update_status(session_id, "error", str(exc))
         await audit_repo.log(
             "SESSION_ERROR",
@@ -972,6 +1001,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     # Build MissionBrief
     mission = MissionBrief(
         target_type=body.target_type,
+        objectives=body.objectives,
         known_tech=body.known_tech,
         scope_notes=body.scope_notes or body.notes,
         ssh_credentials=ssh_creds,
@@ -1004,6 +1034,10 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     # Persist session record
     session_data = await _session_repo.create(body.target.strip(), body.mode)
     session_id = session_data["id"]
+
+    # Save the per-session safety config so rollback can restore the exact same settings
+    import json as _json_safety
+    await _session_repo.save_safety_cfg(session_id, _json_safety.dumps(safety_cfg.model_dump()))
 
     session_obj = Session(
         id=session_id,
@@ -1224,11 +1258,15 @@ async def resume_session(sid: str):
 async def rollback_session(sid: str, iteration: int):
     """Rollback a session to a specific iteration in-place.
 
+    Works for both running and historical (completed/stopped) sessions.
     Deletes all events/findings after the given iteration's cutoff timestamp,
     resets the agent context, and re-seeds it with the surviving data so the
     agent can continue from that point without creating a new mission.
     """
     from web import session_manager
+    from core.agent import PentestAgent
+    from core.safety import SafetyGuard
+    from models.session import Session
 
     session = await _session_repo.get(sid)
     if not session:
@@ -1258,9 +1296,10 @@ async def rollback_session(sid: str, iteration: int):
     await _vuln_repo.delete_after(sid, cutoff_ts)
     await _exploit_repo.delete_after(sid, cutoff_ts)
 
-    # Reset and re-seed agent context
     agent = session_manager.get_agent(sid)
+
     if agent:
+        # Running session — reset and re-seed in-place
         agent.reset_context()
         agent.seed_context_from_findings(
             scan_results,
@@ -1270,9 +1309,90 @@ async def rollback_session(sid: str, iteration: int):
             events_up_to=events,
             source_iteration=iteration,
         )
-        # Ensure agent is not paused
         if getattr(agent, "_paused", False):
             agent.resume()
+    else:
+        # Historical session — recreate and restart the agent on the same session ID
+        _status = session.get("status", "done")
+        _valid_statuses = {"idle", "running", "paused", "done", "error"}
+        session_obj = Session(
+            id=sid,
+            target=session["target"],
+            mode=session["mode"],
+            status=_status if _status in _valid_statuses else "done",
+            created_at=session.get("created_at", 0.0),
+            updated_at=session.get("updated_at", 0.0),
+        )
+
+        try:
+            from web.app_state import tool_registry as registry
+        except ImportError:
+            from core.tool_registry import ToolRegistry
+            registry = ToolRegistry()
+
+        from models.mission import MissionBrief as _MissionBrief
+
+        # Reconstruct a MissionBrief that matches the original session's mode.
+        # MissionBrief.allow_exploitation defaults to False, which would block
+        # the agent from running exploits even in full_auto mode.
+        _session_mode = session["mode"]
+        _allow_exploit = _session_mode in ("full_auto", "ask_before_exploit")
+        _rollback_mission = _MissionBrief(
+            allow_exploitation=_allow_exploit,
+            allow_post_exploitation=_allow_exploit,
+        )
+
+        # Restore the SafetyConfig that was active when this session was originally started.
+        # Fall back to a target-scoped config if the column is missing (older sessions).
+        import json as _json_safety
+        _raw_cfg = session.get("safety_cfg_json") or "{}"
+        try:
+            _saved = _json_safety.loads(_raw_cfg) if _raw_cfg and _raw_cfg != "{}" else {}
+        except Exception:
+            _saved = {}
+        _target = session["target"]
+        if _saved:
+            _safety_cfg = SafetyConfig(**_saved)
+            # Always ensure exploitation flag matches the mode being rolled back to
+            _safety_cfg.allow_exploit = _allow_exploit
+        else:
+            # Legacy session — build a sensible default scoped to the target
+            _safety_cfg = SafetyConfig(
+                allowed_cidr=_target,
+                allow_exploit=_allow_exploit,
+            )
+        _never_scan = await database.list_never_scan()
+        guard = SafetyGuard(_safety_cfg, never_scan_entries=[r["value"] for r in _never_scan])
+        progress_cb = session_manager.make_progress_callback(sid)
+
+        new_agent = PentestAgent(
+            session=session_obj,
+            target=session["target"],
+            mode=session["mode"],
+            registry=registry,
+            safety=guard,
+            progress_callback=progress_cb,
+            audit_repo=_audit_repo,
+            mission=_rollback_mission,
+        )
+        new_agent.seed_context_from_findings(
+            scan_results,
+            vulns,
+            attack_phase=attack_phase,
+            exploit_results_from_db=exploit_results or None,
+            events_up_to=events,
+            source_iteration=iteration,
+        )
+
+        # Clear stale WS replay buffer so new events start fresh
+        session_manager.clear_buffer(sid)
+
+        await registry.run_health_checks()
+
+        task = asyncio.create_task(
+            _run_agent_task(sid, new_agent, _session_repo, _audit_repo)
+        )
+        session_manager.register(sid, task, guard, new_agent)
 
     await session_manager.broadcast(sid, {
         "type": "session_event",

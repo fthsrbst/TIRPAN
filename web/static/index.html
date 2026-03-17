@@ -1884,6 +1884,19 @@ Examples:
 • Internal AD audit: enumerate users, find misconfigs, check for pass-the-hash opportunities."></textarea>
           </div>
 
+          <!-- Mission Objectives — structured success criteria -->
+          <div class="flex flex-col gap-2">
+            <label class="adv-label flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px]">flag</span>
+              Mission Objectives
+              <span class="text-secondary-text font-normal normal-case text-[9px] ml-1">one per line — agent pursues these after gaining access · leave empty for full enumeration</span>
+            </label>
+            <textarea id="adv-objectives" class="adv-input h-24 resize-y font-mono text-[11px]" placeholder="find flag.txt
+dump /etc/shadow
+achieve root on all hosts
+exfiltrate /home/admin/.ssh/id_rsa"></textarea>
+          </div>
+
           <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1.5">
               <label class="adv-label">Primary Target</label>
@@ -2307,15 +2320,15 @@ Examples:
         <div class="bg-card border border-border-color p-4">
           <div class="flex justify-between items-center mb-4">
             <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Threat Level</h3>
-            <span class="mono-text text-[10px] text-secondary-text">NO DATA</span>
+            <span id="analysis-threat-status" class="mono-text text-[10px] text-secondary-text">NO DATA</span>
           </div>
           <div class="relative flex items-center justify-center py-2">
             <svg class="w-32 h-32 transform -rotate-90">
               <circle cx="64" cy="64" fill="transparent" r="58" stroke="#1A1A1A" stroke-width="8"></circle>
-              <circle cx="64" cy="64" fill="transparent" r="58" stroke="#1A1A1A" stroke-dasharray="364.4" stroke-dashoffset="0" stroke-linecap="butt" stroke-width="8"></circle>
+              <circle id="analysis-threat-circle" cx="64" cy="64" fill="transparent" r="58" stroke="#1A1A1A" stroke-dasharray="364.4" stroke-dashoffset="364.4" stroke-linecap="butt" stroke-width="8"></circle>
             </svg>
             <div class="absolute inset-0 flex flex-col items-center justify-center">
-              <span class="mono-text text-2xl font-bold text-secondary-text">—</span>
+              <span id="analysis-threat-score" class="mono-text text-2xl font-bold text-secondary-text">—</span>
               <span class="text-[8px] text-secondary-text uppercase">Criticality</span>
             </div>
           </div>
@@ -2324,7 +2337,7 @@ Examples:
         <!-- Active Findings -->
         <div class="flex flex-col gap-3">
           <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Active Findings</h3>
-          <div class="flex flex-col gap-2">
+          <div id="analysis-findings-list" class="flex flex-col gap-2">
             <p class="text-[10px] text-secondary-text mono-text text-center py-4">No findings yet</p>
           </div>
         </div>
@@ -2353,7 +2366,7 @@ Examples:
         <!-- AI Summary -->
         <div class="bg-surface border-l-2 border-l-border-color border border-border-color p-3">
           <h3 class="text-[9px] font-bold text-secondary-text uppercase mb-2">Analysis Summary</h3>
-          <p class="mono-text text-[10px] leading-relaxed text-secondary-text">
+          <p id="analysis-summary-text" class="mono-text text-[10px] leading-relaxed text-secondary-text">
             No mission active. Configure a target and start a mission to see analysis results.
           </p>
         </div>
@@ -2371,11 +2384,11 @@ Examples:
         <div class="flex items-center justify-between">
           <div>
             <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Subnet</p>
-            <p class="mono-text text-xs text-secondary-text mt-0.5">—</p>
+            <p id="network-subnet-text" class="mono-text text-xs text-secondary-text mt-0.5">—</p>
           </div>
           <span class="flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-border-color"></span>
-            <span class="text-[9px] mono-text text-secondary-text uppercase">Idle</span>
+            <span id="network-status-dot" class="w-1.5 h-1.5 rounded-full bg-border-color"></span>
+            <span id="network-status-text" class="text-[9px] mono-text text-secondary-text uppercase">Idle</span>
           </span>
         </div>
 
@@ -2387,7 +2400,7 @@ Examples:
               <span class="material-symbols-outlined text-[14px]">fullscreen</span>
             </button>
           </div>
-          <svg viewBox="0 0 220 178" class="w-full" xmlns="http://www.w3.org/2000/svg">
+          <svg id="network-topology-svg" viewBox="0 0 220 178" class="w-full" xmlns="http://www.w3.org/2000/svg">
             <!-- AEGIS Agent (top-left, compact) -->
             <rect x="2" y="4" width="44" height="22" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1"/>
             <text x="24" y="14" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="5.5" font-weight="bold">AEGIS</text>
@@ -2438,15 +2451,15 @@ Examples:
         <div class="grid grid-cols-3 gap-2">
           <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
             <span class="text-[8px] text-secondary-text uppercase tracking-widest">Hosts</span>
-            <span class="mono-text text-sm font-bold text-secondary-text">—</span>
+            <span id="network-hosts-count" class="mono-text text-sm font-bold text-secondary-text">—</span>
           </div>
           <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
             <span class="text-[8px] text-secondary-text uppercase tracking-widest">Ports</span>
-            <span class="mono-text text-sm font-bold text-secondary-text">—</span>
+            <span id="network-ports-count" class="mono-text text-sm font-bold text-secondary-text">—</span>
           </div>
           <div class="bg-card border border-border-color p-2 flex flex-col items-center gap-0.5">
             <span class="text-[8px] text-secondary-text uppercase tracking-widest">Vulns</span>
-            <span class="mono-text text-sm font-bold text-secondary-text">—</span>
+            <span id="network-vulns-count" class="mono-text text-sm font-bold text-secondary-text">—</span>
           </div>
         </div>
 

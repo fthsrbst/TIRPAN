@@ -39,6 +39,11 @@ async def lifespan(app: FastAPI):
     if _or_key:
         settings.llm.api_key = _or_key
 
+    # Restore cloud model saved via the configure page (not loaded by default on startup)
+    _cloud_model = _all_settings.get("cloud_model", "")
+    if _cloud_model:
+        settings.llm.cloud_model = _cloud_model
+
     _msf_pw = _load_secret_sync("msf_password")
     if _msf_pw:
         settings.msf.password = _msf_pw

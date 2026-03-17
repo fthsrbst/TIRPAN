@@ -134,6 +134,16 @@ class SessionRepository:
             await db.commit()
             return db.total_changes > 0
 
+    async def save_safety_cfg(self, session_id: str, safety_cfg_json: str) -> bool:
+        """Persist the SafetyConfig JSON for this session."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE pentest_sessions SET safety_cfg_json=?, updated_at=? WHERE id=?",
+                (safety_cfg_json, _now(), session_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
     async def save_memory(self, session_id: str, memory_json: str) -> bool:
         """Persist the serialized SessionMemory JSON."""
         async with _connect(self._path) as db:

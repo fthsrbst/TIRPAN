@@ -86,6 +86,13 @@ class MissionBrief:
     target_type: str = "auto"
     # "ip" | "cidr" | "domain" | "webapp" | "auto"
 
+    # ── Mission objectives ──────────────────────────────────────────────
+    objectives: list[str] = field(default_factory=list)
+    # Explicit goals the agent must pursue, e.g.:
+    #   ["find flag.txt", "dump /etc/shadow", "achieve root on all hosts"]
+    # Empty = maximum enumeration — exploit all discovered CVEs and collect
+    # full post-exploitation recon on every compromised host.
+
     # ── Operator intelligence ───────────────────────────────────────────
     known_tech: list[str] = field(default_factory=list)
     # e.g. ["nginx/1.24", "php/8.1"] — skips redundant discovery steps
