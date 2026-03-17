@@ -1,11 +1,12 @@
 <div align="center">
 
-<img src="logo.png" alt="AEGIS Logo" width="180"/>
+<img src="logo.png" alt="AEGIS" width="160"/>
 
-<h1>AEGIS</h1>
-<h3>Autonomous Ethical Guardrailed Intelligence System</h3>
+# AEGIS
 
-<p><em>An AI agent that thinks like a pentester — and acts like one.</em></p>
+**Autonomous Ethical Guardrailed Intelligence System**
+
+*An AI agent that reasons like a senior penetration tester and executes like one.*
 
 [![License](https://img.shields.io/badge/license-Non--Commercial-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
@@ -15,17 +16,17 @@
 [![Status](https://img.shields.io/badge/status-active%20development-orange.svg)]()
 [![Authorized Use Only](https://img.shields.io/badge/use-authorized%20environments%20only-red.svg)](docs/05_SAFETY_AND_LEGAL.md)
 
+**Read in another language:** [Türkçe](README.tr.md)
+
 </div>
 
 ---
 
-Give AEGIS a target and a scope. It figures out the rest.
+Give AEGIS a target and a scope. It handles the rest.
 
-The agent scans the network, identifies open services, searches for known exploits, selects and executes the best attack path, and produces a full vulnerability report with CVSS scores — all autonomously, all in real time, all with a built-in kill switch.
+The agent scans the network, enumerates services, searches for known exploits, selects and executes the best attack path, performs post-exploitation reconnaissance, and produces a structured vulnerability report with CVSS scores — all autonomously, all in real time, all with a built-in kill switch.
 
-**Think of it as an AI that reasons the way a senior pentester does, not one that just runs scripts.**
-
-> ⚠️ **For authorized security testing only.** Lab environments, CTF competitions, and engagements with explicit written permission. [Read the legal requirements.](docs/05_SAFETY_AND_LEGAL.md)
+> **For authorized security testing only.** Lab environments, CTF competitions, and engagements with explicit written permission. [Read the legal requirements.](docs/05_SAFETY_AND_LEGAL.md)
 
 ---
 
@@ -33,139 +34,138 @@ The agent scans the network, identifies open services, searches for known exploi
 
 [![AEGIS Demo](https://img.youtube.com/vi/L7qgV6r2qiA/maxresdefault.jpg)](https://youtu.be/L7qgV6r2qiA)
 
-
 ---
 
 ## How It Works
 
-AEGIS runs a **ReAct loop** — Reason, Act, Observe, Reflect — continuously until the engagement is complete.
+AEGIS runs a **ReAct loop** — Reason, Act, Observe, Reflect — continuously until the engagement is complete or all objectives are satisfied.
 
 ```
-You:    "Scan 192.168.1.0/24 and exploit anything you find."
+Operator:  "Scan 192.168.1.0/24, exploit what you find, collect post-exploitation data."
 
-AEGIS:  [Thought]   Starting with a ping sweep to find live hosts.
-        [Act]       nmap_scan → ping sweep
-        [Observe]   4 hosts found: .5, .10, .23, .42
-        [Thought]   Running service detection on each host.
-        [Act]       nmap_scan → service detect × 4
-        [Observe]   Host .5: SMB on 445 (Windows Server 2008)
-        [Thought]   SMB + old Windows = likely EternalBlue. Checking exploits.
-        [Act]       searchsploit_search → "ms17-010 EternalBlue"
-        [Observe]   3 exploits found. MS17-010 has CVSS 9.8.
-        [Thought]   High confidence. Running exploit via Metasploit.
-        [Act]       metasploit_run → exploit/windows/smb/ms17_010_eternalblue
-        [Observe]   ✅ Shell opened. Session 1.
-        [Thought]   Moving to next host.
-        ...
-        [Act]       generate_report → session_abc123
-        [Done]      Report saved. 3 critical findings. PDF ready.
+AEGIS:     [Thought]   No hosts discovered yet. Starting ping sweep.
+           [Act]       nmap_scan — ping sweep on 192.168.1.0/24
+           [Observe]   4 live hosts: .5, .10, .23, .42
+           [Thought]   Running full service detection on all hosts in parallel.
+           [Act]       nmap_scan — service scan x4
+           [Observe]   Host .5: SMB/445 (Windows Server 2008 R2), SSH/22, HTTP/80
+           [Thought]   SMB on an old Windows host. Checking for EternalBlue.
+           [Act]       searchsploit_search — "ms17-010"
+           [Observe]   exploit/windows/smb/ms17_010_eternalblue — CVSS 9.8
+           [Thought]   Critical severity, high confidence. Running exploit with post-commands.
+           [Act]       metasploit_run — ms17_010_eternalblue + post_commands
+           [Observe]   Shell opened. Session 1. whoami: NT AUTHORITY\SYSTEM
+           [Thought]   Root shell on .5. Recording recon. Moving to next host.
+           ...
+           [Act]       generate_report
+           [Done]      3 critical findings. HTML and PDF reports saved.
 ```
 
-Every step is visible in the web UI in real time. Every action is logged for audit.
+Every step is visible in the web UI in real time. Every action is logged for audit purposes.
 
 ---
 
-## Key Features
+## Current Capabilities (V1)
 
-| Feature | Description |
-|---------|-------------|
-| **AI-Driven Decisions** | The LLM decides what to scan, which exploits to try, and when to stop — not you |
-| **ReAct Agent Loop** | Reason → Act → Observe → Reflect, fully autonomous |
-| **10 Safety Guardrails** | Scope enforcement, rate limits, exploit caps, DoS prevention, time limits |
-| **Kill Switch** | One click halts all operations immediately |
-| **Two Modes** | Full Auto (hands-off) and Ask Before Exploit (human in the loop) |
-| **Real-Time Streaming** | Watch the agent's thinking process live via WebSocket |
-| **Knowledge Base** | The agent learns which exploits work against which services across sessions |
-| **Full Audit Log** | Every action timestamped and logged — for legal and accountability |
-| **PDF/HTML Reports** | Structured output with CVSS v3.1 scoring for every finding |
-| **Plugin Architecture** | Extend with new attack capabilities without touching core code |
+| Capability | Detail |
+|------------|--------|
+| Network discovery | Ping sweep across any CIDR range |
+| Service enumeration | Full port scan with version and OS detection, NSE scripting |
+| Exploit search | SearchSploit / ExploitDB queries per discovered service and version |
+| Exploitation | Metasploit RPC and msfconsole fallback; auto payload selection; parallel exploit batches |
+| Post-exploitation | Inline post-commands, persistent SSH sessions, bind and reverse shells, script upload and execution |
+| Reporting | HTML and PDF reports with CVSS v3.1 scoring per finding |
+| Real-time UI | WebSocket-based streaming of every agent thought, action, and result |
+| Knowledge base | Cross-session memory of which exploits succeeded against which service versions |
+| Audit logging | Append-only log of every action with timestamp, target, and outcome |
+| Kill switch | Immediate halt of all operations with one click or signal |
+
+**Tools registered at runtime:** `nmap_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                      AEGIS                           │
-│                                                      │
-│  ┌──────────┐    ┌──────────────────────────────┐   │
-│  │  Web UI  │───▶│       FastAPI Backend         │   │
-│  │ Dashboard│◀───│   REST + WebSocket Stream     │   │
-│  └──────────┘    └──────────────┬───────────────┘   │
-│                                 │                    │
-│                     ┌───────────▼──────────┐         │
-│                     │   ReAct Agent Core   │         │
-│                     │                      │         │
-│                     │  Reason → Act →      │         │
-│                     │  Observe → Reflect   │         │
-│                     │                      │         │
-│                     │  ┌────────────────┐  │         │
-│                     │  │  Safety Guard  │  │         │
-│                     │  │ (every action) │  │         │
-│                     │  └────────────────┘  │         │
-│                     └───────────┬──────────┘         │
-│                                 │                    │
-│                     ┌───────────▼──────────┐         │
-│                     │    Tool Registry      │         │
-│                     │                      │         │
-│                     │  nmap_scan           │         │
-│                     │  searchsploit_search │         │
-│                     │  metasploit_run      │         │
-│                     │  [+ your plugins]    │  ←V2+   │
-│                     └──────────────────────┘         │
-│                                                      │
-│  ┌──────────────────┐   ┌──────────────────────────┐ │
-│  │    LLM Layer     │   │     SQLite Database       │ │
-│  │ OpenRouter +     │   │ Sessions / Findings /     │ │
-│  │ Ollama (local)   │   │ Knowledge Base / Audit    │ │
-│  └──────────────────┘   └──────────────────────────┘ │
-└──────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+|                         AEGIS                            |
+|                                                          |
+|  +----------+     +----------------------------------+   |
+|  |  Web UI  |<--->|  FastAPI  —  REST + WebSocket    |   |
+|  +----------+     +----------------+-----------------+   |
+|                                    |                     |
+|                       +------------v-----------+         |
+|                       |    ReAct Agent Core    |         |
+|                       |                        |         |
+|                       |  Reason  ->  Act    -> |         |
+|                       |  Observe ->  Reflect   |         |
+|                       |                        |         |
+|                       |   +----------------+   |         |
+|                       |   |  Safety Guard  |   |         |
+|                       |   | (every action) |   |         |
+|                       |   +----------------+   |         |
+|                       +------------+-----------+         |
+|                                    |                     |
+|                       +------------v-----------+         |
+|                       |     Tool Registry      |         |
+|                       |                        |         |
+|                       |  nmap_scan             |         |
+|                       |  searchsploit_search   |         |
+|                       |  metasploit_run        |         |
+|                       |  ssh_exec              |         |
+|                       |  shell_exec            |         |
+|                       |  [+ plugins]     V2+   |         |
+|                       +------------------------+         |
+|                                                          |
+|  +---------------------+  +--------------------------+   |
+|  |      LLM Layer      |  |     SQLite Database      |   |
+|  |  OpenRouter + Ollama|  |  Sessions / Findings /   |   |
+|  |  (cloud or local)   |  |  Knowledge Base / Audit  |   |
+|  +---------------------+  +--------------------------+   |
++----------------------------------------------------------+
 ```
 
-**Core principle: small core, big plugin ecosystem.**
-The agent loop, safety layer, and LLM client never change. Every attack capability is a plugin.
+**Design principle: small core, large plugin surface.**
+The ReAct loop, safety layer, and LLM client are stable. Every attack capability is a plugin.
 
 ---
 
 ## Quick Start
 
-**Prerequisites:** Python 3.11+, Nmap, Metasploit Framework, SearchSploit
+**Prerequisites:** Python 3.11+, Nmap 7.94+, Metasploit Framework 6.x, SearchSploit
 
 ```bash
-# 1. Clone
+# Clone
 git clone https://github.com/fthsrbst/aegis.git
 cd aegis
 
-# 2. Install
+# Install dependencies
 python3 -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# 3. Configure
+# Configure
 cp .env.example .env
-# Add your OpenRouter API key (optional — Ollama works fully local)
-# Set OLLAMA_MODEL to a model you have pulled, e.g. qwen2.5-coder:14b
+# Set OPENROUTER_API_KEY for cloud LLM, or configure OLLAMA_MODEL for local inference
 
-# 4. Start Metasploit RPC (required for exploit execution; skip for scan-only)
+# Start Metasploit RPC (required for exploitation; skip for scan-only mode)
 msfrpcd -P your_password -S
 
-# 5. Run — choose your interface:
-python3 main.py                            # Web UI at http://localhost:8000
-python3 main.py --host 0.0.0.0 --port 9000 # Expose on network
+# Launch web UI
+python3 main.py
+# Open http://localhost:8000
 
-# Or run directly from the terminal (no web UI):
-python3 main.py run --target 192.168.1.0/24
-python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24
-python3 main.py run --target 10.0.0.5 --mode scan_only --time-limit 300
+# Or run headless from the terminal
+python3 main.py run --target 192.168.1.0/24 --mode full_auto --scope 192.168.1.0/24
 ```
 
-For a quick lab setup using Docker:
+**Quick lab setup with Docker:**
 
 ```bash
-# Vulnerable target (Metasploitable 2)
+# Start a vulnerable target (Metasploitable 2)
 docker run -d --name target tleemcjr/metasploitable2
 
-# Then point AEGIS at the container's IP
+# Point AEGIS at it
 python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' target)
 ```
 
@@ -173,127 +173,211 @@ python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Netwo
 
 ## CLI Reference
 
-AEGIS has two modes: **web UI** (default) and **terminal run** (headless).
+AEGIS operates in two modes: **web UI** (default) and **terminal** (headless).
 
-```
+### Web UI
+
+```bash
 python3 main.py [--host HOST] [--port PORT] [--no-reload] [--log-level LEVEL]
-python3 main.py run --target TARGET [options]
 ```
-
-### Web UI (default)
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--host` | `127.0.0.1` | Bind address |
 | `--port` | `8000` | Listen port |
-| `--no-reload` | off | Disable hot-reload (use in production) |
-| `--log-level` | `info` | One of: `debug`, `info`, `warning`, `error` |
+| `--no-reload` | off | Disable hot-reload |
+| `--log-level` | `info` | debug / info / warning / error |
 
-### Terminal mode (`run` subcommand)
+### Terminal Mode
+
+```bash
+python3 main.py run --target TARGET [options]
+```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--target` / `-t` | *required* | Target IP or CIDR (e.g. `192.168.1.0/24`) |
+| `--target` / `-t` | required | IP, CIDR, hostname, or URL |
 | `--mode` / `-m` | `scan_only` | `full_auto` / `ask_before_exploit` / `scan_only` |
-| `--scope` | `0.0.0.0/0` | Restrict agent to this CIDR |
-| `--exclude-ips` | — | Comma-separated IPs to skip |
+| `--scope` | `0.0.0.0/0` | Hard CIDR boundary — agent cannot leave this range |
+| `--exclude-ips` | — | Comma-separated IPs to skip entirely |
 | `--exclude-ports` | — | Comma-separated ports to skip |
 | `--time-limit` | `0` (none) | Auto-stop after N seconds |
-| `--rate-limit` | `10` | Max requests per second |
-| `--max-iterations` | `50` | Max agent iterations |
-| `--no-dos-block` | off | Allow DoS-category exploits (dangerous) |
-| `--no-destructive-block` | off | Allow destructive exploits (dangerous) |
+| `--rate-limit` | `10` | Maximum requests per second |
+| `--max-iterations` | `50` | Maximum agent decision cycles |
+| `--no-dos-block` | off | Permit DoS-category exploits (dangerous) |
+| `--no-destructive-block` | off | Permit destructive exploits (dangerous) |
 | `--output` / `-o` | `reports/` | Report output directory |
 
 **Examples:**
 
 ```bash
-# Scan only — no exploitation
+# Reconnaissance only — no exploitation
 python3 main.py run --target 10.0.0.0/24
 
-# Full auto with safety scope and 10-minute limit
-python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24 --time-limit 600
+# Full engagement with scope enforcement and time limit
+python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24 --time-limit 3600
 
 # Scan with exclusions
 python3 main.py run --target 192.168.1.0/24 --exclude-ips 192.168.1.1,192.168.1.254 --exclude-ports 22,3389
-
-# Save report to custom directory
-python3 main.py run --target 10.0.0.1 --output /tmp/aegis-reports/
 ```
 
 ---
 
-## Configuration
+## Safety Guardrails
 
-AEGIS runs with 10 configurable safety guardrails. Set them in `.env` or the web UI before every session:
+AEGIS enforces ten configurable safety constraints on every action. These cannot be bypassed by the LLM — they are evaluated in a separate layer before any tool executes.
 
-| Guardrail | Default | What It Controls |
-|-----------|---------|-----------------|
-| `target_scope` | *required* | CIDR range — agent cannot leave this boundary |
-| `allow_exploits` | `true` | Set `false` for scan-only mode |
-| `no_dos` | `true` | Blocks all denial-of-service attack categories |
+| Guardrail | Default | Description |
+|-----------|---------|-------------|
+| `target_scope` | required | CIDR boundary — agent cannot target IPs outside this range |
+| `allow_exploits` | `true` | Set `false` for reconnaissance-only mode |
+| `no_dos` | `true` | Blocks all denial-of-service exploit categories |
 | `no_destructive` | `true` | Blocks exploits that modify or delete data |
-| `max_exploit_severity` | `critical` | CVSS cap — won't attempt above this level |
-| `max_duration_seconds` | `7200` | Auto-stop after N seconds |
-| `max_requests_per_second` | `50` | Rate limiting to prevent network flooding |
-| `excluded_ips` | `[]` | IPs to always skip (e.g., gateway, DNS) |
-| `excluded_ports` | `[]` | Ports to always skip |
-| `port_scope` | `1-65535` | Restrict scanning to a port range |
+| `max_exploit_severity` | `critical` | CVSS ceiling — will not attempt exploits above this level |
+| `max_duration_seconds` | `7200` | Automatic stop after N seconds |
+| `max_requests_per_second` | `50` | Rate limit to prevent network disruption |
+| `excluded_ips` | `[]` | IPs that are always skipped |
+| `excluded_ports` | `[]` | Ports that are always skipped |
+| `port_scope` | `1-65535` | Constrain scanning to a specific port range |
+
+---
+
+## Mission Configuration
+
+For structured engagements, AEGIS accepts a `MissionBrief` configuration that controls scope, permissions, credentials, and objectives.
+
+```json
+{
+  "target": "10.0.0.50",
+  "mode": "full_auto",
+  "target_type": "webapp",
+  "speed_profile": "stealth",
+  "objectives": ["find flag.txt", "dump /etc/shadow", "achieve root"],
+  "known_tech": ["apache/2.4", "php/8.1"],
+  "scope_notes": "Production system. Ports 80 and 443 only.",
+  "allow_exploitation": true,
+  "allow_post_exploitation": true,
+  "allow_lateral_movement": false,
+  "excluded_targets": ["10.0.0.1", "10.0.0.254"]
+}
+```
+
+**Speed profiles:**
+
+| Profile | Nmap timing | Behavior |
+|---------|-------------|----------|
+| `stealth` | `-T1 --scan-delay 5s` | Slow, IDS-evasive, minimal log footprint |
+| `normal` | `-T3` | Balanced, default for most engagements |
+| `aggressive` | `-T5 --min-rate 5000` | Maximum speed, lab and CTF targets only |
+
+**Credential types supported:** SSH (password or key), SMB/NTLM, SNMP, database (MySQL, PostgreSQL, MSSQL, MongoDB), HTTP (basic, digest, form, bearer token).
 
 ---
 
 ## Roadmap
 
-AEGIS is built in three phases. V1 is the network-level foundation — everything after that is a plugin.
+AEGIS is built in three phases. V1 is the network-level foundation — everything after it arrives as a plugin.
 
-```
-V1 — Network Pentesting (current)
-  ✅ ReAct agent loop
-  ✅ Nmap / SearchSploit / Metasploit
-  ✅ 10 safety guardrails + kill switch
-  ✅ Web UI with real-time streaming
-  ✅ SQLite knowledge base + audit log
-  ✅ PDF/HTML reports + CVSS scoring
-  ✅ Plugin system (architecture ready)
+### V1 — Network Pentesting (complete)
 
-V2 — Web Application Testing (plugins)
-  ⬜ XSS / SQLi / SSRF scanning (Playwright)
-  ⬜ Nuclei template-based scanning
-  ⬜ Directory brute forcing (Gobuster)
-  ⬜ Blind injection detection (InteractSH)
-  ⬜ LLM-generated custom payloads
-  ⬜ Self-correction on failed exploits
-  ⬜ Internal reviewer model (false positive reduction)
-  ⬜ Docker isolation for tool execution
-  ⬜ Multi-target parallel scanning
+- ReAct agent loop (Reason, Act, Observe, Reflect)
+- Nmap / SearchSploit / Metasploit integration
+- Post-exploitation via SSH, bind shell, reverse shell, script execution
+- 10 safety guardrails and kill switch
+- Web UI with real-time streaming
+- SQLite knowledge base and full audit log
+- HTML and PDF reports with CVSS v3.1 scoring
+- MissionBrief structured configuration
+- Speed profiles: stealth / normal / aggressive
+- Plugin architecture (infrastructure ready)
 
-V3 — XBOW Level
-  ⬜ Coordinator + Solver multi-agent architecture
-  ⬜ Source code (white-box) analysis via Semgrep + LLM
-  ⬜ Zero-day reasoning
-  ⬜ Custom tool generation (LLM writes its own tools)
-  ⬜ CI/CD integration (GitHub Actions, GitLab)
-  ⬜ Bug bounty output (HackerOne format)
-```
+### V2 — Full Attack Lifecycle (planned)
 
-See [full roadmap](docs/04_ROADMAP.md) and [XBOW comparison](docs/01_XBOW_COMPARISON.md).
+**Passive Reconnaissance**
+- OSINT: theHarvester, subfinder, amass, crt.sh certificate transparency, Shodan, WHOIS
+- GitHub and source code secret scanning
+- DNS zone transfer and subdomain enumeration
+
+**Service Enumeration**
+- SMB: enum4linux-ng, CrackMapExec (shares, users, password policy)
+- LDAP / Active Directory: ldapsearch, ldapdomaindump
+- SNMP, SMTP, Redis, MongoDB unauthenticated access
+- DNS brute-force and zone transfers
+
+**Web Application Testing**
+- Technology fingerprinting: WhatWeb, WAF detection
+- Directory and file discovery: Feroxbuster, ffuf, Gobuster
+- Vulnerability scanning: Nuclei (9000+ templates), Nikto
+- SQL injection: sqlmap (detection and exploitation)
+- Cross-site scripting: Dalfox, XSStrike
+- Command injection: Commix
+- Server-side template injection: tplmap
+- SSRF, XXE, LFI/RFI, file upload bypass, open redirect
+- JWT attacks, GraphQL enumeration, OAuth misconfiguration
+- HTTP request smuggling and deserialization vulnerabilities
+
+**Active Directory Attacks**
+- BloodHound-python collection
+- Kerberoasting and AS-REP roasting via Impacket
+- Pass-the-hash: CrackMapExec, evil-winrm
+- DCSync: impacket-secretsdump
+
+**Credential Attacks**
+- Online brute-force: Hydra, Medusa
+- Credential spraying with lockout guard
+- Offline hash cracking: Hashcat, John the Ripper
+
+**Post-Exploitation**
+- Automated linpeas / winpeas upload and execution
+- Custom code generation, upload, and execution on target (LLM-written payloads)
+- Privilege escalation path analysis
+
+**Lateral Movement**
+- TCP tunneling: Chisel, Socat
+- Impacket psexec / wmiexec
+- Internal subnet discovery and pivot scanning
+
+**CTF and Bug Bounty Modes**
+- Automatic flag detection and capture (HTB, THM, CTFd)
+- Bug bounty scope enforcement and out-of-scope blocking
+- CVSS-filtered reporting for HackerOne / Bugcrowd submission templates
+
+**Infrastructure**
+- Tool health check system with install hints
+- Plugin types: Python class, CLI wrapper, REST API wrapper (no code required for CLI and API plugins)
+- Structured `Finding` model with evidence, reproduction steps, and remediation
+- SARIF output for CI/CD and IDE integration
+- Vector search knowledge base (RAG) using local embeddings
+
+### V3 — XBOW Level (planned)
+
+- Coordinator and Solver multi-agent architecture
+- Docker-isolated tool execution per solver
+- White-box source code analysis via Semgrep and LLM
+- Zero-day reasoning over unusual service behavior
+- LLM-generated custom exploit scripts
+- Internal Reviewer agent for false positive reduction
+- CI/CD pipeline integration (GitHub Actions, GitLab)
+- Cloud environment support (AWS, Azure, GCP asset discovery)
 
 ---
 
 ## Writing a Plugin
 
-Any new attack capability is a plugin — 3 files, no core changes required:
+Any new attack capability is a plugin. Three files are required; core code is never touched.
+
+**Python class plugin** (complex logic):
 
 ```python
-# plugins/my_scanner/tool.py
+# plugins/my_tool/tool.py
 from tools.base_tool import BaseTool, ToolMetadata
 
-class MyScannerTool(BaseTool):
+class MyTool(BaseTool):
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="my_scanner",
-            description="Scans for X vulnerability on a target host.",
+            name="my_tool",
+            description="Scans for X vulnerability.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -301,99 +385,97 @@ class MyScannerTool(BaseTool):
                 },
                 "required": ["target"]
             },
-            category="web",
+            category="recon",
             version="1.0.0"
         )
 
     async def execute(self, params: dict) -> dict:
         target = params["target"]
-        # ... your logic here
+        # implementation
         return {"success": True, "output": results, "error": None}
 ```
 
+**CLI wrapper plugin** (V2 — no Python required):
+
 ```json
-// plugins/my_scanner/plugin.json
 {
-  "name": "my_scanner",
-  "version": "1.0.0",
-  "enabled": true,
-  "entry_point": "plugins.my_scanner.tool.MyScannerTool",
-  "category": "web",
-  "safety_level": "medium"
+  "name": "nuclei_scan",
+  "type": "cli_wrapper",
+  "binary": "nuclei",
+  "install_hint": "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+  "args_template": ["-u", "{target}", "-t", "{templates}", "-o", "{output_file}", "-json", "-silent"],
+  "output_format": "jsonlines",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "target": {"type": "string"},
+      "templates": {"type": "string", "default": "cves/"}
+    },
+    "required": ["target"]
+  }
 }
 ```
 
-The agent will automatically discover, load, and use your plugin — including passing it to the LLM as an available tool.
+The agent discovers, loads, and uses plugins automatically — including exposing them to the LLM as available actions.
 
 ---
 
-## vs. XBOW
+## Comparison with XBOW
 
-XBOW is the current benchmark for autonomous AI pentesting (commercial, closed-source). AEGIS is the open-source answer.
+XBOW is the current commercial benchmark for autonomous AI pentesting. AEGIS is the open-source equivalent.
 
 | Capability | XBOW | AEGIS V1 | AEGIS V2+ |
 |------------|------|----------|-----------|
-| Network scanning + exploitation | ✅ | ✅ | ✅ |
-| AI-driven ReAct loop | ✅ | ✅ | ✅ |
-| Safety guardrails | ✅ | ✅ | ✅ |
-| Knowledge base | ✅ | ✅ | ✅ |
-| Audit logging | ✅ | ✅ | ✅ |
-| Web app testing (XSS, SQLi, SSRF) | ✅ | ❌ | ✅ |
-| Self-correction on failure | ✅ | ❌ | ✅ |
-| Docker isolation | ✅ | ❌ | ✅ |
-| Multi-agent (Coordinator + Solvers) | ✅ | ❌ | V3 |
-| Open source | ❌ | ✅ | ✅ |
-| Free | ❌ | ✅ | ✅ |
-| Extensible plugins | ❌ | ✅ | ✅ |
-| Local LLM support | ❌ | ✅ | ✅ |
+| Network scanning and exploitation | Yes | Yes | Yes |
+| AI-driven ReAct loop | Yes | Yes | Yes |
+| Safety guardrails | Yes | Yes | Yes |
+| Cross-session knowledge base | Yes | Yes | Yes |
+| Full audit logging | Yes | Yes | Yes |
+| Web application testing | Yes | No | Yes |
+| Active Directory attacks | Yes | No | Yes |
+| OSINT and passive reconnaissance | Yes | No | Yes |
+| Self-correction on failure | Yes | No | Yes |
+| Docker-isolated tool execution | Yes | No | V3 |
+| Multi-agent coordinator architecture | Yes | No | V3 |
+| Open source | No | Yes | Yes |
+| Free to use | No | Yes | Yes |
+| Extensible plugin ecosystem | No | Yes | Yes |
+| Local LLM support | No | Yes | Yes |
 
-Full technical comparison: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
+Full comparison: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
 
 ---
 
 ## Tech Stack
 
 | Component | Technology |
-|-----------|-----------|
+|-----------|------------|
 | Language | Python 3.11+ |
-| Web framework | FastAPI + WebSocket |
-| LLM (cloud) | OpenRouter (Claude, GPT-4, Gemini…) |
-| LLM (local) | Ollama (Llama 3, Qwen, Mistral…) |
+| Web framework | FastAPI 0.110+ with WebSocket streaming |
+| LLM (cloud) | OpenRouter — Claude, GPT-4, Gemini, and others |
+| LLM (local) | Ollama — Llama 3, Qwen, Mistral, and others |
 | Offensive tools | Nmap 7.94+, SearchSploit, Metasploit 6.x (pymetasploit3) |
 | Database | SQLite via aiosqlite |
-| Reporting | Jinja2 + WeasyPrint (HTML + PDF) |
-| Frontend | Vanilla HTML/CSS/JS + TailwindCSS |
-| Testing | pytest + pytest-asyncio + pytest-cov (329 tests, 79% coverage) |
+| Reporting | Jinja2 + WeasyPrint (HTML and PDF) |
+| Frontend | Vanilla HTML/CSS/JS with TailwindCSS |
+| Testing | pytest + pytest-asyncio + pytest-cov — 329 tests, 79% coverage |
 | Linting | ruff + black |
-| CLI | argparse + Rich (banner, tables, live event stream) |
+| CLI | argparse + Rich |
 | Plugin loading | importlib (stdlib) |
 
 ---
 
 ## Safe Testing Environments
 
-Never test on systems you don't own. Use these instead:
+Never test on systems you do not own or have explicit written authorization to test. Use these instead:
 
-| Environment | What It Is | Setup |
-|------------|-----------|-------|
+| Environment | Description | Setup |
+|-------------|-------------|-------|
 | Metasploitable 2 | Intentionally vulnerable Linux VM | `docker run -d tleemcjr/metasploitable2` |
-| DVWA | Vulnerable web app | `docker run -d vulnerables/web-dvwa` |
-| HackTheBox | CTF platform | hackthebox.com |
+| DVWA | Vulnerable web application | `docker run -d vulnerables/web-dvwa` |
+| HackTheBox | CTF and lab platform | hackthebox.com |
 | VulnHub | Downloadable vulnerable VMs | vulnhub.com |
-| TryHackMe | Guided labs | tryhackme.com |
-
----
-
-## Contributing
-
-AEGIS grows through its plugin ecosystem. Contributions welcome:
-
-- **New plugins** — Add a new attack type (see plugin guide above)
-- **Core improvements** — Agent loop, safety layer, LLM client
-- **Bug reports** — Open an issue
-- **Documentation** — Help make setup easier
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+| TryHackMe | Guided learning labs | tryhackme.com |
 
 ---
 
@@ -401,12 +483,26 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 | Document | Description |
 |----------|-------------|
-| [Architecture](docs/02_ARCHITECTURE.md) | Full technical design with diagrams |
+| [Architecture](docs/02_ARCHITECTURE.md) | Full system design with diagrams |
 | [Prerequisites](docs/03_PREREQUISITES.md) | Installation and dependency setup |
 | [Roadmap](docs/04_ROADMAP.md) | V1 through V3 feature plan |
-| [Safety & Legal](docs/05_SAFETY_AND_LEGAL.md) | All 10 guardrails and legal requirements |
-| [XBOW Comparison](docs/01_XBOW_COMPARISON.md) | Feature gap analysis and bridge plan |
-| [Plugin System](docs/09_PLUGIN_SYSTEM.md) | How to write and distribute plugins |
+| [Safety and Legal](docs/05_SAFETY_AND_LEGAL.md) | All 10 guardrails and legal requirements |
+| [XBOW Comparison](docs/01_XBOW_COMPARISON.md) | Feature gap analysis |
+| [Plugin System](docs/09_PLUGIN_SYSTEM.md) | Plugin authoring guide |
+| [V2 Feature Specification](docs/11_V2_FEATURE_SPEC.md) | Detailed V2 technical design |
+
+---
+
+## Contributing
+
+AEGIS grows through its plugin ecosystem. Contributions are welcome:
+
+- **New plugins** — Add a new attack type following the plugin guide
+- **Core improvements** — Agent loop, safety layer, LLM client
+- **Bug reports** — Open an issue on GitHub
+- **Documentation** — Improve setup guides and examples
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
@@ -415,9 +511,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 This software is provided strictly for use in **authorized security testing environments** — penetration testing engagements with explicit written permission, controlled lab environments, CTF competitions, and academic research.
 
 By using this software, you agree that:
+
 - You will only test systems you own or have explicit written authorization to test.
 - You are solely responsible for compliance with all applicable local, national, and international law.
-- Unauthorized use against systems you do not own or lack permission to test may constitute a criminal offense under the CFAA, CMA, and equivalent legislation in other jurisdictions.
+- Unauthorized use against systems you do not own or lack explicit permission to test may constitute a criminal offense under the CFAA, Computer Misuse Act, and equivalent legislation in other jurisdictions.
 
 **The authors accept no liability for any damage, data loss, legal consequences, or other harm resulting from the use or misuse of this software.**
 
@@ -425,12 +522,12 @@ By using this software, you agree that:
 
 ## License
 
-[AEGIS Non-Commercial License](LICENSE) — Free for personal, educational, and research use. Commercial use requires explicit written permission.
+[AEGIS Non-Commercial License](LICENSE) — Free for personal, educational, and research use. Commercial use requires explicit written permission from the authors.
 
 ---
 
 <div align="center">
 
-[⭐ Star if you find this useful](https://github.com/yourusername/aegis) · [🐛 Report a bug](https://github.com/yourusername/aegis/issues) · [💡 Request a feature](https://github.com/yourusername/aegis/issues)
+[Star this repository](https://github.com/fthsrbst/aegis) · [Report a bug](https://github.com/fthsrbst/aegis/issues) · [Request a feature](https://github.com/fthsrbst/aegis/issues)
 
 </div>

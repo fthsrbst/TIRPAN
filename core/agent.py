@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[str, dict], None]
 ApprovalCallback = Callable[[dict], Awaitable[bool]]
 
-_DEFAULT_MAX_ITERATIONS = 50
+_DEFAULT_MAX_ITERATIONS = 150
 
 
 # ── Agent State Machine ────────────────────────────────────────────────────────
@@ -86,6 +86,10 @@ class AgentContext:
     # Post-exploitation recon collected via post_commands in the run call.
     # Keyed by target_ip, value is the collected output.
     post_exploit_data: dict[str, str] = field(default_factory=dict)
+
+    # Objectives from MissionBrief that have been satisfied this session.
+    # Each entry mirrors the corresponding MissionBrief.objectives string.
+    completed_objectives: list[str] = field(default_factory=list)
 
     iteration: int = 0
     attack_phase: str = "DISCOVERY"  # DISCOVERY|PORT_SCAN|EXPLOIT_SEARCH|EXPLOITATION|POST_EXPLOIT|DONE
@@ -225,6 +229,7 @@ class PentestAgent:
         self._ctx.exploit_results.clear()
         self._ctx.hosts_pending_port_scan.clear()
         self._ctx.hosts_pending_exploit_search.clear()
+        self._ctx.completed_objectives.clear()
         self.memory = type(self.memory)()  # fresh SessionMemory instance
 
     def seed_context_from_findings(
@@ -380,7 +385,15 @@ class PentestAgent:
 
         Returns the final AgentContext (findings, statistics).
         """
-        self._emit("start", {"target": self._ctx.target, "mode": self._ctx.mode})
+        objectives = self._ctx.mission.objectives if self._ctx.mission else []
+        self._emit("start", {
+            "target": self._ctx.target,
+            "mode": self._ctx.mode,
+            "objectives": objectives,
+            # Flag set when the agent is resuming from a checkpoint (iteration > 0).
+            # The frontend uses this to skip clearing the feed on restart.
+            "resuming": self._ctx.iteration > 0,
+        })
         self._state = AgentState.REASONING
 
         # Repeated-failure guard: track (tool, error_fingerprint) → consecutive count.
@@ -695,6 +708,27 @@ class PentestAgent:
             logger.warning("Hard block prevented call to %s", _block_key)
             return {"success": False, "output": None, "error": _block_msg}
 
+        # ── Redundant full-scan guard ──────────────────────────────────────
+        # Prevent re-scanning a host that already has port scan results when
+        # the port scan queue is empty (i.e. scan is complete). This fires when
+        # the LLM hallucinates a conflict between OPEN SERVICES and KNOWN TECH.
+        if tool_name == "nmap_scan" and params.get("scan_type") in ("full", "service", "os"):
+            req_target = str(params.get("target", ""))
+            already_scanned = {s.split(":")[0] for s in self._ctx.scan_results if ":" in s}
+            if (
+                req_target in already_scanned
+                and req_target not in self._ctx.hosts_pending_port_scan
+            ):
+                _dup_msg = (
+                    f"[SYSTEM] nmap_scan BLOCKED — '{req_target}' was already fully scanned "
+                    f"({len(self._ctx.scan_results)} services stored). "
+                    f"Port scan queue is empty. Do NOT re-scan. "
+                    f"Proceed to the next phase."
+                )
+                logger.warning("Redundant nmap_scan blocked for already-scanned target %s", req_target)
+                self.memory.add_tool_result(_dup_msg, pinned=True)
+                return {"success": False, "output": None, "error": _dup_msg}
+
         # ── Safety check ─────────────────────────────────────────────────
         raw_target = str(params.get("target") or params.get("target_ip") or "")
         # CIDR network ranges (e.g. "10.0.0.0/24") are valid nmap targets but
@@ -787,9 +821,17 @@ class PentestAgent:
         # Hard cap to prevent runaway parallelism
         capped = tool_calls[:10]
         if len(tool_calls) > 10:
+            dropped = [c.get("action", "?") for c in tool_calls[10:]]
             logger.warning(
-                "parallel_tools: capped %d calls to 10", len(tool_calls)
+                "parallel_tools: capped %d calls to 10 (dropped: %s)",
+                len(tool_calls), dropped,
             )
+            cap_msg = (
+                f"[SYSTEM] parallel_tools capped at 10 concurrent calls. "
+                f"{len(tool_calls) - 10} calls were dropped: {dropped}. "
+                f"If you need to run the remaining calls, issue another parallel_tools."
+            )
+            self.memory.add_tool_result(cap_msg)
 
         self._emit("parallel_start", {"count": len(capped), "tools": [c.get("action") for c in capped]})
 
@@ -1035,6 +1077,74 @@ class PentestAgent:
         except Exception as exc:
             logger.warning("Reflection step failed (non-critical): %s", exc)
 
+    # ── Objective tracking ────────────────────────────────────────────────────
+
+    def _check_objectives(self, tool_name: str, output: object) -> None:
+        """
+        Scan a tool's output for evidence that a mission objective has been met.
+
+        Matching is keyword-based: every significant word in the objective string
+        is searched for in the (lowercased) output text.  When ALL keywords match,
+        the objective is marked complete, a pinned memory message is injected, and
+        an 'objective_complete' event is emitted.
+
+        Only runs when MissionBrief.objectives is non-empty and the tool produces
+        text output (metasploit post_command_output, ssh_exec stdout, etc.).
+        """
+        m = self._ctx.mission
+        if not m or not m.objectives:
+            return
+
+        # Build a single searchable text blob from the output.
+        if isinstance(output, dict):
+            text_parts = []
+            for key in ("output", "post_command_output", "stdout", "result",
+                        "combined_stdout", "combined", "content_preview"):
+                val = output.get(key)
+                if val:
+                    text_parts.append(str(val))
+            # shell_exec exec_script returns nested results list
+            results_list = output.get("results")
+            if isinstance(results_list, list):
+                for r in results_list:
+                    if isinstance(r, dict):
+                        for k in ("stdout", "output"):
+                            v = r.get(k)
+                            if v:
+                                text_parts.append(str(v))
+            text = "\n".join(text_parts).lower()
+        elif isinstance(output, str):
+            text = output.lower()
+        else:
+            return
+
+        if not text:
+            return
+
+        already_done = set(self._ctx.completed_objectives)
+        for obj in m.objectives:
+            if obj in already_done:
+                continue
+            # Keywords: words longer than 2 chars, strip punctuation
+            keywords = [
+                w.strip(".,;:\"'()[]{}").lower()
+                for w in obj.split()
+                if len(w.strip(".,;:\"'()[]{}")) > 2
+            ]
+            if not keywords:
+                continue
+            if all(kw in text for kw in keywords):
+                self._ctx.completed_objectives.append(obj)
+                # Extract a short evidence snippet (first 400 chars of relevant output)
+                evidence = (text[:400].replace("\n", " ")).strip()
+                msg = (
+                    f"[OBJECTIVE ACHIEVED] {obj}\n"
+                    f"Tool: {tool_name} | Evidence: {evidence}"
+                )
+                self.memory.add_tool_result(msg, pinned=True)
+                self._emit("objective_complete", {"objective": obj, "evidence": evidence})
+                logger.info("Objective achieved: %r (via %s)", obj, tool_name)
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _emit(self, event: str, data: dict) -> None:
@@ -1085,7 +1195,10 @@ class PentestAgent:
         elif tool_name == "searchsploit_search":
             self._process_searchsploit_result(output, params)
         elif tool_name == "metasploit_run":
-            self._process_metasploit_result(output, params)
+            self._process_metasploit_result(output, params, tool_name)
+        elif tool_name in ("shell_exec", "ssh_exec"):
+            # Check objectives from post-exploitation command output
+            self._check_objectives(tool_name, output)
 
     def _process_nmap_result(self, output: dict | list, params: dict) -> None:
         scan_type = str(params.get("scan_type", "ping"))
@@ -1232,7 +1345,7 @@ class PentestAgent:
 
         return False
 
-    def _process_metasploit_result(self, output: dict | list, params: dict) -> None:
+    def _process_metasploit_result(self, output: dict | list, params: dict, tool_name: str = "metasploit_run") -> None:
         action = str(params.get("action", "run"))
         module = str(params.get("module", "unknown"))
         target_ip = str(params.get("target_ip", ""))
@@ -1271,3 +1384,8 @@ class PentestAgent:
             if post_out and target_ip:
                 self._ctx.post_exploit_data[target_ip] = post_out
                 logger.info("post_exploit_data stored for %s (%d chars)", target_ip, len(post_out))
+
+        # ── Objective completion detection ────────────────────────────────────
+        # Scan tool output for evidence that a mission objective has been satisfied.
+        # Works for any tool that produces text output (metasploit, ssh_exec, shell_exec).
+        self._check_objectives(tool_name, output)

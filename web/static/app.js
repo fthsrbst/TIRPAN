@@ -2223,9 +2223,17 @@ function handleSessionEvent(msg) {
         setPhaseActive(1);
         setAgentStatus('reasoning');
         updateMissionStatusHeader('running', msg.session_id);
-        clearMissionFeed();
-        renderMissionStart(data.target || '', data.mode || '');
+        // When resuming from a checkpoint the feed already contains replayed events —
+        // do NOT clear it. Only clear for fresh mission starts.
+        if (!data.resuming) {
+            clearMissionFeed();
+            renderMissionStart(data.target || '', data.mode || '');
+        }
         appendConsoleLine(`[START] Target: ${data.target || ''} · Mode: ${data.mode || ''}`, 'text-primary');
+        // Initialize objectives tracker from start event
+        if (Array.isArray(data.objectives) && data.objectives.length > 0) {
+            initObjectivesPanel(data.objectives);
+        }
 
     } else if (event === 'llm_thinking_start') {
         setAgentStatus('reasoning');
@@ -2258,6 +2266,10 @@ function handleSessionEvent(msg) {
         setAgentStatus('reasoning');
         renderMissionToolResult(data);
         appendConsoleToolResult(data);
+        // Feed intel panels
+        if (data.tool === 'searchsploit_search' && data.success) {
+            updateAnalysisPanelFromSearchsploit(data);
+        }
 
     } else if (event === 'reflection') {
         setAgentStatus('reflecting');
@@ -2358,6 +2370,21 @@ function handleSessionEvent(msg) {
     } else if (event === 'max_iterations') {
         showToast('Max iterations reached — mission finishing');
         appendConsoleLine('[MAX_ITER] Maximum iterations reached — wrapping up', 'text-orange-400');
+
+    } else if (event === 'objective_complete') {
+        const obj = data.objective || '';
+        markObjectiveComplete(obj);
+        appendConsoleLine(`[OBJECTIVE ✓] ${obj}`, 'text-green-400');
+        appendMissionCard(`
+            <div class="border border-green-500/40 bg-green-500/5 px-4 py-2 font-mono text-xs">
+                <div class="flex items-center gap-2 text-green-400 font-bold">
+                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">task_alt</span>
+                    OBJECTIVE ACHIEVED
+                </div>
+                <div class="text-slate-200 mt-1">${_esc(obj)}</div>
+                ${data.evidence ? `<div class="text-slate-500 text-[10px] mt-1 truncate">${_esc(data.evidence.slice(0, 120))}</div>` : ''}
+            </div>
+        `);
 
     } else if (event === 'error') {
         setAgentStatus('error', data.error ? data.error.slice(0, 60) : '');
@@ -2471,6 +2498,8 @@ async function startMission() {
         setPhaseActive(1);
         clearConsoleOutput();
         clearMissionFeed();
+        resetAnalysisPanel(target);
+        resetNetworkPanel(target);
         renderMissionStart(target, mode);
         appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
         appendConsoleLine(`[TARGET]  ${target}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
@@ -2532,6 +2561,8 @@ async function resumeMissionFromSession(sessionId) {
         setPhaseActive(4);
         clearConsoleOutput();
         clearMissionFeed();
+        resetAnalysisPanel(data.target || sessionId.slice(0, 8));
+        resetNetworkPanel(data.target || sessionId.slice(0, 8));
         renderMissionStart(data.target || sessionId.slice(0, 8), mode);
         appendConsoleLine(`[RESUME] From session ${sessionId.slice(0, 8)}…`, 'text-primary');
         appendConsoleLine(`[TARGET] ${data.target || '—'}  [MODE] ${(data.mode || mode).toUpperCase()}`, 'text-secondary-text');
@@ -2554,17 +2585,13 @@ async function resumeMissionFromSession(sessionId) {
     }
 }
 
-/** Continue from a specific iteration checkpoint.
- *  - Running session: rollback in-place (same session ID, deletes events after cutoff).
- *  - Historical session: fork into a new session seeded from the checkpoint.
- *  In both cases, existing messages up to the checkpoint are replayed so the
- *  feed is not wiped — only events AFTER the checkpoint disappear.
+/** Continue from a specific iteration checkpoint on the SAME session.
+ *  Works for both running and historical (completed/stopped) sessions.
+ *  Deletes all events after the checkpoint and restarts the agent from there.
  */
 async function forkFromIteration(iteration) {
     const sessionId = viewingSessionId || activeMissionId;
     if (!sessionId) { showToast('No session selected'); return; }
-
-    const isHistorical = !activeMissionId || sessionId !== activeMissionId;
 
     showConfirm({
         title: 'Continue from here',
@@ -2572,59 +2599,30 @@ async function forkFromIteration(iteration) {
         icon: 'history',
         onConfirm: async () => {
             try {
-                let activeSessionId = sessionId;
-                let attackPhase = 'EXPLOITATION';
-                let eventsSourceId = sessionId;  // session whose events we replay
-
-                if (isHistorical) {
-                    // Historical session: create a new forked session from this checkpoint
-                    const modeSelect = document.getElementById('mission-mode');
-                    const mode = modeSelect ? modeSelect.value : 'full_auto';
-                    const res = await fetch('/api/v1/sessions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            resume_from_session_id: sessionId,
-                            resume_iteration: iteration,
-                            mode,
-                            target: '',
-                        }),
-                    });
-                    if (!res.ok) {
-                        const err = await res.json().catch(() => ({}));
-                        throw new Error(err.detail || 'Fork failed');
-                    }
-                    const data = await res.json();
-                    activeSessionId = data.session_id;
-                    // Replay from the original session up to the selected iteration
-                    eventsSourceId = sessionId;
-                } else {
-                    // Running session: rollback in-place
-                    const res = await fetch(`/api/v1/sessions/${sessionId}/rollback/${iteration}`, {
-                        method: 'POST',
-                    });
-                    if (!res.ok) {
-                        const err = await res.json().catch(() => ({}));
-                        throw new Error(err.detail || 'Rollback failed');
-                    }
-                    const data = await res.json();
-                    attackPhase = data.attack_phase || 'EXPLOITATION';
-                    eventsSourceId = sessionId;
+                // Always rollback in-place — works for both running and historical sessions
+                const res = await fetch(`/api/v1/sessions/${sessionId}/rollback/${iteration}`, {
+                    method: 'POST',
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Continue failed');
                 }
+                const data = await res.json();
+                const attackPhase = data.attack_phase || 'EXPLOITATION';
 
-                activeMissionId = activeSessionId;
-                viewingSessionId = activeSessionId;
+                activeMissionId = sessionId;
+                viewingSessionId = sessionId;
                 missionPaused = false;
 
-                updateMissionStatusHeader('running', activeSessionId);
+                updateMissionStatusHeader('running', sessionId);
 
                 // Replay events up to the checkpoint so messages are preserved
                 clearMissionFeed();
                 clearConsoleOutput();
                 try {
-                    const sessionRes = await fetch(`/api/v1/sessions/${eventsSourceId}`);
+                    const sessionRes = await fetch(`/api/v1/sessions/${sessionId}`);
                     const sessionInfo = sessionRes.ok ? await sessionRes.json() : null;
-                    const evRes = await fetch(`/api/v1/sessions/${eventsSourceId}/events`);
+                    const evRes = await fetch(`/api/v1/sessions/${sessionId}/events`);
                     const evData = evRes.ok ? await evRes.json() : null;
                     if (evData && evData.events && evData.events.length > 0) {
                         const eventsUpTo = evData.events.filter(ev => (ev.iteration || 0) <= iteration);
@@ -2645,9 +2643,9 @@ async function forkFromIteration(iteration) {
 
                 patchWsSessionHandler();
                 if (ws && wsReady) {
-                    ws.send(JSON.stringify({ type: 'subscribe_session', session_id: activeSessionId }));
+                    ws.send(JSON.stringify({ type: 'subscribe_session', session_id: sessionId }));
                 }
-                startMissionPoll(activeSessionId);
+                startMissionPoll(sessionId);
                 startMissionUptime();
                 switchView('agent');
                 showToast(`Continuing from iteration ${iteration}`);
@@ -2726,9 +2724,21 @@ async function refreshMissionStats(sessionId) {
         if (!res.ok) return;
         const data = await res.json();
 
-        setStatValue('stat-vulns', data.vulns_found ?? '—');
-        setStatValue('stat-hosts', data.hosts_found ?? '—');
-        setStatValue('stat-ports', data.ports_found ?? '—');
+        // Use live array lengths during mission; fall back to DB fields after done
+        const liveVulns = data.vulnerabilities?.length;
+        // Count individual open ports across all scan result blobs (not scan record count)
+        const livePorts = data.scan_results
+            ? data.scan_results.flatMap(r => (r.hosts || []).flatMap(h => h.ports || [])).length
+            : undefined;
+        const liveHosts = data.scan_results
+            ? new Set(data.scan_results.flatMap(r => (r.hosts || []).map(h => h.ip)).filter(Boolean)).size
+            : undefined;
+        setStatValue('stat-vulns', liveVulns ?? data.vulns_found ?? '—');
+        setStatValue('stat-hosts', liveHosts ?? data.hosts_found ?? '—');
+        setStatValue('stat-ports', livePorts ?? data.ports_found ?? '—');
+
+        // Update network panel with live scan data
+        updateNetworkPanelFromSession(data);
 
         // Update phase bar based on agent's attack_phase
         updatePhaseFromSessionStatus(data.status);
@@ -2737,6 +2747,7 @@ async function refreshMissionStats(sessionId) {
         if (data.status === 'done' || data.status === 'error' || data.status === 'stopped') {
             stopMissionPoll();
             stopMissionUptime();
+            stopNetworkPanel();
             updateMissionStatusHeader(data.status, sessionId);
         }
 
@@ -2760,6 +2771,196 @@ function resetMissionStats() {
     setStatValue('stat-hosts', '0');
     setStatValue('stat-ports', '0');
     setStatValue('stat-uptime', '00:00:00');
+}
+
+// ─── Intel Panel: Analysis ─────────────────────────────────────────────────────
+
+let _analysisVulns = [];
+
+function resetAnalysisPanel(target) {
+    _analysisVulns = [];
+
+    const list = document.getElementById('analysis-findings-list');
+    if (list) list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">Scanning…</p>';
+
+    const score = document.getElementById('analysis-threat-score');
+    if (score) { score.textContent = '—'; score.style.color = ''; }
+
+    const status = document.getElementById('analysis-threat-status');
+    if (status) { status.textContent = 'SCANNING'; status.style.color = '#ccff00'; }
+
+    const circle = document.getElementById('analysis-threat-circle');
+    if (circle) { circle.setAttribute('stroke', '#1A1A1A'); circle.setAttribute('stroke-dashoffset', '364.4'); }
+
+    const summary = document.getElementById('analysis-summary-text');
+    if (summary) summary.textContent = `Mission active on ${target || '?'}. Awaiting scan results…`;
+}
+
+function updateAnalysisPanelFromSearchsploit(data) {
+    let output;
+    try { output = typeof data.output === 'string' ? JSON.parse(data.output) : data.output; } catch { return; }
+    const vulns = output?.vulnerabilities;
+    if (!Array.isArray(vulns) || vulns.length === 0) return;
+
+    _analysisVulns.push(...vulns);
+
+    // ── Findings list ──────────────────────────────────────────────────────────
+    const list = document.getElementById('analysis-findings-list');
+    if (list) {
+        const MAX = 12;
+        const items = _analysisVulns.slice(0, MAX).map(v => {
+            const cvss = v.cvss ?? v.score ?? null;
+            const col  = cvss == null ? 'text-secondary-text'
+                       : cvss >= 9   ? 'text-danger'
+                       : cvss >= 7   ? 'text-orange-400'
+                       : cvss >= 4   ? 'text-yellow-400'
+                       :               'text-secondary-text';
+            const badge = cvss != null ? cvss.toFixed(1) : '?';
+            return `<div class="flex items-start gap-2 py-1 border-b border-border-color/20">
+                <span class="${col} font-bold text-[10px] mono-text shrink-0 w-7">${badge}</span>
+                <span class="text-slate-300 text-[10px] mono-text leading-snug break-all">${_esc(v.title || v.description || '')}</span>
+            </div>`;
+        }).join('');
+        const more = _analysisVulns.length > MAX
+            ? `<p class="text-[9px] text-secondary-text mono-text py-1 text-center">… and ${_analysisVulns.length - MAX} more</p>` : '';
+        list.innerHTML = items + more;
+    }
+
+    // ── Threat gauge ───────────────────────────────────────────────────────────
+    const maxCvss = Math.max(..._analysisVulns.map(v => v.cvss ?? v.score ?? 0));
+    const circumference = 364.4;
+    const dashOffset    = circumference * (1 - Math.min(maxCvss / 10, 1));
+    const gaugeColor    = maxCvss >= 9 ? '#FF3B3B' : maxCvss >= 7 ? '#FF8C00' : maxCvss >= 4 ? '#ccff00' : '#666666';
+    const gaugeLabel    = maxCvss >= 9 ? 'CRITICAL' : maxCvss >= 7 ? 'HIGH' : maxCvss >= 4 ? 'MEDIUM' : 'LOW';
+
+    const circle = document.getElementById('analysis-threat-circle');
+    if (circle) { circle.setAttribute('stroke', gaugeColor); circle.setAttribute('stroke-dashoffset', dashOffset.toFixed(1)); }
+
+    const scoreEl = document.getElementById('analysis-threat-score');
+    if (scoreEl) { scoreEl.textContent = maxCvss.toFixed(1); scoreEl.style.color = gaugeColor; }
+
+    const statusEl = document.getElementById('analysis-threat-status');
+    if (statusEl) { statusEl.textContent = gaugeLabel; statusEl.style.color = gaugeColor; }
+
+    const summary = document.getElementById('analysis-summary-text');
+    if (summary) {
+        const svcSet = new Set(_analysisVulns.map(v => v.service).filter(Boolean));
+        summary.textContent = `${_analysisVulns.length} vulnerabilit${_analysisVulns.length === 1 ? 'y' : 'ies'} across ${svcSet.size || '?'} service(s). Max CVSS ${maxCvss.toFixed(1)} — ${gaugeLabel}.`;
+    }
+}
+
+// ─── Intel Panel: Network ──────────────────────────────────────────────────────
+
+let _networkScanResults = [];
+let _networkVulnCount   = 0;
+
+function resetNetworkPanel(target) {
+    _networkScanResults = [];
+    _networkVulnCount   = 0;
+
+    const subnetEl = document.getElementById('network-subnet-text');
+    if (subnetEl) subnetEl.textContent = target || '—';
+
+    const dot = document.getElementById('network-status-dot');
+    if (dot) { dot.style.backgroundColor = '#ccff00'; dot.style.boxShadow = '0 0 4px #ccff00'; }
+
+    const txt = document.getElementById('network-status-text');
+    if (txt) { txt.textContent = 'Active'; txt.style.color = '#ccff00'; }
+
+    setStatValue('network-hosts-count', '0');
+    setStatValue('network-ports-count', '0');
+    setStatValue('network-vulns-count', '0');
+
+    renderNetworkTopology([], 0);
+}
+
+function updateNetworkPanelFromSession(data) {
+    const scanResults = data.scan_results || [];
+    const vulnCount   = data.vulnerabilities?.length ?? data.vulns_found ?? 0;
+    _networkScanResults = scanResults;
+    _networkVulnCount   = vulnCount;
+
+    const hosts = new Set(scanResults.map(r => r.ip).filter(Boolean));
+    setStatValue('network-hosts-count', hosts.size || '0');
+    setStatValue('network-ports-count', scanResults.length || '0');
+    setStatValue('network-vulns-count', vulnCount || '0');
+
+    // Hosts with at least one found vulnerability (approximated via vuln count > 0)
+    renderNetworkTopology([...hosts], vulnCount);
+
+    // Update status dot once we have data
+    if (scanResults.length > 0) {
+        const dot = document.getElementById('network-status-dot');
+        if (dot) { dot.style.backgroundColor = '#ccff00'; dot.style.boxShadow = '0 0 4px #ccff00'; }
+        const txt = document.getElementById('network-status-text');
+        if (txt) { txt.textContent = 'Scanning'; txt.style.color = '#ccff00'; }
+    }
+}
+
+function stopNetworkPanel() {
+    const dot = document.getElementById('network-status-dot');
+    if (dot) { dot.style.backgroundColor = ''; dot.style.boxShadow = ''; }
+    const txt = document.getElementById('network-status-text');
+    if (txt) { txt.textContent = 'Done'; txt.style.color = ''; }
+}
+
+function renderNetworkTopology(hosts, vulnCount) {
+    const svg = document.getElementById('network-topology-svg');
+    if (!svg) return;
+
+    if (!hosts || hosts.length === 0) {
+        svg.innerHTML = `
+            <text x="110" y="85" text-anchor="middle" fill="#333" font-family="monospace" font-size="9">Waiting for scan results…</text>
+            <rect x="2" y="4" width="44" height="22" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1"/>
+            <text x="24" y="14" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="5.5" font-weight="bold">AEGIS</text>
+            <text x="24" y="23" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
+        return;
+    }
+
+    const CX = 110, CY = 30;   // AEGIS position
+    const R  = 60;             // radius for host circle layout
+    const hostR = 18;
+
+    let inner = `
+        <rect x="86" y="16" width="48" height="28" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1"/>
+        <text x="${CX}" y="28" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6" font-weight="bold">AEGIS</text>
+        <text x="${CX}" y="38" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
+
+    const count = Math.min(hosts.length, 8);
+    const startAngle = count === 1 ? Math.PI / 2 : Math.PI * 0.3;
+    const endAngle   = count === 1 ? Math.PI / 2 : Math.PI * 2.7;
+
+    for (let i = 0; i < count; i++) {
+        const angle = count === 1 ? Math.PI / 2
+            : startAngle + (endAngle - startAngle) * (i / (count - 1));
+        const hx = CX + R * Math.cos(angle);
+        const hy = CY + 55 + R * 0.6 * Math.sin(angle);
+        const ip  = hosts[i] || `host${i + 1}`;
+        const lastOctet = ip.split('.').pop() || ip;
+        // colour: assume first host is exploited if vulns found (simple heuristic)
+        const isVuln   = vulnCount > 0 && i < vulnCount;
+        const stroke   = isVuln ? '#FF3B3B' : '#333333';
+        const fill     = isVuln ? '#1a0000' : '#111111';
+        const txtColor = isVuln ? '#ff6666' : '#aaaaaa';
+        const label    = isVuln ? 'VULN' : 'UP';
+        const lcolor   = isVuln ? '#FF3B3B' : '#555';
+
+        inner += `
+            <line x1="${CX}" y1="44" x2="${hx.toFixed(1)}" y2="${(hy - hostR).toFixed(1)}"
+                  stroke="${stroke}" stroke-width="1" opacity="0.5"/>
+            <circle cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="${hostR}"
+                    fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
+            <text x="${hx.toFixed(1)}" y="${(hy - 4).toFixed(1)}" text-anchor="middle"
+                  fill="${txtColor}" font-family="monospace" font-size="7">.${_esc(lastOctet)}</text>
+            <text x="${hx.toFixed(1)}" y="${(hy + 6).toFixed(1)}" text-anchor="middle"
+                  fill="${lcolor}" font-family="monospace" font-size="5.5">${label}</text>`;
+    }
+
+    if (hosts.length > 8) {
+        inner += `<text x="${CX}" y="170" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">+${hosts.length - 8} more</text>`;
+    }
+
+    svg.innerHTML = inner;
 }
 
 // ─── Phase progress bar ───────────────────────────────────────────────────────
@@ -2994,6 +3195,67 @@ function clearMissionFeed() {
     _missionIteration = 0;
     const emptyState = document.getElementById('agent-empty-state');
     if (emptyState) emptyState.style.display = '';
+    // Clear objectives panel
+    const op = document.getElementById('objectives-panel');
+    if (op) op.remove();
+    _objectivesState = [];
+}
+
+// ── Objectives Panel ──────────────────────────────────────────────────────────
+
+let _objectivesState = []; // [{text, done}]
+
+function initObjectivesPanel(objectives) {
+    _objectivesState = objectives.map(o => ({ text: o, done: false }));
+
+    // Remove existing panel if any
+    const existing = document.getElementById('objectives-panel');
+    if (existing) existing.remove();
+
+    const stream = document.getElementById('message-stream');
+    if (!stream) return;
+
+    const panel = document.createElement('div');
+    panel.id = 'objectives-panel';
+    panel.className = 'border border-border-color bg-surface font-mono w-full';
+    panel.innerHTML = `
+        <div class="flex items-center gap-2 px-3 py-2 border-b border-border-color">
+            <span class="material-symbols-outlined text-[13px] text-primary" style="font-variation-settings:'FILL' 1;">flag</span>
+            <span class="text-[10px] font-bold uppercase tracking-widest text-primary">OBJECTIVES</span>
+            <span id="obj-counter" class="ml-auto text-[10px] text-secondary-text">0/${objectives.length}</span>
+        </div>
+        <ul id="obj-list" class="px-3 py-2 space-y-1.5"></ul>
+    `;
+    // Insert at top of stream, before the mission feed
+    stream.insertBefore(panel, stream.firstChild);
+
+    _renderObjectivesList();
+}
+
+function _renderObjectivesList() {
+    const list = document.getElementById('obj-list');
+    const counter = document.getElementById('obj-counter');
+    if (!list) return;
+
+    const done = _objectivesState.filter(o => o.done).length;
+    if (counter) counter.textContent = `${done}/${_objectivesState.length}`;
+
+    list.innerHTML = _objectivesState.map(o => `
+        <li class="flex items-start gap-2 text-[11px] ${o.done ? 'text-green-400' : 'text-secondary-text'}">
+            <span class="material-symbols-outlined text-[13px] mt-0.5 shrink-0" style="font-variation-settings:'FILL' ${o.done ? 1 : 0};">
+                ${o.done ? 'task_alt' : 'radio_button_unchecked'}
+            </span>
+            <span class="${o.done ? 'line-through opacity-70' : ''}">${_esc(o.text)}</span>
+        </li>
+    `).join('');
+}
+
+function markObjectiveComplete(objectiveText) {
+    const obj = _objectivesState.find(o => o.text === objectiveText);
+    if (obj) {
+        obj.done = true;
+        _renderObjectivesList();
+    }
 }
 
 function renderMissionStart(target, mode) {
@@ -3448,6 +3710,10 @@ function closeSessionSwitcher() {
 }
 
 async function switchToSession(sessionId) {
+    // Stop any active poll before switching — prevents stats from being overwritten
+    // by a previously active mission while viewing a different session
+    stopMissionPoll();
+
     try {
         const res = await fetch(`/api/v1/sessions/${sessionId}`);
         if (!res.ok) { showToast('Failed to load session'); return; }
@@ -3462,10 +3728,17 @@ async function switchToSession(sessionId) {
         const missionDisplayName = session.name || session.target || sessionId.slice(0, 8);
         updateMissionStatusHeader(effectiveStatus, sessionId, missionDisplayName);
 
-        // Update stats
-        setStatValue('stat-vulns', session.vulns_found ?? '—');
-        setStatValue('stat-hosts', session.hosts_found ?? '—');
-        setStatValue('stat-ports', session.ports_found ?? '—');
+        // Compute stats — prefer DB summary fields, fall back to counting attached arrays
+        // (DB summary may be 0 if the session was stopped before the final update)
+        const hostsFound = session.hosts_found ||
+            new Set((session.scan_results || []).flatMap(r => (r.hosts || []).map(h => h.ip))).size;
+        const vulnsFound = session.vulns_found || (session.vulnerabilities || []).length;
+        const portsFound = session.ports_found ||
+            (session.scan_results || []).flatMap(r => (r.hosts || []).flatMap(h => h.ports || [])).length;
+
+        setStatValue('stat-vulns', vulnsFound || '—');
+        setStatValue('stat-hosts', hostsFound || '—');
+        setStatValue('stat-ports', portsFound || '—');
 
         // Switch to agent view
         switchView('agent');
@@ -4976,6 +5249,10 @@ function _advApplyConfig(cfg) {
         const el = document.getElementById('adv-scope-notes');
         if (el) el.value = cfg.scope_notes;
     }
+    if (cfg.objectives) {
+        const el = document.getElementById('adv-objectives');
+        if (el) el.value = cfg.objectives;
+    }
     if (cfg.excluded_ports) {
         const el = document.getElementById('adv-excluded-ports');
         if (el) el.value = cfg.excluded_ports;
@@ -5026,6 +5303,7 @@ function _advCollectConfig() {
         allow_browser_recon:    _c('pol-allow-browser'),
         known_tech:             _v('adv-known-tech'),
         scope_notes:            _v('adv-scope-notes'),
+        objectives:             _v('adv-objectives'),
         excluded_ports:         _v('adv-excluded-ports'),
         version_intensity:      (() => { const el = document.getElementById('adv-version-intensity'); return el ? el.value : '5'; })(),
     };
@@ -5161,6 +5439,7 @@ async function launchAdvancedMission() {
         known_tech: knownTech ? knownTech.split(',').map(s => s.trim()).filter(Boolean) : undefined,
         scope_notes: scopeNotes || undefined,
         notes: cfg.notes || undefined,
+        objectives: cfg.objectives ? cfg.objectives.split('\n').map(s => s.trim()).filter(Boolean) : undefined,
         credential_ids: newCredIds.length > 0 ? newCredIds : undefined,
     };
 
