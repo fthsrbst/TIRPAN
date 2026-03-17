@@ -156,7 +156,14 @@ class SessionMemory:
             if id(msg) in pinned_set or msg in selected_normal:
                 result.append(msg)
 
-        return [{"role": m.role, "content": m.content} for m in result]
+        # OpenAI-compatible APIs only accept "system", "user", "assistant" roles.
+        # Map internal "tool_result" role to "user" before sending.
+        _role_map = {"tool_result": "user"}
+        return [
+            {"role": _role_map.get(m.role, m.role), "content": m.content}
+            for m in result
+            if m.content  # skip messages with empty content
+        ]
 
     # ------------------------------------------------------------------
     # Token counting

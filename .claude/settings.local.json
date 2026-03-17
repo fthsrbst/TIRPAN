@@ -38,7 +38,14 @@
       "Bash(__NEW_LINE_26f7c601dd11a410__ gh:*)",
       "Bash(/dev/null echo:*)",
       "Bash(wsl python3:*)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(python -c \"from core.llm_client import LLMRouter; print\\(''llm_client OK''\\)\")",
+      "Bash(python -c \"from core.agent import Agent; print\\(''agent OK''\\)\")",
+      "Bash(python -c \"import core.agent; print\\(''agent OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''web/routes.py''\\).read\\(\\)\\); print\\(''routes.py OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''web/session_manager.py''\\).read\\(\\)\\); print\\(''session_manager.py OK''\\)\")",
+      "Bash(find . -maxdepth 3 -not -path */.* -not -path */venv/* -not -path */__pycache__/*)",
+      "Bash(wc -l core/*.py tools/*.py models/*.py web/*.py database/*.py)"
     ]
   }
 }

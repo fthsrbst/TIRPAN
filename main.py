@@ -36,6 +36,8 @@ from core.tool_registry import ToolRegistry
 from tools.metasploit_tool import MetasploitTool
 from tools.nmap_tool import NmapTool
 from tools.searchsploit_tool import SearchSploitTool
+from tools.ssh_tool import SSHTool
+from tools.shell_session_tool import ShellSessionTool
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -58,6 +60,8 @@ def build_registry() -> ToolRegistry:
     registry.register(NmapTool())
     registry.register(SearchSploitTool())
     registry.register(MetasploitTool())
+    registry.register(SSHTool())
+    registry.register(ShellSessionTool())
     registry.load_plugins(Path("plugins/"))
     return registry
 

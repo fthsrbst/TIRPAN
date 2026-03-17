@@ -170,6 +170,11 @@ def get_agent(session_id: str):
     return _agents.get(session_id)
 
 
+def clear_buffer(session_id: str) -> None:
+    """Clear the replay buffer for a session (e.g. before restarting it)."""
+    _buffers[session_id] = []
+
+
 # ── Progress callback factory ──────────────────────────────────────────────────
 
 def make_progress_callback(session_id: str) -> Callable[[str, dict], None]:
