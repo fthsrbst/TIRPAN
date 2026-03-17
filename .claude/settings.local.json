@@ -45,7 +45,8 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\(''web/routes.py''\\).read\\(\\)\\); print\\(''routes.py OK''\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\(''web/session_manager.py''\\).read\\(\\)\\); print\\(''session_manager.py OK''\\)\")",
       "Bash(find . -maxdepth 3 -not -path */.* -not -path */venv/* -not -path */__pycache__/*)",
-      "Bash(wc -l core/*.py tools/*.py models/*.py web/*.py database/*.py)"
+      "Bash(wc -l core/*.py tools/*.py models/*.py web/*.py database/*.py)",
+      "Bash(grep -rn \"Invalid JSON\\\\|LLM returned\\\\|parse_json\\\\|json_parse\\\\|JSONDecode\" /home/fatih/AEGIS/ --include=*.py)"
     ]
   }
 }

@@ -664,9 +664,18 @@ class PentestAgent:
             return action_dict
 
         except json.JSONDecodeError as exc:
-            logger.error("LLM returned invalid JSON: %s | response=%r", exc, response[:200] if response else "")
-            self._emit("error", {"error": f"Invalid JSON from LLM: {exc}"})
-            # Inject a corrective hint — covers both empty and prose-only responses
+            logger.warning("LLM returned invalid JSON: %s | response=%r", exc, response[:200] if response else "")
+            # If all objectives are already done and the LLM returned prose instead of JSON
+            # (common when it outputs a [REFLECTION] block after "ALL objectives achieved"),
+            # skip the retry and go straight to generate_report.
+            m = self._ctx.mission
+            if (
+                m and m.objectives
+                and all(obj in self._ctx.completed_objectives for obj in m.objectives)
+            ):
+                logger.info("All objectives done — auto-triggering generate_report after invalid JSON response")
+                return {"action": "generate_report", "parameters": {}}
+            # Otherwise: inject a corrective hint and let the loop retry — no UI error shown
             hint = (
                 "Your last response was empty. You MUST respond with a single valid JSON object. No prose."
                 if not response.strip()
