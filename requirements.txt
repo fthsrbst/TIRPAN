@@ -27,6 +27,7 @@ psutil>=5.9.0
 
 # Secure credential storage (OS keychain)
 keyring>=25.0.0
+keyrings.alt>=5.0.0  # file-based fallback for headless/WSL environments
 
 # Credential encryption (Fernet symmetric AES)
 cryptography>=42.0.0
