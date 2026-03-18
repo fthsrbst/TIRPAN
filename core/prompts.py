@@ -178,6 +178,13 @@ RULE #5 — NEVER invent session keys:
   Format is always: "{method}:{host}:{port}" e.g. "ssh:10.0.0.1:22"
   Do NOT use formats like "msf:IP:1" or "session:1" — those are INVALID.
 
+RULE #5b — "already_open" means CALL EXEC NOW, not connect again:
+  When shell_exec(action=connect) returns {"status": "already_open", "session_key": "..."},
+  the session is live and ready. Your IMMEDIATE next action MUST be exec or exec_script:
+    WRONG:   shell_exec(action=connect, ...)  ← returns "already_open" again, does nothing
+    CORRECT: shell_exec(action=exec, session_key="bind:IP:PORT", command="cat /home/msfadmin/flag.txt")
+  Calling connect a second time is a no-op. If you see "already_open" → exec immediately.
+
 RULE #6 — AVOID RE-EXPLOITATION FOR FOLLOW-UP COMMANDS:
   Once root is obtained, do NOT re-run the same exploit just to read a file or run another command.
   Use these persistent access methods instead:
