@@ -1022,10 +1022,15 @@ class PentestAgent:
 
                 # Save exploit attempt record (always, even on failure)
                 if action == "run":
+                    target_ip = str(params.get("target_ip", params.get("target", "")))
+                    # Detect lateral movement: if we have active sessions on other hosts
+                    # and the current target is a different host, record the pivot source
+                    active_ips = set(self._ctx.active_sessions.values())
+                    source_ip = next(iter(active_ips), "") if (active_ips and target_ip not in active_ips) else ""
                     await self._exploit_repo.save(
                         session_id=self.session.id,
                         result={
-                            "host_ip": str(params.get("target_ip", params.get("target", ""))),
+                            "host_ip": target_ip,
                             "port": int(params.get("target_port") or params.get("port") or 0),
                             "module": str(params.get("module", "")),
                             "payload": str(params.get("payload", output.get("payload", ""))),
@@ -1034,6 +1039,7 @@ class PentestAgent:
                             "output": str(output.get("output", ""))[:2000],
                             "error": str(output.get("error", "")),
                             "poc_output": poc_out,
+                            "source_ip": source_ip,
                         },
                     )
 

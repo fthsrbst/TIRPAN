@@ -343,8 +343,8 @@ class ExploitResultRepository:
             await db.execute(
                 """INSERT INTO exploit_results
                    (id, session_id, host_ip, port, module, payload,
-                    success, session_opened, output, error, poc_output, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    success, session_opened, output, error, poc_output, source_ip, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     rid,
                     session_id,
@@ -357,6 +357,7 @@ class ExploitResultRepository:
                     result.get("output", ""),
                     result.get("error", ""),
                     result.get("poc_output", ""),
+                    result.get("source_ip", ""),
                     now,
                 ),
             )
