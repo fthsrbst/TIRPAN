@@ -156,10 +156,43 @@ function initModeToggle() {
             pentestBtn.classList.remove('bg-primary', 'text-black');
             pentestBtn.classList.add('text-secondary-text', 'hover:text-white');
         }
+        _updateShieldVisibility(mode === 'defense');
     }
 
     pentestBtn.addEventListener('click', () => setMode('pentest'));
     defenseBtn.addEventListener('click', () => setMode('defense'));
+
+    // Initialize: shield hidden on pentest (default)
+    _updateShieldVisibility(false);
+}
+
+function _updateShieldVisibility(show) {
+    // Tab button in expanded intel view
+    const shieldTabBtn = document.querySelector('.intel-tab[data-intel-tab="shield"]');
+    // Nav item in right sidebar
+    const shieldNavItem = document.querySelector('.intel-nav-item[data-panel="shield"]');
+    // Right sidebar panel content
+    const shieldPanel = document.getElementById('intel-panel-shield');
+    // Expanded-view tab body
+    const shieldTabBody = document.querySelector('.intel-tab-body[data-intel-tab="shield"]');
+
+    if (show) {
+        if (shieldTabBtn)  shieldTabBtn.style.display  = '';
+        if (shieldNavItem) shieldNavItem.style.display = '';
+        if (shieldPanel)   shieldPanel.classList.remove('hidden');
+        if (shieldTabBody) shieldTabBody.classList.remove('hidden');
+    } else {
+        if (shieldTabBtn)  shieldTabBtn.style.display  = 'none';
+        if (shieldNavItem) shieldNavItem.style.display = 'none';
+        // If the shield panel is currently visible, switch to analysis first
+        if (shieldPanel && !shieldPanel.classList.contains('hidden')) {
+            switchIntelPanel('analysis');
+        }
+        if (shieldPanel) shieldPanel.classList.add('hidden');
+        if (shieldTabBody && !shieldTabBody.classList.contains('hidden')) {
+            shieldTabBody.classList.add('hidden');
+        }
+    }
 }
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
@@ -398,10 +431,15 @@ function initThemeToggle() {
             }
         };
 
-        if (document.startViewTransition) {
-            document.startViewTransition(applyToggle);
-        } else {
+        const afterToggle = () => {
             applyToggle();
+            scheduleMinimapUpdate();
+        };
+
+        if (document.startViewTransition) {
+            document.startViewTransition(afterToggle);
+        } else {
+            afterToggle();
         }
     });
 }
@@ -613,13 +651,23 @@ function _updateMinimap() {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
-    // Background
-    ctx.fillStyle = '#050505';
+    const isLight = document.documentElement.classList.contains('light');
+    const bgColor = isLight ? '#f0f0f1' : '#050505';
+
+    // Clear canvas
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, cw, ch);
 
+    // No cards → empty minimap, hide viewport indicator
+    const cards = feed ? Array.from(feed.children) : [];
+    if (cards.length === 0) {
+        if (vp) vp.style.height = '0';
+        return;
+    }
+
     const totalH = scrollEl.scrollHeight;
-    if (feed && totalH > 0) {
-        const cards = Array.from(feed.children);
+    if (totalH > 0) {
         for (const card of cards) {
             const topPct  = card.offsetTop / totalH;
             const htPct   = card.offsetHeight / totalH;
@@ -629,20 +677,37 @@ function _updateMinimap() {
             // Colour by card semantic type
             const html = card.innerHTML;
             let color;
-            if (html.includes('REASONING') || html.includes('llm-thinking'))
-                color = 'rgba(200,255,0,0.55)';          // primary yellow-green
-            else if (html.includes('TOOL CALL') || html.includes('tool-call'))
-                color = 'rgba(59,130,246,0.6)';           // blue
-            else if (html.includes('RESULT') || html.includes('tool-result'))
-                color = 'rgba(34,197,94,0.5)';            // green
-            else if (html.includes('EXPLOIT') || html.includes('text-danger') || html.includes('border-danger'))
-                color = 'rgba(239,68,68,0.55)';           // red
-            else if (html.includes('REFLECTING') || html.includes('reflection'))
-                color = 'rgba(168,85,247,0.5)';           // purple
-            else if (html.includes('MISSION COMPLETE') || html.includes('generate_report'))
-                color = 'rgba(200,255,0,0.8)';            // bright primary
-            else
-                color = 'rgba(255,255,255,0.07)';         // dim default
+            if (isLight) {
+                if (html.includes('REASONING') || html.includes('llm-thinking'))
+                    color = 'rgba(74,124,0,0.5)';
+                else if (html.includes('TOOL CALL') || html.includes('tool-call'))
+                    color = 'rgba(37,99,235,0.5)';
+                else if (html.includes('RESULT') || html.includes('tool-result'))
+                    color = 'rgba(22,163,74,0.45)';
+                else if (html.includes('EXPLOIT') || html.includes('text-danger') || html.includes('border-danger'))
+                    color = 'rgba(220,38,38,0.5)';
+                else if (html.includes('REFLECTING') || html.includes('reflection'))
+                    color = 'rgba(147,51,234,0.45)';
+                else if (html.includes('MISSION COMPLETE') || html.includes('generate_report'))
+                    color = 'rgba(74,124,0,0.7)';
+                else
+                    color = 'rgba(0,0,0,0.08)';
+            } else {
+                if (html.includes('REASONING') || html.includes('llm-thinking'))
+                    color = 'rgba(200,255,0,0.55)';
+                else if (html.includes('TOOL CALL') || html.includes('tool-call'))
+                    color = 'rgba(59,130,246,0.6)';
+                else if (html.includes('RESULT') || html.includes('tool-result'))
+                    color = 'rgba(34,197,94,0.5)';
+                else if (html.includes('EXPLOIT') || html.includes('text-danger') || html.includes('border-danger'))
+                    color = 'rgba(239,68,68,0.55)';
+                else if (html.includes('REFLECTING') || html.includes('reflection'))
+                    color = 'rgba(168,85,247,0.5)';
+                else if (html.includes('MISSION COMPLETE') || html.includes('generate_report'))
+                    color = 'rgba(200,255,0,0.8)';
+                else
+                    color = 'rgba(255,255,255,0.07)';
+            }
 
             ctx.fillStyle = color;
             ctx.fillRect(3, y, cw - 6, h - 0.5);
@@ -650,7 +715,7 @@ function _updateMinimap() {
     }
 
     // Thin vertical accent line on left edge
-    ctx.fillStyle = 'rgba(200,255,0,0.08)';
+    ctx.fillStyle = isLight ? 'rgba(74,124,0,0.1)' : 'rgba(200,255,0,0.08)';
     ctx.fillRect(0, 0, 1, ch);
 
     // Viewport indicator
@@ -661,6 +726,7 @@ function _updateMinimap() {
         const vpHeight = Math.max(16, viewRatio * ch);
         vp.style.top    = vpTop + 'px';
         vp.style.height = vpHeight + 'px';
+        vp.style.background = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(200,255,0,0.06)';
     }
 }
 
@@ -4346,8 +4412,10 @@ function startAgentStreamCard(mode) {
         feed.appendChild(wrapper);
         _agentStreamEl = wrapper;
         _agentStreamBody = wrapper.querySelector('#agent-stream-body');
-        const scrollEl = document.getElementById('message-stream');
-        if (scrollEl && scrollEl.parentElement) scrollEl.parentElement.scrollTop = scrollEl.parentElement.scrollHeight;
+        if (agentAutoScroll) {
+            const scrollEl = document.getElementById('agent-scroll-area');
+            if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+        }
     }
 }
 
@@ -4356,9 +4424,11 @@ function appendAgentStreamToken(token) {
     _agentStreamBody.textContent += token;
     // Auto-scroll the card itself if it's overflowing
     _agentStreamBody.scrollTop = _agentStreamBody.scrollHeight;
-    // Auto-scroll the page
-    const scrollEl = document.getElementById('message-stream');
-    if (scrollEl && scrollEl.parentElement) scrollEl.parentElement.scrollTop = scrollEl.parentElement.scrollHeight;
+    // Auto-scroll the page only if user hasn't scrolled up
+    if (agentAutoScroll) {
+        const scrollEl = document.getElementById('agent-scroll-area');
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+    }
 }
 
 function finalizeAgentStreamCard() {
