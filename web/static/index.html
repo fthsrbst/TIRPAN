@@ -294,20 +294,49 @@
         <span id="agent-status-detail" class="text-[10px] mono-text text-slate-600 ml-1 truncate hidden"></span>
       </div>
 
-      <!-- Mission feed stream -->
-      <div class="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide" id="agent-scroll-area">
-        <div id="message-stream" class="max-w-4xl mx-auto flex flex-col gap-10 min-h-full">
+      <!-- Mission feed stream + minimap -->
+      <div class="flex-1 flex min-h-0 relative" id="agent-feed-wrapper">
 
-          <!-- Empty state — hidden once mission starts -->
-          <div id="agent-empty-state" class="flex flex-col items-center justify-center flex-1 py-24 gap-5 select-none pointer-events-none">
-            <span class="material-symbols-outlined text-[48px]" style="color:#1A1A1A; font-variation-settings:'FILL' 1;">radar</span>
-            <div class="flex flex-col items-center gap-1">
-              <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">No Active Mission</p>
-              <p class="text-[11px] mono-text" style="color:#333;">Configure a target in the left panel and start a mission</p>
+        <!-- Scrollable feed -->
+        <div class="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide" id="agent-scroll-area">
+          <div id="message-stream" class="max-w-4xl mx-auto flex flex-col gap-10 min-h-full">
+
+            <!-- Empty state — hidden once mission starts -->
+            <div id="agent-empty-state" class="flex flex-col items-center justify-center flex-1 py-24 gap-5 select-none pointer-events-none">
+              <span class="material-symbols-outlined text-[48px]" style="color:#1A1A1A; font-variation-settings:'FILL' 1;">radar</span>
+              <div class="flex flex-col items-center gap-1">
+                <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">No Active Mission</p>
+                <p class="text-[11px] mono-text" style="color:#333;">Configure a target in the left panel and start a mission</p>
+              </div>
             </div>
-          </div>
 
+          </div>
         </div>
+
+        <!-- VS Code-style minimap -->
+        <div id="agent-minimap"
+          style="width:52px; flex-shrink:0; background:#050505; border-left:1px solid #111;
+                 position:relative; cursor:pointer; overflow:hidden;"
+          title="Click to navigate">
+          <canvas id="agent-minimap-canvas" style="width:100%; height:100%; display:block; position:absolute; top:0; left:0;"></canvas>
+          <!-- Viewport highlight overlay (moved by JS) -->
+          <div id="agent-minimap-vp"
+            style="position:absolute; left:0; right:0; top:0; height:40px;
+                   background:rgba(200,255,0,0.06); border-top:1px solid rgba(200,255,0,0.2);
+                   border-bottom:1px solid rgba(200,255,0,0.2); pointer-events:none;"></div>
+        </div>
+
+        <!-- Scroll-to-bottom button (hidden when already at bottom) -->
+        <button id="agent-scroll-btn"
+          onclick="agentForceScrollToBottom()"
+          style="display:none; position:absolute; bottom:14px; right:62px;
+                 width:26px; height:26px; background:#0a0a0a;
+                 border:1px solid rgba(200,255,0,0.35); color:rgba(200,255,0,0.9);
+                 cursor:pointer; z-index:20; align-items:center; justify-content:center;"
+          title="Scroll to bottom">
+          <span class="material-symbols-outlined" style="font-size:15px; line-height:1;">keyboard_arrow_down</span>
+        </button>
+
       </div>
 
       <!-- Agent injection input (only active when mission is running) -->

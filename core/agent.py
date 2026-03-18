@@ -49,6 +49,7 @@ class AgentState(Enum):
     REFLECTING = auto()
     DONE = auto()
     ERROR = auto()
+    WAITING_FOR_OPERATOR = auto()  # post-report pause; exits on inject or kill
 
 
 # ── Agent Context ──────────────────────────────────────────────────────────────
@@ -417,6 +418,26 @@ class PentestAgent:
                 self._state = AgentState.ERROR
                 break
 
+            # ── Waiting-for-operator gate ─────────────────────────────────
+            # Entered after generate_report so operator can inject follow-up
+            # instructions without restarting the session.
+            if self._state == AgentState.WAITING_FOR_OPERATOR:
+                self._emit("waiting_for_operator", {})
+                while self._state == AgentState.WAITING_FOR_OPERATOR:
+                    if self._safety.kill_switch_triggered:
+                        self._state = AgentState.DONE
+                        break
+                    if self._has_pending_inject:
+                        self._has_pending_inject = False
+                        self._state = AgentState.REASONING
+                        break
+                    await asyncio.sleep(0.5)
+                if self._state != AgentState.REASONING:
+                    break  # kill switch or other exit
+                # Operator injected — resume reasoning
+                self._emit("operator_resumed", {})
+                continue
+
             # ── Pause gate — wait until resumed or kill switch fires ──────
             if not self._pause_event.is_set():
                 while not self._pause_event.is_set():
@@ -461,6 +482,30 @@ class PentestAgent:
 
             # ── Terminal action ───────────────────────────────────────────
             if action_dict.get("action") == "generate_report":
+
+                # ask_before_exploit guard: if the agent tries to generate a
+                # report without attempting ANY exploits while vulns exist,
+                # block it and force it to call metasploit_run first.
+                if (
+                    self._ctx.mode == "ask_before_exploit"
+                    and self._ctx.total_vulns > 0
+                    and self._ctx.total_exploits == 0
+                    and not getattr(self, "_ask_exploit_notified", False)
+                ):
+                    self._ask_exploit_notified = True
+                    _block = (
+                        f"[SYSTEM] generate_report BLOCKED — ask_before_exploit mode. "
+                        f"You have {self._ctx.total_vulns} vulnerabilities with 0 exploit "
+                        f"attempts. You MUST call metasploit_run for each viable CVE — "
+                        f"the system will automatically pause and request operator approval "
+                        f"before executing each one. Do NOT call generate_report until you "
+                        f"have attempted all viable exploits or they were rejected by the "
+                        f"operator."
+                    )
+                    self.memory.add_tool_result(_block, pinned=True)
+                    self._state = AgentState.REASONING
+                    continue
+
                 self._emit(
                     "generate_report",
                     {
@@ -469,8 +514,15 @@ class PentestAgent:
                         "exploits": self._ctx.total_exploits,
                     },
                 )
-                self._state = AgentState.DONE
-                break
+                # Enter WAITING_FOR_OPERATOR instead of DONE so the operator
+                # can inject follow-up instructions after the report is shown.
+                # A second generate_report call (or kill switch) exits for real.
+                if getattr(self, "_report_finalized", False):
+                    self._state = AgentState.DONE
+                    break
+                self._report_finalized = True
+                self._state = AgentState.WAITING_FOR_OPERATOR
+                continue
 
             # ── Ask-before-exploit gate ───────────────────────────────────
             if (
