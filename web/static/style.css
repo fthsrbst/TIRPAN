@@ -298,6 +298,46 @@ html.light #view-console .bg-primary {
     overflow-y: auto;
 }
 
+/* ─── Mission Feed: Bubble/Balloon Cards ────────────────────────────────────── */
+
+#mission-feed > * {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+    transition: box-shadow 0.15s ease;
+}
+
+#mission-feed > *:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+/* ─── Minimap: Light Theme ───────────────────────────────────────────────── */
+
+html.light #agent-minimap {
+    background: #f0f0f1 !important;
+    border-left-color: #d4d4d8 !important;
+}
+
+html.light #agent-scroll-btn {
+    background: rgba(255,255,255,0.9) !important;
+    border-color: #d4d4d8 !important;
+    color: #18181b !important;
+}
+
+html.light #agent-scroll-btn:hover {
+    border-color: #4a7c00 !important;
+    color: #4a7c00 !important;
+}
+
+/* Mission cards light theme */
+html.light #mission-feed > * {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+html.light #mission-feed > *:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
 /* Chat empty state fills available space */
 #chat-empty-state {
     min-height: 300px;
