@@ -223,6 +223,16 @@ function switchIntelTab(tabName) {
     const title = document.getElementById('intel-view-title');
     if (icon) icon.textContent = INTEL_TAB_ICONS[tabName] || 'monitoring';
     if (title) title.textContent = tabName.charAt(0).toUpperCase() + tabName.slice(1);
+
+    // When switching to network tab: force fresh render + fit
+    if (tabName === 'network') {
+        setTimeout(() => {
+            // Reset fitted flag so _topoFitView always runs when tab is now visible
+            if (_topoD3State['topo-d3-svg']) _topoD3State['topo-d3-svg'].fitted = false;
+            _topoD3Render('topo-d3-svg', 'topo-tooltip', _topoLastHosts, _topoLastExploits, false);
+            _topoUpdateTimeline();
+        }, 60);
+    }
 }
 
 function initIntelTabs() {
@@ -327,7 +337,14 @@ function initApiKeyToggle() {
 
 function openTopoFullscreen() {
     const overlay = document.getElementById('topo-fullscreen-overlay');
-    if (overlay) overlay.classList.remove('hidden');
+    if (!overlay) return;
+    overlay.classList.remove('hidden');
+    // Render live data into fullscreen SVG
+    const tgt = document.getElementById('topo-fs-target');
+    if (tgt) tgt.textContent = _topoCurrentTarget || '—';
+    setTimeout(() => {
+        _topoD3Render('topo-fs-svg', 'topo-fs-tooltip', _topoLastHosts, _topoLastExploits, true);
+    }, 50);
 }
 
 function closeTopoFullscreen() {
@@ -339,12 +356,15 @@ function initTopoFullscreen() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeTopoFullscreen();
     });
-    const overlay = document.getElementById('topo-fullscreen-overlay');
-    if (overlay) {
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) closeTopoFullscreen();
-        });
+    // Timeline track drag-scrub
+    const track = document.getElementById('topo-timeline-track');
+    if (track) {
+        let dragging = false;
+        track.addEventListener('mousedown', (e) => { dragging = true; seekTopoTimeline(e); });
+        document.addEventListener('mousemove', (e) => { if (dragging) seekTopoTimeline(e); });
+        document.addEventListener('mouseup', () => { dragging = false; });
     }
+    // Fullscreen SVG: init D3 when fullscreen opens (handled in openTopoFullscreen)
 }
 
 // ─── Theme Toggle (Dark / Light) ─────────────────────────────────────────────
@@ -2297,6 +2317,11 @@ function handleSessionEvent(msg) {
 
     } else if (event === 'phase_change' || event === 'discovery') {
         updatePhaseFromEvent(data);
+        // Capture topology phase event for timeline
+        if (data.attack_phase) {
+            _topoEvents.push({ ts: Date.now(), type: 'phase_change', label: `Phase: ${data.attack_phase}` });
+            _topoUpdateTimeline();
+        }
 
     } else if (event === 'generate_report') {
         setPhaseActive(5);
@@ -2948,14 +2973,37 @@ function _updateAnalysisExpanded(vulns) {
     }
 }
 
-// ─── Intel Panel: Network ──────────────────────────────────────────────────────
+// ─── Intel Panel: Network + D3 Topology Engine ────────────────────────────────
 
-let _networkScanResults = [];
-let _networkVulnCount   = 0;
+let _networkScanResults  = [];
+let _networkVulnCount    = 0;
+let _topoLastHosts       = [];
+let _topoLastExploits    = [];
+let _topoCurrentTarget   = '';
+let _topoEvents          = [];   // [{ts, type, ip, data}]
+let _topoTimelinePos     = 0;    // 0.0 – 1.0
+let _topoPlaying         = false;
+let _topoSpeed           = 1;
+let _topoAnimFrame       = null;
+let _topoLastAnimTs      = null;
+let _topoD3State         = {};   // svgId → {zoom, sel, fitted}
+// Snapshot of host/exploit IPs for diff-based event capture
+let _topoPrevHostIPs     = new Set();
+let _topoPrevExploitIPs  = new Set();
 
 function resetNetworkPanel(target) {
     _networkScanResults = [];
     _networkVulnCount   = 0;
+    _topoLastHosts      = [];
+    _topoLastExploits   = [];
+    _topoCurrentTarget  = target || '';
+    _topoEvents         = [];
+    _topoTimelinePos    = 0;
+    _topoPrevHostIPs    = new Set();
+    _topoPrevExploitIPs = new Set();
+    _topoD3State        = {};
+    _topoStopPlay();
+    _topoUpdateTimeline();
 
     const subnetEl = document.getElementById('network-subnet-text');
     if (subnetEl) subnetEl.textContent = target || '—';
@@ -3020,14 +3068,22 @@ function updateNetworkPanelFromSession(data) {
     _networkScanResults  = scanResults;
     _networkVulnCount    = vulnCount;
 
-    const allHosts   = _mergeHosts(scanResults.flatMap(r => r.hosts || []));
-    const openPorts  = allHosts.flatMap(h => h.ports.filter(p => p.state === 'open'));
-    const portCount  = openPorts.length;
+    const allHosts  = _mergeHosts(scanResults.flatMap(r => r.hosts || []));
+    const openPorts = allHosts.flatMap(h => h.ports.filter(p => p.state === 'open'));
+    const portCount = openPorts.length;
+
+    _topoLastHosts    = allHosts;
+    _topoLastExploits = exploitResults;
+    if (data.target) _topoCurrentTarget = data.target;
+
+    // Capture diff-based timeline events from newly seen hosts/exploits
+    _topoCaptureEvents(allHosts, exploitResults, data);
 
     setStatValue('network-hosts-count', allHosts.length || '0');
     setStatValue('network-ports-count', portCount        || '0');
     setStatValue('network-vulns-count', vulnCount        || '0');
 
+    // Small sidebar topology (SVG-based, compact)
     renderNetworkTopology(allHosts, exploitResults);
 
     if (scanResults.length > 0) {
@@ -3042,118 +3098,20 @@ function updateNetworkPanelFromSession(data) {
 
 function _updateNetworkExpanded(data, allHosts, portCount, vulnCount, exploitResults) {
     const setT = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    setT('network-exp-target', data.target || data.name || '—');
-    setT('network-exp-hosts',  allHosts.length || '0');
-    setT('network-exp-ports',  portCount || '0');
-    setT('network-exp-vulns',  vulnCount || '0');
+    setT('network-exp-target',   data.target || data.name || '—');
+    setT('network-exp-hosts',    allHosts.length || '0');
+    setT('network-exp-ports',    portCount || '0');
+    setT('network-exp-vulns',    vulnCount || '0');
 
-    // Render topology directly into expanded SVG (no ID swap)
-    const expSvg = document.getElementById('network-exp-topology-svg');
-    if (expSvg) _renderTopologySVG(expSvg, allHosts, exploitResults);
+    const exploitedCount = new Set((exploitResults || []).filter(e => e.success).map(e => e.host_ip)).size;
+    const lateralCount   = (exploitResults || []).filter(e => e.success && e.source_ip && e.source_ip !== e.host_ip).length;
+    setT('network-exp-exploited', exploitedCount || '0');
+    setT('network-exp-lateral',   lateralCount   || '0');
 
-    // Build exploit lookup: ip → set of exploited port numbers
-    const exploitedPorts = {};
-    (exploitResults || []).forEach(e => {
-        if (e.success && e.host_ip) {
-            if (!exploitedPorts[e.host_ip]) exploitedPorts[e.host_ip] = new Set();
-            exploitedPorts[e.host_ip].add(Number(e.port));
-        }
-    });
+    // D3 topology render
+    _topoD3Render('topo-d3-svg', 'topo-tooltip', allHosts, exploitResults, false);
 
-    // Host details table
-    const tbody = document.getElementById('network-exp-hosts-tbody');
-    if (tbody) {
-        if (allHosts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-4 text-center text-secondary-text text-[10px]">No scan data yet</td></tr>';
-        } else {
-            tbody.innerHTML = allHosts.map(h => {
-                const openCount   = h.ports.filter(p => p.state === 'open').length;
-                const isExploited = !!(exploitedPorts[h.ip]?.size > 0);
-                const hasVuln     = vulnCount > 0;
-                const ipColor     = isExploited ? 'text-danger font-bold' : (hasVuln ? 'text-orange-400' : 'text-slate-300');
-                const statusBadge = isExploited
-                    ? '<span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30 bg-danger/10">PWNED</span>'
-                    : (hasVuln
-                        ? '<span class="text-[7px] text-orange-400 uppercase px-1.5 py-0.5 border border-orange-400/30 bg-orange-400/10">VULN</span>'
-                        : '<span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30">UP</span>');
-                const exploitPortStr = exploitedPorts[h.ip]
-                    ? [...exploitedPorts[h.ip]].join(',') : '—';
-
-                // Render open ports as colored chips
-                const portChips = h.ports.filter(p => p.state === 'open').slice(0, 10).map(p => {
-                    const col = _portRiskColor(p.number);
-                    const isExp = exploitedPorts[h.ip]?.has(p.number);
-                    const style = isExp
-                        ? `background:#3a0000;border:1px solid ${col};color:${col};font-weight:bold;`
-                        : `background:#111;border:1px solid #333;color:${col};`;
-                    const prefix = isExp ? '⚡' : '';
-                    return `<span style="${style}padding:1px 4px;font-size:8px;font-family:monospace;border-radius:2px;margin:1px;">${prefix}${p.number}</span>`;
-                }).join('');
-
-                return `<tr class="border-b border-border-color hover:bg-surface transition-colors">
-                    <td class="px-3 py-2 ${ipColor} mono-text text-[10px]">${_esc(h.ip || '?')}</td>
-                    <td class="px-3 py-2 text-secondary-text text-[9px]">${_esc(h.os || '—')}</td>
-                    <td class="px-3 py-2 text-primary mono-text text-[10px]">${openCount}</td>
-                    <td class="px-3 py-2">${portChips || '<span class="text-secondary-text text-[9px]">—</span>'}</td>
-                    <td class="px-3 py-2">${statusBadge}</td>
-                </tr>`;
-            }).join('');
-        }
-    }
-
-    // Services chips with risk coloring
-    const svcDiv = document.getElementById('network-exp-services');
-    if (svcDiv) {
-        const svcMap = new Map();
-        allHosts.forEach(h => {
-            h.ports.filter(p => p.state === 'open').forEach(p => {
-                const key = p.number;
-                if (!svcMap.has(key)) {
-                    svcMap.set(key, {
-                        port: p.number,
-                        proto: p.protocol || 'tcp',
-                        service: p.service || '',
-                        version: p.version || '',
-                        risk: _portRiskLabel(p.number),
-                        color: _portRiskColor(p.number),
-                        hosts: 0,
-                        exploited: false,
-                    });
-                }
-                const entry = svcMap.get(key);
-                entry.hosts++;
-                if (exploitedPorts[h.ip]?.has(p.number)) entry.exploited = true;
-            });
-        });
-
-        const entries = [...svcMap.values()].sort((a, b) => {
-            const rOrder = { CRIT: 0, HIGH: 1, LOW: 2 };
-            return (rOrder[a.risk] ?? 2) - (rOrder[b.risk] ?? 2) || a.port - b.port;
-        });
-
-        if (entries.length === 0) {
-            svcDiv.innerHTML = '<p class="text-[10px] text-secondary-text mono-text">No services detected yet</p>';
-        } else {
-            svcDiv.innerHTML = entries.map(e => {
-                const exploitBadge = e.exploited
-                    ? '<span style="background:#3a0000;border:1px solid #ff3b3b;color:#ff6666;padding:1px 4px;font-size:7px;border-radius:2px;margin-left:4px;">⚡EXPLOITED</span>'
-                    : '';
-                const riskBadge = `<span style="color:${e.color};font-size:7px;">${e.risk}</span>`;
-                const cls = e.exploited
-                    ? 'border-danger/50 bg-danger/5'
-                    : (e.risk === 'CRIT' ? 'border-danger/30' : e.risk === 'HIGH' ? 'border-orange-500/30' : 'border-border-color');
-                const dotColor = e.exploited ? '#FF3B3B' : (e.risk !== 'LOW' ? e.color : '#444');
-                return `<div class="flex items-center gap-2 px-3 py-1.5 bg-surface border ${cls} mono-text text-[10px]">
-                    <span class="w-1.5 h-1.5 rounded-full" style="background:${dotColor};${e.exploited ? 'animation:pulse 1s infinite;' : ''}"></span>
-                    <span style="color:${e.color};font-weight:bold;">${e.port}</span>
-                    <span class="text-slate-400">/${e.proto}</span>
-                    <span class="text-slate-300">${_esc(e.service)}</span>
-                    ${e.version ? `<span class="text-secondary-text text-[9px]">${_esc(e.version)}</span>` : ''}
-                    <span class="ml-auto text-secondary-text text-[9px]">${riskBadge} ${e.hosts}h${exploitBadge}</span>
-                </div>`;
-            }).join('');
-        }
-    }
+    _topoUpdateTimeline();
 }
 
 function stopNetworkPanel() {
@@ -3163,13 +3121,14 @@ function stopNetworkPanel() {
     if (txt) { txt.textContent = 'Done'; txt.style.color = ''; }
 }
 
+// ── Sidebar mini-topology (compact SVG, unchanged) ────────────────────────────
+
 function renderNetworkTopology(allHosts, exploitResults) {
     const svg = document.getElementById('network-topology-svg');
     if (!svg) return;
     _renderTopologySVG(svg, allHosts, exploitResults);
 }
 
-// Core topology renderer — works for both sidebar and expanded SVG elements
 function _renderTopologySVG(svg, allHosts, exploitResults) {
     if (!allHosts || allHosts.length === 0) {
         svg.innerHTML = `
@@ -3179,55 +3138,36 @@ function _renderTopologySVG(svg, allHosts, exploitResults) {
             <text x="110" y="32" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
         return;
     }
-
-    // Build exploit lookup: ip → set of exploited port numbers
     const exploitedPorts = {};
     (exploitResults || []).forEach(e => {
         if (e.success && e.host_ip) {
             if (!exploitedPorts[e.host_ip]) exploitedPorts[e.host_ip] = new Set();
-            exploitedPorts[e.host_ip].add(Number(e.port));
+            exploitedPorts[e.host_ip].add(Number(e.port || e.target_port || 0));
         }
     });
-
-    const CX = 110, CY = 28;  // AEGIS box center-bottom
-    const R  = 62;             // radius for host layout
-    const hostR = 20;
-
+    const CX = 110, CY = 28, R = 62, hostR = 20;
     let inner = `
         <rect x="83" y="10" width="54" height="26" rx="2" fill="#0c0c00" stroke="#ccff00" stroke-width="1.5"/>
         <text x="${CX}" y="22" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6.5" font-weight="bold">AEGIS</text>
         <text x="${CX}" y="32" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
-
     const count = Math.min(allHosts.length, 8);
     const startAngle = count === 1 ? Math.PI / 2 : Math.PI * 0.15;
     const endAngle   = count === 1 ? Math.PI / 2 : Math.PI * 0.85;
-
     for (let i = 0; i < count; i++) {
-        const angle = count === 1 ? Math.PI / 2
-            : startAngle + (endAngle - startAngle) * (i / (count - 1));
+        const angle = count === 1 ? Math.PI / 2 : startAngle + (endAngle - startAngle) * (i / (count - 1));
         const hx = CX + R * Math.cos(angle);
         const hy = CY + 80 + R * 0.65 * Math.sin(angle);
         const host = allHosts[i];
         const ip   = host.ip || `host${i + 1}`;
-
         const isExploited  = !!(exploitedPorts[ip]?.size > 0);
         const openPorts    = host.ports.filter(p => p.state === 'open');
         const hasRiskyPort = openPorts.some(p => _HIGH_RISK_PORTS.has(p.number) || _MED_RISK_PORTS.has(p.number));
-
-        // Host node color
         const stroke   = isExploited ? '#FF3B3B' : (hasRiskyPort ? '#FF8C00' : '#444444');
         const fill     = isExploited ? '#1a0000' : (hasRiskyPort ? '#1a0a00' : '#111111');
         const txtColor = isExploited ? '#ff6666' : (hasRiskyPort ? '#FF8C00' : '#aaaaaa');
-
-        // Line from AEGIS to host
         const lineStroke = isExploited ? '#FF3B3B' : '#333333';
         const lineDash   = isExploited ? 'stroke-dasharray="4,2"' : '';
-
-        // Entry port label for exploited hosts
         const entryPorts = exploitedPorts[ip] ? [...exploitedPorts[ip]].join(',') : '';
-        const entryLabel = isExploited ? `⚡${entryPorts}` : '';
-
-        // Top 3 open port dots rendered around host circle
         const portDots = openPorts.slice(0, 6).map((p, pi) => {
             const da = (pi - (Math.min(openPorts.length, 6) - 1) / 2) * (Math.PI / 8);
             const px = hx + hostR * 1.35 * Math.cos(-Math.PI / 2 + da);
@@ -3237,9 +3177,7 @@ function _renderTopologySVG(svg, allHosts, exploitResults) {
             return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.5" fill="#0a0a0a" stroke="${pc}" stroke-width="${pw}"/>
                     <text x="${px.toFixed(1)}" y="${(py + 1.5).toFixed(1)}" text-anchor="middle" fill="${pc}" font-family="monospace" font-size="3.5">${p.number}</text>`;
         }).join('');
-
         const lastOctet = ip.split('.').pop() || ip;
-
         inner += `
             <line x1="${CX}" y1="36" x2="${hx.toFixed(1)}" y2="${(hy - hostR).toFixed(1)}"
                   stroke="${lineStroke}" stroke-width="${isExploited ? 1.5 : 0.8}" opacity="${isExploited ? 0.9 : 0.4}" ${lineDash}/>
@@ -3253,12 +3191,684 @@ function _renderTopologySVG(svg, allHosts, exploitResults) {
                   fill="${stroke}" font-family="monospace" font-size="5">${isExploited ? 'PWNED' : (openPorts.length + 'pts')}</text>
             ${portDots}`;
     }
-
     if (allHosts.length > 8) {
         inner += `<text x="${CX}" y="175" text-anchor="middle" fill="#555" font-family="monospace" font-size="6">+${allHosts.length - 8} more hosts</text>`;
     }
-
     svg.innerHTML = inner;
+}
+
+// ── D3 Full-Page Topology Engine ──────────────────────────────────────────────
+
+function _topoD3Init(svgId, tooltipId) {
+    if (!window.d3) return null;
+    const svgEl = document.getElementById(svgId);
+    if (!svgEl) return null;
+    const d3 = window.d3;
+    const sel = d3.select(svgEl);
+    sel.selectAll('*').remove();
+
+    // Arrow markers
+    const defs = sel.append('defs');
+    const _arrow = (id, color) => defs.append('marker')
+        .attr('id', id).attr('viewBox','0 -5 10 10').attr('refX',8).attr('refY',0)
+        .attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+        .append('path').attr('d','M0,-5L10,0L0,5').attr('fill', color);
+    _arrow('topo-arr-exploit', '#FF3B3B');
+    _arrow('topo-arr-lateral', '#fb923c');
+    _arrow('topo-arr-scan',    '#333');
+
+    const g = sel.append('g').attr('id', `${svgId}-root`);
+    g.append('g').attr('class','topo-links');
+    g.append('g').attr('class','topo-laterals');
+    g.append('g').attr('class','topo-nodes');
+
+    const zoom = d3.zoom().scaleExtent([0.05, 8]).on('zoom', ev => g.attr('transform', ev.transform));
+    sel.call(zoom).on('dblclick.zoom', null);
+
+    const state = { zoom, sel, g, svgId, tooltipId, fitted: false };
+    _topoD3State[svgId] = state;
+    return state;
+}
+
+function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen) {
+    if (!window.d3) return;
+    let state = _topoD3State[svgId];
+    if (!state) state = _topoD3Init(svgId, tooltipId);
+    if (!state) return;
+
+    const d3      = window.d3;
+    const svgEl   = document.getElementById(svgId);
+    if (!svgEl) return;
+    // Use real dimensions; fall back to safe defaults when element is hidden
+    const realW = svgEl.clientWidth;
+    const realH = svgEl.clientHeight;
+    const hidden = (realW === 0 || realH === 0);
+    const W = hidden ? 900 : realW;
+    const H = hidden ? 600 : realH;
+
+    // Empty state: show placeholder when no hosts yet
+    const emptyG = state.g.select('.topo-empty');
+    if (allHosts.length === 0) {
+        if (emptyG.empty()) {
+            const eg = state.g.append('g').attr('class', 'topo-empty').attr('transform', `translate(${W/2},${H/2})`);
+            eg.append('text').attr('text-anchor','middle').attr('y',-12)
+                .attr('fill','#1a1a1a').attr('font-family','monospace').attr('font-size', 13).attr('font-weight','bold').text('AEGIS');
+            eg.append('text').attr('text-anchor','middle').attr('y',8)
+                .attr('fill','#2a2a2a').attr('font-family','monospace').attr('font-size', 10).text('Waiting for scan results…');
+            eg.append('text').attr('text-anchor','middle').attr('y',26)
+                .attr('fill','#1a1a1a').attr('font-family','monospace').attr('font-size', 9).text('Start a mission or load a session');
+        }
+        return;
+    }
+    state.g.select('.topo-empty').remove();
+
+    // Build exploit map: ip → {ports, modules, sessions, source_ip}
+    const xMap = {};
+    (exploitResults || []).forEach(e => {
+        if (!e.host_ip) return;
+        if (!xMap[e.host_ip]) xMap[e.host_ip] = { ports: new Set(), modules: [], sessions: 0, sources: new Set() };
+        xMap[e.host_ip].ports.add(Number(e.port || e.target_port || 0));
+        if (e.module) xMap[e.host_ip].modules.push(e.module);
+        if (e.session_opened || e.session_id) xMap[e.host_ip].sessions++;
+        if (e.source_ip) xMap[e.host_ip].sources.add(e.source_ip);
+    });
+
+    // Lateral movement edges: {from_ip, to_ip, port, module}
+    const laterals = (exploitResults || [])
+        .filter(e => e.success && e.source_ip && e.source_ip !== e.host_ip && e.source_ip !== '' && allHosts.find(h => h.ip === e.source_ip))
+        .map(e => ({ from_ip: e.source_ip, to_ip: e.host_ip, port: e.port || e.target_port || 0, module: e.module || '' }));
+
+    // Layout: AEGIS center-top, hosts in grid rows
+    const AEGIS_X = W / 2, AEGIS_Y = isFullscreen ? 70 : 60;
+    const nodeR   = isFullscreen ? 36 : 30;
+    const COLS    = allHosts.length <= 3 ? allHosts.length : allHosts.length <= 8 ? 4 : Math.min(6, Math.ceil(Math.sqrt(allHosts.length)));
+    const COL_W   = Math.max(nodeR * 4.5, (W - 100) / Math.max(COLS, 1));
+    const ROW_H   = nodeR * 5.5;
+    const gridW   = COLS * COL_W;
+    const gridOffX = (W - gridW) / 2 + COL_W / 2;
+
+    const hostPos = {};
+    allHosts.forEach((h, i) => {
+        const col = i % COLS;
+        const row = Math.floor(i / COLS);
+        hostPos[h.ip] = { x: gridOffX + col * COL_W, y: AEGIS_Y + 100 + row * ROW_H };
+    });
+
+    const sel = state.sel;
+    const g   = state.g;
+
+    // ── Links: AEGIS → host ───────────────────────────────────────────────────
+    const linksG = g.select('.topo-links');
+    const linkSel = linksG.selectAll('.topo-link').data(allHosts, d => d.ip);
+    linkSel.enter().append('line').attr('class','topo-link')
+        .merge(linkSel)
+        .attr('x1', AEGIS_X).attr('y1', AEGIS_Y + 20)
+        .attr('x2', d => hostPos[d.ip]?.x || 0).attr('y2', d => (hostPos[d.ip]?.y || 0) - nodeR)
+        .attr('stroke', d => xMap[d.ip] ? '#FF3B3B' : '#222')
+        .attr('stroke-width', d => xMap[d.ip] ? 1.5 : 0.8)
+        .attr('stroke-dasharray', d => xMap[d.ip] ? '6,3' : '3,4')
+        .attr('opacity', d => xMap[d.ip] ? 0.6 : 0.25)
+        .attr('marker-end', d => xMap[d.ip] ? 'url(#topo-arr-exploit)' : 'url(#topo-arr-scan)');
+    linkSel.exit().remove();
+
+    // Port label on exploited links
+    const portLabelSel = linksG.selectAll('.topo-link-lbl').data(allHosts.filter(h => xMap[h.ip]), d => d.ip);
+    portLabelSel.enter().append('text').attr('class','topo-link-lbl')
+        .merge(portLabelSel)
+        .attr('x', d => (AEGIS_X + (hostPos[d.ip]?.x || 0)) / 2)
+        .attr('y', d => (AEGIS_Y + 20 + (hostPos[d.ip]?.y || 0) - nodeR) / 2 - 4)
+        .attr('text-anchor','middle').attr('fill','#FF3B3B').attr('font-family','monospace')
+        .attr('font-size', isFullscreen ? 9 : 7)
+        .text(d => xMap[d.ip] ? `⚡${[...xMap[d.ip].ports].filter(Boolean).join(',')}` : '');
+    portLabelSel.exit().remove();
+
+    // ── Lateral movement paths ─────────────────────────────────────────────────
+    const latG = g.select('.topo-laterals');
+    const latSel = latG.selectAll('.topo-lateral').data(laterals, d => `${d.from_ip}-${d.to_ip}`);
+    latSel.enter().append('path').attr('class','topo-lateral')
+        .merge(latSel)
+        .attr('d', d => {
+            const p1 = hostPos[d.from_ip] || { x: AEGIS_X, y: AEGIS_Y };
+            const p2 = hostPos[d.to_ip]   || { x: AEGIS_X, y: AEGIS_Y };
+            const mx = (p1.x + p2.x) / 2;
+            const my = Math.min(p1.y, p2.y) - nodeR * 2.5;
+            return `M${p1.x},${p1.y} Q${mx},${my} ${p2.x},${p2.y}`;
+        })
+        .attr('stroke','#fb923c').attr('stroke-width', isFullscreen ? 2 : 1.5)
+        .attr('stroke-dasharray','8,4').attr('fill','none').attr('opacity',0.85)
+        .attr('marker-end','url(#topo-arr-lateral)');
+    latSel.exit().remove();
+
+    // Lateral port labels
+    const latLblSel = latG.selectAll('.topo-lat-lbl').data(laterals, d => `${d.from_ip}-${d.to_ip}`);
+    latLblSel.enter().append('text').attr('class','topo-lat-lbl')
+        .merge(latLblSel)
+        .attr('x', d => {
+            const p1 = hostPos[d.from_ip] || { x: AEGIS_X, y: AEGIS_Y };
+            const p2 = hostPos[d.to_ip]   || { x: AEGIS_X, y: AEGIS_Y };
+            return (p1.x + p2.x) / 2;
+        })
+        .attr('y', d => {
+            const p1 = hostPos[d.from_ip] || { x: AEGIS_X, y: AEGIS_Y };
+            const p2 = hostPos[d.to_ip]   || { x: AEGIS_X, y: AEGIS_Y };
+            return Math.min(p1.y, p2.y) - nodeR * 2.8;
+        })
+        .attr('text-anchor','middle').attr('fill','#fb923c').attr('font-family','monospace')
+        .attr('font-size', isFullscreen ? 10 : 8)
+        .text(d => `LATERAL :${d.port}`);
+    latLblSel.exit().remove();
+
+    // ── Host nodes ─────────────────────────────────────────────────────────────
+    const nodesG = g.select('.topo-nodes');
+
+    // AEGIS node
+    let aegisG = nodesG.select('#topo-aegis');
+    if (aegisG.empty()) {
+        aegisG = nodesG.append('g').attr('id','topo-aegis');
+        aegisG.append('rect').attr('class','topo-aegis-rect')
+            .attr('rx',2).attr('fill','#0c0c00').attr('stroke','#ccff00').attr('stroke-width',1.5);
+        aegisG.append('text').attr('class','topo-aegis-t1').attr('text-anchor','middle')
+            .attr('fill','#ccff00').attr('font-family','monospace').attr('font-weight','bold').text('AEGIS');
+        aegisG.append('text').attr('class','topo-aegis-t2').attr('text-anchor','middle')
+            .attr('fill','#778800').attr('font-family','monospace').text('AGENT');
+        aegisG.append('circle').attr('class','topo-aegis-dot').attr('fill','#ccff00');
+    }
+    const bw = isFullscreen ? 80 : 64, bh = isFullscreen ? 34 : 28, fs1 = isFullscreen ? 12 : 9, fs2 = isFullscreen ? 9 : 7;
+    aegisG.attr('transform',`translate(${AEGIS_X},${AEGIS_Y})`);
+    aegisG.select('.topo-aegis-rect').attr('x',-bw/2).attr('y',-bh/2).attr('width',bw).attr('height',bh);
+    aegisG.select('.topo-aegis-t1').attr('y',-2).attr('font-size',fs1);
+    aegisG.select('.topo-aegis-t2').attr('y',bh/2-4).attr('font-size',fs2);
+    aegisG.select('.topo-aegis-dot').attr('cx',bw/2-4).attr('cy',-bh/2+4).attr('r', isFullscreen ? 5 : 4);
+
+    // Host node groups
+    const nodeSel = nodesG.selectAll('.topo-host').data(allHosts, d => d.ip);
+    const nodeEnter = nodeSel.enter().append('g').attr('class','topo-host')
+        .attr('cursor','pointer')
+        .on('mouseenter', (ev, d) => _topoShowTooltip(ev, d, xMap, exploitResults, tooltipId))
+        .on('mousemove',  (ev)     => _topoMoveTooltip(ev, tooltipId))
+        .on('mouseleave', ()       => _topoHideTooltip(tooltipId))
+        .on('click',      (ev, d)  => { ev.stopPropagation(); showHostDetailPanel(d, xMap, exploitResults); });
+
+    // Outer glow ring
+    nodeEnter.append('circle').attr('class','topo-outer');
+    // Main circle
+    nodeEnter.append('circle').attr('class','topo-circle');
+    // IP text
+    nodeEnter.append('text').attr('class','topo-ip').attr('text-anchor','middle').attr('font-family','monospace').attr('font-weight','bold');
+    // Status text
+    nodeEnter.append('text').attr('class','topo-status').attr('text-anchor','middle').attr('font-family','monospace');
+    // OS text
+    nodeEnter.append('text').attr('class','topo-os').attr('text-anchor','middle').attr('font-family','monospace');
+    // Port dots group
+    nodeEnter.append('g').attr('class','topo-pdots');
+
+    const allNodeSel = nodeEnter.merge(nodeSel);
+    allNodeSel.attr('transform', d => {
+        const p = hostPos[d.ip] || { x: W/2, y: H/2 };
+        return `translate(${p.x},${p.y})`;
+    });
+
+    allNodeSel.select('.topo-outer')
+        .attr('r', nodeR + 6)
+        .attr('fill','none')
+        .attr('stroke', d => xMap[d.ip] ? '#FF3B3B' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#2a2a2a'))
+        .attr('stroke-width', d => xMap[d.ip] ? 1.5 : 1)
+        .attr('stroke-dasharray', d => xMap[d.ip] ? null : '3,3')
+        .attr('opacity', 0.6);
+
+    allNodeSel.select('.topo-circle')
+        .attr('r', nodeR)
+        .attr('fill', d => xMap[d.ip] ? '#1a0000' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#1a0800' : '#0f0f0f'))
+        .attr('stroke', d => xMap[d.ip] ? '#FF3B3B' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#333'))
+        .attr('stroke-width', d => xMap[d.ip] ? 2.5 : 1.5);
+
+    allNodeSel.select('.topo-ip')
+        .attr('y', d => xMap[d.ip] ? -5 : -4)
+        .attr('font-size', isFullscreen ? 13 : 11)
+        .attr('fill', d => xMap[d.ip] ? '#ff5555' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#aaa'))
+        .text(d => `.${(d.ip || '').split('.').pop()}`);
+
+    allNodeSel.select('.topo-status')
+        .attr('y', d => xMap[d.ip] ? nodeR - 8 : nodeR - 8)
+        .attr('font-size', isFullscreen ? 8 : 7)
+        .attr('fill', d => xMap[d.ip] ? '#FF3B3B' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#555'))
+        .text(d => xMap[d.ip] ? 'PWNED' : (d.ports.filter(p => p.state === 'open').length + ' ports'));
+
+    allNodeSel.select('.topo-os')
+        .attr('y', d => xMap[d.ip] ? 7 : 6)
+        .attr('font-size', isFullscreen ? 8 : 7)
+        .attr('fill', '#555')
+        .text(d => (d.os || '').split(' ').slice(0,2).join(' ').slice(0,12) || '');
+
+    // Port dots around each host
+    allNodeSel.each(function(d) {
+        const openPorts = d.ports.filter(p => p.state === 'open').slice(0, 8);
+        const pdG = d3.select(this).select('.topo-pdots');
+        const dotR = nodeR * 1.45;
+        const pdSel = pdG.selectAll('.pdot').data(openPorts, p => p.number);
+        pdSel.enter().append('circle').attr('class','pdot')
+            .merge(pdSel)
+            .attr('r', isFullscreen ? 5 : 4)
+            .attr('cx', (p, pi) => { const n = openPorts.length; const a = -Math.PI/2 + (pi/(Math.max(n-1,1))) * Math.PI; return dotR * Math.cos(a); })
+            .attr('cy', (p, pi) => { const n = openPorts.length; const a = -Math.PI/2 + (pi/(Math.max(n-1,1))) * Math.PI; return dotR * Math.sin(a); })
+            .attr('fill','#080808')
+            .attr('stroke', p => _portRiskColor(p.number))
+            .attr('stroke-width', p => xMap[d.ip]?.ports.has(p.number) ? 2.5 : 1.5);
+        pdSel.exit().remove();
+
+        // Port number labels (fullscreen only)
+        if (isFullscreen) {
+            const plSel = pdG.selectAll('.plbl').data(openPorts, p => p.number);
+            plSel.enter().append('text').attr('class','plbl')
+                .merge(plSel)
+                .attr('x', (p, pi) => { const n = openPorts.length; const a = -Math.PI/2 + (pi/(Math.max(n-1,1))) * Math.PI; return (dotR+14) * Math.cos(a); })
+                .attr('y', (p, pi) => { const n = openPorts.length; const a = -Math.PI/2 + (pi/(Math.max(n-1,1))) * Math.PI; return (dotR+14) * Math.sin(a) + 3; })
+                .attr('text-anchor','middle').attr('fill', p => _portRiskColor(p.number))
+                .attr('font-family','monospace').attr('font-size', 8)
+                .text(p => p.number);
+            plSel.exit().remove();
+        }
+    });
+
+    nodeSel.exit().remove();
+
+    // Click on SVG background closes detail panel
+    sel.on('click', () => hideHostDetailPanel());
+
+    // Auto-fit: only mark as fitted when the SVG is actually visible (has real dimensions)
+    if (!state.fitted && allHosts.length > 0 && !hidden) {
+        state.fitted = true;
+        setTimeout(() => _topoFitView(isFullscreen, svgId), 100);
+    }
+}
+
+function _topoFitView(isFullscreen, svgId) {
+    if (!window.d3) return;
+    const sid = svgId || (isFullscreen ? 'topo-fs-svg' : 'topo-d3-svg');
+    const state = _topoD3State[sid];
+    if (!state) return;
+    const svgEl = document.getElementById(sid);
+    const rootEl = document.getElementById(`${sid}-root`);
+    if (!svgEl || !rootEl) return;
+    const svgR  = svgEl.getBoundingClientRect();
+    const gR    = rootEl.getBoundingClientRect();
+    if (!svgR.width || !gR.width) return;
+    const scale = Math.min(svgR.width / (gR.width + 80), svgR.height / (gR.height + 80), 1.2);
+    const tx    = (svgR.width  - gR.width  * scale) / 2 - (gR.left  - svgR.left)  * scale;
+    const ty    = (svgR.height - gR.height * scale) / 2 - (gR.top   - svgR.top)   * scale;
+    state.sel.transition().duration(400)
+        .call(state.zoom.transform, window.d3.zoomIdentity.translate(tx, ty).scale(scale));
+}
+
+// ── Hover Tooltip ─────────────────────────────────────────────────────────────
+
+function _topoShowTooltip(ev, host, xMap, exploitResults, tooltipId) {
+    const tip = document.getElementById(tooltipId || 'topo-tooltip');
+    if (!tip) return;
+    const ex       = xMap[host.ip];
+    const openPorts = host.ports.filter(p => p.state === 'open');
+    const isEx     = !!ex;
+    const statusColor = isEx ? '#FF3B3B' : (openPorts.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#ccff00');
+    const statusText  = isEx ? 'EXPLOITED' : (openPorts.length > 0 ? 'SCANNED' : 'UP');
+
+    const portRows = openPorts.slice(0, 8).map(p => {
+        const c = _portRiskColor(p.number);
+        const isExp = ex?.ports.has(p.number);
+        return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;">
+            <span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0"></span>
+            <span style="color:${isExp ? '#FF3B3B' : c};font-weight:${isExp ? 'bold' : 'normal'}">${p.number}</span>
+            <span style="color:#555">/${p.protocol || 'tcp'}</span>
+            <span style="color:#888">${_esc(p.service || '')}</span>
+            ${isExp ? '<span style="color:#FF3B3B;margin-left:auto">⚡</span>' : ''}
+        </div>`;
+    }).join('');
+
+    const moduleList = ex ? [...new Set(ex.modules)].slice(0, 3).map(m => `<div style="color:#FF3B3B;padding:1px 0;">↳ ${_esc(m)}</div>`).join('') : '';
+    const lateralSrc = (exploitResults || []).filter(e => e.host_ip === host.ip && e.source_ip).map(e => e.source_ip);
+    const lateralTgt = (exploitResults || []).filter(e => e.source_ip === host.ip).map(e => e.host_ip);
+
+    tip.innerHTML = `
+        <div style="color:${statusColor};font-weight:bold;font-size:11px;margin-bottom:6px;border-bottom:1px solid #1a1a1a;padding-bottom:5px;">
+            ${_esc(host.ip)} ${host.hostname ? `<span style="color:#555;font-weight:normal">(${_esc(host.hostname)})</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>
+            <span style="color:${statusColor}">${statusText}</span>
+            ${host.os ? `<span style="color:#555;margin-left:auto">${_esc(host.os.slice(0,24))}</span>` : ''}
+        </div>
+        ${openPorts.length > 0 ? `<div style="color:#444;margin-bottom:3px;font-size:9px;text-transform:uppercase;letter-spacing:1px">Open Ports (${openPorts.length})</div>${portRows}` : ''}
+        ${ex ? `<div style="color:#444;margin-top:6px;margin-bottom:3px;font-size:9px;text-transform:uppercase;letter-spacing:1px">Modules</div>${moduleList}` : ''}
+        ${lateralSrc.length ? `<div style="color:#fb923c;margin-top:5px;font-size:9px">← Pivot from: ${lateralSrc.join(', ')}</div>` : ''}
+        ${lateralTgt.length ? `<div style="color:#fb923c;font-size:9px">→ Moved to: ${lateralTgt.join(', ')}</div>` : ''}
+    `;
+    tip.classList.remove('hidden');
+    _topoMoveTooltip(ev, tooltipId);
+}
+
+function _topoMoveTooltip(ev, tooltipId) {
+    const tip = document.getElementById(tooltipId || 'topo-tooltip');
+    if (!tip || tip.classList.contains('hidden')) return;
+    const container = tip.parentElement;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    let x = ev.clientX - rect.left + 14;
+    let y = ev.clientY - rect.top  - 10;
+    if (x + 300 > container.clientWidth)  x = ev.clientX - rect.left - 300;
+    if (y + 200 > container.clientHeight) y = ev.clientY - rect.top  - 200;
+    tip.style.left = `${Math.max(0, x)}px`;
+    tip.style.top  = `${Math.max(0, y)}px`;
+}
+
+function _topoHideTooltip(tooltipId) {
+    const tip = document.getElementById(tooltipId || 'topo-tooltip');
+    if (tip) tip.classList.add('hidden');
+}
+
+// ── Host Detail Panel ─────────────────────────────────────────────────────────
+
+function showHostDetailPanel(host, xMap, exploitResults) {
+    const panel   = document.getElementById('topo-detail-panel');
+    const content = document.getElementById('topo-detail-content');
+    const ipEl    = document.getElementById('topo-detail-ip');
+    const dotEl   = document.getElementById('topo-detail-status-dot');
+    if (!panel || !content) return;
+
+    const ex = xMap[host.ip];
+    const isEx = !!ex;
+    const openPorts = host.ports.filter(p => p.state === 'open');
+    const hasRisk   = openPorts.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number));
+    const dotColor  = isEx ? '#FF3B3B' : (hasRisk ? '#FF8C00' : '#ccff00');
+
+    if (ipEl) ipEl.textContent = host.ip || '—';
+    if (dotEl) dotEl.style.background = dotColor;
+
+    // All exploit results for this host
+    const hostExploits = (exploitResults || []).filter(e => e.host_ip === host.ip);
+    const lateralIn    = hostExploits.filter(e => e.source_ip && e.source_ip !== host.ip);
+    const lateralOut   = (exploitResults || []).filter(e => e.source_ip === host.ip && e.host_ip !== host.ip);
+
+    const badge = (text, color) =>
+        `<span style="font-size:7px;color:${color};border:1px solid ${color}33;padding:1px 5px;background:${color}10">${text}</span>`;
+
+    const statusBadge = isEx ? badge('PWNED', '#FF3B3B') : (hasRisk ? badge('VULNERABLE', '#FF8C00') : badge('UP', '#ccff00'));
+
+    content.innerHTML = `
+        <!-- Info card -->
+        <div style="border:1px solid #1a1a1a;padding:10px;background:#0a0a0a">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:1px;font-family:monospace">Host Info</span>
+                ${statusBadge}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px;font-family:monospace;font-size:10px;">
+                <div style="display:flex;gap:8px"><span style="color:#555;width:60px">IP</span><span style="color:#aaa">${_esc(host.ip || '—')}</span></div>
+                ${host.hostname ? `<div style="display:flex;gap:8px"><span style="color:#555;width:60px">Host</span><span style="color:#aaa">${_esc(host.hostname)}</span></div>` : ''}
+                ${host.os ? `<div style="display:flex;gap:8px"><span style="color:#555;width:60px">OS</span><span style="color:#aaa">${_esc(host.os.slice(0,32))}</span></div>` : ''}
+                <div style="display:flex;gap:8px"><span style="color:#555;width:60px">Ports</span><span style="color:#ccff00">${openPorts.length} open</span></div>
+                ${isEx ? `<div style="display:flex;gap:8px"><span style="color:#555;width:60px">Sessions</span><span style="color:#FF3B3B">${ex.sessions} active</span></div>` : ''}
+            </div>
+        </div>
+
+        <!-- Open ports -->
+        <div style="border:1px solid #1a1a1a;padding:10px;background:#0a0a0a">
+            <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:1px;font-family:monospace;margin-bottom:8px">
+                Open Ports (${openPorts.length})
+            </div>
+            ${openPorts.length === 0 ? '<div style="color:#333;font-family:monospace;font-size:10px">No open ports</div>' :
+                openPorts.map(p => {
+                    const c   = _portRiskColor(p.number);
+                    const lbl = _portRiskLabel(p.number);
+                    const isExp = ex?.ports.has(p.number);
+                    return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #111;font-family:monospace;font-size:10px;">
+                        <span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0"></span>
+                        <span style="color:${c};font-weight:bold;width:40px">${p.number}</span>
+                        <span style="color:#555;width:28px">/${p.protocol || 'tcp'}</span>
+                        <span style="color:#888;flex:1">${_esc(p.service || '—')}</span>
+                        <span style="color:${c};font-size:8px">${lbl}</span>
+                        ${isExp ? '<span style="color:#FF3B3B;font-size:9px">⚡</span>' : ''}
+                    </div>`;
+                }).join('')
+            }
+        </div>
+
+        <!-- Exploit attempts -->
+        ${hostExploits.length > 0 ? `
+        <div style="border:1px solid #1a1a1a;padding:10px;background:#0a0a0a">
+            <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:1px;font-family:monospace;margin-bottom:8px">
+                Exploit Attempts (${hostExploits.length})
+            </div>
+            ${hostExploits.map(e => `
+                <div style="padding:5px 0;border-bottom:1px solid #0f0f0f;font-family:monospace;font-size:9px">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                        <span style="color:${e.success ? '#FF3B3B' : '#444'}">●</span>
+                        <span style="color:${e.success ? '#FF3B3B' : '#555'};font-weight:${e.success ? 'bold' : 'normal'}">${_esc(e.module || '—')}</span>
+                        <span style="margin-left:auto;color:${e.success ? '#FF3B3B' : '#333'}">${e.success ? '✓ SUCCESS' : '✗ FAIL'}</span>
+                    </div>
+                    <div style="color:#555;padding-left:14px">port ${e.port || e.target_port || '?'} ${e.payload ? '· ' + _esc(e.payload.split('/').pop() || '') : ''}</div>
+                    ${e.source_ip ? `<div style="color:#fb923c;padding-left:14px">← via ${_esc(e.source_ip)}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>` : ''}
+
+        <!-- Lateral movement -->
+        ${(lateralIn.length > 0 || lateralOut.length > 0) ? `
+        <div style="border:1px solid #fb923c33;padding:10px;background:#0a0500">
+            <div style="font-size:9px;color:#fb923c;text-transform:uppercase;letter-spacing:1px;font-family:monospace;margin-bottom:8px">
+                Lateral Movement
+            </div>
+            ${lateralIn.map(e => `
+                <div style="font-family:monospace;font-size:9px;color:#fb923c;padding:2px 0">
+                    ← Pivot IN from ${_esc(e.source_ip)} via port ${e.port || '?'} (${_esc(e.module || '—')})
+                </div>`).join('')}
+            ${lateralOut.map(e => `
+                <div style="font-family:monospace;font-size:9px;color:#fb923c;padding:2px 0">
+                    → Pivot OUT to ${_esc(e.host_ip)} via port ${e.port || '?'} (${_esc(e.module || '—')})
+                </div>`).join('')}
+        </div>` : ''}
+    `;
+
+    panel.classList.remove('hidden');
+    panel.style.display = 'flex';
+}
+
+function hideHostDetailPanel() {
+    const panel = document.getElementById('topo-detail-panel');
+    if (panel) { panel.classList.add('hidden'); panel.style.display = ''; }
+}
+
+// ── Timeline Engine ───────────────────────────────────────────────────────────
+
+const _TOPO_EVENT_COLORS = {
+    host_discovered: '#60a5fa',
+    port_scan:       '#ccff00',
+    vuln_found:      '#f97316',
+    exploit_attempt: '#cc2222',
+    exploit_success: '#FF3B3B',
+    lateral_move:    '#fb923c',
+    privesc:         '#a855f7',
+    phase_change:    '#555555',
+};
+
+function _topoCaptureEvents(allHosts, exploitResults, data) {
+    const now = Date.now();
+    // Detect new hosts
+    allHosts.forEach(h => {
+        if (!_topoPrevHostIPs.has(h.ip)) {
+            _topoPrevHostIPs.add(h.ip);
+            _topoEvents.push({ ts: now, type: 'host_discovered', ip: h.ip, label: `Discovered ${h.ip}` });
+            if (h.ports.filter(p => p.state === 'open').length > 0) {
+                _topoEvents.push({ ts: now + 1, type: 'port_scan', ip: h.ip, label: `Port scan ${h.ip}` });
+            }
+        }
+    });
+    // Detect new successful exploits
+    (exploitResults || []).forEach(e => {
+        if (!e.host_ip) return;
+        const key = `${e.host_ip}:${e.port || 0}:${e.module}`;
+        if (!_topoPrevExploitIPs.has(key)) {
+            _topoPrevExploitIPs.add(key);
+            const isLateral = e.source_ip && e.source_ip !== e.host_ip;
+            _topoEvents.push({
+                ts:    now + 2,
+                type:  e.success ? (isLateral ? 'lateral_move' : 'exploit_success') : 'exploit_attempt',
+                ip:    e.host_ip,
+                label: e.success ? `Exploit ${e.host_ip}:${e.port || '?'}` : `Attempt ${e.host_ip}:${e.port || '?'}`,
+            });
+        }
+    });
+    _topoUpdateTimeline();
+}
+
+function _topoReconstructEvents(allHosts, exploitResults) {
+    // Reconstruct a synthetic timeline for historical data load
+    _topoEvents = [];
+    _topoPrevHostIPs    = new Set();
+    _topoPrevExploitIPs = new Set();
+    const now = Date.now();
+    const step = 5000;
+    allHosts.forEach((h, i) => {
+        _topoPrevHostIPs.add(h.ip);
+        _topoEvents.push({ ts: now - (allHosts.length - i) * step * 3, type: 'host_discovered', ip: h.ip, label: `Discovered ${h.ip}` });
+        if (h.ports.filter(p => p.state === 'open').length > 0) {
+            _topoEvents.push({ ts: now - (allHosts.length - i) * step * 3 + step, type: 'port_scan', ip: h.ip, label: `Scan ${h.ip}` });
+        }
+    });
+    (exploitResults || []).forEach((e, i) => {
+        if (!e.host_ip) return;
+        const key = `${e.host_ip}:${e.port || 0}:${e.module}`;
+        _topoPrevExploitIPs.add(key);
+        const isLateral = e.source_ip && e.source_ip !== e.host_ip;
+        _topoEvents.push({
+            ts:    now - step * (exploitResults.length - i),
+            type:  e.success ? (isLateral ? 'lateral_move' : 'exploit_success') : 'exploit_attempt',
+            ip:    e.host_ip,
+            label: e.success ? `Exploit ${e.host_ip}:${e.port || '?'}` : `Attempt ${e.host_ip}:${e.port || '?'}`,
+        });
+    });
+    _topoEvents.sort((a, b) => a.ts - b.ts);
+}
+
+function _topoUpdateTimeline() {
+    const track = document.getElementById('topo-timeline-track');
+    const evContainer = document.getElementById('topo-timeline-events');
+    const cursor = document.getElementById('topo-timeline-cursor');
+    if (!track || !evContainer) return;
+
+    if (_topoEvents.length === 0) {
+        evContainer.innerHTML = '';
+        if (cursor) cursor.style.left = '0%';
+        _topoSetTimeDisplay();
+        return;
+    }
+
+    const minTs = _topoEvents[0].ts;
+    const maxTs = _topoEvents[_topoEvents.length - 1].ts;
+    const span  = Math.max(maxTs - minTs, 1);
+
+    // Render event dots
+    evContainer.innerHTML = _topoEvents.map(ev => {
+        const pct = ((ev.ts - minTs) / span) * 100;
+        const col = _TOPO_EVENT_COLORS[ev.type] || '#555';
+        return `<div title="${_esc(ev.label || ev.type)}" style="position:absolute;left:${pct.toFixed(2)}%;top:50%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:${col};cursor:pointer;border:1px solid #000" onclick="seekTopoTimelinePct(${pct})"></div>`;
+    }).join('');
+
+    // Update cursor position
+    if (cursor) cursor.style.left = `${(_topoTimelinePos * 100).toFixed(2)}%`;
+    _topoSetTimeDisplay();
+}
+
+function _topoSetTimeDisplay() {
+    const el = document.getElementById('topo-time-display');
+    if (!el) return;
+    if (_topoEvents.length === 0) { el.textContent = '— / —'; return; }
+    const minTs = _topoEvents[0].ts;
+    const maxTs = _topoEvents[_topoEvents.length - 1].ts;
+    const curTs = minTs + (maxTs - minTs) * _topoTimelinePos;
+    const fmt = ms => { const s = Math.floor(ms / 1000); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; };
+    el.textContent = `${fmt(curTs - minTs)} / ${fmt(maxTs - minTs)}`;
+}
+
+function seekTopoTimeline(ev) {
+    const track = document.getElementById('topo-timeline-track');
+    if (!track || _topoEvents.length === 0) return;
+    const rect = track.getBoundingClientRect();
+    const pct  = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+    seekTopoTimelinePct(pct * 100);
+}
+
+function seekTopoTimelinePct(pct) {
+    _topoTimelinePos = Math.max(0, Math.min(1, pct / 100));
+    _topoUpdateTimeline();
+    _topoApplyTimelineFilter();
+}
+
+function _topoApplyTimelineFilter() {
+    // Filter topology to show state at current timeline position
+    if (_topoEvents.length === 0 || _topoTimelinePos >= 0.999) {
+        _topoD3Render('topo-d3-svg', 'topo-tooltip', _topoLastHosts, _topoLastExploits, false);
+        return;
+    }
+    const minTs = _topoEvents[0].ts;
+    const maxTs = _topoEvents[_topoEvents.length - 1].ts;
+    const cutTs = minTs + (maxTs - minTs) * _topoTimelinePos;
+    const eventsUpTo = _topoEvents.filter(e => e.ts <= cutTs);
+    const visibleIPs = new Set(eventsUpTo.filter(e => e.type === 'host_discovered' || e.type === 'port_scan').map(e => e.ip));
+    const visibleHosts    = _topoLastHosts.filter(h => visibleIPs.has(h.ip));
+    const exploitedUpTo   = eventsUpTo.filter(e => e.type === 'exploit_success' || e.type === 'lateral_move').map(e => e.ip);
+    const visibleExploits = _topoLastExploits.filter(e => exploitedUpTo.includes(e.host_ip));
+    _topoD3Render('topo-d3-svg', 'topo-tooltip', visibleHosts, visibleExploits, false);
+}
+
+function toggleTopoPlay() {
+    if (_topoPlaying) { _topoStopPlay(); } else { _topoStartPlay(); }
+}
+
+function _topoStartPlay() {
+    if (_topoEvents.length === 0) return;
+    _topoPlaying = true;
+    _topoLastAnimTs = null;
+    if (_topoTimelinePos >= 0.999) _topoTimelinePos = 0;
+    const icon = document.getElementById('topo-play-icon');
+    if (icon) icon.textContent = 'pause';
+    _topoAnimFrame = requestAnimationFrame(_topoAnimStep);
+}
+
+function _topoStopPlay() {
+    _topoPlaying = false;
+    if (_topoAnimFrame) { cancelAnimationFrame(_topoAnimFrame); _topoAnimFrame = null; }
+    const icon = document.getElementById('topo-play-icon');
+    if (icon) icon.textContent = 'play_arrow';
+}
+
+function _topoAnimStep(ts) {
+    if (!_topoPlaying) return;
+    if (_topoLastAnimTs !== null) {
+        const elapsed = (ts - _topoLastAnimTs) / 1000;  // seconds
+        const span    = Math.max(_topoEvents[_topoEvents.length - 1].ts - _topoEvents[0].ts, 1);
+        const realSpan = span / 1000;  // seconds of real time to cover
+        const minPlaytime = 10;       // always take at least 10s to play full timeline
+        const playSpan = Math.max(realSpan / _topoSpeed, minPlaytime);
+        _topoTimelinePos = Math.min(1, _topoTimelinePos + elapsed / playSpan);
+        _topoUpdateTimeline();
+        _topoApplyTimelineFilter();
+        if (_topoTimelinePos >= 1) { _topoStopPlay(); return; }
+    }
+    _topoLastAnimTs = ts;
+    _topoAnimFrame = requestAnimationFrame(_topoAnimStep);
+}
+
+function resetTopoTimeline() {
+    _topoStopPlay();
+    _topoTimelinePos = 0;
+    _topoUpdateTimeline();
+    _topoD3Render('topo-d3-svg', 'topo-tooltip', _topoLastHosts, _topoLastExploits, false);
+}
+
+function cycleTopoSpeed() {
+    const speeds = [1, 2, 4, 0.5];
+    const idx = speeds.indexOf(_topoSpeed);
+    _topoSpeed = speeds[(idx + 1) % speeds.length];
+    const btn = document.getElementById('topo-speed-btn');
+    if (btn) btn.textContent = `${_topoSpeed}x`;
 }
 
 // ─── Phase progress bar ───────────────────────────────────────────────────────
@@ -4044,6 +4654,15 @@ async function switchToSession(sessionId) {
             updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: session.vulnerabilities }) });
         }
         updateNetworkPanelFromSession(session);
+        // For historical sessions: reconstruct timeline from existing data
+        {
+            const hist_hosts    = _mergeHosts((session.scan_results || []).flatMap(r => r.hosts || []));
+            const hist_exploits = session.exploit_results || [];
+            if (hist_hosts.length > 0 && _topoEvents.length === 0) {
+                _topoReconstructEvents(hist_hosts, hist_exploits);
+                _topoUpdateTimeline();
+            }
+        }
 
         // Switch to agent view
         switchView('agent');

@@ -1246,72 +1246,108 @@
           </div>
         </div>
 
-        <!-- ── Network expanded ───────────────────────────────────────────── -->
-        <div class="intel-tab-body hidden p-8" data-intel-tab="network">
-          <div class="max-w-6xl mx-auto flex flex-col gap-8">
+        <!-- ── Network expanded (full-page topology) ─────────────────────── -->
+        <div class="intel-tab-body hidden flex flex-col min-h-0" data-intel-tab="network" style="height:100%">
 
-            <div class="grid grid-cols-4 gap-4">
-              <div class="bg-card border border-border-color p-4">
-                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Target</p>
-                <p id="network-exp-target" class="mono-text text-lg font-bold text-primary">—</p>
-                <p class="text-[9px] text-secondary-text mt-1">scan target</p>
-              </div>
-              <div class="bg-card border border-border-color p-4">
-                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Hosts Up</p>
-                <p id="network-exp-hosts" class="mono-text text-3xl font-bold text-primary">0</p>
-                <p class="text-[9px] text-secondary-text mt-1">discovered</p>
-              </div>
-              <div class="bg-card border border-border-color p-4">
-                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Open Ports</p>
-                <p id="network-exp-ports" class="mono-text text-3xl font-bold">0</p>
-                <p class="text-[9px] text-secondary-text mt-1">across all hosts</p>
-              </div>
-              <div class="bg-card border border-border-color p-4">
-                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulnerabilities</p>
-                <p id="network-exp-vulns" class="mono-text text-3xl font-bold text-danger">0</p>
-                <p class="text-[9px] text-secondary-text mt-1">found</p>
+          <!-- Stats bar -->
+          <div class="shrink-0 flex items-stretch border-b border-border-color bg-surface">
+            <div class="px-5 py-2.5 border-r border-border-color flex flex-col gap-0.5 min-w-0">
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest whitespace-nowrap">Target</p>
+              <p id="network-exp-target" class="mono-text text-xs font-bold text-primary truncate">—</p>
+            </div>
+            <div class="px-5 py-2.5 border-r border-border-color flex flex-col gap-0.5">
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest whitespace-nowrap">Hosts Up</p>
+              <p id="network-exp-hosts" class="mono-text text-xs font-bold text-primary">0</p>
+            </div>
+            <div class="px-5 py-2.5 border-r border-border-color flex flex-col gap-0.5">
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest">Ports</p>
+              <p id="network-exp-ports" class="mono-text text-xs font-bold">0</p>
+            </div>
+            <div class="px-5 py-2.5 border-r border-border-color flex flex-col gap-0.5">
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest">Vulns</p>
+              <p id="network-exp-vulns" class="mono-text text-xs font-bold text-danger">0</p>
+            </div>
+            <div class="px-5 py-2.5 border-r border-border-color flex flex-col gap-0.5">
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest whitespace-nowrap">Exploited</p>
+              <p id="network-exp-exploited" class="mono-text text-xs font-bold text-danger">0</p>
+            </div>
+            <div class="px-5 py-2.5 border-r border-border-color flex flex-col gap-0.5">
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest whitespace-nowrap">Lateral Moves</p>
+              <p id="network-exp-lateral" class="mono-text text-xs font-bold" style="color:#fb923c">0</p>
+            </div>
+            <!-- Controls -->
+            <div class="ml-auto flex items-center gap-1.5 px-3">
+              <button onclick="_topoFitView()" title="Fit all nodes" class="w-7 h-7 border border-border-color flex items-center justify-center text-secondary-text hover:text-primary hover:border-primary transition-colors">
+                <span class="material-symbols-outlined text-[14px]">fit_screen</span>
+              </button>
+              <button onclick="openTopoFullscreen()" title="Fullscreen" class="w-7 h-7 border border-border-color flex items-center justify-center text-secondary-text hover:text-primary hover:border-primary transition-colors">
+                <span class="material-symbols-outlined text-[14px]">fullscreen</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Main content: topology canvas + slide-in detail panel -->
+          <div class="flex flex-1 min-h-0 relative">
+
+            <!-- Topology D3 canvas -->
+            <div class="flex-1 relative min-h-0" id="topo-canvas-container">
+              <svg id="topo-d3-svg" class="w-full h-full" style="background:#030303;display:block;cursor:grab"></svg>
+
+              <!-- Hover tooltip -->
+              <div id="topo-tooltip" class="hidden absolute z-50 pointer-events-none"
+                style="background:#0a0a0a;border:1px solid #222;padding:10px 12px;min-width:200px;max-width:280px;font-family:monospace;font-size:10px;">
               </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-6">
-              <div class="bg-card border border-border-color p-5">
-                <div class="flex items-center justify-between mb-4">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Network Topology</p>
+            <!-- Host detail slide-in panel (right side) -->
+            <div id="topo-detail-panel" class="hidden w-80 border-l border-border-color flex flex-col shrink-0 overflow-hidden" style="background:#060606">
+              <div class="flex items-center justify-between px-4 py-2.5 border-b border-border-color shrink-0">
+                <div class="flex items-center gap-2">
+                  <span id="topo-detail-status-dot" class="w-2 h-2 rounded-full" style="background:#444"></span>
+                  <span id="topo-detail-ip" class="mono-text text-primary font-bold text-sm">—</span>
                 </div>
-                <svg id="network-exp-topology-svg" viewBox="0 0 220 170" class="w-full" xmlns="http://www.w3.org/2000/svg">
-                  <text x="110" y="85" text-anchor="middle" fill="#333" font-family="monospace" font-size="9">Waiting for scan results…</text>
-                </svg>
+                <button onclick="hideHostDetailPanel()" class="text-secondary-text hover:text-primary transition-colors">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
               </div>
-
-              <div class="bg-card border border-border-color">
-                <div class="px-5 py-3 border-b border-border-color">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Host Details</p>
-                </div>
-                <table class="w-full border-collapse">
-                  <thead>
-                    <tr class="border-b border-border-color">
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">IP</th>
-                      <th class="text-left px-3 py-2 text-[8px] font-bold text-secondary-text uppercase">OS</th>
-                      <th class="text-left px-2 py-2 text-[8px] font-bold text-secondary-text uppercase">#</th>
-                      <th class="text-left px-3 py-2 text-[8px] font-bold text-secondary-text uppercase">Open Ports ⚡=exploited</th>
-                      <th class="text-left px-3 py-2 text-[8px] font-bold text-secondary-text uppercase">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody id="network-exp-hosts-tbody" class="mono-text text-xs">
-                    <tr><td colspan="5" class="px-4 py-4 text-center text-secondary-text text-[10px]">No scan data yet</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="bg-card border border-border-color p-5">
-              <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-4">Detected Services</p>
-              <div id="network-exp-services" class="flex flex-wrap gap-3">
-                <p class="text-[10px] text-secondary-text mono-text">No services detected yet</p>
-              </div>
+              <div id="topo-detail-content" class="flex-1 overflow-y-auto scrollbar-hide p-3 flex flex-col gap-3"></div>
             </div>
 
           </div>
+
+          <!-- Timeline bar -->
+          <div id="topo-timeline-bar" class="shrink-0 border-t border-border-color" style="background:#060606">
+            <!-- Controls row -->
+            <div class="flex items-center gap-2 px-4 py-2 border-b border-border-color/40">
+              <button id="topo-play-btn" onclick="toggleTopoPlay()" class="w-6 h-6 flex items-center justify-center border border-border-color text-secondary-text hover:text-primary hover:border-primary transition-colors">
+                <span id="topo-play-icon" class="material-symbols-outlined text-[13px]">play_arrow</span>
+              </button>
+              <button onclick="resetTopoTimeline()" title="Reset" class="w-6 h-6 flex items-center justify-center border border-border-color text-secondary-text hover:text-primary hover:border-primary transition-colors">
+                <span class="material-symbols-outlined text-[13px]">replay</span>
+              </button>
+              <button id="topo-speed-btn" onclick="cycleTopoSpeed()" class="px-2 h-6 border border-border-color text-[9px] mono-text text-secondary-text hover:text-primary hover:border-primary transition-colors">1x</button>
+              <!-- Legend -->
+              <div class="flex items-center gap-3 ml-3">
+                <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#60a5fa"></span><span class="text-[8px] text-secondary-text mono-text">Discovery</span></span>
+                <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#ccff00"></span><span class="text-[8px] text-secondary-text mono-text">Scan</span></span>
+                <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#f97316"></span><span class="text-[8px] text-secondary-text mono-text">Vuln</span></span>
+                <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#FF3B3B"></span><span class="text-[8px] text-secondary-text mono-text">Exploit</span></span>
+                <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#fb923c"></span><span class="text-[8px] text-secondary-text mono-text">Lateral</span></span>
+                <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#a855f7"></span><span class="text-[8px] text-secondary-text mono-text">Privesc</span></span>
+              </div>
+              <span id="topo-time-display" class="mono-text text-[9px] text-secondary-text ml-auto">— / —</span>
+            </div>
+            <!-- Timeline track -->
+            <div class="relative h-10 mx-4 my-1 cursor-pointer select-none" id="topo-timeline-track">
+              <!-- Rail -->
+              <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px" style="background:#1a1a1a"></div>
+              <!-- Event dots rendered here by JS -->
+              <div id="topo-timeline-events" class="absolute inset-0 pointer-events-none"></div>
+              <!-- Playhead cursor -->
+              <div id="topo-timeline-cursor" class="absolute top-0 bottom-0 w-px pointer-events-none" style="left:0%;background:#ccff00;opacity:0.8"></div>
+            </div>
+          </div>
+
         </div>
 
         <!-- ── Shield expanded ────────────────────────────────────────────── -->
@@ -2502,86 +2538,31 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 </footer>
 
 <!-- ─── Network Topology Fullscreen Modal ───────────────────────────────── -->
-<div id="topo-fullscreen-overlay" class="hidden fixed inset-0 z-[9999] bg-black/95 flex flex-col">
+<div id="topo-fullscreen-overlay" class="hidden fixed inset-0 z-[9999] flex flex-col" style="background:#030303">
   <!-- Header -->
-  <div class="flex items-center justify-between px-6 py-3 border-b border-border-color shrink-0">
+  <div class="flex items-center justify-between px-6 py-3 border-b border-border-color shrink-0" style="background:#060606">
     <div class="flex items-center gap-3">
       <span class="material-symbols-outlined text-[18px] text-primary">hub</span>
       <span class="text-[11px] font-bold text-secondary-text uppercase tracking-widest">Network Topology</span>
-      <span class="mono-text text-[11px] text-primary ml-2">192.168.1.0/24</span>
+      <span id="topo-fs-target" class="mono-text text-[11px] text-primary ml-2">—</span>
     </div>
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-3">
+      <button onclick="_topoFitView(true)" class="flex items-center gap-1.5 text-secondary-text hover:text-primary transition-colors text-[10px] mono-text uppercase tracking-widest border border-border-color px-2 py-1 hover:border-primary">
+        <span class="material-symbols-outlined text-[13px]">fit_screen</span>Fit
+      </button>
       <span class="text-[9px] text-secondary-text mono-text">ESC to close</span>
       <button onclick="closeTopoFullscreen()" class="flex items-center gap-1 text-secondary-text hover:text-primary transition-colors">
         <span class="material-symbols-outlined text-[20px]">fullscreen_exit</span>
       </button>
     </div>
   </div>
-  <!-- SVG container -->
-  <div class="flex-1 flex items-center justify-center p-8 overflow-hidden">
-    <svg viewBox="0 0 860 420" class="w-full h-full max-h-full" style="max-width:min(100%,120vh)" xmlns="http://www.w3.org/2000/svg">
-      <!-- AEGIS Agent -->
-      <rect x="20" y="80" width="120" height="66" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="2"/>
-      <text x="80" y="104" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="12" font-weight="bold">AEGIS</text>
-      <text x="80" y="120" text-anchor="middle" fill="#99cc00" font-family="monospace" font-size="10">Agent v1</text>
-      <text x="80" y="136" text-anchor="middle" fill="#556600" font-family="monospace" font-size="9">ATTACKING</text>
-      <circle cx="132" cy="84" r="5" fill="#ccff00"/>
-      <!-- Attacker → Gateway -->
-      <line x1="140" y1="113" x2="244" y2="113" stroke="#ccff00" stroke-width="1.5" stroke-dasharray="6 3" opacity="0.5"/>
-      <polygon points="242,109 252,113 242,117" fill="#ccff00" opacity="0.5"/>
-      <text x="194" y="107" text-anchor="middle" fill="#556600" font-family="monospace" font-size="9">SCAN</text>
-      <!-- Gateway -->
-      <rect x="252" y="80" width="120" height="66" rx="1" fill="#111111" stroke="#444444" stroke-width="2"/>
-      <text x="312" y="104" text-anchor="middle" fill="#777" font-family="monospace" font-size="12" font-weight="bold">GATEWAY</text>
-      <text x="312" y="120" text-anchor="middle" fill="#555" font-family="monospace" font-size="10">192.168.1.1</text>
-      <text x="312" y="136" text-anchor="middle" fill="#444" font-family="monospace" font-size="9">Linux Router</text>
-      <!-- Gateway → .14 -->
-      <line x1="272" y1="146" x2="120" y2="290" stroke="#333" stroke-width="2"/>
-      <!-- Gateway → .55 -->
-      <line x1="300" y1="146" x2="310" y2="290" stroke="#FF3B3B" stroke-width="2" opacity="0.6"/>
-      <!-- Gateway → .200 -->
-      <line x1="352" y1="146" x2="740" y2="290" stroke="#333" stroke-width="2"/>
-      <!-- Lateral movement: .55 → .102 -->
-      <path d="M 348 316 Q 480 360 528 316" stroke="#FF8C00" stroke-width="2" fill="none" stroke-dasharray="8 4"/>
-      <polygon points="525,311 535,316 525,321" fill="#FF8C00"/>
-      <text x="438" y="375" text-anchor="middle" fill="#FF8C00" font-family="monospace" font-size="10" font-weight="bold">LATERAL MOVEMENT</text>
-      <text x="438" y="390" text-anchor="middle" fill="#995500" font-family="monospace" font-size="9">T1021 · SSH User Enum → SMB EternalBlue</text>
-      <!-- Host .14 — SCANNED -->
-      <circle cx="120" cy="316" r="40" fill="#111111" stroke="#333333" stroke-width="2"/>
-      <text x="120" y="308" text-anchor="middle" fill="#aaa" font-family="monospace" font-size="14" font-weight="bold">.14</text>
-      <text x="120" y="323" text-anchor="middle" fill="#666" font-family="monospace" font-size="10">80/HTTP</text>
-      <text x="120" y="336" text-anchor="middle" fill="#555" font-family="monospace" font-size="9">Ubuntu</text>
-      <circle cx="150" cy="282" r="6" fill="#888"/>
-      <text x="120" y="370" text-anchor="middle" fill="#555" font-family="monospace" font-size="9">SCANNED</text>
-      <!-- Host .55 — VULNERABLE / PIVOT -->
-      <circle cx="310" cy="316" r="40" fill="#1a0000" stroke="#FF3B3B" stroke-width="2.5"/>
-      <text x="310" y="308" text-anchor="middle" fill="#ff5555" font-family="monospace" font-size="14" font-weight="bold">.55</text>
-      <text x="310" y="323" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="10">22/SSH</text>
-      <text x="310" y="336" text-anchor="middle" fill="#aa3333" font-family="monospace" font-size="9">Ubuntu</text>
-      <circle cx="340" cy="282" r="6" fill="#FF3B3B"/>
-      <text x="310" y="370" text-anchor="middle" fill="#FF3B3B" font-family="monospace" font-size="9">PIVOT</text>
-      <!-- Host .102 — EXPLOITING -->
-      <circle cx="568" cy="316" r="40" fill="#0a1100" stroke="#ccff00" stroke-width="2.5"/>
-      <text x="568" y="308" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="14" font-weight="bold">.102</text>
-      <text x="568" y="323" text-anchor="middle" fill="#99cc00" font-family="monospace" font-size="10">445/SMB</text>
-      <text x="568" y="336" text-anchor="middle" fill="#778800" font-family="monospace" font-size="9">Win 10</text>
-      <circle cx="598" cy="282" r="6" fill="#ccff00"/>
-      <text x="568" y="370" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="9">EXPLOITING</text>
-      <!-- Host .200 — ONLINE -->
-      <circle cx="740" cy="316" r="40" fill="#111111" stroke="#333333" stroke-width="2"/>
-      <text x="740" y="308" text-anchor="middle" fill="#777" font-family="monospace" font-size="14" font-weight="bold">.200</text>
-      <text x="740" y="323" text-anchor="middle" fill="#555" font-family="monospace" font-size="10">UNKNOWN</text>
-      <text x="740" y="336" text-anchor="middle" fill="#444" font-family="monospace" font-size="9">?</text>
-      <circle cx="770" cy="282" r="6" fill="#555"/>
-      <text x="740" y="370" text-anchor="middle" fill="#555" font-family="monospace" font-size="9">ONLINE</text>
-      <!-- Legend -->
-      <line x1="20" y1="408" x2="840" y2="408" stroke="#1a1a1a" stroke-width="1"/>
-      <circle cx="28" cy="416" r="5" fill="#ccff00"/><text x="40" y="420" fill="#555" font-family="monospace" font-size="9">Exploiting</text>
-      <circle cx="120" cy="416" r="5" fill="#FF3B3B"/><text x="132" y="420" fill="#555" font-family="monospace" font-size="9">Pivot / Vulnerable</text>
-      <line x1="252" y1="414" x2="278" y2="414" stroke="#FF8C00" stroke-width="2" stroke-dasharray="5 2"/><text x="284" y="420" fill="#555" font-family="monospace" font-size="9">Lateral Movement</text>
-      <circle cx="400" cy="416" r="5" fill="#888"/><text x="412" y="420" fill="#555" font-family="monospace" font-size="9">Online</text>
-      <circle cx="470" cy="416" r="5" fill="#444"/><text x="482" y="420" fill="#555" font-family="monospace" font-size="9">Unknown</text>
-    </svg>
+  <!-- D3 canvas fills remaining space -->
+  <div class="flex-1 relative min-h-0" id="topo-fs-canvas">
+    <svg id="topo-fs-svg" class="w-full h-full" style="display:block;cursor:grab"></svg>
+    <!-- Tooltip (shared or separate) -->
+    <div id="topo-fs-tooltip" class="hidden absolute z-50 pointer-events-none"
+      style="background:#0a0a0a;border:1px solid #222;padding:10px 12px;min-width:200px;max-width:280px;font-family:monospace;font-size:10px;">
+    </div>
   </div>
 </div>
 
@@ -2695,8 +2676,9 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
