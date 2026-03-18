@@ -402,6 +402,12 @@ class PentestAgent:
         _MAX_SAME_FAIL = 3
         _failure_counts: dict[str, int] = {}  # key: "tool_name|error_prefix"
 
+        # Connect-loop guard: detect when shell_exec(action=connect) returns
+        # "already_open" repeatedly without the LLM ever calling exec/exec_script.
+        # Threshold 2 → inject a nudge on the 2nd consecutive already_open return.
+        _CONNECT_LOOP_THRESHOLD = 2
+        _already_open_counts: dict[str, int] = {}  # key: session_key
+
         while self._state not in (AgentState.DONE, AgentState.ERROR):
 
             # ── Kill switch ───────────────────────────────────────────────
@@ -586,6 +592,34 @@ class PentestAgent:
                 for k in list(_failure_counts.keys()):
                     if k.startswith(f"{_tool}|"):
                         _failure_counts[k] = 0
+
+            # ── Connect-loop guard ────────────────────────────────────────
+            # If shell_exec(action=connect) keeps returning "already_open" the
+            # LLM is stuck calling connect instead of exec/exec_script.
+            # After _CONNECT_LOOP_THRESHOLD hits, inject a pinned nudge.
+            if result.get("success") and action_dict.get("action") == "shell_exec":
+                _p_action = action_dict.get("parameters", {}).get("action", "")
+                _out = result.get("output") or {}
+                if _p_action == "connect" and isinstance(_out, dict) and _out.get("status") == "already_open":
+                    _sk = _out.get("session_key", "unknown")
+                    _already_open_counts[_sk] = _already_open_counts.get(_sk, 0) + 1
+                    if _already_open_counts[_sk] >= _CONNECT_LOOP_THRESHOLD:
+                        _nudge = (
+                            f"[SYSTEM] shell_exec(action=connect) returned 'already_open' "
+                            f"{_already_open_counts[_sk]} times for session '{_sk}'. "
+                            f"The session is OPEN and waiting. "
+                            f"STOP calling connect — it will never do anything. "
+                            f"Your NEXT call MUST be one of:\n"
+                            f"  shell_exec(action=exec, session_key='{_sk}', command='cat /home/msfadmin/flag.txt')\n"
+                            f"  shell_exec(action=exec_script, session_key='{_sk}', commands=[...])\n"
+                            f"Or, if SSH credentials are available, use ssh_exec instead."
+                        )
+                        self.memory.add_tool_result(_nudge, pinned=True)
+                elif _p_action in ("exec", "exec_script"):
+                    # LLM used exec — reset the counter for this session
+                    _sk = action_dict.get("parameters", {}).get("session_key", "")
+                    if _sk:
+                        _already_open_counts[_sk] = 0
 
             # ── REFLECTING ───────────────────────────────────────────────
             self._state = AgentState.REFLECTING
