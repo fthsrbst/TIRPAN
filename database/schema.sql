@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS exploit_results (
     output         TEXT    NOT NULL DEFAULT '',
     error          TEXT    NOT NULL DEFAULT '',
     poc_output     TEXT    NOT NULL DEFAULT '',
+    source_ip      TEXT    NOT NULL DEFAULT '',  -- pivot origin IP; empty = direct from AEGIS
     created_at     REAL    NOT NULL
 );
 

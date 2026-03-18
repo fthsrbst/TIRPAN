@@ -210,6 +210,21 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v7 applied: safety_cfg_json column in pentest_sessions")
 
+        if version < 8:
+            # Track pivot source IP for lateral movement visualization
+            try:
+                await db.execute(
+                    "ALTER TABLE exploit_results ADD COLUMN source_ip TEXT NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass  # Column may already exist
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (8, time.time(), "add source_ip to exploit_results for lateral movement tracking"),
+            )
+            await db.commit()
+            logger.info("DB migration v8 applied: source_ip column in exploit_results")
+
     logger.info("Database ready: %s", path)
 
 
