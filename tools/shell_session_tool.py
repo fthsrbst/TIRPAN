@@ -798,8 +798,14 @@ class ShellSessionTool(BaseTool):
     ) -> dict:
         writer.write((command + "\n").encode())
         await writer.drain()
+        # Use up to 90% of the command timeout as the initial-byte wait so
+        # slow commands (e.g. `find /` traversing the whole filesystem) have
+        # time to start producing output before _drain gives up.
+        initial = min(timeout * 0.9, 45.0)
         try:
-            output = await asyncio.wait_for(self._drain(reader), timeout=timeout)
+            output = await asyncio.wait_for(
+                self._drain(reader, initial_timeout_s=initial), timeout=timeout
+            )
         except asyncio.TimeoutError:
             output = "[TIMEOUT — command may still be running]"
         return {
@@ -816,11 +822,14 @@ class ShellSessionTool(BaseTool):
         timeout: int,
     ) -> dict:
         results, combined = [], []
+        initial = min(timeout * 0.9, 45.0)
         for cmd in commands:
             writer.write((cmd + "\n").encode())
             await writer.drain()
             try:
-                out = await asyncio.wait_for(self._drain(reader), timeout=timeout)
+                out = await asyncio.wait_for(
+                    self._drain(reader, initial_timeout_s=initial), timeout=timeout
+                )
             except asyncio.TimeoutError:
                 out = "[TIMEOUT]"
             results.append({"command": cmd, "stdout": out[:_MAX_OUTPUT_BYTES]})
@@ -836,17 +845,29 @@ class ShellSessionTool(BaseTool):
         }
 
     async def _drain(self, reader: asyncio.StreamReader,
-                     settle_ms: int = _RECV_SETTLE_MS) -> str:
+                     settle_ms: int = _RECV_SETTLE_MS,
+                     initial_timeout_s: float | None = None) -> str:
+        """Read output from a raw TCP shell until silence.
+
+        initial_timeout_s: how long to wait for the FIRST byte.  If None,
+        falls back to settle_ms like subsequent reads.  Set this to the
+        command timeout so slow commands (e.g. `find /`) get enough time
+        to start producing output before we give up.
+        """
         chunks, total = [], 0
+        first = True
         while total < _MAX_OUTPUT_BYTES:
+            t = (initial_timeout_s if first and initial_timeout_s is not None
+                 else settle_ms / 1000.0)
             try:
                 chunk = await asyncio.wait_for(
-                    reader.read(_RECV_CHUNK), timeout=settle_ms / 1000.0
+                    reader.read(_RECV_CHUNK), timeout=t
                 )
                 if not chunk:
                     break
                 chunks.append(chunk)
                 total += len(chunk)
+                first = False
             except asyncio.TimeoutError:
                 break
         return b"".join(chunks).decode(errors="replace")
