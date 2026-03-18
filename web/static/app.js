@@ -534,6 +534,136 @@ function initScrollTracking() {
     });
 }
 
+// ─── Agent feed scroll control ────────────────────────────────────────────────
+
+let agentAutoScroll = true;
+
+function initAgentScrollTracking() {
+    const el = document.getElementById('agent-scroll-area');
+    if (!el) return;
+    el.addEventListener('scroll', () => {
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        agentAutoScroll = atBottom;
+        _updateScrollBtn();
+        _updateMinimap();
+    });
+
+    // Minimap click → navigate
+    const minimap = document.getElementById('agent-minimap');
+    if (minimap) {
+        minimap.addEventListener('click', e => {
+            const rect = minimap.getBoundingClientRect();
+            const ratio = (e.clientY - rect.top) / rect.height;
+            el.scrollTop = ratio * el.scrollHeight;
+        });
+        // Drag on minimap
+        let _dragging = false;
+        minimap.addEventListener('mousedown', () => { _dragging = true; });
+        window.addEventListener('mousemove', e => {
+            if (!_dragging) return;
+            const rect = minimap.getBoundingClientRect();
+            const ratio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+            el.scrollTop = ratio * el.scrollHeight;
+        });
+        window.addEventListener('mouseup', () => { _dragging = false; });
+    }
+}
+
+function _updateScrollBtn() {
+    const btn = document.getElementById('agent-scroll-btn');
+    if (!btn) return;
+    btn.style.display = agentAutoScroll ? 'none' : 'flex';
+}
+
+function agentForceScrollToBottom() {
+    const el = document.getElementById('agent-scroll-area');
+    if (el) el.scrollTop = el.scrollHeight;
+    agentAutoScroll = true;
+    _updateScrollBtn();
+}
+
+// ─── Agent Minimap ────────────────────────────────────────────────────────────
+
+let _minimapDirty = false;
+let _minimapRaf = null;
+
+function scheduleMinimapUpdate() {
+    if (_minimapRaf) return;
+    _minimapRaf = requestAnimationFrame(() => {
+        _minimapRaf = null;
+        _updateMinimap();
+    });
+}
+
+function _updateMinimap() {
+    const canvas  = document.getElementById('agent-minimap-canvas');
+    const scrollEl = document.getElementById('agent-scroll-area');
+    const feed    = document.getElementById('mission-feed');
+    const vp      = document.getElementById('agent-minimap-vp');
+    if (!canvas || !scrollEl) return;
+
+    const container = document.getElementById('agent-minimap');
+    const dpr = window.devicePixelRatio || 1;
+    const cw  = container.offsetWidth;
+    const ch  = container.offsetHeight;
+    if (cw === 0 || ch === 0) return;
+
+    canvas.width  = cw * dpr;
+    canvas.height = ch * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    // Background
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, cw, ch);
+
+    const totalH = scrollEl.scrollHeight;
+    if (feed && totalH > 0) {
+        const cards = Array.from(feed.children);
+        for (const card of cards) {
+            const topPct  = card.offsetTop / totalH;
+            const htPct   = card.offsetHeight / totalH;
+            const y = topPct * ch;
+            const h = Math.max(1.5, htPct * ch);
+
+            // Colour by card semantic type
+            const html = card.innerHTML;
+            let color;
+            if (html.includes('REASONING') || html.includes('llm-thinking'))
+                color = 'rgba(200,255,0,0.55)';          // primary yellow-green
+            else if (html.includes('TOOL CALL') || html.includes('tool-call'))
+                color = 'rgba(59,130,246,0.6)';           // blue
+            else if (html.includes('RESULT') || html.includes('tool-result'))
+                color = 'rgba(34,197,94,0.5)';            // green
+            else if (html.includes('EXPLOIT') || html.includes('text-danger') || html.includes('border-danger'))
+                color = 'rgba(239,68,68,0.55)';           // red
+            else if (html.includes('REFLECTING') || html.includes('reflection'))
+                color = 'rgba(168,85,247,0.5)';           // purple
+            else if (html.includes('MISSION COMPLETE') || html.includes('generate_report'))
+                color = 'rgba(200,255,0,0.8)';            // bright primary
+            else
+                color = 'rgba(255,255,255,0.07)';         // dim default
+
+            ctx.fillStyle = color;
+            ctx.fillRect(3, y, cw - 6, h - 0.5);
+        }
+    }
+
+    // Thin vertical accent line on left edge
+    ctx.fillStyle = 'rgba(200,255,0,0.08)';
+    ctx.fillRect(0, 0, 1, ch);
+
+    // Viewport indicator
+    if (vp && totalH > 0) {
+        const scrollRatio = scrollEl.scrollTop / totalH;
+        const viewRatio   = scrollEl.clientHeight / totalH;
+        const vpTop    = scrollRatio * ch;
+        const vpHeight = Math.max(16, viewRatio * ch);
+        vp.style.top    = vpTop + 'px';
+        vp.style.height = vpHeight + 'px';
+    }
+}
+
 // ─── Confirm Dialog ───────────────────────────────────────────────────────────
 
 function showConfirm({ title = 'Are you sure?', message = '', onConfirm }) {
@@ -2158,6 +2288,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initCloudModelDropdown();
     initConfigSave();
     initScrollTracking();
+    initAgentScrollTracking();
+    window.addEventListener('resize', scheduleMinimapUpdate);
     loadPersistedSettings();
     initConversations();
     wsConnect();
@@ -2541,6 +2673,8 @@ async function startMission() {
         setPhaseActive(1);
         clearConsoleOutput();
         clearMissionFeed();
+        agentAutoScroll = true;
+        _updateScrollBtn();
         resetAnalysisPanel(target);
         resetNetworkPanel(target);
         renderMissionStart(target, mode);
@@ -4091,10 +4225,12 @@ function appendMissionCard(html) {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html.trim();
     if (wrapper.firstChild) feed.appendChild(wrapper.firstChild);
-    // Scroll the overflow parent
-    const stream = document.getElementById('message-stream');
-    const scrollEl = stream ? stream.parentElement : null;
-    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+    // Only auto-scroll if the user hasn't manually scrolled up
+    if (agentAutoScroll) {
+        const scrollEl = document.getElementById('agent-scroll-area');
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+    }
+    scheduleMinimapUpdate();
 }
 
 function clearMissionFeed() {
@@ -4107,6 +4243,7 @@ function clearMissionFeed() {
     const op = document.getElementById('objectives-panel');
     if (op) op.remove();
     _objectivesState = [];
+    scheduleMinimapUpdate();
 }
 
 // ── Objectives Panel ──────────────────────────────────────────────────────────

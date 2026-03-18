@@ -99,8 +99,12 @@ FILE CONTENT DISPLAY RULES (apply whenever a find/cat/shell command returns a fi
 
 MODE BEHAVIOUR:
 - scan_only          : Phases 1-3 only. Never call metasploit_run or ssh_exec for exploitation.
-- ask_before_exploit : Pause at phase 4. State "WAITING_FOR_APPROVAL: <exploit details>" and stop.
-                       Only proceed after the operator explicitly approves in a follow-up message.
+- ask_before_exploit : At phase 4, call metasploit_run NORMALLY — the system intercepts each call
+                       and asks the operator for approval before executing it.
+                       DO NOT call generate_report instead of metasploit_run — that skips exploitation.
+                       DO NOT write "WAITING_FOR_APPROVAL" and stop — just call metasploit_run and the
+                       system handles the pause automatically.
+                       After the operator approves or rejects, continue with the next exploit.
 - full_auto          : Execute all permitted phases without pausing.
 
 SCAN CONFIGURATION:
