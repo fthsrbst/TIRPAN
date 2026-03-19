@@ -2454,10 +2454,12 @@ function handleSessionEvent(msg) {
         }
 
     } else if (event === 'llm_thinking_start') {
+        _closeToolBatch();
         setAgentStatus('reasoning');
         startAgentStreamCard('thinking');
 
     } else if (event === 'llm_reflecting_start') {
+        _closeToolBatch();
         setAgentStatus('reflecting');
         startAgentStreamCard('reflecting');
 
@@ -2465,6 +2467,7 @@ function handleSessionEvent(msg) {
         appendAgentStreamToken(data.token || '');
 
     } else if (event === 'reasoning') {
+        _closeToolBatch();
         setAgentStatus('reasoning', data.action ? `→ ${data.action}` : '');
         finalizeAgentStreamCard();
         renderMissionReasoning(data);
@@ -2477,12 +2480,12 @@ function handleSessionEvent(msg) {
     } else if (event === 'tool_call') {
         const toolName = data.tool || data.tool_name || data.action || '';
         setAgentStatus('acting', toolName);
-        renderMissionToolCall(data);
+        _openOrAddToToolBatch(data);
         appendConsoleToolCall(data);
 
     } else if (event === 'tool_result') {
         setAgentStatus('reasoning');
-        renderMissionToolResult(data);
+        if (!_resolveToolBatchItem(data)) renderMissionToolResult(data); // fallback for replays
         appendConsoleToolResult(data);
         // Feed intel panels
         if (data.tool === 'searchsploit_search' && data.success) {
@@ -4260,6 +4263,8 @@ function appendConsoleToolResult(data) {
 // ─── Agent view live mission feed ─────────────────────────────────────────────
 
 let _missionIteration = 0;
+let _toolBatch    = null;  // current open tool-batch container
+let _toolBatchUid = 0;     // ever-incrementing item uid
 
 function _esc(str) {
     return String(str || '')
@@ -4267,6 +4272,175 @@ function _esc(str) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+// ─── Tool detail modal ────────────────────────────────────────────────────────
+
+function showToolDetail(btn) {
+    const card = btn.closest('[data-tool-json]');
+    if (!card) return;
+    const title = card.getAttribute('data-tool-title') || 'Details';
+    const json  = card.getAttribute('data-tool-json') || '{}';
+    const titleEl   = document.getElementById('tool-detail-title');
+    const contentEl = document.getElementById('tool-detail-content');
+    const modal     = document.getElementById('tool-detail-modal');
+    if (!modal || !contentEl) return;
+    if (titleEl) titleEl.textContent = title;
+    try { contentEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
+    catch(e) { contentEl.textContent = json; }
+    modal.classList.remove('hidden');
+}
+
+function closeToolDetailModal() {
+    const modal = document.getElementById('tool-detail-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+// Render tool params as key-value rows (no raw JSON)
+function _renderToolParams(params) {
+    if (!params || typeof params !== 'object') return '';
+    const entries = Object.entries(params);
+    if (entries.length === 0) return `<span class="text-secondary-text/40 text-[11px]">no params</span>`;
+    return entries.map(([k, v]) => {
+        const val = typeof v === 'string' ? v : JSON.stringify(v);
+        return `<div class="flex gap-2 min-w-0 mb-0.5">
+            <span class="text-blue-400/70 shrink-0 text-[11px] font-bold">${_esc(k)}</span>
+            <span class="text-secondary-text text-[11px] break-all">${_esc(val)}</span>
+        </div>`;
+    }).join('');
+}
+
+// ─── Tool Batch Grouping ──────────────────────────────────────────────────────
+
+function _getToolStyle(toolName) {
+    const n = (toolName || '').toLowerCase();
+    if (n.includes('nmap'))                          return { icon:'wifi_find',     label:'NMAP',        border:'border-blue-500/50',   header:'text-blue-400/80',   spin:'border-blue-400/50'   };
+    if (n.includes('bash')||n==='exec'||n==='run_command'||n==='shell') return { icon:'terminal',      label:'BASH',        border:'border-green-500/50',  header:'text-green-400/80',  spin:'border-green-400/50'  };
+    if (n.includes('python'))                        return { icon:'code',          label:'PYTHON',      border:'border-yellow-500/50', header:'text-yellow-400/80', spin:'border-yellow-400/50' };
+    if (n.includes('msf')||n.includes('metasploit')) return { icon:'rocket_launch', label:'METASPLOIT',  border:'border-red-500/50',    header:'text-red-400/80',    spin:'border-red-400/50'    };
+    if (n.includes('searchsploit'))                  return { icon:'manage_search', label:'SEARCHSPLOIT',border:'border-orange-500/50', header:'text-orange-400/80', spin:'border-orange-400/50' };
+    if (n.includes('hydra')||n.includes('brute'))    return { icon:'key',           label:'HYDRA',       border:'border-purple-500/50', header:'text-purple-400/80', spin:'border-purple-400/50' };
+    if (n.includes('sqlmap')||n.includes('sql'))     return { icon:'storage',       label:'SQLMAP',      border:'border-orange-500/50', header:'text-orange-400/80', spin:'border-orange-400/50' };
+    if (n.includes('curl')||n.includes('http')||n.includes('web')) return { icon:'http', label:'HTTP',   border:'border-cyan-500/50',   header:'text-cyan-400/80',   spin:'border-cyan-400/50'   };
+    if (n.includes('nikto')||n.includes('dirb')||n.includes('gobuster')) return { icon:'travel_explore', label:toolName.toUpperCase().slice(0,12), border:'border-teal-500/50', header:'text-teal-400/80', spin:'border-teal-400/50' };
+    return { icon:'terminal', label:toolName.toUpperCase().slice(0,12)||'TOOL', border:'border-blue-500/50', header:'text-blue-400/80', spin:'border-blue-400/50' };
+}
+
+function _toolCallSummary(tool, params) {
+    if (!params || typeof params !== 'object') return tool;
+    const cmd = params.command || params.cmd || params.command_line;
+    if (cmd) return String(cmd).slice(0, 120);
+    const target = params.target || params.host || params.ip || params.url || params.address;
+    const args   = params.flags  || params.options || params.args || params.arguments || '';
+    if (target) return (args ? `${target} ${args}` : String(target)).slice(0, 120);
+    const mod = params.module || params.exploit || params.payload;
+    if (mod) return String(mod).slice(0, 120);
+    const first = Object.values(params).find(v => typeof v === 'string');
+    return first ? first.slice(0, 120) : tool;
+}
+
+function _resultSummary(output) {
+    if (!output) return '';
+    return output.trim().split('\n').filter(l => l.trim()).slice(0, 2).join(' · ').slice(0, 140);
+}
+
+function _closeToolBatch() { _toolBatch = null; }
+
+function _openOrAddToToolBatch(data) {
+    const tool  = data.tool || '';
+    const style = _getToolStyle(tool);
+    const uid   = _toolBatchUid++;
+
+    if (!_toolBatch) {
+        const feed = getMissionFeed();
+        if (!feed) return uid;
+        const bId = `tb${uid}`;
+        const wrapperEl = document.createElement('div');
+        wrapperEl.className = 'tool-batch-card';
+        wrapperEl.innerHTML = `
+            <div class="border-l-2 ${style.border} bg-surface font-mono text-xs overflow-hidden">
+                <div class="flex items-center gap-2 px-4 py-2 border-b border-border-color/30">
+                    <span class="material-symbols-outlined text-[14px] ${style.header}">${style.icon}</span>
+                    <span class="${style.header} font-bold text-[11px] uppercase tracking-widest" id="${bId}-label">${style.label}</span>
+                    <span class="ml-auto text-secondary-text/40 text-[10px]" id="${bId}-count">1 run</span>
+                </div>
+                <div id="${bId}-list" class="divide-y divide-border-color/20"></div>
+            </div>`;
+        feed.appendChild(wrapperEl);
+        _toolBatch = {
+            wrapperEl,
+            listEl:   wrapperEl.querySelector(`#${bId}-list`),
+            countEl:  wrapperEl.querySelector(`#${bId}-count`),
+            labelEl:  wrapperEl.querySelector(`#${bId}-label`),
+            borderEl: wrapperEl.querySelector('.border-l-2'),
+            pendingQueue: [],
+            toolSet: new Set([tool]),
+            style
+        };
+        if (agentAutoScroll) { const s = document.getElementById('agent-scroll-area'); if(s) s.scrollTop = s.scrollHeight; }
+    } else {
+        _toolBatch.toolSet.add(tool);
+        if (_toolBatch.toolSet.size > 1 && _toolBatch.labelEl) _toolBatch.labelEl.textContent = 'TOOLS';
+    }
+
+    const summary = _esc(_toolCallSummary(tool, data.params || {}));
+    const rawJson = _esc(JSON.stringify(data, null, 2));
+    const itemEl  = document.createElement('div');
+    itemEl.id = `tbitem-${uid}`;
+    itemEl.className = 'group/item flex items-start gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors';
+    itemEl.setAttribute('data-tool-json', rawJson);
+    itemEl.setAttribute('data-tool-title', `${_esc(tool)} · details`);
+    itemEl.innerHTML = `
+        <div class="shrink-0 mt-0.5 w-4 h-4 flex items-center justify-center" id="tbstatus-${uid}">
+            <div class="w-3 h-3 border ${_toolBatch.style.spin} border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-1.5 mb-0.5">
+                <span class="text-[10px] ${_toolBatch.style.header} font-bold uppercase tracking-wide">${_esc(tool)}</span>
+            </div>
+            <div class="text-secondary-text/70 text-[11px] break-all line-clamp-1">${summary}</div>
+            <div class="text-secondary-text/40 text-[10px] mt-0.5 break-all line-clamp-2 hidden" id="tbresult-${uid}"></div>
+        </div>
+        <button onclick="showToolDetail(this)"
+            class="shrink-0 mt-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity text-secondary-text/50 hover:text-primary">
+            <span class="material-symbols-outlined text-[13px]">info</span>
+        </button>`;
+    _toolBatch.listEl.appendChild(itemEl);
+
+    const n = _toolBatch.listEl.children.length;
+    if (_toolBatch.countEl) _toolBatch.countEl.textContent = `${n} run${n!==1?'s':''}`;
+    _toolBatch.pendingQueue.push({ uid, tool, callData: data });
+
+    if (agentAutoScroll) { const s = document.getElementById('agent-scroll-area'); if(s) s.scrollTop = s.scrollHeight; }
+    scheduleMinimapUpdate();
+    return uid;
+}
+
+function _resolveToolBatchItem(data) {
+    if (!_toolBatch || !_toolBatch.pendingQueue.length) return false;
+    const pending = _toolBatch.pendingQueue.shift();
+    const uid     = pending.uid;
+    const success = data.success !== false;
+    const output  = data.output || data.error || '';
+    const summary = _resultSummary(output);
+
+    const statusEl = document.getElementById(`tbstatus-${uid}`);
+    if (statusEl) {
+        const ic = success ? 'check_circle' : 'error';
+        const cl = success ? 'text-primary'  : 'text-danger';
+        statusEl.innerHTML = `<span class="material-symbols-outlined text-[15px] ${cl}" style="font-variation-settings:'FILL' 1;">${ic}</span>`;
+    }
+    const resultEl = document.getElementById(`tbresult-${uid}`);
+    if (resultEl && summary) { resultEl.textContent = summary; resultEl.classList.remove('hidden'); }
+
+    const itemEl = document.getElementById(`tbitem-${uid}`);
+    if (itemEl) {
+        itemEl.setAttribute('data-tool-json', _esc(JSON.stringify({ call: pending.callData, result: data }, null, 2)));
+        itemEl.setAttribute('data-tool-title', `${_esc(data.tool||'')} · call + result`);
+    }
+    if (agentAutoScroll) { const s = document.getElementById('agent-scroll-area'); if(s) s.scrollTop = s.scrollHeight; }
+    scheduleMinimapUpdate();
+    return true;
 }
 
 function getMissionFeed() {
@@ -4303,6 +4477,7 @@ function clearMissionFeed() {
     const feed = document.getElementById('mission-feed');
     if (feed) feed.remove();
     _missionIteration = 0;
+    _toolBatch = null;
     const emptyState = document.getElementById('agent-empty-state');
     if (emptyState) emptyState.style.display = '';
     // Clear objectives panel
@@ -4399,12 +4574,12 @@ function startAgentStreamCard(mode) {
     wrapper.className = 'mission-card-wrapper';
     wrapper.innerHTML = `
         <div class="border-l-2 ${borderColor} bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-            <div class="flex items-center gap-2 ${labelColor} font-bold text-[10px] uppercase tracking-widest mb-2">
-                <span class="material-symbols-outlined text-[13px]">${icon}</span>
+            <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest mb-2">
+                <span class="material-symbols-outlined text-[14px]">${icon}</span>
                 ${label}
                 <span class="inline-block w-1.5 h-3 bg-current ml-1 animate-pulse" id="agent-stream-cursor"></span>
             </div>
-            <pre id="agent-stream-body" class="text-secondary-text text-[10px] leading-relaxed whitespace-pre-wrap break-all max-h-64 overflow-y-auto"></pre>
+            <pre id="agent-stream-body" class="text-secondary-text text-[11px] leading-relaxed whitespace-pre-wrap break-all max-h-64 overflow-y-auto"></pre>
         </div>`;
 
     const feed = getMissionFeed();
@@ -4448,34 +4623,41 @@ function renderMissionReasoning(data) {
     const action    = _esc(data.action || '');
     appendMissionCard(`
         <div class="group/iter border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs relative" data-iteration="${iter}">
-            <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-2">
-                <span class="material-symbols-outlined text-[13px]">psychology</span>
+            <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[11px] uppercase tracking-widest mb-2">
+                <span class="material-symbols-outlined text-[14px]">psychology</span>
                 REASONING &nbsp;·&nbsp; Iteration ${iter}
-                <button class="iter-fork-btn ml-auto opacity-0 group-hover/iter:opacity-100 transition-opacity flex items-center gap-1 text-[9px] text-secondary-text hover:text-primary cursor-pointer bg-bg/70 rounded px-2 py-0.5"
+                <button class="iter-fork-btn ml-auto opacity-0 group-hover/iter:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-secondary-text hover:text-primary cursor-pointer bg-bg/70 rounded px-2 py-0.5"
                         onclick="forkFromIteration(${iter})"
                         title="Continue from this checkpoint">
-                    <span class="material-symbols-outlined text-[11px]">fork_right</span>
+                    <span class="material-symbols-outlined text-[12px]">fork_right</span>
                     Continue from here
                 </button>
             </div>
-            ${thought    ? `<div class="text-slate-300 leading-relaxed mb-2 whitespace-pre-wrap">${thought}</div>` : ''}
-            ${reasoning  ? `<div class="text-secondary-text text-[11px] leading-relaxed mb-2 whitespace-pre-wrap italic">${reasoning}</div>` : ''}
-            ${action     ? `<div class="text-primary text-[11px] font-bold mt-1">→ &nbsp;${action}</div>` : ''}
+            ${thought    ? `<div class="text-slate-300 text-[12px] leading-relaxed mb-2 whitespace-pre-wrap">${thought}</div>` : ''}
+            ${reasoning  ? `<div class="text-secondary-text text-xs leading-relaxed mb-2 whitespace-pre-wrap italic">${reasoning}</div>` : ''}
+            ${action     ? `<div class="text-primary text-xs font-bold mt-1">→ &nbsp;${action}</div>` : ''}
         </div>
     `);
 }
 
 function renderMissionToolCall(data) {
-    const tool      = _esc(data.tool || '');
-    const paramsStr = _esc(JSON.stringify(data.params || {}, null, 2));
+    const tool       = _esc(data.tool || '');
+    const paramsHtml = _renderToolParams(data.params || {});
+    const rawJson    = _esc(JSON.stringify(data, null, 2));
     appendMissionCard(`
-        <div class="border-l-2 border-blue-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-            <div class="flex items-center gap-2 text-blue-400/80 font-bold text-[10px] uppercase tracking-widest mb-2">
-                <span class="material-symbols-outlined text-[13px]">terminal</span>
+        <div class="group/card border-l-2 border-blue-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
+             data-tool-json="${rawJson}" data-tool-title="TOOL CALL · ${tool}">
+            <div class="flex items-center gap-2 text-blue-400/80 font-bold text-[11px] uppercase tracking-widest mb-2">
+                <span class="material-symbols-outlined text-[14px]">terminal</span>
                 TOOL CALL
             </div>
-            <div class="text-primary font-bold mb-1">▶ &nbsp;${tool}</div>
-            <pre class="text-secondary-text text-[10px] overflow-x-auto whitespace-pre-wrap break-all">${paramsStr}</pre>
+            <div class="text-primary font-bold mb-2 text-[12px]">▶ &nbsp;${tool}</div>
+            <div class="space-y-0.5">${paramsHtml}</div>
+            <button onclick="showToolDetail(this)"
+                class="absolute bottom-2 right-2 opacity-0 group-hover/card:opacity-100 transition-opacity
+                       flex items-center gap-1 text-secondary-text hover:text-blue-400 bg-bg/80 rounded px-1.5 py-0.5 text-[10px]">
+                <span class="material-symbols-outlined text-[13px]">info</span>
+            </button>
         </div>
     `);
 }
@@ -4488,16 +4670,23 @@ function renderMissionToolResult(data) {
     const color   = success ? 'text-primary' : 'text-danger';
     const icon    = success ? 'check_circle' : 'error';
     const label   = success ? 'OK' : 'FAILED';
+    const rawJson = _esc(JSON.stringify(data, null, 2));
     appendMissionCard(`
-        <div class="border-l-2 ${border} bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+        <div class="group/card border-l-2 ${border} bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
+             data-tool-json="${rawJson}" data-tool-title="RESULT · ${tool}">
             <div class="flex items-center justify-between mb-2">
-                <div class="flex items-center gap-2 ${color} font-bold text-[10px] uppercase tracking-widest">
-                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">${icon}</span>
+                <div class="flex items-center gap-2 ${color} font-bold text-[11px] uppercase tracking-widest">
+                    <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">${icon}</span>
                     RESULT: ${tool}
                 </div>
-                <span class="${color} font-bold text-[10px]">${label}</span>
+                <span class="${color} font-bold text-[11px]">${label}</span>
             </div>
-            ${output ? `<pre class="text-secondary-text text-[10px] overflow-x-auto max-h-48 whitespace-pre-wrap break-all">${output}</pre>` : ''}
+            ${output ? `<pre class="text-secondary-text text-[11px] overflow-x-auto max-h-48 whitespace-pre-wrap break-all">${output}</pre>` : ''}
+            <button onclick="showToolDetail(this)"
+                class="absolute bottom-2 right-2 opacity-0 group-hover/card:opacity-100 transition-opacity
+                       flex items-center gap-1 text-secondary-text hover:text-primary bg-bg/80 rounded px-1.5 py-0.5 text-[10px]">
+                <span class="material-symbols-outlined text-[13px]">info</span>
+            </button>
         </div>
     `);
 }
@@ -4507,11 +4696,11 @@ function renderMissionReflection(data) {
     if (!content) return;
     appendMissionCard(`
         <div class="border-l-2 border-purple-500/40 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
-            <div class="flex items-center gap-2 text-purple-400/60 font-bold text-[10px] uppercase tracking-widest mb-1">
-                <span class="material-symbols-outlined text-[12px]">lightbulb</span>
+            <div class="flex items-center gap-2 text-purple-400/60 font-bold text-[11px] uppercase tracking-widest mb-1">
+                <span class="material-symbols-outlined text-[14px]">lightbulb</span>
                 REFLECTION
             </div>
-            <div class="text-secondary-text text-[11px] italic leading-relaxed whitespace-pre-wrap">${content}</div>
+            <div class="text-secondary-text text-xs italic leading-relaxed whitespace-pre-wrap">${content}</div>
         </div>
     `);
 }
@@ -4521,11 +4710,11 @@ function renderMissionSafetyBlock(data) {
     const tool   = _esc(data.tool || '');
     appendMissionCard(`
         <div class="border-l-2 border-orange-500/60 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-            <div class="flex items-center gap-2 text-orange-400 font-bold text-[10px] uppercase tracking-widest mb-1">
-                <span class="material-symbols-outlined text-[13px]">shield</span>
+            <div class="flex items-center gap-2 text-orange-400 font-bold text-[11px] uppercase tracking-widest mb-1">
+                <span class="material-symbols-outlined text-[14px]">shield</span>
                 SAFETY BLOCK${tool ? ' · ' + tool : ''}
             </div>
-            <div class="text-orange-300/80 text-[11px]">${reason}</div>
+            <div class="text-orange-300/80 text-xs">${reason}</div>
         </div>
     `);
 }
@@ -4534,11 +4723,11 @@ function renderMissionError(data) {
     const msg = _esc(data.error || 'Unknown error');
     appendMissionCard(`
         <div class="border-l-2 border-danger/60 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-            <div class="flex items-center gap-2 text-danger font-bold text-[10px] uppercase tracking-widest mb-1">
-                <span class="material-symbols-outlined text-[13px]">error</span>
+            <div class="flex items-center gap-2 text-danger font-bold text-[11px] uppercase tracking-widest mb-1">
+                <span class="material-symbols-outlined text-[14px]">error</span>
                 ERROR
             </div>
-            <div class="text-danger/80 text-[11px] whitespace-pre-wrap">${msg}</div>
+            <div class="text-danger/80 text-xs whitespace-pre-wrap">${msg}</div>
         </div>
     `);
 }
@@ -4935,14 +5124,15 @@ async function switchToSession(sessionId) {
 function replaySessionEvent(event, data) {
     switch (event) {
         case 'reasoning':
+            _closeToolBatch();
             renderMissionReasoning(data);
             updatePhaseFromEvent(data);
             break;
         case 'tool_call':
-            renderMissionToolCall(data);
+            _openOrAddToToolBatch(data);
             break;
         case 'tool_result':
-            renderMissionToolResult(data);
+            if (!_resolveToolBatchItem(data)) renderMissionToolResult(data);
             break;
         case 'reflection':
             renderMissionReflection(data);
