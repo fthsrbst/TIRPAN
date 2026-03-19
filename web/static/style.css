@@ -301,9 +301,8 @@ html.light #view-console .bg-primary {
 /* ─── Mission Feed: Bubble/Balloon Cards ────────────────────────────────────── */
 
 #mission-feed > * {
-    border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     transition: box-shadow 0.15s ease;
 }
 

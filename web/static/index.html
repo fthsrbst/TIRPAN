@@ -111,20 +111,20 @@
       <!-- Stats grid -->
       <div class="grid grid-cols-2 gap-2 mt-4">
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Vulns</p>
-          <p id="stat-vulns" class="mono-text text-2xl font-bold text-secondary-text">—</p>
+          <p class="text-[10px] text-red-500/70 uppercase font-bold mb-1">Vulns</p>
+          <p id="stat-vulns" class="mono-text text-2xl font-bold text-red-400">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Hosts</p>
-          <p id="stat-hosts" class="mono-text text-2xl font-bold text-secondary-text">—</p>
+          <p class="text-[10px] text-blue-400/70 uppercase font-bold mb-1">Hosts</p>
+          <p id="stat-hosts" class="mono-text text-2xl font-bold text-blue-400">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Ports</p>
-          <p id="stat-ports" class="mono-text text-2xl font-bold text-secondary-text">—</p>
+          <p class="text-[10px] text-amber-400/70 uppercase font-bold mb-1">Ports</p>
+          <p id="stat-ports" class="mono-text text-2xl font-bold text-amber-400">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-secondary-text uppercase font-bold mb-1">Uptime</p>
-          <p id="stat-uptime" class="mono-text text-sm font-bold text-secondary-text leading-tight mt-1 truncate">—</p>
+          <p class="text-[10px] text-green-400/70 uppercase font-bold mb-1">Uptime</p>
+          <p id="stat-uptime" class="mono-text text-sm font-bold text-green-400 leading-tight mt-1 truncate">—</p>
         </div>
       </div>
     </div>
@@ -2705,9 +2705,23 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
   </div>
 </div>
 
+<!-- Tool detail modal -->
+<div id="tool-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/70" onclick="closeToolDetailModal()"></div>
+  <div class="relative bg-surface border border-border-color rounded-lg p-4 max-w-2xl w-full max-h-[70vh] flex flex-col shadow-2xl">
+    <div class="flex items-center justify-between mb-3 shrink-0">
+      <span id="tool-detail-title" class="text-secondary-text text-[11px] uppercase tracking-widest font-bold mono-text"></span>
+      <button onclick="closeToolDetailModal()" class="text-secondary-text hover:text-primary transition-colors">
+        <span class="material-symbols-outlined text-[18px]">close</span>
+      </button>
+    </div>
+    <pre id="tool-detail-content" class="text-secondary-text text-[11px] whitespace-pre-wrap break-all overflow-auto flex-1 font-mono leading-relaxed"></pre>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>
