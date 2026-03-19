@@ -298,6 +298,31 @@ html.light #view-console .bg-primary {
     overflow-y: auto;
 }
 
+/* ─── Global readability: scale up small/tiny text sizes site-wide ──────────── */
+
+/* Every hardcoded tiny size gets bumped up ~2px */
+.text-\[9px\]  { font-size: 11px !important; }
+.text-\[10px\] { font-size: 12px !important; }
+.text-\[11px\] { font-size: 13px !important; }
+.text-\[12px\] { font-size: 13px !important; }
+.text-\[13px\] { font-size: 14px !important; }
+.text-\[14px\] { font-size: 15px !important; }
+
+/* Tailwind semantic sizes */
+.text-xs  { font-size: 13px !important; line-height: 1.5 !important; }
+.text-sm  { font-size: 14px !important; line-height: 1.55 !important; }
+.text-base{ font-size: 15px !important; line-height: 1.6  !important; }
+
+/* Slightly heavier weight on regular text for legibility */
+body { font-weight: 400; letter-spacing: 0.01em; }
+
+/* Mono text in agent feed: medium weight for sharper rendering */
+.font-mono, pre, code { font-weight: 500; }
+
+/* Secondary text: slightly brighter so it doesn't disappear */
+.text-secondary-text { color: #9a9a9a !important; }
+html.light .text-secondary-text { color: #5a5a6a !important; }
+
 /* ─── Thinking dot animation ────────────────────────────────────────────────── */
 @keyframes thinking-dot {
     0%, 80%, 100% { opacity: 0.25; transform: scale(0.75); }
