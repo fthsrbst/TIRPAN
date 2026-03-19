@@ -590,9 +590,10 @@ function initAgentScrollTracking() {
     const minimap = document.getElementById('agent-minimap');
     if (minimap) {
         minimap.addEventListener('click', e => {
-            const rect = minimap.getBoundingClientRect();
+            const rect  = minimap.getBoundingClientRect();
             const ratio = (e.clientY - rect.top) / rect.height;
-            el.scrollTop = ratio * el.scrollHeight;
+            // Center viewport on clicked position
+            el.scrollTop = ratio * el.scrollHeight - el.clientHeight / 2;
         });
         // Drag on minimap
         let _dragging = false;
@@ -615,7 +616,7 @@ function _updateScrollBtn() {
 
 function agentForceScrollToBottom() {
     const el = document.getElementById('agent-scroll-area');
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     agentAutoScroll = true;
     _updateScrollBtn();
 }
@@ -674,37 +675,55 @@ function _updateMinimap() {
             const y = topPct * ch;
             const h = Math.max(1.5, htPct * ch);
 
-            // Colour by card semantic type
+            // Colour by card semantic type + tool + success state
             const html = card.innerHTML;
+            const hasSuccess = html.includes('check_circle');
+            const hasFail    = html.includes('text-danger') || html.includes('border-danger');
             let color;
             if (isLight) {
-                if (html.includes('REASONING') || html.includes('llm-thinking'))
-                    color = 'rgba(74,124,0,0.5)';
-                else if (html.includes('TOOL CALL') || html.includes('tool-call'))
-                    color = 'rgba(37,99,235,0.5)';
-                else if (html.includes('RESULT') || html.includes('tool-result'))
-                    color = 'rgba(22,163,74,0.45)';
-                else if (html.includes('EXPLOIT') || html.includes('text-danger') || html.includes('border-danger'))
-                    color = 'rgba(220,38,38,0.5)';
-                else if (html.includes('REFLECTING') || html.includes('reflection'))
+                if (html.includes('MISSION COMPLETE'))
+                    color = 'rgba(74,124,0,0.85)';
+                else if (html.includes('psychology') || html.includes('THINKING'))
+                    color = 'rgba(180,150,0,0.55)';
+                else if (html.includes('lightbulb') || html.includes('REFLECTING') || html.includes('REFLECTION'))
                     color = 'rgba(147,51,234,0.45)';
-                else if (html.includes('MISSION COMPLETE') || html.includes('generate_report'))
-                    color = 'rgba(74,124,0,0.7)';
+                else if (html.includes('wifi_find') || html.includes('NMAP'))
+                    color = 'rgba(37,99,235,0.65)';
+                else if (html.includes('rocket_launch') || html.includes('METASPLOIT'))
+                    color = hasSuccess ? 'rgba(220,38,38,0.85)' : 'rgba(220,38,38,0.5)';
+                else if (html.includes('manage_search') || html.includes('SEARCHSPLOIT'))
+                    color = 'rgba(234,88,12,0.6)';
+                else if (html.includes('key') && html.includes('HYDRA'))
+                    color = 'rgba(147,51,234,0.5)';
+                else if (html.includes('border-green-500') || (html.includes('terminal') && html.includes('BASH')))
+                    color = hasSuccess ? 'rgba(22,163,74,0.65)' : 'rgba(22,163,74,0.35)';
+                else if (hasFail)
+                    color = 'rgba(220,38,38,0.55)';
+                else if (hasSuccess)
+                    color = 'rgba(22,163,74,0.5)';
                 else
                     color = 'rgba(0,0,0,0.08)';
             } else {
-                if (html.includes('REASONING') || html.includes('llm-thinking'))
+                if (html.includes('MISSION COMPLETE'))
+                    color = 'rgba(200,255,0,0.85)';
+                else if (html.includes('psychology') || html.includes('THINKING'))
                     color = 'rgba(200,255,0,0.55)';
-                else if (html.includes('TOOL CALL') || html.includes('tool-call'))
-                    color = 'rgba(59,130,246,0.6)';
-                else if (html.includes('RESULT') || html.includes('tool-result'))
-                    color = 'rgba(34,197,94,0.5)';
-                else if (html.includes('EXPLOIT') || html.includes('text-danger') || html.includes('border-danger'))
-                    color = 'rgba(239,68,68,0.55)';
-                else if (html.includes('REFLECTING') || html.includes('reflection'))
-                    color = 'rgba(168,85,247,0.5)';
-                else if (html.includes('MISSION COMPLETE') || html.includes('generate_report'))
-                    color = 'rgba(200,255,0,0.8)';
+                else if (html.includes('lightbulb') || html.includes('REFLECTING') || html.includes('REFLECTION'))
+                    color = 'rgba(168,85,247,0.55)';
+                else if (html.includes('wifi_find') || html.includes('NMAP'))
+                    color = 'rgba(59,130,246,0.75)';
+                else if (html.includes('rocket_launch') || html.includes('METASPLOIT'))
+                    color = hasSuccess ? 'rgba(239,68,68,0.95)' : 'rgba(239,68,68,0.5)';
+                else if (html.includes('manage_search') || html.includes('SEARCHSPLOIT'))
+                    color = 'rgba(249,115,22,0.7)';
+                else if (html.includes('key') && html.includes('HYDRA'))
+                    color = 'rgba(168,85,247,0.55)';
+                else if (html.includes('border-green-500') || (html.includes('terminal') && html.includes('BASH')))
+                    color = hasSuccess ? 'rgba(34,197,94,0.7)' : 'rgba(34,197,94,0.4)';
+                else if (hasFail)
+                    color = 'rgba(239,68,68,0.6)';
+                else if (hasSuccess)
+                    color = 'rgba(34,197,94,0.55)';
                 else
                     color = 'rgba(255,255,255,0.07)';
             }
@@ -2635,9 +2654,12 @@ function handleSessionDone(msg) {
     syncInputMode();
     showToast('Mission complete');
     renderMissionDone({
-        hosts: counts.hosts,
-        vulns: counts.vulns,
+        hosts:    counts.hosts,
+        vulns:    counts.vulns,
         exploits: counts.exploits,
+        flags:    counts.flags    || [],
+        findings: counts.findings || [],
+        objective_result: counts.objective_result || counts.objective || '',
     });
     appendConsoleLine('[SESSION] Agent finished — report available in the Report tab', 'text-primary');
 
@@ -4297,15 +4319,18 @@ function toggleThinkExpand(btn) {
     const card   = btn.closest('.think-card');
     const expand = card ? card.querySelector('.think-expand') : null;
     if (!expand) return;
-    const isOpen = expand.style.maxHeight && expand.style.maxHeight !== '0px' && expand.style.maxHeight !== '0';
-    if (isOpen) {
-        expand.style.maxHeight = '0';
-        const ic = btn.querySelector('.material-symbols-outlined');
+    const ic = btn.querySelector('.material-symbols-outlined');
+    const isOpen = expand.style.maxHeight !== '0px' && expand.style.maxHeight !== '' && expand.style.maxHeight !== null;
+    if (isOpen && expand.style.maxHeight !== 'none') {
+        _collapseEl(expand);
         if (ic) ic.textContent = 'expand_more';
-    } else {
-        expand.style.maxHeight = Math.max(expand.scrollHeight, 60) + 'px';
-        const ic = btn.querySelector('.material-symbols-outlined');
+    } else if (expand.style.maxHeight === '0px' || expand.style.maxHeight === '') {
+        _expandEl(expand);
         if (ic) ic.textContent = 'expand_less';
+    } else {
+        // 'none' → collapse
+        _collapseEl(expand);
+        if (ic) ic.textContent = 'expand_more';
     }
 }
 
@@ -4334,6 +4359,7 @@ function _getToolStyle(toolName) {
     const n = (toolName || '').toLowerCase();
     if (n.includes('nmap'))                          return { icon:'wifi_find',     label:'NMAP',        border:'border-blue-500/50',   header:'text-blue-400/80',   spin:'border-blue-400/50'   };
     if (n.includes('bash')||n==='exec'||n==='run_command'||n==='shell') return { icon:'terminal',      label:'BASH',        border:'border-green-500/50',  header:'text-green-400/80',  spin:'border-green-400/50'  };
+    if (n.includes('ssh'))                                               return { icon:'key',           label:'SSH',         border:'border-cyan-500/50',   header:'text-cyan-400/80',   spin:'border-cyan-400/50'   };
     if (n.includes('python'))                        return { icon:'code',          label:'PYTHON',      border:'border-yellow-500/50', header:'text-yellow-400/80', spin:'border-yellow-400/50' };
     if (n.includes('msf')||n.includes('metasploit')) return { icon:'rocket_launch', label:'METASPLOIT',  border:'border-red-500/50',    header:'text-red-400/80',    spin:'border-red-400/50'    };
     if (n.includes('searchsploit'))                  return { icon:'manage_search', label:'SEARCHSPLOIT',border:'border-orange-500/50', header:'text-orange-400/80', spin:'border-orange-400/50' };
@@ -4342,6 +4368,143 @@ function _getToolStyle(toolName) {
     if (n.includes('curl')||n.includes('http')||n.includes('web')) return { icon:'http', label:'HTTP',   border:'border-cyan-500/50',   header:'text-cyan-400/80',   spin:'border-cyan-400/50'   };
     if (n.includes('nikto')||n.includes('dirb')||n.includes('gobuster')) return { icon:'travel_explore', label:toolName.toUpperCase().slice(0,12), border:'border-teal-500/50', header:'text-teal-400/80', spin:'border-teal-400/50' };
     return { icon:'terminal', label:toolName.toUpperCase().slice(0,12)||'TOOL', border:'border-blue-500/50', header:'text-blue-400/80', spin:'border-blue-400/50' };
+}
+
+// Returns a short, human-readable summary line for the collapsed batch item header
+function _getToolSpecialSummary(tool, params) {
+    const n = (tool || '').toLowerCase();
+    if (!params || typeof params !== 'object') return tool;
+
+    if (n.includes('nmap')) {
+        const cmd = params.command || params.cmd || params.command_line || '';
+        let ip = params.target || params.host || params.ip || '';
+        let ports = params.ports || params.port_range || '';
+        let scanType = '';
+        if (cmd) {
+            const ipMatch = cmd.match(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d+)?)\b/);
+            if (ipMatch) ip = ipMatch[1];
+            const portMatch = cmd.match(/-p[\s]*([\S]+)/);
+            if (portMatch) ports = portMatch[1];
+            if (cmd.includes('-sV') || cmd.includes('--version')) scanType = 'service scan';
+            else if (cmd.includes('-sS') || cmd.includes('-sT')) scanType = 'port scan';
+            else if (cmd.includes('-sU')) scanType = 'UDP scan';
+            else if (cmd.includes('-sC') || cmd.includes('--script')) scanType = 'script scan';
+            else if (cmd.includes('-A')) scanType = 'aggressive scan';
+            else scanType = 'scan';
+        }
+        const parts = [];
+        if (ip) parts.push(ip);
+        if (scanType) parts.push(scanType);
+        if (ports) parts.push('ports:' + ports);
+        return parts.join(' · ') || tool;
+    }
+
+    if (n.includes('searchsploit')) {
+        const query = params.query || params.search || params.service || params.term || params.keyword || '';
+        const version = params.version || '';
+        return query ? (version ? `${query} ${version}` : query) : tool;
+    }
+
+    if (n.includes('msf') || n.includes('metasploit')) {
+        const module = params.module || params.exploit || '';
+        const target = params.target || params.rhost || params.host || params.ip || '';
+        if (module && target) return `${module} → ${target}`;
+        if (module) return module;
+        const cmd = params.command || params.cmd || '';
+        return cmd ? cmd.slice(0, 80) : tool;
+    }
+
+    if (n.includes('ssh')) {
+        const host = params.host || params.target || params.ip || '';
+        const cmd  = params.command || params.cmd || '';
+        if (host && cmd) return `${host}: ${cmd.slice(0, 60)}`;
+        if (cmd) return cmd.slice(0, 80);
+        if (host) return `connect → ${host}`;
+        return tool;
+    }
+
+    // Generic fallback
+    const cmd = params.command || params.cmd || params.command_line || '';
+    if (cmd) return String(cmd).slice(0, 100);
+    const target = params.target || params.host || params.ip || params.url || '';
+    const mod = params.module || params.exploit || '';
+    if (mod) return mod.slice(0, 80);
+    if (target) return String(target).slice(0, 80);
+    const first = Object.values(params).find(v => typeof v === 'string');
+    return first ? first.slice(0, 80) : tool;
+}
+
+// ── Expand/collapse animation helpers ────────────────────────────────────────
+// Animate an element open: measure real height → animate → then release to auto
+function _expandEl(el, durationMs = 220) {
+    // Measure actual content height while hidden
+    el.style.transition = 'none';
+    el.style.maxHeight  = 'none';
+    const h = el.scrollHeight;
+    el.style.maxHeight  = '0px';
+    el.offsetHeight;                                     // force reflow
+    el.style.transition = `max-height ${durationMs}ms cubic-bezier(0.4,0,0.2,1)`;
+    el.style.maxHeight  = h + 'px';
+    // After animation, release max-height so inner expansions aren't clipped
+    clearTimeout(el._expandTimer);
+    el._expandTimer = setTimeout(() => { el.style.maxHeight = 'none'; }, durationMs + 20);
+}
+
+// Animate an element closed: pin current height → animate to 0
+function _collapseEl(el, durationMs = 200) {
+    clearTimeout(el._expandTimer);
+    el.style.transition = 'none';
+    el.style.maxHeight  = el.scrollHeight + 'px';
+    el.offsetHeight;
+    el.style.transition = `max-height ${durationMs}ms cubic-bezier(0.4,0,0.2,1)`;
+    el.style.maxHeight  = '0px';
+}
+
+function toggleToolBatch(headerEl) {
+    const card   = headerEl.closest('.tool-batch-card');
+    const list   = card ? card.querySelector('.tb-list') : null;
+    const icon   = headerEl.querySelector('.tb-expand-icon');
+    if (!list) return;
+    const isOpen = list.style.maxHeight !== '0px' && list.style.maxHeight !== '' && list.style.maxHeight !== null;
+    if (isOpen && list.style.maxHeight !== 'none') {
+        _collapseEl(list);
+        if (icon) icon.textContent = 'expand_more';
+    } else if (list.style.maxHeight === '0px' || list.style.maxHeight === '') {
+        _expandEl(list);
+        if (icon) icon.textContent = 'expand_less';
+    } else {
+        // already 'none' (open) → collapse
+        _collapseEl(list);
+        if (icon) icon.textContent = 'expand_more';
+    }
+}
+
+function _tbListRefreshHeight(el) {
+    // If the parent list is pinned to a specific px, release it so it doesn't clip
+    const list = el ? el.closest('.tb-list') : null;
+    if (list && list.style.maxHeight && list.style.maxHeight !== '0px') {
+        list.style.maxHeight = 'none';
+    }
+}
+
+function toggleToolItemExpand(headerEl) {
+    const item   = headerEl.closest('.tool-batch-item');
+    const expand = item ? item.querySelector('.tool-item-expand') : null;
+    const icon   = headerEl.querySelector('.tbi-expand-icon');
+    if (!expand) return;
+    const isOpen = expand.style.maxHeight !== '0px' && expand.style.maxHeight !== '' && expand.style.maxHeight !== null;
+    if (isOpen && expand.style.maxHeight !== 'none') {
+        _collapseEl(expand);
+        if (icon) icon.textContent = 'expand_more';
+    } else if (expand.style.maxHeight === '0px' || expand.style.maxHeight === '') {
+        _expandEl(expand);
+        if (icon) icon.textContent = 'expand_less';
+        _tbListRefreshHeight(item);
+    } else {
+        // 'none' → collapse
+        _collapseEl(expand);
+        if (icon) icon.textContent = 'expand_more';
+    }
 }
 
 function _toolCallSummary(tool, params) {
@@ -4364,6 +4527,105 @@ function _resultSummary(output) {
 
 function _closeToolBatch() { _toolBatch = null; }
 
+// ─── Feed Filter (auto-expand preferences) ────────────────────────────────────
+
+const _FEED_FILTER_TOOLS = [
+    { key: 'nmap',        label: 'NMAP',         icon: 'wifi_find'     },
+    { key: 'metasploit',  label: 'METASPLOIT',   icon: 'rocket_launch' },
+    { key: 'searchsploit',label: 'SEARCHSPLOIT', icon: 'manage_search' },
+    { key: 'bash',        label: 'BASH / SHELL',  icon: 'terminal'      },
+    { key: 'ssh',         label: 'SSH',           icon: 'key'           },
+    { key: 'hydra',       label: 'HYDRA',         icon: 'key'           },
+    { key: 'thinking',    label: 'THINKING',      icon: 'psychology'    },
+    { key: 'reflecting',  label: 'REFLECTION',    icon: 'lightbulb'     },
+];
+
+let _feedFilter = null;   // lazily loaded from localStorage
+
+function _getFeedFilter() {
+    if (_feedFilter) return _feedFilter;
+    try {
+        const saved = localStorage.getItem('aegis_feed_filter');
+        _feedFilter = saved ? JSON.parse(saved) : {};
+    } catch { _feedFilter = {}; }
+    // Default: everything expanded
+    _FEED_FILTER_TOOLS.forEach(t => {
+        if (_feedFilter[t.key] === undefined) _feedFilter[t.key] = true;
+    });
+    return _feedFilter;
+}
+
+function _saveFeedFilter() {
+    try { localStorage.setItem('aegis_feed_filter', JSON.stringify(_feedFilter)); } catch {}
+}
+
+function _feedFilterAutoExpand(toolKey) {
+    const f = _getFeedFilter();
+    return f[toolKey] !== false;
+}
+
+function _toolKeyFromName(toolName) {
+    const n = (toolName || '').toLowerCase();
+    if (n.includes('nmap'))                            return 'nmap';
+    if (n.includes('msf') || n.includes('metasploit')) return 'metasploit';
+    if (n.includes('searchsploit'))                    return 'searchsploit';
+    if (n.includes('ssh'))                             return 'ssh';
+    if (n.includes('hydra') || n.includes('brute'))   return 'hydra';
+    return 'bash';
+}
+
+function toggleFeedFilter() {
+    const panel = document.getElementById('feed-filter-panel');
+    if (!panel) return;
+    const isHidden = panel.classList.contains('hidden');
+    if (isHidden) {
+        _renderFeedFilterPanel();
+        panel.classList.remove('hidden');
+        // Close on outside click
+        setTimeout(() => {
+            document.addEventListener('click', _closeFeedFilterOutside, { once: true });
+        }, 0);
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function _closeFeedFilterOutside(e) {
+    const panel = document.getElementById('feed-filter-panel');
+    if (panel && !panel.contains(e.target)) panel.classList.add('hidden');
+}
+
+function _renderFeedFilterPanel() {
+    const list = document.getElementById('feed-filter-list');
+    if (!list) return;
+    const f = _getFeedFilter();
+    list.innerHTML = _FEED_FILTER_TOOLS.map(t => `
+        <label class="flex items-center gap-2 cursor-pointer group">
+            <div class="relative w-7 h-4 shrink-0">
+                <input type="checkbox" class="sr-only peer" ${f[t.key] !== false ? 'checked' : ''}
+                    onchange="feedFilterToggle('${t.key}', this.checked)">
+                <div class="w-7 h-4 rounded-full bg-border-color peer-checked:bg-primary/60 transition-colors"></div>
+                <div class="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white/60 peer-checked:translate-x-3 transition-transform"></div>
+            </div>
+            <span class="material-symbols-outlined text-[12px] text-secondary-text/50">${t.icon}</span>
+            <span class="text-[10px] mono-text text-secondary-text/70 uppercase tracking-wide">${t.label}</span>
+        </label>
+    `).join('');
+}
+
+function feedFilterToggle(key, val) {
+    const f = _getFeedFilter();
+    f[key] = val;
+    _saveFeedFilter();
+}
+
+function feedFilterSetAll(val) {
+    const f = _getFeedFilter();
+    _FEED_FILTER_TOOLS.forEach(t => { f[t.key] = val; });
+    _saveFeedFilter();
+    _renderFeedFilterPanel();
+}
+
 function _openOrAddToToolBatch(data) {
     const tool  = data.tool || '';
     const style = _getToolStyle(tool);
@@ -4376,18 +4638,22 @@ function _openOrAddToToolBatch(data) {
         const wrapperEl = document.createElement('div');
         wrapperEl.className = 'tool-batch-card';
         wrapperEl.innerHTML = `
-            <div class="border-l-2 ${style.border} bg-surface font-mono text-xs overflow-hidden">
-                <div class="flex items-center gap-2 px-4 py-2 border-b border-border-color/30">
+            <div class="border-l-2 ${style.border} bg-surface font-mono text-xs">
+                <div class="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-white/[0.03] transition-colors select-none"
+                     onclick="toggleToolBatch(this)">
                     <span class="material-symbols-outlined text-[14px] ${style.header}">${style.icon}</span>
                     <span class="${style.header} font-bold text-[11px] uppercase tracking-widest" id="${bId}-label">${style.label}</span>
-                    <span class="ml-auto text-secondary-text/40 text-[10px]" id="${bId}-count">1 run</span>
+                    <span class="text-secondary-text/40 text-[10px] ml-1" id="${bId}-count">1</span>
+                    <span class="material-symbols-outlined text-[13px] text-secondary-text/30 ml-auto tb-expand-icon">expand_more</span>
                 </div>
-                <div id="${bId}-list" class="divide-y divide-border-color/20"></div>
+                <div id="${bId}-list" class="tb-list divide-y divide-border-color/20 overflow-hidden" style="max-height:0;transition:max-height 0.35s ease-out;"></div>
             </div>`;
         feed.appendChild(wrapperEl);
+        const listEl  = wrapperEl.querySelector(`#${bId}-list`);
+        const iconEl  = wrapperEl.querySelector('.tb-expand-icon');
         _toolBatch = {
             wrapperEl,
-            listEl:   wrapperEl.querySelector(`#${bId}-list`),
+            listEl,
             countEl:  wrapperEl.querySelector(`#${bId}-count`),
             labelEl:  wrapperEl.querySelector(`#${bId}-label`),
             borderEl: wrapperEl.querySelector('.border-l-2'),
@@ -4395,40 +4661,55 @@ function _openOrAddToToolBatch(data) {
             toolSet: new Set([tool]),
             style
         };
+        // Auto-expand based on filter preference
+        const toolKey = _toolKeyFromName(tool);
+        if (_feedFilterAutoExpand(toolKey)) {
+            requestAnimationFrame(() => {
+                listEl.style.maxHeight = 'none';
+                if (iconEl) iconEl.textContent = 'expand_less';
+            });
+        }
         if (agentAutoScroll) { const s = document.getElementById('agent-scroll-area'); if(s) s.scrollTop = s.scrollHeight; }
     } else {
         _toolBatch.toolSet.add(tool);
         if (_toolBatch.toolSet.size > 1 && _toolBatch.labelEl) _toolBatch.labelEl.textContent = 'TOOLS';
     }
 
-    const summary = _esc(_toolCallSummary(tool, data.params || {}));
+    const specialSummary = _esc(_getToolSpecialSummary(tool, data.params || {}));
+    const paramsHtml     = _renderToolParams(data.params || {});
     const sid     = _toolDetailStoreId++;
     _toolDetailStore.set(sid, data);
     const itemEl  = document.createElement('div');
     itemEl.id = `tbitem-${uid}`;
-    itemEl.className = 'group/item flex items-start gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors';
+    itemEl.className = 'tool-batch-item';
     itemEl.setAttribute('data-tool-id', sid);
     itemEl.setAttribute('data-tool-title', `${_esc(tool)} · details`);
     itemEl.innerHTML = `
-        <div class="shrink-0 mt-0.5 w-4 h-4 flex items-center justify-center" id="tbstatus-${uid}">
-            <div class="w-3 h-3 border ${_toolBatch.style.spin} border-t-transparent rounded-full animate-spin"></div>
-        </div>
-        <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-1.5 mb-0.5">
-                <span class="text-[10px] ${_toolBatch.style.header} font-bold uppercase tracking-wide">${_esc(tool)}</span>
+        <div class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/[0.03] transition-colors select-none"
+             onclick="toggleToolItemExpand(this)">
+            <div class="shrink-0 w-4 h-4 flex items-center justify-center" id="tbstatus-${uid}">
+                <div class="w-3 h-3 border ${_toolBatch.style.spin} border-t-transparent rounded-full animate-spin"></div>
             </div>
-            <div class="text-secondary-text/70 text-[11px] break-all line-clamp-1">${summary}</div>
-            <div class="text-secondary-text/40 text-[10px] mt-0.5 break-all line-clamp-2 hidden" id="tbresult-${uid}"></div>
+            <div class="flex-1 min-w-0">
+                <div class="text-secondary-text/80 text-[11px] truncate">${specialSummary}</div>
+            </div>
+            <span class="material-symbols-outlined text-[13px] text-secondary-text/30 shrink-0 tbi-expand-icon">expand_more</span>
         </div>
-        <button onclick="showToolDetail(this)"
-            class="shrink-0 mt-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity text-secondary-text/50 hover:text-primary">
-            <span class="material-symbols-outlined text-[13px]">info</span>
-        </button>`;
+        <div class="tool-item-expand overflow-hidden" style="max-height:0;transition:max-height 0.3s ease-out;">
+            <div class="px-4 pb-3 pt-2 border-t border-border-color/20">
+                <div class="space-y-0.5" id="tbdetail-${uid}">${paramsHtml}</div>
+                <div class="mt-1.5 hidden" id="tbresult-detail-${uid}"></div>
+            </div>
+        </div>`;
     _toolBatch.listEl.appendChild(itemEl);
 
     const n = _toolBatch.listEl.children.length;
-    if (_toolBatch.countEl) _toolBatch.countEl.textContent = `${n} run${n!==1?'s':''}`;
+    if (_toolBatch.countEl) _toolBatch.countEl.textContent = `${n}`;
     _toolBatch.pendingQueue.push({ uid, tool, callData: data });
+    // If list is already open, stretch its max-height to fit the new item
+    if (_toolBatch.listEl.style.maxHeight && _toolBatch.listEl.style.maxHeight !== '0px') {
+        _toolBatch.listEl.style.maxHeight = _toolBatch.listEl.scrollHeight + 'px';
+    }
 
     if (agentAutoScroll) { const s = document.getElementById('agent-scroll-area'); if(s) s.scrollTop = s.scrollHeight; }
     scheduleMinimapUpdate();
@@ -4449,8 +4730,21 @@ function _resolveToolBatchItem(data) {
         const cl = success ? 'text-primary'  : 'text-danger';
         statusEl.innerHTML = `<span class="material-symbols-outlined text-[15px] ${cl}" style="font-variation-settings:'FILL' 1;">${ic}</span>`;
     }
-    const resultEl = document.getElementById(`tbresult-${uid}`);
-    if (resultEl && summary) { resultEl.textContent = summary; resultEl.classList.remove('hidden'); }
+    // Result summary removed from header — visible in expanded detail only
+    // Also write full output into the expandable detail section
+    const resultDetailEl = document.getElementById(`tbresult-detail-${uid}`);
+    if (resultDetailEl && output) {
+        const cl = success ? 'text-primary/70' : 'text-danger/70';
+        resultDetailEl.innerHTML = `<pre class="${cl} text-[10px] whitespace-pre-wrap break-all leading-relaxed max-h-40 overflow-y-auto border-t border-border-color/20 pt-1.5">${_esc(output.trim().slice(0, 800))}</pre>`;
+        resultDetailEl.classList.remove('hidden');
+        // Recalculate heights if sections are open
+        const item = resultDetailEl.closest('.tool-batch-item');
+        const expand = item ? item.querySelector('.tool-item-expand') : null;
+        if (expand && expand.style.maxHeight && expand.style.maxHeight !== '0px') {
+            expand.style.maxHeight = expand.scrollHeight + 'px';
+        }
+        _tbListRefreshHeight(resultDetailEl);
+    }
 
     const itemEl = document.getElementById(`tbitem-${uid}`);
     if (itemEl) {
@@ -4481,16 +4775,18 @@ function getMissionFeed() {
 
 function appendMissionCard(html) {
     const feed = getMissionFeed();
-    if (!feed) return;
+    if (!feed) return null;
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html.trim();
-    if (wrapper.firstChild) feed.appendChild(wrapper.firstChild);
+    const el = wrapper.firstChild;
+    if (el) feed.appendChild(el);
     // Only auto-scroll if the user hasn't manually scrolled up
     if (agentAutoScroll) {
         const scrollEl = document.getElementById('agent-scroll-area');
         if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
     }
     scheduleMinimapUpdate();
+    return el || null;
 }
 
 function clearMissionFeed() {
@@ -4603,7 +4899,10 @@ function startAgentStreamCard(mode) {
     wrapper.className = 'mission-card-wrapper';
 
     if (isReflect) {
-        // Reflecting: keep card visible after finalization — button to expand
+        const autoOpen  = _feedFilterAutoExpand('reflecting');
+        const mhStyle   = autoOpen ? 'max-height:none;' : 'max-height:0;';
+        const expandIco = autoOpen ? 'expand_less' : 'expand_more';
+        // Reflecting: keep card visible after finalization
         wrapper.innerHTML = `
             <div class="think-card border-l-2 ${borderColor} bg-surface font-mono text-xs">
                 <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest pl-4 pr-4 py-2.5">
@@ -4612,10 +4911,10 @@ function startAgentStreamCard(mode) {
                     ${dots}
                     <button onclick="toggleThinkExpand(this)" title="Toggle detail"
                         class="ml-auto flex items-center gap-1 ${labelColor} opacity-60 hover:opacity-100 transition-opacity px-1 py-0.5">
-                        <span class="material-symbols-outlined text-[15px]">expand_more</span>
+                        <span class="material-symbols-outlined text-[15px]">${expandIco}</span>
                     </button>
                 </div>
-                <div class="think-expand overflow-hidden pl-4 pr-4" style="max-height:0;transition:max-height 0.3s ease-out;">
+                <div class="think-expand overflow-hidden pl-4 pr-4" style="${mhStyle}transition:max-height 0.25s ease-out;">
                     <pre id="agent-stream-body" class="text-secondary-text/70 text-[11px] italic leading-relaxed whitespace-pre-wrap break-all pb-3 max-h-72 overflow-y-auto"></pre>
                 </div>
             </div>`;
@@ -4662,14 +4961,21 @@ function finalizeAgentStreamCard() {
         // Remove the temp streaming card — renderMissionReasoning will show clean parsed card
         _agentStreamEl.remove();
     } else {
-        // Reflecting: keep the card, just remove the animated dots cursor
+        // Reflecting: keep the card, remove dots, apply markdown bold
         const cursor = _agentStreamEl.querySelector('#agent-stream-cursor');
         if (cursor) cursor.remove();
-        // Fix expand height now that content is final
-        const expand = _agentStreamEl.querySelector('.think-expand');
-        if (expand && expand.style.maxHeight !== '0px' && expand.style.maxHeight !== '0') {
-            expand.style.maxHeight = expand.scrollHeight + 'px';
+        // Convert plain-text pre → formatted div with markdown bold
+        const body = _agentStreamEl.querySelector('#agent-stream-body');
+        if (body) {
+            const raw = body.textContent || '';
+            const div = document.createElement('div');
+            div.className = body.className.replace('whitespace-pre-wrap', 'whitespace-pre-wrap');
+            div.innerHTML = _parseMd(_esc(raw));
+            body.replaceWith(div);
         }
+        // Release max-height now that content is final
+        const expand = _agentStreamEl.querySelector('.think-expand');
+        if (expand) { expand.style.maxHeight = 'none'; }
     }
     _agentStreamEl   = null;
     _agentStreamBody = null;
@@ -4691,12 +4997,14 @@ function renderMissionReasoning(data) {
         action    ? `<p class="text-primary text-[11px] font-bold mt-1 not-italic">→ &nbsp;${action}</p>` : '',
     ].filter(Boolean).join('');
 
+    const thinkOpen = _feedFilterAutoExpand('thinking');
+    const thinkMH   = thinkOpen ? 'none' : '0px';
+    const thinkIco  = thinkOpen ? 'expand_less' : 'expand_more';
     appendMissionCard(`
         <div class="think-card border-l-2 border-yellow-500/40 bg-surface font-mono text-xs" data-iteration="${iter}">
             <div class="flex items-center gap-2 pl-4 pr-4 py-2.5 text-yellow-400/70 font-bold text-[11px] uppercase tracking-widest">
                 <span class="material-symbols-outlined text-[14px]">psychology</span>
                 THINKING
-                <span class="text-yellow-400/30 font-normal text-[10px] normal-case tracking-normal truncate max-w-[220px]">${preview}</span>
                 <div class="ml-auto flex items-center gap-2 shrink-0">
                     <button onclick="forkFromIteration(${iter})" title="Continue from this checkpoint"
                         class="flex items-center gap-1 text-[10px] text-secondary-text/40 hover:text-primary transition-colors px-1.5 py-0.5">
@@ -4704,11 +5012,11 @@ function renderMissionReasoning(data) {
                     </button>
                     <button onclick="toggleThinkExpand(this)" title="Toggle thinking detail"
                         class="flex items-center gap-1 text-yellow-400/40 hover:text-yellow-400 transition-colors px-1 py-0.5">
-                        <span class="material-symbols-outlined text-[15px]">expand_more</span>
+                        <span class="material-symbols-outlined text-[15px]">${thinkIco}</span>
                     </button>
                 </div>
             </div>
-            <div class="think-expand overflow-hidden pl-4 pr-4" style="max-height:0;transition:max-height 0.3s ease-out;">
+            <div class="think-expand overflow-hidden pl-4 pr-4" style="max-height:${thinkMH};transition:max-height 0.25s ease-out;">
                 <div class="pb-3 border-t border-yellow-500/10 pt-2.5">
                     ${bodyHtml}
                 </div>
@@ -4770,18 +5078,39 @@ function renderMissionToolResult(data) {
     `);
 }
 
+function _parseMd(escapedText) {
+    // Convert **bold** to <strong> (applied after HTML escaping so < > are already safe)
+    return escapedText.replace(/\*\*(.+?)\*\*/g, '<strong class="text-secondary-text font-bold not-italic">$1</strong>');
+}
+
 function renderMissionReflection(data) {
-    const content = _esc(data.content || '');
-    if (!content) return;
-    appendMissionCard(`
-        <div class="border-l-2 border-purple-500/40 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
-            <div class="flex items-center gap-2 text-purple-400/60 font-bold text-[11px] uppercase tracking-widest mb-1">
+    const rawContent = data.content || '';
+    if (!rawContent) return;
+    const content   = _parseMd(_esc(rawContent));
+    const autoOpen  = _feedFilterAutoExpand('reflecting');
+    const expandIco = autoOpen ? 'expand_less' : 'expand_more';
+    const card = appendMissionCard(`
+        <div class="think-card border-l-2 border-purple-500/40 bg-surface font-mono text-xs">
+            <div class="flex items-center gap-2 pl-4 pr-4 py-2.5 text-purple-400/60 font-bold text-[11px] uppercase tracking-widest">
                 <span class="material-symbols-outlined text-[14px]">lightbulb</span>
                 REFLECTION
+                <button onclick="toggleThinkExpand(this)" title="Toggle detail"
+                    class="ml-auto flex items-center gap-1 text-purple-400/40 hover:text-purple-400 transition-colors px-1 py-0.5">
+                    <span class="material-symbols-outlined text-[15px]">${expandIco}</span>
+                </button>
             </div>
-            <div class="text-secondary-text text-xs italic leading-relaxed whitespace-pre-wrap">${content}</div>
+            <div class="think-expand overflow-hidden pl-4 pr-4" style="max-height:0;transition:max-height 0.25s ease-out;">
+                <div class="pb-3 border-t border-purple-500/10 pt-2.5">
+                    <div class="text-secondary-text text-[11px] italic leading-relaxed whitespace-pre-wrap">${content}</div>
+                </div>
+            </div>
         </div>
     `);
+    // Auto-expand based on filter preference
+    if (card && autoOpen) {
+        const expand = card.querySelector('.think-expand');
+        if (expand) requestAnimationFrame(() => _expandEl(expand, 220));
+    }
 }
 
 function renderMissionSafetyBlock(data) {
@@ -4813,6 +5142,35 @@ function renderMissionError(data) {
 
 function renderMissionDone(data) {
     const ts = new Date().toLocaleTimeString();
+    // Build findings section if flags or objective result present
+    let findingsHtml = '';
+    const flags = Array.isArray(data.flags) ? data.flags : [];
+    const objective = data.objective_result || data.objective || '';
+    const findings  = Array.isArray(data.findings) ? data.findings : [];
+    if (flags.length > 0) {
+        findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
+            <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Flags Found</div>
+            ${flags.map(f => `<div class="flex items-center gap-2 mb-1">
+                <span class="material-symbols-outlined text-[12px] text-primary">flag</span>
+                <code class="text-primary text-[11px] break-all">${_esc(String(f))}</code>
+            </div>`).join('')}
+        </div>`;
+    }
+    if (findings.length > 0) {
+        findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
+            <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Key Findings</div>
+            ${findings.map(f => `<div class="text-secondary-text text-[11px] mb-0.5 flex gap-2">
+                <span class="text-primary shrink-0">›</span>
+                <span>${_esc(String(f))}</span>
+            </div>`).join('')}
+        </div>`;
+    }
+    if (objective) {
+        findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
+            <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Objective Result</div>
+            <div class="text-secondary-text text-[11px] italic leading-relaxed whitespace-pre-wrap">${_parseMd(_esc(objective))}</div>
+        </div>`;
+    }
     appendMissionCard(`
         <div class="border border-primary/30 bg-primary/5 px-4 py-4 font-mono text-xs">
             <div class="flex items-center gap-2 text-primary font-bold mb-3">
@@ -4833,7 +5191,8 @@ function renderMissionDone(data) {
                     <div class="text-secondary-text text-[10px] uppercase tracking-wider mt-0.5">Exploits</div>
                 </div>
             </div>
-            <div class="mt-3 text-center text-secondary-text text-[11px]">
+            ${findingsHtml}
+            <div class="mt-3 text-center text-secondary-text text-[11px] ${findingsHtml ? 'border-t border-primary/20 pt-3' : ''}">
                 Report available in the <span class="text-primary cursor-pointer hover:underline" onclick="switchView('report')">Report</span> tab
             </div>
         </div>

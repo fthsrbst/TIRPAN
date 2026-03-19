@@ -101,6 +101,7 @@ html.light .text-secondary-text\/70 { color: #2a2a2a !important; }
 html.light .text-secondary-text\/60 { color: #3a3a3a !important; }
 html.light .text-secondary-text\/50 { color: #555555 !important; }
 html.light .text-secondary-text\/40 { color: #666666 !important; }
+html.light .text-secondary-text\/35 { color: #888888 !important; }
 html.light .text-secondary-text\/30 { color: #777777 !important; }
 
 /* Slate colors used in agent cards */
@@ -151,6 +152,18 @@ html.light #mission-feed code   { color: #111111 !important; }
 /* Italic thought/reflection text in cards */
 html.light .think-expand p,
 html.light .think-expand div    { color: #111111 !important; }
+
+/* Tool batch item expand — param keys, values and result output */
+html.light .tool-item-expand    { background-color: transparent; }
+html.light .tool-item-expand *  { color: #111111 !important; }
+html.light .tool-item-expand .text-blue-400\/70,
+html.light .tool-item-expand span[class*="text-blue"] { color: #1d4ed8 !important; }
+
+/* primary/70 and danger/70 used in result output */
+html.light .text-primary\/70    { color: #3a6800 !important; }
+html.light .text-primary\/5     { background-color: rgba(74,124,0,0.06) !important; }
+html.light .text-danger\/70     { color: #b91c1c !important; }
+html.light .text-danger\/80     { color: #991b1b !important; }
 
 /* Fallback: any element that still inherits white/near-white */
 html.light pre,
