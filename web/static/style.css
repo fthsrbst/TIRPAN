@@ -92,8 +92,65 @@ html.light .text-white {
 }
 
 html.light .text-secondary-text {
-    color: #71717a !important;
+    color: #2a2a2a !important;
 }
+
+/* Opacity variants of secondary-text — each maps to an opaque dark equivalent */
+html.light .text-secondary-text\/80 { color: #1a1a1a !important; }
+html.light .text-secondary-text\/70 { color: #2a2a2a !important; }
+html.light .text-secondary-text\/60 { color: #3a3a3a !important; }
+html.light .text-secondary-text\/50 { color: #555555 !important; }
+html.light .text-secondary-text\/40 { color: #666666 !important; }
+html.light .text-secondary-text\/30 { color: #777777 !important; }
+
+/* Slate colors used in agent cards */
+html.light .text-slate-300,
+html.light .text-slate-300\/80 { color: #1a1a1a !important; }
+
+/* Tool batch and agent feed colored labels — too light on white */
+html.light .text-yellow-400\/80,
+html.light .text-yellow-400\/70,
+html.light .text-yellow-400\/40,
+html.light .text-yellow-400\/30 { color: #7a6200 !important; }
+html.light .text-yellow-400      { color: #7a6200 !important; }
+
+html.light .text-purple-400\/60,
+html.light .text-purple-400\/70,
+html.light .text-purple-400\/40 { color: #6b21a8 !important; }
+html.light .text-purple-400      { color: #6b21a8 !important; }
+
+html.light .text-blue-400\/80,
+html.light .text-blue-400\/70,
+html.light .text-blue-400\/60,
+html.light .text-blue-400\/50 { color: #1d4ed8 !important; }
+html.light .text-blue-400      { color: #1d4ed8 !important; }
+
+html.light .text-green-400\/80,
+html.light .text-green-400\/70 { color: #15803d !important; }
+html.light .text-green-400      { color: #15803d !important; }
+
+html.light .text-orange-400\/80,
+html.light .text-orange-400\/70 { color: #c2500a !important; }
+html.light .text-orange-400      { color: #c2500a !important; }
+
+html.light .text-orange-300\/80 { color: #c2500a !important; }
+
+html.light .text-red-400\/80,
+html.light .text-red-400\/70    { color: #b91c1c !important; }
+html.light .text-red-400        { color: #b91c1c !important; }
+
+html.light .text-teal-400\/80,
+html.light .text-teal-400\/70   { color: #0f766e !important; }
+html.light .text-cyan-400\/80,
+html.light .text-cyan-400\/70   { color: #0e7490 !important; }
+
+/* Agent feed: pre/code output text */
+html.light #mission-feed pre,
+html.light #mission-feed code   { color: #111111 !important; }
+
+/* Italic thought/reflection text in cards */
+html.light .think-expand p,
+html.light .think-expand div    { color: #111111 !important; }
 
 /* Fallback: any element that still inherits white/near-white */
 html.light pre,
@@ -210,14 +267,16 @@ html.light #view-console .bg-primary {
     to   { opacity: 1; filter: blur(0px); }
 }
 
-/* ─── Mobile Responsive ──────────────────────────────────────────────────── */
+/* ─── Mobile / Tablet Responsive ─────────────────────────────────────────── */
 
+/* ── Phone (< 768px) ─────────────────────────────────────────────────────── */
 @media (max-width: 767px) {
     #left-sidebar {
         position: fixed;
         top: 0;
         left: 0;
         height: 100%;
+        width: min(300px, 88vw);
         z-index: 200;
         transform: translateX(-100%);
         transition: transform 0.3s ease-in-out;
@@ -234,6 +293,70 @@ html.light #view-console .bg-primary {
 
     #right-sidebar {
         display: flex !important;
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100%;
+        width: min(300px, 92vw);
+        z-index: 200;
+        transform: translateX(100%);
+        transition: transform 0.3s ease-in-out;
+        margin-right: 0 !important;
+    }
+
+    #right-sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    #right-collapse-btn {
+        display: none;
+    }
+
+    #mobile-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 150;
+    }
+
+    #mobile-overlay.active {
+        display: block;
+    }
+
+    /* Bottom nav removed — navigation lives in left sidebar */
+    #mobile-bottom-nav {
+        display: none !important;
+    }
+
+    footer {
+        display: none;
+    }
+
+    /* Session dropdown: full-width on phone */
+    #session-switcher-dropdown {
+        position: fixed;
+        left: 8px !important;
+        right: 8px;
+        min-width: unset;
+        width: auto;
+    }
+
+    /* Always show mission status text on phone */
+    #mission-status-text {
+        display: inline !important;
+    }
+
+    /* Phase bar: smaller text so it fits */
+    .phase-step span.text-\[9px\] {
+        font-size: 9px !important;
+    }
+}
+
+/* ── Tablet (768px – 1024px) ─────────────────────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1024px) {
+    /* Right sidebar becomes a slide-over on tablet too */
+    #right-sidebar {
         position: fixed;
         top: 0;
         right: 0;
@@ -264,30 +387,131 @@ html.light #view-console .bg-primary {
         display: block;
     }
 
-    #mobile-bottom-nav {
-        display: flex;
-    }
-
-    footer {
-        display: none;
-    }
-
-    /* Input area padding for bottom nav */
-    #view-agent .p-4.md\:p-8.pb-\[72px\] {
-        padding-bottom: 70px;
+    /* Show Intel button in header on tablet */
+    #mobile-intel-btn {
+        display: flex !important;
     }
 }
 
+/* ── Common: phone + tablet ──────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+    /* Larger tap targets for nav items */
+    .bottom-nav-item {
+        min-height: 40px;
+        padding: 6px 0;
+    }
+
+    /* Intel view: 4-col grids → 2-col */
+    #view-intel .grid-cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    /* Intel view: 3-col grids → 2-col */
+    #view-intel .grid-cols-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    /* Mission config: reduce horizontal padding */
+    .adv-tab-body {
+        padding-left: 16px !important;
+        padding-right: 16px !important;
+    }
+
+    /* Mission config tab bar: smaller padding */
+    .adv-tab-btn {
+        padding-left: 14px !important;
+        padding-right: 14px !important;
+    }
+
+    /* Mission config top bar: wrap on small screens */
+    #view-mission > div:first-child {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 16px;
+    }
+
+    /* Report and Config views: reduce padding */
+    #view-report .p-8,
+    #view-config .p-8 {
+        padding: 16px !important;
+    }
+
+    /* Audit log table: hide less-important columns */
+    #view-audit .overflow-x-auto {
+        font-size: 12px;
+    }
+
+    /* Agent injection area: full width */
+    #view-agent .max-w-4xl {
+        max-width: 100%;
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+}
+
+/* ── Phone only extras ───────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+    /* Phase progress: horizontal scroll wrapper already exists, reduce step gaps */
+    .phase-step {
+        gap: 4px !important;
+    }
+
+    /* Header: ensure right-side buttons don't overflow */
+    header .flex.items-center.gap-2.md\:gap-4 {
+        gap: 6px !important;
+    }
+
+    /* Emergency stop button: reduce size on phone */
+    #emergency-stop-btn-mobile {
+        font-size: 9px;
+        padding: 4px 8px;
+    }
+
+    /* Theme toggle + user avatar: smaller on phone */
+    #theme-toggle-btn {
+        width: 34px;
+        height: 34px;
+    }
+
+    /* Mission config: 2-col grids → 1-col on phone */
+    #view-mission .grid-cols-2 {
+        grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+    }
+
+    /* Speed profile cards: 3-col → 2-col */
+    #view-mission .grid-cols-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    /* Scan type buttons: wrap */
+    #view-mission .flex.flex-wrap {
+        gap: 6px;
+    }
+
+    /* Session switcher button: allow text overflow */
+    #session-switcher-btn {
+        max-width: calc(100vw - 180px);
+    }
+}
+
+/* ── Desktop (≥ 1025px) ──────────────────────────────────────────────────── */
+@media (min-width: 1025px) {
+    #mobile-intel-btn {
+        display: none !important;
+    }
+
+    #mobile-overlay {
+        display: none !important;
+    }
+}
+
+/* ── Hide mobile-only controls on non-phone ──────────────────────────────── */
 @media (min-width: 768px) {
     #mobile-hamburger {
         display: none;
     }
 
     #mobile-bottom-nav {
-        display: none !important;
-    }
-
-    #mobile-overlay {
         display: none !important;
     }
 }
@@ -319,9 +543,9 @@ body { font-weight: 400; letter-spacing: 0.01em; }
 /* Mono text in agent feed: medium weight for sharper rendering */
 .font-mono, pre, code { font-weight: 500; }
 
-/* Secondary text: slightly brighter so it doesn't disappear */
+/* Secondary text: slightly brighter in dark mode so it doesn't disappear */
 .text-secondary-text { color: #9a9a9a !important; }
-html.light .text-secondary-text { color: #5a5a6a !important; }
+/* Light mode secondary-text is handled in the Light Mode section below */
 
 /* ─── Thinking dot animation ────────────────────────────────────────────────── */
 @keyframes thinking-dot {
@@ -371,6 +595,16 @@ html.light #mission-feed > *:hover {
 /* Chat empty state fills available space */
 #chat-empty-state {
     min-height: 300px;
+}
+
+/* Agent feed: compensate for 52px minimap so mx-auto truly centers in the full feed area */
+#agent-scroll-area {
+    padding-left: calc(1rem + 52px) !important;   /* mobile p-4 + minimap */
+}
+@media (min-width: 768px) {
+    #agent-scroll-area {
+        padding-left: calc(2rem + 52px) !important; /* desktop p-8 + minimap */
+    }
 }
 
 /* ─── Markdown Content ─────────────────────────────────────────────────────── */

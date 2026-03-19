@@ -177,6 +177,10 @@
         <span class="material-symbols-outlined text-sm">settings</span>
         <span class="text-xs font-medium uppercase tracking-wider">Configuration</span>
       </div>
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" onclick="toggleMobileRightSidebar()">
+        <span class="material-symbols-outlined text-sm">monitoring</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Intel</span>
+      </div>
     </div>
   </aside>
 
@@ -189,13 +193,16 @@
         <button id="mobile-hamburger" onclick="toggleMobileSidebar()" class="w-9 h-9 flex items-center justify-center text-secondary-text hover:text-primary transition-colors shrink-0">
           <span class="material-symbols-outlined text-[22px]">menu</span>
         </button>
+        <button id="mobile-intel-btn" onclick="toggleMobileRightSidebar()" class="hidden w-9 h-9 items-center justify-center text-secondary-text hover:text-primary transition-colors shrink-0" title="Intel / System">
+          <span class="material-symbols-outlined text-[22px]">monitoring</span>
+        </button>
 
         <!-- Session Switcher Button + Dropdown -->
         <div class="relative">
           <button id="session-switcher-btn" class="flex items-center gap-1.5 px-2 py-1 hover:bg-white/5 transition-colors group border border-transparent hover:border-border-color">
             <div id="mission-status-dot" class="w-2 h-2 rounded-full bg-border-color shrink-0 transition-colors"></div>
-            <span id="mission-status-text" class="font-display font-bold text-xs md:text-sm tracking-widest uppercase hidden sm:inline text-secondary-text">No Mission</span>
-            <span class="material-symbols-outlined text-[13px] text-secondary-text group-hover:text-primary transition-colors hidden sm:inline">expand_more</span>
+            <span id="mission-status-text" class="font-display font-bold text-xs md:text-sm tracking-widest uppercase text-secondary-text max-w-[140px] sm:max-w-none truncate">No Mission</span>
+            <span class="material-symbols-outlined text-[13px] text-secondary-text group-hover:text-primary transition-colors">expand_more</span>
           </button>
           <!-- Session history dropdown -->
           <div id="session-switcher-dropdown" class="hidden absolute top-full left-0 mt-1 bg-surface border border-border-color z-50 min-w-[320px] shadow-lg">
@@ -2595,35 +2602,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
   </div>
 </div>
 
-<!-- ─── Mobile Bottom Nav ──────────────────────────────────────────────────── -->
-<nav id="mobile-bottom-nav" class="hidden fixed bottom-0 left-0 right-0 h-[58px] bg-surface border-t border-border-color z-[160]">
-  <div class="flex items-center justify-around h-full">
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-primary flex-1 h-full justify-center" data-view="agent">
-      <span class="material-symbols-outlined text-[22px]" style='font-variation-settings:"FILL" 1;'>psychology</span>
-      <span class="text-[9px] font-bold uppercase tracking-wider">Agent</span>
-    </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="console">
-      <span class="material-symbols-outlined text-[22px]">terminal</span>
-      <span class="text-[9px] font-bold uppercase tracking-wider">Console</span>
-    </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="audit">
-      <span class="material-symbols-outlined text-[22px]">description</span>
-      <span class="text-[9px] font-bold uppercase tracking-wider">Logs</span>
-    </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="report">
-      <span class="material-symbols-outlined text-[22px]">summarize</span>
-      <span class="text-[9px] font-bold uppercase tracking-wider">Report</span>
-    </button>
-    <button class="bottom-nav-item flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" data-view="config">
-      <span class="material-symbols-outlined text-[22px]">settings</span>
-      <span class="text-[9px] font-bold uppercase tracking-wider">Config</span>
-    </button>
-    <button class="flex flex-col items-center gap-0.5 text-secondary-text flex-1 h-full justify-center" onclick="toggleMobileRightSidebar()">
-      <span class="material-symbols-outlined text-[22px]">monitoring</span>
-      <span class="text-[9px] font-bold uppercase tracking-wider">Intel</span>
-    </button>
-  </div>
-</nav>
 
 <!-- ─── Fullscreen Input Overlay ─────────────────────────────────────────── -->
 <div id="input-fullscreen-overlay" class="hidden fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-6 md:p-12">
