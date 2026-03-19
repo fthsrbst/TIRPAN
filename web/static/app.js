@@ -2970,10 +2970,13 @@ function stopMissionUptime() {
 }
 
 function setUptimeFromDuration(seconds) {
-    const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
-    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-    const s = String(Math.floor(seconds % 60)).padStart(2, '0');
-    setStatValue('stat-uptime', `${h}:${m}:${s}`);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const hh = String(h).padStart(2, '0');
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    setStatValue('stat-uptime', `${hh}h ${mm}m ${ss}s`);
 }
 
 function startMissionUptime(startTimeMs) {
@@ -3042,7 +3045,8 @@ function resetMissionStats() {
     setStatValue('stat-vulns', '0');
     setStatValue('stat-hosts', '0');
     setStatValue('stat-ports', '0');
-    setStatValue('stat-uptime', '00:00:00');
+    setStatValue('stat-uptime', '00h 00m 00s');
+    setStatValue('stat-shells', '0');
 }
 
 // ─── Intel Panel: Analysis ─────────────────────────────────────────────────────
@@ -7329,6 +7333,7 @@ function _onReverseShellReceived(shellId, remoteAddr) {
     badge.dataset.count = currentCount;
     badge.textContent = currentCount;
     badge.classList.remove('hidden');
+    setStatValue('stat-shells', currentCount);
     if (emptyMsg) emptyMsg.classList.add('hidden');
 
     const subTab = document.createElement('button');
