@@ -4263,8 +4263,10 @@ function appendConsoleToolResult(data) {
 // ─── Agent view live mission feed ─────────────────────────────────────────────
 
 let _missionIteration = 0;
-let _toolBatch    = null;  // current open tool-batch container
-let _toolBatchUid = 0;     // ever-incrementing item uid
+let _toolBatch       = null;  // current open tool-batch container
+let _toolBatchUid    = 0;     // ever-incrementing item uid
+const _toolDetailStore = new Map(); // storeId → raw data object (avoids HTML-encoding issues)
+let _toolDetailStoreId = 0;
 
 function _esc(str) {
     return String(str || '')
@@ -4277,18 +4279,34 @@ function _esc(str) {
 // ─── Tool detail modal ────────────────────────────────────────────────────────
 
 function showToolDetail(btn) {
-    const card = btn.closest('[data-tool-json]');
+    const card = btn.closest('[data-tool-id]');
     if (!card) return;
+    const sid   = parseInt(card.getAttribute('data-tool-id'), 10);
     const title = card.getAttribute('data-tool-title') || 'Details';
-    const json  = card.getAttribute('data-tool-json') || '{}';
+    const data  = _toolDetailStore.get(sid);
     const titleEl   = document.getElementById('tool-detail-title');
     const contentEl = document.getElementById('tool-detail-content');
     const modal     = document.getElementById('tool-detail-modal');
     if (!modal || !contentEl) return;
     if (titleEl) titleEl.textContent = title;
-    try { contentEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
-    catch(e) { contentEl.textContent = json; }
+    contentEl.textContent = data !== undefined ? JSON.stringify(data, null, 2) : '(no data)';
     modal.classList.remove('hidden');
+}
+
+function toggleThinkExpand(btn) {
+    const card   = btn.closest('.think-card');
+    const expand = card ? card.querySelector('.think-expand') : null;
+    if (!expand) return;
+    const isOpen = expand.style.maxHeight && expand.style.maxHeight !== '0px' && expand.style.maxHeight !== '0';
+    if (isOpen) {
+        expand.style.maxHeight = '0';
+        const ic = btn.querySelector('.material-symbols-outlined');
+        if (ic) ic.textContent = 'expand_more';
+    } else {
+        expand.style.maxHeight = Math.max(expand.scrollHeight, 60) + 'px';
+        const ic = btn.querySelector('.material-symbols-outlined');
+        if (ic) ic.textContent = 'expand_less';
+    }
 }
 
 function closeToolDetailModal() {
@@ -4384,11 +4402,12 @@ function _openOrAddToToolBatch(data) {
     }
 
     const summary = _esc(_toolCallSummary(tool, data.params || {}));
-    const rawJson = _esc(JSON.stringify(data, null, 2));
+    const sid     = _toolDetailStoreId++;
+    _toolDetailStore.set(sid, data);
     const itemEl  = document.createElement('div');
     itemEl.id = `tbitem-${uid}`;
     itemEl.className = 'group/item flex items-start gap-3 px-4 py-2.5 hover:bg-white/[0.03] transition-colors';
-    itemEl.setAttribute('data-tool-json', rawJson);
+    itemEl.setAttribute('data-tool-id', sid);
     itemEl.setAttribute('data-tool-title', `${_esc(tool)} · details`);
     itemEl.innerHTML = `
         <div class="shrink-0 mt-0.5 w-4 h-4 flex items-center justify-center" id="tbstatus-${uid}">
@@ -4435,7 +4454,8 @@ function _resolveToolBatchItem(data) {
 
     const itemEl = document.getElementById(`tbitem-${uid}`);
     if (itemEl) {
-        itemEl.setAttribute('data-tool-json', _esc(JSON.stringify({ call: pending.callData, result: data }, null, 2)));
+        const sid = parseInt(itemEl.getAttribute('data-tool-id'), 10);
+        _toolDetailStore.set(sid, { call: pending.callData, result: data });
         itemEl.setAttribute('data-tool-title', `${_esc(data.tool||'')} · call + result`);
     }
     if (agentAutoScroll) { const s = document.getElementById('agent-scroll-area'); if(s) s.scrollTop = s.scrollHeight; }
@@ -4478,6 +4498,7 @@ function clearMissionFeed() {
     if (feed) feed.remove();
     _missionIteration = 0;
     _toolBatch = null;
+    _toolDetailStore.clear();
     const emptyState = document.getElementById('agent-empty-state');
     if (emptyState) emptyState.style.display = '';
     // Clear objectives panel
@@ -4559,33 +4580,62 @@ function renderMissionStart(target, mode) {
 
 // ── Agent LLM Streaming ──────────────────────────────────────────────────────
 
-let _agentStreamEl = null;   // the live streaming card element
-let _agentStreamBody = null; // the <pre> inside it that receives tokens
+let _agentStreamEl   = null;  // the live streaming card element
+let _agentStreamBody = null;  // the <pre> inside it that receives tokens
+let _agentStreamMode = null;  // 'thinking' | 'reflecting'
 
 function startAgentStreamCard(mode) {
-    finalizeAgentStreamCard(); // close any previous open card
-    const isReflect = mode === 'reflecting';
+    finalizeAgentStreamCard();
+    _agentStreamMode  = mode;
+    const isReflect   = mode === 'reflecting';
     const borderColor = isReflect ? 'border-purple-500/40' : 'border-yellow-500/30';
-    const labelColor  = isReflect ? 'text-purple-400/70' : 'text-yellow-400/70';
-    const icon        = isReflect ? 'lightbulb' : 'psychology';
-    const label       = isReflect ? 'REFLECTING' : 'THINKING';
+    const labelColor  = isReflect ? 'text-purple-400/70'   : 'text-yellow-400/70';
+    const icon        = isReflect ? 'lightbulb'             : 'psychology';
+    const label       = isReflect ? 'REFLECTING'            : 'THINKING';
+
+    const dots = `<span class="flex items-center gap-[3px] ml-1.5" id="agent-stream-cursor">
+        <span class="w-[5px] h-[5px] rounded-full bg-current" style="animation:thinking-dot 1.2s ease-in-out infinite;animation-delay:0ms"></span>
+        <span class="w-[5px] h-[5px] rounded-full bg-current" style="animation:thinking-dot 1.2s ease-in-out infinite;animation-delay:200ms"></span>
+        <span class="w-[5px] h-[5px] rounded-full bg-current" style="animation:thinking-dot 1.2s ease-in-out infinite;animation-delay:400ms"></span>
+    </span>`;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'mission-card-wrapper';
-    wrapper.innerHTML = `
-        <div class="border-l-2 ${borderColor} bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-            <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest mb-2">
-                <span class="material-symbols-outlined text-[14px]">${icon}</span>
-                ${label}
-                <span class="inline-block w-1.5 h-3 bg-current ml-1 animate-pulse" id="agent-stream-cursor"></span>
-            </div>
-            <pre id="agent-stream-body" class="text-secondary-text text-[11px] leading-relaxed whitespace-pre-wrap break-all max-h-64 overflow-y-auto"></pre>
-        </div>`;
+
+    if (isReflect) {
+        // Reflecting: keep card visible after finalization — button to expand
+        wrapper.innerHTML = `
+            <div class="think-card border-l-2 ${borderColor} bg-surface font-mono text-xs">
+                <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest pl-4 pr-4 py-2.5">
+                    <span class="material-symbols-outlined text-[14px] animate-pulse">${icon}</span>
+                    ${label}
+                    ${dots}
+                    <button onclick="toggleThinkExpand(this)" title="Toggle detail"
+                        class="ml-auto flex items-center gap-1 ${labelColor} opacity-60 hover:opacity-100 transition-opacity px-1 py-0.5">
+                        <span class="material-symbols-outlined text-[15px]">expand_more</span>
+                    </button>
+                </div>
+                <div class="think-expand overflow-hidden pl-4 pr-4" style="max-height:0;transition:max-height 0.3s ease-out;">
+                    <pre id="agent-stream-body" class="text-secondary-text/70 text-[11px] italic leading-relaxed whitespace-pre-wrap break-all pb-3 max-h-72 overflow-y-auto"></pre>
+                </div>
+            </div>`;
+    } else {
+        // Thinking: card will be removed on finalization; just show animated header
+        wrapper.innerHTML = `
+            <div class="border-l-2 ${borderColor} bg-surface pl-4 pr-4 py-2.5 font-mono text-xs">
+                <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest">
+                    <span class="material-symbols-outlined text-[14px] animate-pulse">${icon}</span>
+                    ${label}
+                    ${dots}
+                </div>
+                <pre id="agent-stream-body" class="sr-only"></pre>
+            </div>`;
+    }
 
     const feed = getMissionFeed();
     if (feed) {
         feed.appendChild(wrapper);
-        _agentStreamEl = wrapper;
+        _agentStreamEl   = wrapper;
         _agentStreamBody = wrapper.querySelector('#agent-stream-body');
         if (agentAutoScroll) {
             const scrollEl = document.getElementById('agent-scroll-area');
@@ -4608,34 +4658,61 @@ function appendAgentStreamToken(token) {
 
 function finalizeAgentStreamCard() {
     if (!_agentStreamEl) return;
-    // Remove the blinking cursor
-    const cursor = _agentStreamEl.querySelector('#agent-stream-cursor');
-    if (cursor) cursor.remove();
-    _agentStreamEl = null;
+    if (_agentStreamMode === 'thinking') {
+        // Remove the temp streaming card — renderMissionReasoning will show clean parsed card
+        _agentStreamEl.remove();
+    } else {
+        // Reflecting: keep the card, just remove the animated dots cursor
+        const cursor = _agentStreamEl.querySelector('#agent-stream-cursor');
+        if (cursor) cursor.remove();
+        // Fix expand height now that content is final
+        const expand = _agentStreamEl.querySelector('.think-expand');
+        if (expand && expand.style.maxHeight !== '0px' && expand.style.maxHeight !== '0') {
+            expand.style.maxHeight = expand.scrollHeight + 'px';
+        }
+    }
+    _agentStreamEl   = null;
     _agentStreamBody = null;
+    _agentStreamMode = null;
 }
 
 function renderMissionReasoning(data) {
     _missionIteration++;
-    const iter = _missionIteration;
-    const thought   = _esc(data.thought || '');
+    const iter      = _missionIteration;
+    const thought   = _esc(data.thought   || '');
     const reasoning = _esc(data.reasoning || '');
-    const action    = _esc(data.action || '');
+    const action    = _esc(data.action    || '');
+    // Short preview shown in collapsed header (first ~70 chars of thought)
+    const preview   = thought ? thought.slice(0, 72) + (thought.length > 72 ? '…' : '') : '';
+
+    const bodyHtml = [
+        thought   ? `<p class="text-slate-300/80 text-[12px] italic leading-relaxed whitespace-pre-wrap mb-2">${thought}</p>` : '',
+        reasoning ? `<p class="text-secondary-text/70 text-[11px] italic leading-relaxed whitespace-pre-wrap mb-2">${reasoning}</p>` : '',
+        action    ? `<p class="text-primary text-[11px] font-bold mt-1 not-italic">→ &nbsp;${action}</p>` : '',
+    ].filter(Boolean).join('');
+
     appendMissionCard(`
-        <div class="group/iter border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs relative" data-iteration="${iter}">
-            <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[11px] uppercase tracking-widest mb-2">
+        <div class="think-card border-l-2 border-yellow-500/40 bg-surface font-mono text-xs" data-iteration="${iter}">
+            <div class="flex items-center gap-2 pl-4 pr-4 py-2.5 text-yellow-400/70 font-bold text-[11px] uppercase tracking-widest">
                 <span class="material-symbols-outlined text-[14px]">psychology</span>
-                REASONING &nbsp;·&nbsp; Iteration ${iter}
-                <button class="iter-fork-btn ml-auto opacity-0 group-hover/iter:opacity-100 transition-opacity flex items-center gap-1 text-[10px] text-secondary-text hover:text-primary cursor-pointer bg-bg/70 rounded px-2 py-0.5"
-                        onclick="forkFromIteration(${iter})"
-                        title="Continue from this checkpoint">
-                    <span class="material-symbols-outlined text-[12px]">fork_right</span>
-                    Continue from here
-                </button>
+                THINKING
+                <span class="text-yellow-400/30 font-normal text-[10px] normal-case tracking-normal truncate max-w-[220px]">${preview}</span>
+                <div class="ml-auto flex items-center gap-2 shrink-0">
+                    <button onclick="forkFromIteration(${iter})" title="Continue from this checkpoint"
+                        class="flex items-center gap-1 text-[10px] text-secondary-text/40 hover:text-primary transition-colors px-1.5 py-0.5">
+                        <span class="material-symbols-outlined text-[12px]">fork_right</span>
+                    </button>
+                    <button onclick="toggleThinkExpand(this)" title="Toggle thinking detail"
+                        class="flex items-center gap-1 text-yellow-400/40 hover:text-yellow-400 transition-colors px-1 py-0.5">
+                        <span class="material-symbols-outlined text-[15px]">expand_more</span>
+                    </button>
+                </div>
             </div>
-            ${thought    ? `<div class="text-slate-300 text-[12px] leading-relaxed mb-2 whitespace-pre-wrap">${thought}</div>` : ''}
-            ${reasoning  ? `<div class="text-secondary-text text-xs leading-relaxed mb-2 whitespace-pre-wrap italic">${reasoning}</div>` : ''}
-            ${action     ? `<div class="text-primary text-xs font-bold mt-1">→ &nbsp;${action}</div>` : ''}
+            <div class="think-expand overflow-hidden pl-4 pr-4" style="max-height:0;transition:max-height 0.3s ease-out;">
+                <div class="pb-3 border-t border-yellow-500/10 pt-2.5">
+                    ${bodyHtml}
+                </div>
+            </div>
         </div>
     `);
 }
@@ -4643,10 +4720,11 @@ function renderMissionReasoning(data) {
 function renderMissionToolCall(data) {
     const tool       = _esc(data.tool || '');
     const paramsHtml = _renderToolParams(data.params || {});
-    const rawJson    = _esc(JSON.stringify(data, null, 2));
+    const sid        = _toolDetailStoreId++;
+    _toolDetailStore.set(sid, data);
     appendMissionCard(`
         <div class="group/card border-l-2 border-blue-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
-             data-tool-json="${rawJson}" data-tool-title="TOOL CALL · ${tool}">
+             data-tool-id="${sid}" data-tool-title="TOOL CALL · ${tool}">
             <div class="flex items-center gap-2 text-blue-400/80 font-bold text-[11px] uppercase tracking-widest mb-2">
                 <span class="material-symbols-outlined text-[14px]">terminal</span>
                 TOOL CALL
@@ -4670,10 +4748,11 @@ function renderMissionToolResult(data) {
     const color   = success ? 'text-primary' : 'text-danger';
     const icon    = success ? 'check_circle' : 'error';
     const label   = success ? 'OK' : 'FAILED';
-    const rawJson = _esc(JSON.stringify(data, null, 2));
+    const sid     = _toolDetailStoreId++;
+    _toolDetailStore.set(sid, data);
     appendMissionCard(`
         <div class="group/card border-l-2 ${border} bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
-             data-tool-json="${rawJson}" data-tool-title="RESULT · ${tool}">
+             data-tool-id="${sid}" data-tool-title="RESULT · ${tool}">
             <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-2 ${color} font-bold text-[11px] uppercase tracking-widest">
                     <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">${icon}</span>
