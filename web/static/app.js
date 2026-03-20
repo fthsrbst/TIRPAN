@@ -1352,7 +1352,7 @@ function buildUserMessageEl(text) {
     el.innerHTML = `
         <div class="flex flex-col gap-1 max-w-[80%] items-end">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest text-right">You</div>
-          <div class="user-msg-text bg-card border border-border-color p-4 text-sm leading-relaxed whitespace-pre-wrap" style="color:#d1d5db;font-family:'Inter',sans-serif;">${escapeHtml(text)}</div>
+          <div class="user-msg-text bg-card border border-border-color border-r-2 p-4 text-sm leading-relaxed whitespace-pre-wrap" style="color:#d1d5db;font-family:'Inter',sans-serif;border-right-color:#60a5fa;">${escapeHtml(text)}</div>
           <div class="msg-actions flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
             <button class="action-copy msg-action-btn flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary-text hover:text-primary border border-transparent hover:border-border-color transition-all font-display uppercase tracking-wider">
               <span class="material-symbols-outlined text-[13px]">content_copy</span><span>Copy</span>
@@ -1393,7 +1393,7 @@ function buildAssistantMessageEl(htmlContent, rawText = '') {
         </div>
         <div class="flex flex-col gap-1 flex-1 min-w-0">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Chat</div>
-          <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
+          <div class="bg-surface border-l-4 border-l-primary border border-border-color p-5">
             <div class="msg-text markdown-content text-sm leading-relaxed text-slate-200">${htmlContent}</div>
           </div>
           <div class="msg-actions flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
@@ -1433,7 +1433,7 @@ function startAssistantMessage() {
         </div>
         <div class="flex flex-col gap-1 flex-1 min-w-0">
           <div class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">AI Engine • Chat</div>
-          <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
+          <div class="bg-surface border-l-4 border-l-primary border border-border-color p-5">
             <div class="msg-text markdown-content text-sm leading-relaxed"></div>
             <span class="cursor-blink inline-block w-2 h-4 bg-primary ml-0.5 align-middle"></span>
           </div>
@@ -1625,8 +1625,8 @@ function initChatInput() {
             const data = await res.json();
             if (data.ok) {
                 appendMissionCard(`
-                    <div class="border-l-2 border-yellow-500/50 bg-surface pl-4 pr-4 py-2 font-mono text-xs">
-                        <div class="flex items-center gap-2 text-yellow-400/80 font-bold text-[10px] uppercase tracking-widest mb-1">
+                    <div class="bg-surface pl-4 pr-4 py-2 font-mono text-xs" style="border:1px solid rgba(234,179,8,0.35);border-left:4px solid #eab308;">
+                        <div class="flex items-center gap-2 text-yellow-400 font-bold text-[10px] uppercase tracking-widest mb-1">
                             <span class="material-symbols-outlined text-[12px]">person</span>
                             OPERATOR INSTRUCTION
                         </div>
@@ -2596,8 +2596,8 @@ function handleSessionEvent(msg) {
     } else if (event === 'operator_response') {
         const thought = data.thought || '';
         appendMissionCard(`
-            <div class="border-l-2 border-primary/60 bg-primary/5 pl-4 pr-4 py-3 font-mono text-xs">
-                <div class="flex items-center gap-2 text-primary/80 font-bold text-[10px] uppercase tracking-widest mb-1.5">
+            <div class="bg-primary/5 pl-4 pr-4 py-3 font-mono text-xs" style="border:1px solid rgba(204,255,0,0.35);border-left:4px solid #ccff00;">
+                <div class="flex items-center gap-2 text-primary font-bold text-[10px] uppercase tracking-widest mb-1.5">
                     <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">smart_toy</span>
                     AGENT RESPONSE TO OPERATOR
                 </div>
@@ -4361,17 +4361,17 @@ function _renderToolParams(params) {
 
 function _getToolStyle(toolName) {
     const n = (toolName || '').toLowerCase();
-    if (n.includes('nmap'))                          return { icon:'wifi_find',     label:'NMAP',        border:'border-blue-500/50',   header:'text-blue-400/80',   spin:'border-blue-400/50'   };
-    if (n.includes('bash')||n==='exec'||n==='run_command'||n==='shell') return { icon:'terminal',      label:'BASH',        border:'border-green-500/50',  header:'text-green-400/80',  spin:'border-green-400/50'  };
-    if (n.includes('ssh'))                                               return { icon:'key',           label:'SSH',         border:'border-cyan-500/50',   header:'text-cyan-400/80',   spin:'border-cyan-400/50'   };
-    if (n.includes('python'))                        return { icon:'code',          label:'PYTHON',      border:'border-yellow-500/50', header:'text-yellow-400/80', spin:'border-yellow-400/50' };
-    if (n.includes('msf')||n.includes('metasploit')) return { icon:'rocket_launch', label:'METASPLOIT',  border:'border-red-500/50',    header:'text-red-400/80',    spin:'border-red-400/50'    };
-    if (n.includes('searchsploit'))                  return { icon:'manage_search', label:'SEARCHSPLOIT',border:'border-orange-500/50', header:'text-orange-400/80', spin:'border-orange-400/50' };
-    if (n.includes('hydra')||n.includes('brute'))    return { icon:'key',           label:'HYDRA',       border:'border-purple-500/50', header:'text-purple-400/80', spin:'border-purple-400/50' };
-    if (n.includes('sqlmap')||n.includes('sql'))     return { icon:'storage',       label:'SQLMAP',      border:'border-orange-500/50', header:'text-orange-400/80', spin:'border-orange-400/50' };
-    if (n.includes('curl')||n.includes('http')||n.includes('web')) return { icon:'http', label:'HTTP',   border:'border-cyan-500/50',   header:'text-cyan-400/80',   spin:'border-cyan-400/50'   };
-    if (n.includes('nikto')||n.includes('dirb')||n.includes('gobuster')) return { icon:'travel_explore', label:toolName.toUpperCase().slice(0,12), border:'border-teal-500/50', header:'text-teal-400/80', spin:'border-teal-400/50' };
-    return { icon:'terminal', label:toolName.toUpperCase().slice(0,12)||'TOOL', border:'border-blue-500/50', header:'text-blue-400/80', spin:'border-blue-400/50' };
+    if (n.includes('nmap'))                          return { icon:'wifi_find',     label:'NMAP',        border:'border-blue-500/50',   header:'text-blue-400',   spin:'border-blue-400/50',   hex:'#3b82f6', rgba:'rgba(59,130,246,0.35)'   };
+    if (n.includes('bash')||n==='exec'||n==='run_command'||n==='shell') return { icon:'terminal',      label:'BASH',        border:'border-green-500/50',  header:'text-green-400',  spin:'border-green-400/50',  hex:'#22c55e', rgba:'rgba(34,197,94,0.35)'   };
+    if (n.includes('ssh'))                                               return { icon:'key',           label:'SSH',         border:'border-cyan-500/50',   header:'text-cyan-400',   spin:'border-cyan-400/50',   hex:'#06b6d4', rgba:'rgba(6,182,212,0.35)'    };
+    if (n.includes('python'))                        return { icon:'code',          label:'PYTHON',      border:'border-yellow-500/50', header:'text-yellow-400', spin:'border-yellow-400/50', hex:'#eab308', rgba:'rgba(234,179,8,0.35)'   };
+    if (n.includes('msf')||n.includes('metasploit')) return { icon:'rocket_launch', label:'METASPLOIT',  border:'border-red-500/50',    header:'text-red-400',    spin:'border-red-400/50',    hex:'#ef4444', rgba:'rgba(239,68,68,0.35)'    };
+    if (n.includes('searchsploit'))                  return { icon:'manage_search', label:'SEARCHSPLOIT',border:'border-orange-500/50', header:'text-orange-400', spin:'border-orange-400/50', hex:'#f97316', rgba:'rgba(249,115,22,0.35)'  };
+    if (n.includes('hydra')||n.includes('brute'))    return { icon:'key',           label:'HYDRA',       border:'border-purple-500/50', header:'text-purple-400', spin:'border-purple-400/50', hex:'#a855f7', rgba:'rgba(168,85,247,0.35)'  };
+    if (n.includes('sqlmap')||n.includes('sql'))     return { icon:'storage',       label:'SQLMAP',      border:'border-orange-500/50', header:'text-orange-400', spin:'border-orange-400/50', hex:'#f97316', rgba:'rgba(249,115,22,0.35)'  };
+    if (n.includes('curl')||n.includes('http')||n.includes('web')) return { icon:'http', label:'HTTP',   border:'border-cyan-500/50',   header:'text-cyan-400',   spin:'border-cyan-400/50',   hex:'#06b6d4', rgba:'rgba(6,182,212,0.35)'   };
+    if (n.includes('nikto')||n.includes('dirb')||n.includes('gobuster')) return { icon:'travel_explore', label:toolName.toUpperCase().slice(0,12), border:'border-teal-500/50', header:'text-teal-400', spin:'border-teal-400/50', hex:'#14b8a6', rgba:'rgba(20,184,166,0.35)' };
+    return { icon:'terminal', label:toolName.toUpperCase().slice(0,12)||'TOOL', border:'border-blue-500/50', header:'text-blue-400', spin:'border-blue-400/50', hex:'#3b82f6', rgba:'rgba(59,130,246,0.35)' };
 }
 
 // Returns a short, human-readable summary line for the collapsed batch item header
@@ -4642,7 +4642,7 @@ function _openOrAddToToolBatch(data) {
         const wrapperEl = document.createElement('div');
         wrapperEl.className = 'tool-batch-card';
         wrapperEl.innerHTML = `
-            <div class="border-l-2 ${style.border} bg-surface font-mono text-xs">
+            <div class="border-l-2 ${style.border} bg-surface font-mono text-xs" style="border:1px solid ${style.rgba};border-left:4px solid ${style.hex};">
                 <div class="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-white/[0.03] transition-colors select-none"
                      onclick="toggleToolBatch(this)">
                     <span class="material-symbols-outlined text-[14px] ${style.header}">${style.icon}</span>
@@ -4771,7 +4771,7 @@ function getMissionFeed() {
         if (emptyState) emptyState.style.display = 'none';
         feed = document.createElement('div');
         feed.id = 'mission-feed';
-        feed.className = 'flex flex-col gap-2 w-full';
+        feed.className = 'flex flex-col gap-4 w-full';
         stream.appendChild(feed);
     }
     return feed;
@@ -4868,7 +4868,7 @@ function markObjectiveComplete(objectiveText) {
 function renderMissionStart(target, mode) {
     const ts = new Date().toLocaleTimeString();
     appendMissionCard(`
-        <div class="border border-primary/30 bg-primary/5 px-4 py-3 font-mono text-xs">
+        <div class="bg-primary/5 px-4 py-3 font-mono text-xs" style="border:1px solid rgba(204,255,0,0.35);border-left:4px solid #ccff00;">
             <div class="flex items-center gap-2 text-primary font-bold mb-1">
                 <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">rocket_launch</span>
                 MISSION STARTED &nbsp;·&nbsp; ${ts}
@@ -4888,8 +4888,9 @@ function startAgentStreamCard(mode) {
     finalizeAgentStreamCard();
     _agentStreamMode  = mode;
     const isReflect   = mode === 'reflecting';
-    const borderColor = isReflect ? 'border-purple-500/40' : 'border-yellow-500/30';
-    const labelColor  = isReflect ? 'text-purple-400/70'   : 'text-yellow-400/70';
+    const borderHex   = isReflect ? '#a855f7' : '#eab308';
+    const borderRgba  = isReflect ? 'rgba(168,85,247,0.35)' : 'rgba(234,179,8,0.35)';
+    const labelColor  = isReflect ? 'text-purple-400'   : 'text-yellow-400';
     const icon        = isReflect ? 'lightbulb'             : 'psychology';
     const label       = isReflect ? 'REFLECTING'            : 'THINKING';
 
@@ -4908,7 +4909,7 @@ function startAgentStreamCard(mode) {
         const expandIco = autoOpen ? 'expand_less' : 'expand_more';
         // Reflecting: keep card visible after finalization
         wrapper.innerHTML = `
-            <div class="think-card border-l-2 ${borderColor} bg-surface font-mono text-xs">
+            <div class="think-card bg-surface font-mono text-xs" style="border:1px solid ${borderRgba};border-left:4px solid ${borderHex};">
                 <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest pl-4 pr-4 py-2.5">
                     <span class="material-symbols-outlined text-[14px] animate-pulse">${icon}</span>
                     ${label}
@@ -4925,7 +4926,7 @@ function startAgentStreamCard(mode) {
     } else {
         // Thinking: card will be removed on finalization; just show animated header
         wrapper.innerHTML = `
-            <div class="border-l-2 ${borderColor} bg-surface pl-4 pr-4 py-2.5 font-mono text-xs">
+            <div class="bg-surface pl-4 pr-4 py-2.5 font-mono text-xs" style="border:1px solid ${borderRgba};border-left:4px solid ${borderHex};">
                 <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest">
                     <span class="material-symbols-outlined text-[14px] animate-pulse">${icon}</span>
                     ${label}
@@ -5005,8 +5006,8 @@ function renderMissionReasoning(data) {
     const thinkMH   = thinkOpen ? 'none' : '0px';
     const thinkIco  = thinkOpen ? 'expand_less' : 'expand_more';
     appendMissionCard(`
-        <div class="think-card border-l-2 border-yellow-500/40 bg-surface font-mono text-xs" data-iteration="${iter}">
-            <div class="flex items-center gap-2 pl-4 pr-4 py-2.5 text-yellow-400/70 font-bold text-[11px] uppercase tracking-widest">
+        <div class="think-card bg-surface font-mono text-xs" data-iteration="${iter}" style="border:1px solid rgba(234,179,8,0.35);border-left:4px solid #eab308;">
+            <div class="flex items-center gap-2 pl-4 pr-4 py-2.5 text-yellow-400 font-bold text-[11px] uppercase tracking-widest">
                 <span class="material-symbols-outlined text-[14px]">psychology</span>
                 THINKING
                 <div class="ml-auto flex items-center gap-2 shrink-0">
@@ -5035,9 +5036,9 @@ function renderMissionToolCall(data) {
     const sid        = _toolDetailStoreId++;
     _toolDetailStore.set(sid, data);
     appendMissionCard(`
-        <div class="group/card border-l-2 border-blue-500/50 bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
-             data-tool-id="${sid}" data-tool-title="TOOL CALL · ${tool}">
-            <div class="flex items-center gap-2 text-blue-400/80 font-bold text-[11px] uppercase tracking-widest mb-2">
+        <div class="group/card bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
+             data-tool-id="${sid}" data-tool-title="TOOL CALL · ${tool}" style="border:1px solid rgba(59,130,246,0.35);border-left:4px solid #3b82f6;">
+            <div class="flex items-center gap-2 text-blue-400 font-bold text-[11px] uppercase tracking-widest mb-2">
                 <span class="material-symbols-outlined text-[14px]">terminal</span>
                 TOOL CALL
             </div>
@@ -5056,15 +5057,16 @@ function renderMissionToolResult(data) {
     const tool    = _esc(data.tool || '');
     const success = data.success !== false;
     const output  = _esc(data.output || data.error || '');
-    const border  = success ? 'border-primary/50' : 'border-danger/50';
+    const borderHex2  = success ? '#ccff00' : '#ef4444';
+    const borderRgba2 = success ? 'rgba(204,255,0,0.3)' : 'rgba(239,68,68,0.35)';
     const color   = success ? 'text-primary' : 'text-danger';
     const icon    = success ? 'check_circle' : 'error';
     const label   = success ? 'OK' : 'FAILED';
     const sid     = _toolDetailStoreId++;
     _toolDetailStore.set(sid, data);
     appendMissionCard(`
-        <div class="group/card border-l-2 ${border} bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
-             data-tool-id="${sid}" data-tool-title="RESULT · ${tool}">
+        <div class="group/card bg-surface pl-4 pr-4 py-3 font-mono text-xs relative"
+             data-tool-id="${sid}" data-tool-title="RESULT · ${tool}" style="border:1px solid ${borderRgba2};border-left:4px solid ${borderHex2};">
             <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-2 ${color} font-bold text-[11px] uppercase tracking-widest">
                     <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">${icon}</span>
@@ -5094,8 +5096,8 @@ function renderMissionReflection(data) {
     const autoOpen  = _feedFilterAutoExpand('reflecting');
     const expandIco = autoOpen ? 'expand_less' : 'expand_more';
     const card = appendMissionCard(`
-        <div class="think-card border-l-2 border-purple-500/40 bg-surface font-mono text-xs">
-            <div class="flex items-center gap-2 pl-4 pr-4 py-2.5 text-purple-400/60 font-bold text-[11px] uppercase tracking-widest">
+        <div class="think-card bg-surface font-mono text-xs" style="border:1px solid rgba(168,85,247,0.35);border-left:4px solid #a855f7;">
+            <div class="flex items-center gap-2 pl-4 pr-4 py-2.5 text-purple-400 font-bold text-[11px] uppercase tracking-widest">
                 <span class="material-symbols-outlined text-[14px]">lightbulb</span>
                 REFLECTION
                 <button onclick="toggleThinkExpand(this)" title="Toggle detail"
@@ -5121,7 +5123,7 @@ function renderMissionSafetyBlock(data) {
     const reason = _esc(data.reason || '');
     const tool   = _esc(data.tool || '');
     appendMissionCard(`
-        <div class="border-l-2 border-orange-500/60 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+        <div class="bg-surface pl-4 pr-4 py-3 font-mono text-xs" style="border:1px solid rgba(249,115,22,0.35);border-left:4px solid #f97316;">
             <div class="flex items-center gap-2 text-orange-400 font-bold text-[11px] uppercase tracking-widest mb-1">
                 <span class="material-symbols-outlined text-[14px]">shield</span>
                 SAFETY BLOCK${tool ? ' · ' + tool : ''}
@@ -5134,7 +5136,7 @@ function renderMissionSafetyBlock(data) {
 function renderMissionError(data) {
     const msg = _esc(data.error || 'Unknown error');
     appendMissionCard(`
-        <div class="border-l-2 border-danger/60 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+        <div class="bg-surface pl-4 pr-4 py-3 font-mono text-xs" style="border:1px solid rgba(239,68,68,0.35);border-left:4px solid #ef4444;">
             <div class="flex items-center gap-2 text-danger font-bold text-[11px] uppercase tracking-widest mb-1">
                 <span class="material-symbols-outlined text-[14px]">error</span>
                 ERROR
@@ -5620,8 +5622,8 @@ function renderHistoricalSession(session) {
             `<div class="text-secondary-text">${_esc(String(r.ip || ''))}:${_esc(String(r.port || ''))} <span class="text-slate-300">${_esc(r.service || '')} ${_esc(r.version || '')}</span></div>`
         ).join('');
         appendMissionCard(`
-            <div class="border-l-2 border-primary/30 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-                <div class="flex items-center gap-2 text-primary/60 font-bold text-[10px] uppercase tracking-widest mb-2">
+            <div class="bg-surface pl-4 pr-4 py-3 font-mono text-xs" style="border:1px solid rgba(204,255,0,0.25);border-left:4px solid #ccff00;">
+                <div class="flex items-center gap-2 text-primary font-bold text-[10px] uppercase tracking-widest mb-2">
                     <span class="material-symbols-outlined text-[13px]">search</span>
                     SCAN RESULTS · ${session.scan_results.length} ports found
                 </div>
@@ -5636,8 +5638,8 @@ function renderHistoricalSession(session) {
             `<div class="flex items-start gap-2"><span class="text-danger shrink-0">▸</span><span class="text-slate-300">${_esc(v.title || v.description || String(v).slice(0, 100))}</span></div>`
         ).join('');
         appendMissionCard(`
-            <div class="border-l-2 border-danger/40 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-                <div class="flex items-center gap-2 text-danger/80 font-bold text-[10px] uppercase tracking-widest mb-2">
+            <div class="bg-surface pl-4 pr-4 py-3 font-mono text-xs" style="border:1px solid rgba(239,68,68,0.35);border-left:4px solid #ef4444;">
+                <div class="flex items-center gap-2 text-danger font-bold text-[10px] uppercase tracking-widest mb-2">
                     <span class="material-symbols-outlined text-[13px]">bug_report</span>
                     VULNERABILITIES · ${session.vulnerabilities.length} found
                 </div>
@@ -5651,8 +5653,8 @@ function renderHistoricalSession(session) {
             `<div class="text-${e.success ? 'primary' : 'danger'}">${e.success ? '✓' : '✗'} ${_esc(e.module || '')} → ${_esc(e.target_ip || '')}</div>`
         ).join('');
         appendMissionCard(`
-            <div class="border-l-2 border-orange-500/40 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
-                <div class="flex items-center gap-2 text-orange-400/80 font-bold text-[10px] uppercase tracking-widest mb-2">
+            <div class="bg-surface pl-4 pr-4 py-3 font-mono text-xs" style="border:1px solid rgba(249,115,22,0.35);border-left:4px solid #f97316;">
+                <div class="flex items-center gap-2 text-orange-400 font-bold text-[10px] uppercase tracking-widest mb-2">
                     <span class="material-symbols-outlined text-[13px]">bolt</span>
                     EXPLOIT RESULTS · ${session.exploit_results.length} attempts
                 </div>
@@ -5663,7 +5665,7 @@ function renderHistoricalSession(session) {
 
     if (!session.scan_results?.length && !session.vulnerabilities?.length && !session.exploit_results?.length) {
         appendMissionCard(`
-            <div class="border-l-2 border-border-color/40 bg-surface pl-4 pr-4 py-3 font-mono text-xs">
+            <div class="bg-surface pl-4 pr-4 py-3 font-mono text-xs" style="border:1px solid rgba(255,255,255,0.1);border-left:4px solid rgba(255,255,255,0.2);">
                 <div class="text-secondary-text text-[11px]">No detailed findings stored for this session.</div>
             </div>
         `);
