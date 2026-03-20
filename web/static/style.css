@@ -745,7 +745,7 @@ html.light .copy-btn { color: #71717a; }
 html.light .copy-btn:hover { color: #4a7c00; }
 
 /* User message text override (inline style) */
-html.light .user-msg-text { color: #18181b !important; }
+html.light .user-msg-text { color: #18181b !important; border-right-color: #3b82f6 !important; }
 
 /* Agent status bar — overrides hardcoded inline background in light mode */
 html.light #agent-status-bar { background: #e4e4e7 !important; }
