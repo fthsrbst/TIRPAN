@@ -18,7 +18,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from core.base_agent import AgentState  # re-exported for backward compatibility
+from core.base_agent import AgentState, BaseAgent  # AgentState re-exported for backward compatibility
 from core.llm_client import LLMRouter, llm_router
 from core.memory import SessionMemory
 from core.prompts import PromptBuilder
@@ -125,12 +125,16 @@ class AgentContext:
 
 # ── PentestAgent ───────────────────────────────────────────────────────────────
 
-class PentestAgent:
+class PentestAgent(BaseAgent):
     """
-    Autonomous ReAct pentesting agent.
+    Autonomous ReAct pentesting agent (V1).
 
     Orchestrates the full attack lifecycle:
       host discovery → port scan → exploit search → exploitation → report
+
+    Extends BaseAgent (V2) while maintaining full V1 backward compatibility:
+      - Overrides run() to return AgentContext (V1 contract)
+      - Implements the 3 BaseAgent abstract methods for V2 contract compliance
 
     Usage:
         agent = PentestAgent(
@@ -158,8 +162,21 @@ class PentestAgent:
         audit_repo: AuditLogRepository | None = None,
         mission: MissionBrief | None = None,
     ):
+        # ── BaseAgent init (provides memory, state, registry, safety, llm,
+        #    progress_cb, audit_repo, pause/resume, inject, blocked-calls) ──────
+        super().__init__(
+            agent_type="pentest",
+            mission_id=session.id,
+            tool_registry=registry,
+            safety=safety,
+            llm=llm,
+            progress_callback=progress_callback,
+            audit_repo=audit_repo or AuditLogRepository(),
+            max_iterations=max_iterations,
+            session_id=session.id,
+        )
+        # ── V1-specific state ─────────────────────────────────────────────────
         self.session = session
-        self.memory = SessionMemory()
         mb = mission or MissionBrief(port_range=port_range, scope_notes=notes)
         self._ctx = AgentContext(
             target=target,
@@ -168,46 +185,20 @@ class PentestAgent:
             notes=mb.scope_notes or notes,
             mission=mb,
         )
-        self._state = AgentState.IDLE
-        self._registry = registry or ToolRegistry()
-        self._safety = safety or SafetyGuard()
-        self._llm = llm or llm_router
         self._prompt_builder = PromptBuilder()
-        self._max_iterations = max_iterations
-        self._progress_cb = progress_callback
         self._approval_cb = approval_callback
         # DB repositories for real-time persistence
         self._scan_repo = ScanResultRepository()
         self._vuln_repo = VulnerabilityRepository()
         self._exploit_repo = ExploitResultRepository()
         self._session_repo = SessionRepository()
-        self._audit_repo = audit_repo or AuditLogRepository()
-        # Pause/resume control
-        self._pause_event = asyncio.Event()
-        self._pause_event.set()  # Not paused initially
-        self._paused = False
-        # Signals the active LLM stream to abort immediately on pause
-        self._stream_abort = asyncio.Event()
-        # Operator inject tracking
-        self._has_pending_inject = False
-        # Hard-block registry: tool or tool:module combos that have exceeded the
-        # failure guard. These are blocked at act() level — the LLM cannot bypass
-        # them by ignoring injected memory messages.
-        self._session_blocked_calls: dict[str, int] = {}
 
     # ── Public properties ─────────────────────────────────────────────────────
-
-    @property
-    def state(self) -> AgentState:
-        return self._state
+    # state and is_paused are inherited from BaseAgent.
 
     @property
     def context(self) -> AgentContext:
         return self._ctx
-
-    @property
-    def is_paused(self) -> bool:
-        return self._paused
 
     # ── Seed context (resume from saved mission) ────────────────────────────────
 
@@ -339,28 +330,7 @@ class PentestAgent:
             full_summary = header + "\n---\n".join(summary_parts[-30:])
             self.memory.add_user(full_summary)
 
-    # ── Pause / Resume / Inject ────────────────────────────────────────────────
-
-    def pause(self) -> None:
-        """Pause the agent — aborts the active LLM stream and blocks next iteration."""
-        self._pause_event.clear()
-        self._stream_abort.set()   # signals the running stream_chat loop to stop
-        self._paused = True
-        logger.info("Agent paused for session %s", self.session.id)
-
-    def resume(self) -> None:
-        """Resume the agent after pausing."""
-        self._stream_abort.clear()
-        self._pause_event.set()
-        self._paused = False
-        logger.info("Agent resumed for session %s", self.session.id)
-
-    def inject_message(self, message: str) -> None:
-        """Inject an operator message into the agent's memory for the next iteration."""
-        self.memory.add_user(f"[OPERATOR INTERRUPT]\n{message}")
-        self._has_pending_inject = True
-        self._emit("injected", {"message": message[:300]})
-        logger.info("Operator message injected into agent memory")
+    # pause(), resume(), inject_message() are inherited from BaseAgent.
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
@@ -1238,12 +1208,42 @@ class PentestAgent:
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _emit(self, event: str, data: dict) -> None:
-        """Fire the progress callback if one is registered."""
-        if self._progress_cb is not None:
-            try:
-                self._progress_cb(event, data)
-            except Exception as exc:
-                logger.warning("Progress callback raised an error: %s", exc)
+        """V1 backward-compat alias for BaseAgent.emit_event()."""
+        self.emit_event(event, data)
+
+    # ── BaseAgent abstract method implementations ──────────────────────────────
+
+    def build_messages(self) -> list[dict]:
+        """
+        Build the full LLM message list for the current iteration.
+
+        Delegates to the V1 PromptBuilder. Used by BaseAgent.reason() if
+        PentestAgent ever defers to the parent loop; PentestAgent's own reason()
+        calls this via self._prompt_builder.build_full_prompt() directly.
+        """
+        return self._prompt_builder.build_full_prompt(
+            context=self._ctx,
+            memory=self.memory,
+            tools=self._registry.list_for_llm(),
+        )
+
+    async def process_result(
+        self, tool_name: str, result: dict, action_dict: dict
+    ) -> None:
+        """
+        Handle a tool result: update V1 AgentContext state and persist to DB.
+
+        Delegates to the V1 _update_context / _persist_findings helpers.
+        """
+        self._update_context(tool_name, result, action_dict)
+        await self._persist_findings(tool_name, result, action_dict)
+
+    def get_available_tools(self) -> list[str]:
+        """
+        V1 PentestAgent has unrestricted access to all registered tools.
+        Return [] per BaseAgent contract: empty list = all tools allowed.
+        """
+        return []
 
     async def _ask_user_approval(self, action_dict: dict) -> bool:
         """

@@ -720,6 +720,66 @@ class StartSessionRequest(BaseModel):
     profile_id: Optional[str] = None
 
 
+async def _run_v2_agent_task(
+    session_id: str,
+    agent,           # BrainAgent
+    mission_ctx,     # MissionContext
+    session_repo: SessionRepository,
+    audit_repo: AuditLogRepository,
+) -> None:
+    """Background task for V2 BrainAgent sessions."""
+    from web import session_manager
+    import json as _json_v2
+
+    try:
+        await session_repo.update_status(session_id, "running")
+        await audit_repo.log("SESSION_START", session_id=session_id,
+                             details={"mode": "v2_auto"})
+
+        result = await agent.run()
+
+        # Persist final MissionContext snapshot
+        try:
+            ctx_dict = mission_ctx.to_dict()
+            await _mission_ctx_repo.save_context(session_id, ctx_dict)
+        except Exception:
+            pass
+
+        await session_repo.update_status(session_id, "done")
+        await session_manager.broadcast(session_id, {
+            "type": "session_done",
+            "session_id": session_id,
+            "v2": True,
+            "hosts": len(mission_ctx.hosts),
+            "vulnerabilities": len(mission_ctx.vulnerabilities),
+            "sessions": len(mission_ctx.active_sessions),
+            "credentials": len(mission_ctx.credentials),
+            "loot": len(mission_ctx.loot),
+            "findings": result.to_dict() if result else {},
+        })
+
+    except asyncio.CancelledError:
+        await session_repo.update_status(session_id, "stopped", "Emergency stop")
+        await session_manager.broadcast(session_id, {
+            "type": "session_event",
+            "session_id": session_id,
+            "event": "kill_switch",
+            "data": {},
+        })
+
+    except Exception as exc:
+        logger.error("V2 agent task failed for session %s: %s", session_id, exc)
+        await session_repo.update_status(session_id, "error", str(exc))
+        await session_manager.broadcast(session_id, {
+            "type": "session_error",
+            "session_id": session_id,
+            "error": str(exc),
+        })
+
+    finally:
+        session_manager.cleanup(session_id)
+
+
 async def _run_agent_task(
     session_id: str,
     agent,
@@ -835,7 +895,8 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     from models.session import Session
 
     # Validate mode
-    if body.mode not in ("full_auto", "ask_before_exploit", "scan_only"):
+    _VALID_MODES = ("full_auto", "ask_before_exploit", "scan_only", "v2_auto")
+    if body.mode not in _VALID_MODES:
         raise HTTPException(400, f"Invalid mode: {body.mode}")
 
     # Resume from saved mission: load target + findings from that session
@@ -1072,37 +1133,79 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         from core.tool_registry import ToolRegistry
         registry = ToolRegistry()
 
-    agent = PentestAgent(
-        session=session_obj,
-        target=body.target.strip(),
-        mode=body.mode,
-        registry=registry,
-        safety=guard,
-        progress_callback=progress_cb,
-        port_range=body.port_range,
-        notes=body.scope_notes or body.notes,
-        audit_repo=_audit_repo,
-        mission=mission,
-    )
-
-    if body.resume_from_session_id and (resume_scan_results or resume_vulnerabilities or resume_events):
-        agent.seed_context_from_findings(
-            resume_scan_results,
-            resume_vulnerabilities,
-            attack_phase=resume_attack_phase,
-            exploit_results_from_db=resume_exploit_results or None,
-            events_up_to=resume_events or None,
-            source_iteration=body.resume_iteration,
-        )
-
-    # Run tool health checks once before the agent starts so unavailable tools
-    # (e.g. ssh_exec when paramiko is missing) are excluded from the LLM prompt.
+    # Run tool health checks once before the agent starts
     await registry.run_health_checks()
 
-    # Launch background task
-    task = asyncio.create_task(
-        _run_agent_task(session_id, agent, _session_repo, _audit_repo)
-    )
+    if body.mode == "v2_auto":
+        # ── V2 BrainAgent path ────────────────────────────────────────────────
+        from core.brain_agent import BrainAgent, make_brain
+        from core.message_bus import AgentMessageBus
+        from core.mission_context import MissionContext
+
+        mission_ctx = MissionContext(
+            mission_id=session_id,
+            target=body.target.strip(),
+            scope=[body.allowed_cidr or body.target.strip()],
+            mode=body.mode,
+            operator_notes=body.scope_notes or body.notes,
+            allow_exploitation=mission.allow_exploitation,
+            allow_post_exploitation=mission.allow_post_exploitation,
+            allow_lateral_movement=mission.allow_lateral_movement,
+            allow_persistence=mission.allow_persistence,
+            allow_credential_harvest=mission.allow_credential_harvest,
+            allow_data_exfil=mission.allow_data_exfil,
+            allow_docker_escape=mission.allow_docker_escape,
+            allow_browser_recon=mission.allow_browser_recon,
+        )
+
+        bus = AgentMessageBus()
+        agent = make_brain(
+            target=body.target.strip(),
+            session_id=session_id,
+            mission_brief=mission,
+            mission_ctx=mission_ctx,
+            message_bus=bus,
+            tool_registry=registry,
+            safety=guard,
+            progress_callback=progress_cb,
+            audit_repo=_audit_repo,
+        )
+        # Attach bus and ctx so the /mission-context endpoint can read them
+        agent._mission_ctx = mission_ctx
+        agent._message_bus = bus
+
+        task = asyncio.create_task(
+            _run_v2_agent_task(session_id, agent, mission_ctx, _session_repo, _audit_repo)
+        )
+    else:
+        # ── V1 PentestAgent path (existing) ───────────────────────────────────
+        agent = PentestAgent(
+            session=session_obj,
+            target=body.target.strip(),
+            mode=body.mode,
+            registry=registry,
+            safety=guard,
+            progress_callback=progress_cb,
+            port_range=body.port_range,
+            notes=body.scope_notes or body.notes,
+            audit_repo=_audit_repo,
+            mission=mission,
+        )
+
+        if body.resume_from_session_id and (resume_scan_results or resume_vulnerabilities or resume_events):
+            agent.seed_context_from_findings(
+                resume_scan_results,
+                resume_vulnerabilities,
+                attack_phase=resume_attack_phase,
+                exploit_results_from_db=resume_exploit_results or None,
+                events_up_to=resume_events or None,
+                source_iteration=body.resume_iteration,
+            )
+
+        task = asyncio.create_task(
+            _run_agent_task(session_id, agent, _session_repo, _audit_repo)
+        )
+
     session_manager.register(session_id, task, guard, agent)
 
     return {
@@ -1111,6 +1214,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         "mode": body.mode,
         "speed_profile": body.speed_profile,
         "status": "running",
+        "v2": body.mode == "v2_auto",
     }
 
 
@@ -1507,3 +1611,122 @@ async def get_audit_log(
         ]
 
     return {"entries": entries, "total": len(entries)}
+
+
+# ── V2 Multi-Agent Endpoints ───────────────────────────────────────────────────
+# These endpoints expose V2-only data: agent instances, mission context,
+# attack graph, harvested credentials, loot, and shell sessions.
+
+from database.repositories import (
+    AgentInstanceRepository,
+    HarvestedCredentialRepository,
+    LootRepository,
+    NetworkGraphRepository,
+    MissionContextRepository,
+)
+
+_agent_instance_repo = AgentInstanceRepository()
+_harvested_cred_repo = HarvestedCredentialRepository()
+_loot_repo = LootRepository()
+_network_graph_repo = NetworkGraphRepository()
+_mission_ctx_repo = MissionContextRepository()
+
+
+@router.get("/sessions/{sid}/agents")
+async def list_session_agents(sid: str):
+    """Return all agent instances spawned for a V2 session."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    agents = await _agent_instance_repo.get_for_session(sid)
+    return {"agents": agents, "total": len(agents)}
+
+
+@router.get("/sessions/{sid}/agents/active")
+async def list_active_agents(sid: str):
+    """Return currently running agent instances for a V2 session."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    agents = await _agent_instance_repo.get_active(sid)
+    return {"agents": agents, "total": len(agents)}
+
+
+@router.get("/sessions/{sid}/mission-context")
+async def get_mission_context(sid: str):
+    """Return the live MissionContext for a V2 session.
+
+    Falls back to the in-memory context (from session_manager) when available,
+    otherwise loads the last snapshot persisted to DB.
+    """
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Try in-memory first (live session)
+    from web import session_manager
+    agent = session_manager.get_agent(sid)
+    if agent and hasattr(agent, "_mission_ctx") and agent._mission_ctx is not None:
+        ctx = agent._mission_ctx
+        return ctx.to_dict()
+
+    # Fall back to DB snapshot
+    snapshot = await _mission_ctx_repo.load_context(sid)
+    if snapshot:
+        return snapshot
+    return {"session_id": sid, "status": "no_context"}
+
+
+@router.get("/sessions/{sid}/attack-graph")
+async def get_attack_graph(sid: str):
+    """Return attack graph nodes and edges for a V2 session."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Try live context first
+    from web import session_manager
+    agent = session_manager.get_agent(sid)
+    if agent and hasattr(agent, "_mission_ctx") and agent._mission_ctx is not None:
+        ctx = agent._mission_ctx
+        return ctx.attack_graph.to_dict()
+
+    # Fall back to DB
+    nodes = await _network_graph_repo.get_nodes(sid)
+    edges = await _network_graph_repo.get_edges(sid)
+    return {"nodes": nodes, "edges": edges}
+
+
+@router.get("/sessions/{sid}/credentials/harvested")
+async def get_harvested_credentials(sid: str):
+    """Return harvested credentials for a V2 session (metadata only, no secrets)."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    creds = await _harvested_cred_repo.get_for_session(sid)
+    return {"credentials": creds, "total": len(creds)}
+
+
+@router.get("/sessions/{sid}/loot")
+async def get_session_loot(sid: str):
+    """Return loot items collected during a V2 session."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    loot = await _loot_repo.get_for_session(sid)
+    return {"loot": loot, "total": len(loot)}
+
+
+@router.get("/sessions/{sid}/shells")
+async def get_session_shells(sid: str):
+    """Return active shell sessions for a V2 session (from ShellManager)."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    from web import session_manager
+    agent = session_manager.get_agent(sid)
+    if agent and hasattr(agent, "_shell_manager") and agent._shell_manager is not None:
+        stats = agent._shell_manager.stats()
+        return {"shells": stats.get("sessions", []), "total": stats.get("total", 0)}
+    return {"shells": [], "total": 0}

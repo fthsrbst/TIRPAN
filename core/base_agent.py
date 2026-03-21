@@ -741,6 +741,17 @@ class BaseAgent(ABC):
         tool_name = action_dict.get("action", "")
         params = action_dict.get("parameters", {})
 
+        # ── Empty action guard ────────────────────────────────────────────
+        if not tool_name:
+            available = self.get_available_tools()
+            hint = (
+                "[SYSTEM] Your last response had an empty or missing 'action' field. "
+                f"You MUST specify one of the available tools: {available}. "
+                "Respond with a valid JSON object containing 'action' and 'parameters'."
+            )
+            self.memory.add_user(hint)
+            return {"success": False, "output": None, "error": "empty action — see hint above"}
+
         # ── Hard block (repeated-failure blacklist) ────────────────────────
         _block_key = tool_name
         if tool_name == "metasploit_run" and params.get("module"):

@@ -104,6 +104,7 @@
           <option value="scan_only">SCAN ONLY</option>
           <option value="full_auto">FULL AUTO</option>
           <option value="ask_before_exploit">ASK BEFORE EXPLOIT</option>
+          <option value="v2_auto">V2 AUTO (Multi-Agent)</option>
         </select>
         <input id="mission-port-range" type="hidden" value="1-65535"/>
       </div>
@@ -182,7 +183,7 @@
         <span class="material-symbols-outlined text-sm">settings</span>
         <span class="text-xs font-medium uppercase tracking-wider">Configuration</span>
       </div>
-      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" onclick="toggleMobileRightSidebar()">
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="intel">
         <span class="material-symbols-outlined text-sm">monitoring</span>
         <span class="text-xs font-medium uppercase tracking-wider">Intel</span>
       </div>
@@ -315,6 +316,11 @@
             class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
             <span class="material-symbols-outlined" style="font-size:11px;">account_tree</span>GRAPH
           </button>
+          <button onclick="switchAgentView('orchestra')" id="ag-view-btn-orchestra"
+            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors"
+            title="V2 Agent Orchestra — shows spawned sub-agents">
+            <span class="material-symbols-outlined" style="font-size:11px;">hub</span>AGENTS
+          </button>
         </div>
       </div>
 
@@ -374,6 +380,59 @@
                    pointer-events:none;"></div>
         </div>
         </div><!-- end minimap column -->
+
+        <!-- ── V2 Agent Orchestra View ──────────────────────────────── -->
+        <div id="ag-orchestra-view" style="display:none;flex:1;min-width:0;flex-direction:column;overflow-y:auto;" class="p-4">
+          <div class="max-w-4xl mx-auto w-full">
+            <!-- Brain header -->
+            <div class="flex items-center gap-3 mb-4">
+              <span class="material-symbols-outlined" style="color:#ccff00;font-size:20px;">psychology</span>
+              <div>
+                <div class="text-[11px] font-bold uppercase tracking-widest" style="color:#ccff00;">AEGIS V2 · Brain Agent</div>
+                <div id="v2-mission-phase" class="text-[10px] text-secondary-text mono-text">Phase: —</div>
+              </div>
+              <button onclick="fetchAgentOrchestra()" class="ml-auto text-[9px] mono-text text-secondary-text/40 hover:text-secondary-text px-2 py-1 border border-border-color/30 hover:border-border-color transition-colors">↻ Refresh</button>
+            </div>
+
+            <!-- Mission context stats -->
+            <div id="v2-ctx-stats" class="grid grid-cols-4 gap-2 mb-4">
+              <div class="bg-card border border-border-color p-2 text-center">
+                <div class="text-[18px] font-bold" style="color:#ccff00;" id="v2-stat-hosts">0</div>
+                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Hosts</div>
+              </div>
+              <div class="bg-card border border-border-color p-2 text-center">
+                <div class="text-[18px] font-bold text-red-400" id="v2-stat-vulns">0</div>
+                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Vulns</div>
+              </div>
+              <div class="bg-card border border-border-color p-2 text-center">
+                <div class="text-[18px] font-bold text-blue-400" id="v2-stat-sessions">0</div>
+                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Sessions</div>
+              </div>
+              <div class="bg-card border border-border-color p-2 text-center">
+                <div class="text-[18px] font-bold text-purple-400" id="v2-stat-creds">0</div>
+                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Creds</div>
+              </div>
+            </div>
+
+            <!-- Agent cards grid -->
+            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Active Sub-Agents</div>
+            <div id="v2-agent-cards" class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-6">
+              <div class="text-[11px] text-secondary-text/40 mono-text col-span-2 py-4 text-center">No agents spawned yet</div>
+            </div>
+
+            <!-- Harvested credentials -->
+            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Harvested Credentials</div>
+            <div id="v2-harvested-creds" class="bg-card border border-border-color mb-4">
+              <div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>
+            </div>
+
+            <!-- Loot -->
+            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Loot</div>
+            <div id="v2-loot" class="bg-card border border-border-color">
+              <div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>
+            </div>
+          </div>
+        </div>
 
         <!-- ── Attack Graph View ─────────────────────────────────── -->
         <div id="ag-graph-view" style="display:none;flex:1;min-width:0;flex-direction:column;">
@@ -1936,6 +1995,7 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
               <button class="adv-mode-btn active flex-1" data-mode="scan_only">Scan Only</button>
               <button class="adv-mode-btn flex-1" data-mode="ask_before_exploit">Ask Before Exploit</button>
               <button class="adv-mode-btn flex-1" data-mode="full_auto">Full Auto</button>
+              <button class="adv-mode-btn flex-1" data-mode="v2_auto" title="V2 multi-agent: BrainAgent coordinates specialized sub-agents">V2 Auto ✦</button>
             </div>
             <p id="adv-mode-desc" class="text-[9px] text-secondary-text">Scan and identify vulnerabilities — no exploitation.</p>
           </div>
