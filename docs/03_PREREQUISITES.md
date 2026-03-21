@@ -204,136 +204,153 @@ docker run -d --name dvwa -p 80:80 vulnerables/web-dvwa
 
 ## V2 Prerequisites
 
-The following tools are required only for V2 features. The V1 core functions without any of them — missing tools are reported via the health check system at session start.
+All V2 tools are optional. Missing binaries are detected by the health check system at startup.
+The Web UI shows install hints for any missing tool. The V1 core functions without any of them.
 
-### Playwright (Web Recon / Browser Feature)
-
-Required only when `allow_browser_recon = True` in the Mission Brief.
-
-```bash
-# Install Playwright Python package
-pip install playwright>=1.40
-
-# Download Chromium browser (the only browser AEGIS uses)
-playwright install chromium
-
-# Install system dependencies for Chromium (Debian/Ubuntu/Kali)
-playwright install-deps chromium
-```
-
-Verification:
+### Go (required for nuclei, ffuf, subfinder, amass)
 
 ```bash
-python -c "from playwright.sync_api import sync_playwright; print('Playwright OK')"
-```
-
-If Playwright is not installed, the `web_recon` tool operates in degraded mode — HTTP header analysis and source scanning still work; only the `browser` action is unavailable.
-
----
-
-### V2 CLI Plugin Tools (Optional — install only what you need)
-
-Each of these is optional. Missing binaries are detected by the health check system at startup. The Web UI will display the install hint for any binary not found.
-
-**Nuclei** (template-based vulnerability scanner):
-
-```bash
-# Requires Go 1.21+
-go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-# Verify
-nuclei -version
-```
-
-**Gobuster** (directory/file brute force):
-
-```bash
-go install github.com/OJ/gobuster/v3@latest
-# Verify
-gobuster version
-```
-
-**ffuf** (web fuzzer):
-
-```bash
-go install github.com/ffuf/ffuf/v2@latest
-# Verify
-ffuf -V
-```
-
-**SQLMap** (automated SQL injection):
-
-```bash
-sudo apt install sqlmap -y
-# or
-pip install sqlmap
-# Verify
-sqlmap --version
-```
-
-**Nikto** (web server vulnerability scanner):
-
-```bash
-sudo apt install nikto -y
-# Verify
-nikto -Version
-```
-
-**Hydra** (network credential brute force):
-
-```bash
-sudo apt install hydra -y
-# Verify
-hydra -h 2>&1 | head -2
-```
-
-**Go installation** (required for Nuclei, Gobuster, ffuf):
-
-```bash
-# Ubuntu/Debian
 sudo apt install golang-go -y
-# Or install a specific version:
-wget https://go.dev/dl/go1.22.0.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.22.0.linux-amd64.tar.gz
-echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.bashrc
-source ~/.bashrc
+# Verify
 go version
+# Add to PATH if needed
+echo 'export PATH=$PATH:$HOME/go/bin' >> ~/.bashrc && source ~/.bashrc
 ```
 
----
-
-### V2 API Plugin Keys (Optional)
-
-API-type plugins require credentials. Set them as environment variables or configure them through the AEGIS Web UI (Settings → Secrets).
-
-| Plugin          | Environment Variable | Where to Get                        |
-| --------------- | -------------------- | ----------------------------------- |
-| `shodan_lookup` | `SHODAN_API_KEY`     | https://account.shodan.io/          |
-| `virustotal_lookup` | `VIRUSTOTAL_API_KEY` | https://www.virustotal.com/gui/my-apikey |
-
-Add to `.env`:
+### Web Application Testing Tools
 
 ```bash
-SHODAN_API_KEY=your_key_here
-VIRUSTOTAL_API_KEY=your_key_here
+# Nuclei — template-based vulnerability scanner
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+nuclei -version
+
+# ffuf — web fuzzer
+go install github.com/ffuf/ffuf/v2@latest
+ffuf -V
+
+# SQLMap — SQL injection
+sudo apt install sqlmap -y
+sqlmap --version
+
+# Nikto — web server scanner
+sudo apt install nikto -y
+nikto -Version
+
+# WhatWeb — technology fingerprinting
+sudo apt install whatweb -y
+whatweb --version
+
+# dirsearch — directory enumeration
+pip install dirsearch
+dirsearch --version
+
+# WPScan — WordPress scanner (requires Ruby)
+sudo gem install wpscan
+wpscan --version
 ```
 
-Keys stored through the Web UI are saved to `SecureStore` (system keyring) and are never written to disk in plaintext.
+### OSINT Tools
+
+```bash
+# theHarvester — email/subdomain/IP harvesting
+sudo apt install theharvester -y
+theHarvester -h
+
+# subfinder — subdomain enumeration
+go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+subfinder -version
+
+# amass — DNS enumeration
+go install -v github.com/owasp-amass/amass/v4/...@master
+amass -version
+
+# masscan — fast port scanner (much faster than nmap for wide scans)
+sudo apt install masscan -y
+masscan --version
+```
+
+### Post-Exploitation & Lateral Movement Tools
+
+```bash
+# CrackMapExec / NetExec — Windows lateral movement
+sudo apt install crackmapexec -y
+# or newer version:
+pip install netexec
+nxc --version
+
+# Impacket — SMB/Kerberos tools
+pip install impacket
+python3 -c "import impacket; print('impacket OK')"
+
+# Hydra — network brute force
+sudo apt install hydra -y
+hydra -h 2>&1 | head -2
+
+# Hashcat — password cracking (requires GPU for best performance)
+sudo apt install hashcat -y
+hashcat --version
+
+# ligolo-ng — pivoting/tunneling
+# Download from: https://github.com/nicocha30/ligolo-ng/releases
+# Place ligolo-proxy and ligolo-agent in /usr/local/bin/
+
+# chisel — HTTP tunneling
+go install github.com/jpillora/chisel@latest
+chisel --version
+```
+
+### LinPEAS / WinPEAS (Post-Exploitation Scripts)
+
+```bash
+# Create scripts directory
+mkdir -p tools/scripts
+
+# Download LinPEAS
+curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh \
+    -o tools/scripts/linpeas.sh
+chmod +x tools/scripts/linpeas.sh
+
+# Download WinPEAS
+curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEASany.exe \
+    -o tools/scripts/winpeas.exe
+```
+
+### API Plugin Keys (Optional)
+
+API plugins require credentials. Set as environment variables or configure in AEGIS Web UI (Settings → Secrets → API Keys).
+
+| Plugin | Environment Variable | Free Tier | Where to Get |
+|---|---|---|---|
+| `shodan_search` | `SHODAN_API_KEY` | 100 queries/month | account.shodan.io |
+| `censys_search` | `CENSYS_API_KEY` + `CENSYS_API_SECRET` | 250 queries/month | app.censys.io |
+
+Keys stored via Web UI are saved to `SecureStore` (OS keychain) — never written to disk in plaintext.
 
 ---
 
 ## Tool Availability Summary
 
-| Tool            | V1 Required | V2 Required    | Install Method                  |
-| --------------- | ----------- | -------------- | ------------------------------- |
-| `nmap`          | ✓           | ✓              | `apt install nmap`              |
-| `searchsploit`  | ✓           | ✓              | `apt install exploitdb`         |
-| `msfconsole`    | ✓           | ✓              | Metasploit installer            |
-| `playwright`    | —           | Optional       | `pip install playwright`        |
-| `nuclei`        | —           | Optional       | `go install ...nuclei@latest`   |
-| `gobuster`      | —           | Optional       | `go install ...gobuster@latest` |
-| `ffuf`          | —           | Optional       | `go install ...ffuf@latest`     |
-| `sqlmap`        | —           | Optional       | `apt install sqlmap`            |
-| `nikto`         | —           | Optional       | `apt install nikto`             |
-| `hydra`         | —           | Optional       | `apt install hydra`             |
+| Tool | V1 | V2 | Install |
+|---|---|---|---|
+| `nmap` | Required | Required | `apt install nmap` |
+| `searchsploit` | Required | Required | `apt install exploitdb` |
+| `msfconsole` | Required | Required | Metasploit installer |
+| `masscan` | — | Optional | `apt install masscan` |
+| `nuclei` | — | Optional | `go install ...nuclei@latest` |
+| `ffuf` | — | Optional | `go install ...ffuf@latest` |
+| `sqlmap` | — | Optional | `apt install sqlmap` |
+| `nikto` | — | Optional | `apt install nikto` |
+| `whatweb` | — | Optional | `apt install whatweb` |
+| `theharvester` | — | Optional | `apt install theharvester` |
+| `subfinder` | — | Optional | `go install ...subfinder@latest` |
+| `amass` | — | Optional | `go install ...amass@master` |
+| `hydra` | — | Optional | `apt install hydra` |
+| `hashcat` | — | Optional | `apt install hashcat` |
+| `crackmapexec` / `nxc` | — | Optional | `apt install crackmapexec` |
+| `impacket` | — | Optional | `pip install impacket` |
+| `linpeas.sh` | — | Optional | Download to `tools/scripts/` |
+| `winpeas.exe` | — | Optional | Download to `tools/scripts/` |
+| `ligolo-ng` | — | Optional | Download binary |
+| `chisel` | — | Optional | `go install ...chisel@latest` |
 
-Any tool marked **Optional** can be absent. The health check system will detect the absence and exclude that tool from the LLM's available actions — other tools continue to work normally.
+Missing tools are auto-detected and excluded from agent prompts at session start.

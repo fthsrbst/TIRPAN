@@ -1,461 +1,591 @@
-# AEGIS — Full Architecture v2 (Plugin-Aware)
+# AEGIS — Architecture
+
 > *Autonomous Ethical Guardrailed Intelligence System*
-
-## Design Principle
-
-> **"Small core, big plugins."**
->
-> Core: only the Agent loop + LLM + Safety + DB + UI.
-> Every attack capability is a **Tool Plugin** — added or removed without touching the core.
 
 ---
 
-## Big Picture
+## Design Principle
+
+> **"A senior pentester thinks before they act — so does AEGIS."**
+>
+> A **Brain Agent** coordinates a team of specialized sub-agents. Each agent is an expert
+> in its domain. The Brain assesses the target, decides strategy, delegates tasks in parallel,
+> collects results, and adapts — exactly like a real red team lead.
+
+---
+
+## Current State (V1 — Implemented)
+
+AEGIS V1 ships a fully working autonomous pentest platform with a single ReAct agent:
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          AEGIS                                        │
+┌───────────────────────────────────────────────────────────────────────┐
+│                          AEGIS V1 (current)                           │
 │                                                                       │
 │  ┌──────────┐    ┌────────────────────────────────────────────────┐   │
-│  │  Web UI  │───▶│             FastAPI Backend                    │   │
-│  │          │◀───│  REST + WebSocket                              │   │
-│  └──────────┘    └──────────────────┬─────────────────────────────┘  │
+│  │  Web UI  │───>│             FastAPI Backend                    │   │
+│  │          │<───│  REST + WebSocket                              │   │
+│  └──────────┘    └──────────────────┬─────────────────────────────┘   │
 │                                     │                                 │
-│                         ┌───────────▼───────────┐                    │
-│                         │    ReAct Agent Core    │                    │
+│                         ┌───────────▼────────────┐                    │
+│                         │    PentestAgent        │                    │
+│                         │    (ReAct Loop)        │                    │
 │                         │                        │                    │
 │                         │  Reason → Act →        │                    │
 │                         │  Observe → Reflect     │                    │
 │                         │                        │                    │
 │                         │  ┌──────────────────┐  │                    │
-│                         │  │  Safety Guard     │  │                    │
-│                         │  │  (every action)   │  │                    │
+│                         │  │  Safety Guard    │  │                    │
+│                         │  │  (every action)  │  │                    │
 │                         │  └──────────────────┘  │                    │
 │                         └───────────┬────────────┘                    │
 │                                     │                                 │
-│                         ┌───────────▼────────────┐                    │
-│                         │    Tool Registry        │ ← KEY POINT       │
-│                         │                         │                    │
-│                         │  Core Tools (built-in): │                    │
-│                         │  ├── NmapTool           │                    │
-│                         │  ├── SearchSploitTool   │                    │
-│                         │  └── MetasploitTool     │                    │
-│                         │                         │                    │
-│                         │  Plugin Tools (loaded): │                    │
-│                         │  ├── [empty — V1]       │                    │
-│                         │  ├── WebScanPlugin (V2) │                    │
-│                         │  ├── NucleiPlugin (V2)  │                    │
-│                         │  └── ...                │                    │
-│                         └─────────────────────────┘                    │
+│                         ┌───────────▼─────────────┐                   │
+│                         │    Tool Registry        │                   │
+│                         │                         │                   │
+│                         │  Core Tools:            │                   │
+│                         │  ├── NmapTool           │                   │
+│                         │  ├── SearchSploitTool   │                   │
+│                         │  └── MetasploitTool     │                   │
+│                         │                         │                   │
+│                         │  Plugin Tools:          │                   │
+│                         │  └── (loaded from       │                   │
+│                         │      /plugins/ dir)     │                   │
+│                         └─────────────────────────┘                   │
 │                                                                       │
 │  ┌──────────────────────────┐   ┌──────────────────────────────────┐  │
-│  │    LLM Layer             │   │       SQLite Database             │  │
-│  │  OpenRouter + Ollama     │   │  Sessions / Findings / Audit     │  │
+│  │    LLM Layer             │   │       SQLite Database            │  │
+│  │  OpenRouter / Ollama /   │   │  Sessions / Scans / Vulns /      │  │
+│  │  LM Studio               │   │  Exploits / Audit / KB           │  │
 │  └──────────────────────────┘   └──────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────────────────┘
+```
 
-[OPTIONAL MODULE]
-┌─────────────────────────────────────┐
-│         Defense Module              │  ← Separate process, same DB
-│  Sniffer → Detectors → LLM → Block  │
-└─────────────────────────────────────┘
+**V1 Attack Flow (Sequential):**
+```
+DISCOVERY      nmap ping sweep         → host list
+PORT_SCAN      nmap service detect     × each host
+EXPLOIT_SEARCH searchsploit            × each service
+EXPLOITATION   metasploit_run          × each vulnerability
+DONE           generate_report
 ```
 
 ---
 
-## Layers (V1 Scope — Definitive)
+## Target Architecture (V2 — Multi-Agent)
 
-### Layer 1: Core Infrastructure (immutable foundation)
-
-```
-core/
-├── agent.py          # ReAct loop — gets tool names from tool registry
-├── llm_client.py     # OpenRouter + Ollama abstraction
-├── safety.py         # 10 guardrails — runs before every action
-├── memory.py         # Session memory (sliding window)
-├── prompts.py        # Prompt builder
-└── tool_registry.py  # ← NEW: Plugin loader & tool catalog  [CORE]
-```
-
-### Layer 2: Core Tools (built-in in V1, behave like core)
+The V2 architecture replaces the single agent with a hierarchical multi-agent system.
 
 ```
-tools/
-├── base_tool.py          # Abstract base — every tool conforms to this
-├── nmap_tool.py          # Port scan + host discovery
-├── searchsploit_tool.py  # Exploit search
-└── metasploit_tool.py    # Exploit execution via RPC
-```
-
-**ShellTool is NOT in V1.** Excluded from scope due to security risk.
-
-### Layer 3: Plugin Tools (empty in V1 — loaded later)
-
-```
-plugins/
-├── __init__.py
-├── web_scan/           # V2: XSS, SQLi, SSRF (Playwright + custom)
-│   ├── plugin.json     # Metadata
-│   └── tool.py
-├── nuclei/             # V2: Template-based scanner
-│   ├── plugin.json
-│   └── tool.py
-├── gobuster/           # V2: Directory brute forcing
-│   ├── plugin.json
-│   └── tool.py
-└── custom_payload/     # V2: LLM-generated exploit scripts
-    ├── plugin.json
-    └── tool.py
-```
-
-### Layer 4: Data Layer
-
-```
-database/
-├── db.py                 # aiosqlite connection manager
-├── repositories.py       # CRUD per entity
-├── knowledge_base.py     # "What worked where" lookup
-└── schema.sql               # 7 tables: pentest_sessions, scan_results,
-                             #   vulnerabilities, exploit_results,
-                             #   knowledge_base, audit_log, schema_migrations
-```
-
-### Layer 5: Web & Reporting
-
-```
-web/
-├── app.py                # FastAPI app + CORS
-├── routes.py             # REST endpoints
-├── websocket_handler.py  # Real-time streaming
-└── static/               # HTML/CSS/JS dashboard
-
-reporting/
-├── report_generator.py   # HTML → PDF pipeline
-├── cvss.py               # CVSS v3.1 calculator
-└── templates/
-    └── report.html       # Jinja2 report template
-```
-
-### Layer 6: Defense Module (Optional, started separately)
-
-> ⚠️ **Not yet implemented in V1.** The `defense/` directory exists but contains only `__init__.py`.
-> The files below describe the planned architecture for a future release.
-
-```
-defense/                      # Planned — empty stub in V1
-├── sniffer.py                # Scapy packet capture
-├── analyzer.py               # Threat aggregation
-├── llm_defender.py           # LLM-based threat analysis
-├── responder.py              # iptables / alert / redirect
-├── honeypot.py               # LLM-powered fake service
-└── detectors/
-    ├── port_scan.py
-    ├── arp_spoof.py
-    ├── dos.py
-    └── brute_force.py
+┌───────────────────────────────────────────────────────────────────────┐
+│                          AEGIS V2 (planned)                           │
+│                                                                       │
+│  ┌──────────┐    ┌─────────────────────────────────────────────────┐  │
+│  │  Web UI  │───>│  FastAPI Backend + WebSocket Event Bus          │  │
+│  │          │<───│                                                 │  │
+│  └──────────┘    └──────────────────┬──────────────────────────────┘  │
+│                                     │                                 │
+│                         ┌───────────▼────────────┐                    │
+│                         │      BRAIN AGENT       │                    │
+│                         │    (LLM Coordinator)   │                    │
+│                         │                        │                    │
+│                         │  - Mission planning    │                    │
+│                         │  - Agent orchestration │                    │
+│                         │  - Result aggregation  │                    │
+│                         │  - Adaptive strategy   │                    │
+│                         └──────────┬─────────────┘                    │
+│                                    │ spawns & coordinates             │
+│                ┌───────────────────┼───────────────────────┐          │
+│                │                   │                       │          │
+│   ┌────────────▼───────────────────▼───────────────────────▼───────┐  │
+│   │                 SPECIALIZED AGENTS (run in parallel)           │  │
+│   │                                                                │  │
+│   │  ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌────────────┐     │  │
+│   │  │  OSINT   │ │ SCANNER  │ │   WEB APP    │ │  EXPLOIT   │     │  │
+│   │  │  Agent   │ │  Agent   │ │   Agent      │ │  Agent     │     │  │
+│   │  └──────────┘ └──────────┘ └──────────────┘ └────────────┘     │  │
+│   │  ┌───────────────────────┐ ┌──────────────────────────────┐    │  │
+│   │  │  POST-EXPLOIT Agent   │ │   LATERAL MOVEMENT Agent     │    │  │
+│   │  └───────────────────────┘ └──────────────────────────────┘    │  │
+│   │  ┌───────────────────────────────────────────────────────┐     │  │
+│   │  │                   REPORTING Agent                     │     │  │
+│   │  └───────────────────────────────────────────────────────┘     │  │
+│   └────────────────────────────────────────────────────────────────┘  │
+│                                                                       │
+│                         ┌────────────────────────┐                    │
+│                         │    SHELL MANAGER       │                    │
+│                         │  (Background Service)  │                    │
+│                         │                        │                    │
+│                         │  - Session registry    │                    │
+│                         │  - Health heartbeat    │                    │
+│                         │  - Auto-reconnect      │                    │
+│                         │  - Pivot/tunnel mgmt   │                    │
+│                         └────────────────────────┘                    │
+│                                                                       │
+│  ┌────────────────────┐   ┌──────────────────┐  ┌─────────────────┐   │
+│  │    Tool Registry   │   │   LLM Layer      │  │ SQLite Database │   │
+│  │  50+ tools across  │   │  Per-agent model │  │ 15+ tables      │   │
+│  │  all categories    │   │  selection       │  │                 │   │
+│  └────────────────────┘   └──────────────────┘  └─────────────────┘   │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Tool Registry — Plugin System Details
-
-### How It Works
+## V2 Attack Flow (Parallel, Adaptive)
 
 ```
-At startup:
-1. ToolRegistry is initialized
-2. Core tools (Nmap, SearchSploit, MSF) are auto-registered
-3. /plugins/ directory is scanned
-4. Each plugin.json is read (metadata)
-5. Enabled plugins are imported via importlib and registered
-
-While agent is running:
-6. Agent sends the LLM the "current tools" list
-   → Tool name + description + parameter schema
-7. LLM decides which tool to call
-8. Agent retrieves the tool from ToolRegistry and executes it
+Mission Start
+    │
+    ├──[parallel]──────────────────┐
+    │                              │
+  OSINT Agent                 Scanner Agent
+  (if domain given)           (masscan → nmap)
+  theHarvester, subfinder,    host discovery,
+  DNS, GitHub dork            service detect
+    │                              │
+    └──────[merge]─────────────────┘
+                   │
+            Brain Decision Point
+            (all intel evaluated)
+                   │
+    ┌──────────────┼────────────────┐
+    │              │                │
+  Web Agent    Exploit Agent   [additional Scanner]
+  (per HTTP    (per vuln)      if more subnets found
+   service)        │
+               [shell opened]
+                   │
+               Shell Manager registers session
+                   │
+           Post-Exploitation Agent
+           - LinPEAS/WinPEAS
+           - Privilege escalation
+           - Persistence
+           - Credential harvest
+                   │
+           Lateral Movement Agent
+           - Internal scan via pivot
+           - Credential spray
+           - Tunnel setup
+                   │
+           Reporting Agent
 ```
 
-### Tool Interface (Immutable Contract)
+---
+
+## Agent Definitions
+
+### Brain Agent (Coordinator)
+
+**Role:** Mission planner, orchestrator, decision maker
+**Model:** Configurable per user (default: most capable available — Opus recommended)
+
+**Responsibilities:**
+- Parse mission parameters (target, scope, mode, environment type)
+- Ask operator clarifying questions if mission is ambiguous
+- Spawn specialized agents with specific task descriptions
+- Receive agent results and update global MissionContext
+- Run agents in parallel or sequentially based on dependency graph
+- Handle agent failures: try differently → alternative vector → ask user
+- Detect production vs staging vs lab from DNS, banners, scope notes
+- Maintain global AttackGraph (nodes=hosts/services, edges=relationships)
+
+**Brain-exclusive meta-tools:**
+```
+spawn_agent(type, task, context, priority)   → agent_id
+wait_for_agent(agent_id, timeout)            → agent_result
+send_to_agent(agent_id, message)             → inject mid-task
+kill_agent(agent_id, reason)                 → stop agent
+ask_user(question, context)                  → operator input
+read_mission_context()                       → full state
+update_mission_context(key, value)           → update state
+write_finding(category, data)                → persist discovery
+```
+
+---
+
+### OSINT Agent
+
+**Role:** Passive and semi-passive intelligence gathering
+**Triggers:** Domain target given, or Brain requests more context
+
+**Tools:** theHarvester, subfinder, amass, whois_lookup, dns_lookup, zone_transfer,
+certificate_transparency, google_dork, github_dork, wayback_machine,
+shodan_search *(API key)*, censys_search *(API key)*
+
+**Output:** Subdomains, IPs, emails, tech stack hints, leaked credentials
+
+---
+
+### Scanner Agent
+
+**Role:** Network discovery and service enumeration
+**Model:** Lighter model acceptable
+
+**Tools:** masscan, nmap, nmap_scripts, banner_grab, ssl_scan, smb_enum,
+snmp_walk, ldap_enum, udp_scan, dns_bruteforce
+
+**Strategy:** masscan (wide/fast) → nmap targeted on open ports → NSE scripts on interesting ports
+
+---
+
+### Web Application Agent
+
+**Role:** HTTP service discovery, mapping, vulnerability testing
+**Triggers:** HTTP/HTTPS ports found (80, 443, 8080, 8443, etc.)
+
+**Tools:** whatweb, nikto, ffuf, dirsearch, nuclei, sqlmap, xss_scan,
+ssrf_probe, lfi_scan, wpscan, joomscan, api_fuzz, http_auth_brute
+
+**Strategy:** Technology detect → Directory enum → Nuclei scan → CMS-specific → Deep vuln testing → Authenticated testing if creds available
+
+---
+
+### Exploit Agent
+
+**Role:** Vulnerability research and exploitation
+**Model:** Strong reasoning model recommended
+
+**Tools:** searchsploit, cve_lookup, metasploit_search, metasploit_run,
+msf_check, manual_exploit, msfvenom, generate_payload
+
+**Strategy:**
+1. Cross-reference services+versions against CVE database
+2. Prioritize by CVSS and exploit reliability rating
+3. Run MSF `check` before full exploit
+4. Try alternative payloads on failure
+5. After N failures → report to Brain + ask for guidance
+
+---
+
+### Shell Manager (Persistent Session Handler)
+
+**Role:** Maintain ALL active shells, route commands, prevent session loss
+**Type:** Background service — no LLM, runs independently of agents
+
+**Session types:** meterpreter, shell, ssh, web_shell
+
+**Behaviors:**
+- Heartbeat every 30s per session
+- Auto-reconnect on session drop (re-exploits using stored exploit info)
+- Privilege level tracking: 0=nobody, 1=user, 2=service, 3=root/SYSTEM
+- Session upgrade: shell → meterpreter
+- Pivot/tunnel registration (ligolo-ng, chisel)
+- Multi-session per host
+
+**Agent API:**
+```
+get_session(host_ip, min_privilege)        → best available session
+execute(session_id, command, timeout)      → run command, return output
+upload_file(session_id, src, dst)          → upload to target
+download_file(session_id, remote_path)     → download from target
+upgrade_session(session_id)               → upgrade to meterpreter
+list_sessions(mission_id)                 → all active sessions
+```
+
+**Key invariant:** All agents route shell commands through Shell Manager.
+No agent interacts directly with Metasploit sessions.
+
+---
+
+### Post-Exploitation Agent
+
+**Role:** Everything after initial shell — enumerate, escalate, persist, harvest
+**Triggers:** Shell Manager has an active session
+**Requires:** Active session from Shell Manager
+
+**Phase 1 — Local Enumeration:**
+run_linpeas / run_winpeas, enumerate_users, enumerate_services,
+enumerate_network, enumerate_files, check_sudo, check_suid,
+check_capabilities, process_list
+
+**Phase 2 — Privilege Escalation:**
+kernel_exploit_check, sudo_exploit, suid_exploit, service_exploit,
+cron_exploit, path_hijack, dll_hijack (Win), token_impersonation (Win),
+getsystem (Meterpreter)
+
+**Phase 3 — Persistence** *(requires `allow_persistence=True`):*
+add_cron, add_service, add_ssh_key, add_registry_run (Win), create_backdoor_user
+
+**Phase 4 — Credential Harvesting** *(requires `allow_credential_harvest=True`):*
+dump_hashes, dump_memory_creds, find_credentials, dump_browser_creds,
+dump_ssh_keys, dump_aws_keys
+
+---
+
+### Lateral Movement Agent
+
+**Role:** Expand access across network from compromised host
+**Triggers:** Privileged session available + more hosts in scope
+**Requires:** `allow_lateral_movement=True`
+
+**Tools:** arp_scan_from_host, port_scan_from_host, pass_the_hash,
+pass_the_ticket, psexec, winrm_exec, ssh_lateral, smb_exec,
+crackmapexec, setup_pivot, kerberoast, asreproast, dcsync
+
+---
+
+### Reporting Agent
+
+**Role:** Aggregate all findings, generate professional pentest report
+
+**Output:** Executive summary, technical findings with evidence,
+attack narrative, CVSS risk matrix, remediation guide,
+HTML + PDF report, attack graph visualization
+
+---
+
+## Communication Protocol
+
+### Agent Message Bus
+
+All agents communicate via `AgentMessageBus`:
 
 ```python
-# tools/base_tool.py
-from abc import ABC, abstractmethod
-from pydantic import BaseModel
-
-class ToolMetadata(BaseModel):
-    name: str           # Name the agent tells the LLM: "nmap_scan"
-    description: str    # Helps the LLM understand when to use it
-    parameters: dict    # JSON Schema — LLM generates params from this schema
-    category: str       # "recon" | "exploit" | "web" | "report"
-    version: str        # Semver: "1.0.0"
-
-class BaseTool(ABC):
-    @property
-    @abstractmethod
-    def metadata(self) -> ToolMetadata:
-        """All information about the tool lives here."""
-
-    @abstractmethod
-    async def execute(self, params: dict) -> dict:
-        """
-        Execute the tool.
-        Returns: {"success": bool, "output": any, "error": str|None}
-        """
-
-    async def validate(self, params: dict) -> tuple[bool, str]:
-        """Validate params. Can be overridden."""
-        return True, ""
+class AgentMessage(BaseModel):
+    from_agent: str       # agent_id | "brain" | "user" | "shell_manager"
+    to_agent: str         # agent_id | "brain" | "broadcast"
+    message_type: str     # "task" | "result" | "finding" | "status" | "question" | "answer"
+    priority: str = "normal"
+    payload: dict
+    correlation_id: str | None = None
+    timestamp: float
 ```
 
-### Plugin `plugin.json` Schema
+### Shared Mission Context
 
-```json
-{
-  "name": "web_scanner",
-  "version": "1.0.0",
-  "display_name": "Web Vulnerability Scanner",
-  "description": "XSS, SQLi, SSRF detection using headless browser",
-  "author": "community",
-  "enabled": false,
-  "requires_packages": ["playwright>=1.40", "beautifulsoup4>=4.12"],
-  "category": "web",
-  "entry_point": "plugins.web_scan.tool",
-  "class_name": "WebScanTool",
-  "min_core_version": "2.0.0",
-  "safety_level": "medium"
-}
+Brain maintains `MissionContext` updated in real-time:
+
+```
+MissionContext
+├── mission_id, target, scope, mode, environment_type, operator_notes
+├── domains, subdomains, ip_addresses, emails
+├── hosts: {ip → {ports, services, os, hostname}}
+├── vulnerabilities: [Vulnerability]
+├── active_sessions: [SessionSummary]   ← from Shell Manager
+├── credentials: [Credential]           ← harvested
+├── loot: [Loot]
+├── phase, completed_tasks, active_agents: {id → AgentStatus}
+├── attack_graph: AttackGraph
+└── permission flags: allow_persistence, allow_credential_harvest, ...
 ```
 
-> `entry_point` is the Python **module** path; `class_name` is the class within that module.
-> The loader does: `cls = getattr(importlib.import_module(entry_point), class_name)`
-> Both fields are required — missing either will cause the plugin to be skipped with a warning.
-
-### Tool Registry Implementation (Summary)
-
-```python
-# core/tool_registry.py
-import importlib
-import json
-from pathlib import Path
-from tools.base_tool import BaseTool
-
-class ToolRegistry:
-    def __init__(self):
-        self._tools: dict[str, BaseTool] = {}
-
-    def register(self, tool: BaseTool) -> None:
-        name = tool.metadata.name
-        self._tools[name] = tool
-
-    def get(self, name: str) -> BaseTool:
-        return self._tools[name]
-
-    def list_for_llm(self) -> list[dict]:
-        """Tool descriptions to send to the LLM."""
-        return [
-            {
-                "name": t.metadata.name,
-                "description": t.metadata.description,
-                "parameters": t.metadata.parameters,
-            }
-            for t in self._tools.values()
-        ]
-
-    def load_plugins(self, plugins_dir: Path) -> None:
-        """Scan plugin directory, import loadable plugins."""
-        if not plugins_dir.exists():
-            return
-        for plugin_dir in plugins_dir.iterdir():
-            if not plugin_dir.is_dir():
-                continue
-            manifest_path = plugin_dir / "plugin.json"
-            if not manifest_path.exists():
-                continue
-            manifest = json.loads(manifest_path.read_text())
-            if not manifest.get("enabled", False):
-                continue
-            # entry_point = module path; class_name = class within that module
-            module = importlib.import_module(manifest["entry_point"])
-            tool_class = getattr(module, manifest["class_name"])
-            self.register(tool_class())
-```
+**Access rules:** All agents READ. Only Brain WRITES.
 
 ---
 
-## LLM Communication Protocol (Standard)
+## Parallelism Strategy
 
-The agent sends this to the LLM on every ReAct iteration:
+Brain uses a dependency graph:
 
-```json
-{
-  "available_tools": [
-    {
-      "name": "nmap_scan",
-      "description": "Scan ports and detect services on a target IP or range.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "target": {"type": "string", "description": "IP or CIDR range"},
-          "scan_type": {"type": "string", "enum": ["ping", "service", "os", "full"]}
-        },
-        "required": ["target"]
-      }
-    }
-  ],
-  "current_state": { ... },
-  "history": [ ... ]
-}
+```
+Mission Start
+    ├──[parallel]──────────────────┐
+  OSINT Agent                 Scanner Agent
+    └──────[merge]─────────────────┘
+                   │
+            Brain Decision Point
+                   │
+    ┌──────────────┼──────────────┐
+  Web Agent    Exploit Agent   more Scanners
+                   │
+               Shell Manager
+                   │
+           PostExploit Agent ──[parallel]── Web Agent (other hosts)
+                   │
+           Lateral Movement ──[parallel]── ongoing scanning
+                   │
+           Reporting Agent
 ```
 
-The LLM always responds with this JSON:
-
-```json
-{
-  "thought": "Port 445 is open and SMB v1 is running. Checking searchsploit for EternalBlue.",
-  "tool": "searchsploit_search",
-  "parameters": { "query": "EternalBlue SMB ms17-010" },
-  "confidence": 0.91
-}
-```
-
-When the LLM decides it's done:
-
-```json
-{
-  "thought": "All targets scanned, 3 critical vulnerabilities found.",
-  "tool": "generate_report",
-  "parameters": { "session_id": "abc123" },
-  "confidence": 1.0
-}
-```
+**Rules:** Max concurrent agents configurable (default: 8).
+OSINT + Scanner always parallel if domain given.
+PostExploit only after shell opened. Lateral only after credentials harvested.
 
 ---
 
-## Attack Flow (V1 — Network Only)
+## Safety System
 
-```
-User: "Scan 192.168.1.0/24 and exploit anything you find"
-                    │
-                    ▼
-        [Agent] Create session (DB)
-                    │
-          ┌─────────▼──────────┐
-          │  Phase 1: Discovery │ → nmap_scan (ping sweep)
-          └─────────┬──────────┘
-                    │ → Host list: [.5, .10, .23, .42]
-          ┌─────────▼──────────┐
-          │  Phase 2: Port      │ → nmap_scan (service detect) × host count
-          │  Scanning           │
-          └─────────┬──────────┘
-                    │ → Port/service/version list
-          ┌─────────▼──────────┐
-          │  Phase 3: Exploit   │ → searchsploit_search × service count
-          │  Search             │
-          └─────────┬──────────┘
-                    │ → Exploit list
-          ┌─────────▼──────────┐
-          │  Phase 4:           │ → metasploit_run × exploit count
-          │  Exploitation       │   (Safety check → LLM selects)
-          └─────────┬──────────┘
-                    │ → Successful exploits, sessions
-          ┌─────────▼──────────┐
-          │  Phase 5: Report    │ → generate_report
-          └────────────────────┘
-```
+### Existing 10 Rules (Unchanged)
 
-**Safety Guard runs before every action. Any rule violation → block.**
+| # | Rule | Default |
+|---|------|---------|
+| 1 | Target CIDR scope | Required |
+| 2 | Port range scope | 1-65535 |
+| 3 | Excluded IPs | [] |
+| 4 | Excluded ports | [] |
+| 5 | Exploit permitted | true |
+| 6 | No DoS exploits | blocked |
+| 7 | No destructive exploits | blocked |
+| 8 | Max CVSS score | 10.0 |
+| 9 | Session time limit | 3600s |
+| 10 | Rate limit | 10 req/s |
+
+### V2 Permission Flags (New — all default False)
+
+| Flag | Controls |
+|------|----------|
+| `allow_persistence` | PostExploit Phase 3 (crontab, SSH key, service backdoors) |
+| `allow_credential_harvest` | PostExploit Phase 4 (/etc/shadow, mimikatz, browser creds) |
+| `allow_lateral_movement` | Lateral Movement Agent spawn |
+| `allow_data_exfil` | File downloads from targets |
+| `allow_docker_escape` | Container escape techniques |
+
+**Key invariant:** Safety pipeline runs on every tool call regardless of which agent calls it.
+All agent actions attributed to their agent_id in the audit log.
 
 ---
 
-## Safety System (10 Rules — Immutable)
+## Database Schema
 
-```
-Action → [1] Is kill switch active?
-       → [2] Is target IP within scope?
-       → [3] Is port within allowed range?
-       → [4] Is target in excluded_ips?
-       → [5] Is port in excluded_ports?
-       → [6] Is exploit permitted? (scan_only mode)
-       → [7] Is this a DoS category?
-       → [8] Is this a destructive action?
-       → [9] Does it exceed max exploit severity?
-       → [10] Has time limit expired?
-       → ✅ Execute  OR  🛑 Block + Audit Log
-```
+### V1 Tables (Existing)
 
----
+| Table | Purpose |
+|---|---|
+| `conversations` | Chat UI sessions |
+| `messages` | Chat messages |
+| `app_settings` | Key-value settings |
+| `pentest_sessions` | Pentest mission records |
+| `scan_results` | Nmap host/port output |
+| `vulnerabilities` | Discovered CVEs |
+| `exploit_results` | Exploitation attempts |
+| `knowledge_base` | Successful exploit patterns |
+| `audit_log` | Every action, append-only |
+| `session_events` | Agent events for WS replay |
 
-## Database (7 Tables — Pentest)
+### V2 Tables (New)
 
-| Table             | Purpose                                              |
-| ----------------- | ---------------------------------------------------- |
-| `sessions`        | Each pentest session                                 |
-| `messages`        | Agent thought/action/result history                  |
-| `scan_results`    | Host/port/service findings                           |
-| `vulnerabilities` | CVE list + CVSS score                                |
-| `exploit_results` | Exploit attempt + result                             |
-| `knowledge_base`  | "Which exploit worked against which service/version" |
-| `audit_log`       | Every action logged for legal purposes               |
-
----
-
-## Technology Stack (V1 — Definitive List)
-
-| Component         | Technology                     | Version       |
-| ----------------- | ------------------------------ | ------------- |
-| Language          | Python                         | 3.11+         |
-| Web Framework     | FastAPI                        | 0.110+        |
-| LLM (cloud)       | OpenRouter → Claude 3.5 Sonnet | —             |
-| LLM (local)       | Ollama → Llama 3 8B            | —             |
-| DB                | SQLite via aiosqlite           | —             |
-| Port Scanner      | Nmap                           | 7.94+         |
-| Exploit DB        | SearchSploit (ExploitDB)       | —             |
-| Exploit Framework | Metasploit 6.x via RPC         | pymetasploit3 |
-| Reporting         | Jinja2 + WeasyPrint            | —             |
-| Real-time         | WebSocket via FastAPI          | —             |
-| Terminal UI       | Rich                           | 13.x          |
-| Testing           | pytest                         | 8.x           |
-| Plugin loading    | importlib (stdlib)             | —             |
-
-**Not in V1 (planned as V2+ plugins):**
-
-- Playwright / Headless Browser
-- XSS / SQLi / SSRF scanning
-- Nuclei
-- Gobuster / ffuf
-- InteractSH (OOB callbacks)
-- SQLMap
-- SARIF output
+| Table | Purpose |
+|---|---|
+| `agent_instances` | Spawned agent lifecycle (type, status, task, result) |
+| `agent_messages` | Inter-agent message log |
+| `shell_sessions` | Persistent shell registry (type, privilege, health) |
+| `credentials` | Harvested creds (plaintext, hash, key, token) |
+| `loot` | Exfiltrated files and data |
+| `mission_phases` | High-level phase tracking |
+| `network_nodes` | Discovered hosts with compromise level |
+| `network_edges` | Attack paths (exploit, lateral, pivot) |
 
 ---
 
-## Directory Structure (Complete)
+## Tool Registry
+
+### Plugin Types
+
+| Type | Use Case | Python Code Needed |
+|---|---|---|
+| `python_class` | Complex logic, stateful tools | Yes |
+| `cli_wrapper` | Any CLI binary | No — JSON config only |
+| `api_wrapper` | REST API tools | No — JSON config only |
+
+### Tool Health Checks
+
+Every tool implements `health_check()`:
+- Reports availability before session starts
+- Unavailable tools excluded from LLM prompt
+- Install hints surfaced in UI
+- Degraded mode supported (e.g., nmap without sudo)
+
+### Tool Categories
+
+| Category | Examples | Used By |
+|---|---|---|
+| recon | masscan, nmap, banner_grab | Scanner |
+| osint | theHarvester, subfinder, whois | OSINT |
+| web | ffuf, nikto, nuclei, sqlmap | Web App |
+| exploit | searchsploit, metasploit_run | Exploit |
+| post-exploit | linpeas, dump_hashes, add_cron | PostExploit |
+| lateral | crackmapexec, psexec, kerberoast | Lateral |
+| pivot | ligolo, chisel | Lateral |
+| brute-force | hydra, hashcat | Web App, Lateral |
+
+---
+
+## LLM Layer
+
+### Per-Agent Model Selection
+
+| Agent | Recommended | Why |
+|---|---|---|
+| Brain | Strongest (Opus) | Complex planning, multi-step reasoning |
+| OSINT | Medium | Tool orchestration + output parsing |
+| Scanner | Light OK | Mostly tool execution |
+| Web App | Medium-strong | Web vuln pattern knowledge |
+| Exploit | Strong | CVE matching, payload selection |
+| PostExploit | Strong | Complex privesc reasoning |
+| Lateral | Strong | AD/network knowledge intensive |
+| Reporting | Medium (good writer) | Natural language generation |
+
+### Supported Providers
+
+| Provider | Mode | Notes |
+|---|---|---|
+| Ollama | Local | Free, private, fast for simple tasks |
+| LM Studio | Local | Alternative local option |
+| OpenRouter | Cloud | Claude, GPT-4, Llama, Mixtral |
+
+All providers runtime-switchable. Each agent independently configurable.
+
+---
+
+## Directory Structure (V2 Target)
 
 ```
 AEGIS/
-│
-├── main.py                      # CLI entry point
-├── config.py                    # AppConfig, SafetyConfig, LLMConfig
+├── main.py
+├── config.py
 ├── requirements.txt
-├── .env.example
 │
-├── core/                        # CORE — do not modify
-│   ├── agent.py                 # ReAct loop
-│   ├── llm_client.py            # LLM abstraction
-│   ├── safety.py                # 10 guardrails
-│   ├── memory.py                # Session memory
-│   ├── prompts.py               # Prompt builder
-│   └── tool_registry.py         # Plugin loader + tool catalog
+├── core/
+│   ├── agent.py                     # [V1] PentestAgent ReAct loop (preserved)
+│   ├── base_agent.py                # [V2] BaseAgent abstract class
+│   ├── brain_agent.py               # [V2] Brain coordinator
+│   ├── agent_message_bus.py         # [V2] Inter-agent pub/sub
+│   ├── mission_context.py           # [V2] Shared mission state
+│   ├── shell_manager.py             # [V2] Persistent shell sessions
+│   ├── llm_client.py                # LLM abstraction
+│   ├── safety.py                    # 10 rules + V2 permission flags
+│   ├── memory.py                    # Bounded sliding window memory
+│   ├── prompts.py                   # Prompt builders (per agent type)
+│   ├── tool_registry.py             # Plugin loader + tool catalog
+│   ├── generic_tools.py             # GenericCLITool, GenericAPITool
+│   └── secure_store.py              # Keychain / DB secret storage
 │
-├── tools/                       # CORE TOOLS — V1 built-in
-│   ├── base_tool.py             # Abstract base
+├── agents/                          # [V2] Specialized agent implementations
+│   ├── osint_agent.py
+│   ├── scanner_agent.py
+│   ├── web_agent.py
+│   ├── exploit_agent.py
+│   ├── postexploit_agent.py
+│   ├── lateral_agent.py
+│   └── reporting_agent.py
+│
+├── tools/                           # Core tools (V1 built-in)
+│   ├── base_tool.py
 │   ├── nmap_tool.py
 │   ├── searchsploit_tool.py
 │   └── metasploit_tool.py
 │
-├── plugins/                     # PLUGIN TOOLS — V2+ (empty at start)
-│   └── __init__.py              # Empty, Plugin loader looks here
+├── plugins/                         # Plugin tools (optional)
+│   ├── masscan/
+│   ├── nuclei/
+│   ├── ffuf/
+│   ├── sqlmap/
+│   ├── nikto/
+│   ├── whatweb/
+│   ├── theharvester/
+│   ├── subfinder/
+│   ├── amass/
+│   ├── hydra/
+│   ├── hashcat/
+│   ├── crackmapexec/
+│   ├── impacket/
+│   ├── linpeas/
+│   ├── winpeas/
+│   ├── ligolo/
+│   ├── shodan/          # requires SHODAN_API_KEY
+│   └── censys/          # requires CENSYS_API_KEY
 │
 ├── database/
 │   ├── db.py
@@ -463,13 +593,25 @@ AEGIS/
 │   ├── knowledge_base.py
 │   └── schema.sql
 │
+├── models/
+│   ├── target.py
+│   ├── scan_result.py
+│   ├── vulnerability.py
+│   ├── exploit_result.py
+│   ├── session.py
+│   ├── mission.py           # [V2] MissionContext, MissionBrief
+│   ├── agent_instance.py    # [V2]
+│   ├── shell_session.py     # [V2]
+│   ├── credential.py        # [V2]
+│   └── loot.py              # [V2]
+│
 ├── web/
-│   ├── app.py                  # FastAPI factory + lifespan startup
-│   ├── app_state.py            # Shared tool_registry singleton
-│   ├── routes.py               # REST endpoints
-│   ├── session_manager.py      # Active session / agent tracking
-│   ├── stats_state.py          # Live stats shared across requests
-│   ├── websocket_handler.py    # Real-time WebSocket streaming
+│   ├── app.py
+│   ├── routes.py
+│   ├── websocket_handler.py
+│   ├── session_manager.py
+│   ├── app_state.py
+│   ├── stats_state.py
 │   └── static/
 │       ├── index.html
 │       ├── app.js
@@ -481,189 +623,28 @@ AEGIS/
 │   └── templates/
 │       └── report.html
 │
-├── defense/                     # OPTIONAL — separate process
-│   ├── sniffer.py
-│   ├── analyzer.py
-│   ├── llm_defender.py
-│   ├── responder.py
-│   ├── honeypot.py
-│   └── detectors/
-│       ├── port_scan.py
-│       ├── arp_spoof.py
-│       ├── dos.py
-│       └── brute_force.py
-│
-├── models/                      # Pydantic data models
-│   ├── target.py
-│   ├── scan_result.py
-│   ├── vulnerability.py
-│   ├── exploit_result.py
-│   └── session.py
-│
-├── tests/
-│   ├── conftest.py
-│   ├── test_models.py
-│   ├── test_llm_client.py
-│   ├── test_nmap_tool.py
-│   ├── test_searchsploit_tool.py
-│   ├── test_metasploit_tool.py
-│   ├── test_safety.py
-│   ├── test_memory.py
-│   ├── test_agent.py
-│   ├── test_prompts.py
-│   ├── test_database.py
-│   ├── test_reporting.py
-│   ├── test_tool_registry.py    # NEW
-│   └── defense/
-│       ├── test_sniffer.py
-│       ├── test_detectors.py
-│       ├── test_analyzer.py
-│       ├── test_llm_defender.py
-│       └── test_responder.py
-│
 └── docs/
-    ├── 01_XBOW_COMPARISON.md
     ├── 02_ARCHITECTURE.md       ← THIS FILE
-    ├── 03_PREREQUISITES.md
     ├── 04_ROADMAP.md
     ├── 05_SAFETY_AND_LEGAL.md
-    ├── 06_LEARNING_CURRICULUM.md
-    ├── 07_NETWORK_DEFENSE_MODULE.md
-    ├── 08_MASTER_CHECKLIST.md
     ├── 09_PLUGIN_SYSTEM.md
-    ├── 10_LEARNING_ROADMAP.md
-    └── 11_V2_FEATURE_SPEC.md    ← NEW: V2 implementation spec
+    └── 11_MULTI_AGENT_SPEC.md   ← detailed V2 implementation spec
 ```
 
 ---
 
-## V2 Architecture Extensions
+## Architecture Decisions
 
-The sections below describe the architectural additions planned for V2. The V1 layer structure above remains the stable foundation — none of these changes modify existing interfaces.
-
-Full specification: [11_V2_FEATURE_SPEC.md](11_V2_FEATURE_SPEC.md)
-
----
-
-### V2 Addition: Tool Health Check Layer
-
-Every registered tool gains a `health_check()` method. At session start, `ToolRegistry.run_health_checks()` collects status from all tools. The LLM prompt only receives tools that pass (or degrade gracefully). Unavailable tools are excluded entirely.
-
-```
-Session Start
-    │
-    ▼
-ToolRegistry.run_health_checks()
-    ├── NmapTool.health_check()         → available=True  (nmap 7.94 found)
-    ├── SearchSploitTool.health_check() → available=False (binary missing)
-    └── MetasploitTool.health_check()   → degraded=True   (RPC down, CLI ok)
-    │
-    ▼
-registry.list_for_llm(healthy_only=True)
-    → Excludes SearchSploitTool from LLM prompt
-    → Adds degradation note to MetasploitTool description
-    │
-    ▼
-GET /api/v1/tools/status  → Web UI renders tool status strip with install hints
-```
-
----
-
-### V2 Addition: Mission Brief
-
-A `MissionBrief` object (`models/mission.py`) is attached to `AgentContext` before the first ReAct iteration. It carries operator-supplied intelligence and permission flags that the agent respects throughout the session.
-
-```
-MissionBrief
-├── target_type         "ip" | "cidr" | "domain" | "webapp" | "auto"
-├── speed_profile       "stealth" | "normal" | "aggressive"
-├── scope_notes         Injected verbatim into every LLM system prompt
-├── known_tech          ["nginx/1.24", "php/8.1"] — skips re-discovery
-├── excluded_targets    ["10.0.0.1"] — hard boundary, safety-enforced
-└── Permission flags
-    ├── allow_exploitation
-    ├── allow_post_exploitation
-    ├── allow_lateral_movement
-    └── allow_docker_escape
-```
-
-When `MissionBrief` is not supplied, the agent applies conservative defaults: no exploitation, no lateral movement, `speed_profile=normal`.
-
----
-
-### V2 Addition: Expanded Attack Phase FSM
-
-`AgentContext.attack_phase` expands from 5 states to 12. Each phase beyond `EXPLOITATION` is guarded by a `MissionBrief` permission flag.
-
-```
-DISCOVERY → WEB_RECON* → PORT_SCAN → VULN_SCAN* → EXPLOIT_SEARCH
-    → EXPLOITATION† → POST_EXPLOITATION† → LATERAL_MOVEMENT†
-    → PRIVILEGE_ESCALATION† → DOCKER_ESCAPE‡ → REPORTING → DONE
-
-  * Only when target_type is "webapp" or "domain"
-  † Only when the corresponding allow_* flag is True
-  ‡ Only when allow_docker_escape=True and container environment detected
-```
-
-Phase guard logic lives in `core/agent.py` → `_advance_phase()`. `core/safety.py` provides a complementary hard-block at the action level.
-
----
-
-### V2 Addition: Plugin Type Routing
-
-`core/tool_registry.py` `_load_single_plugin()` dispatches on `plugin.json "type"`:
-
-```
-plugin.json "type"
-    ├── "python_class"  → importlib.import_module(entry_point).ClassName()  [V1 path]
-    ├── "cli_wrapper"   → core.generic_tools.GenericCLITool(cfg)            [V2 new]
-    └── "api_wrapper"   → core.generic_tools.GenericAPITool(cfg)            [V2 new]
-```
-
-New file `core/generic_tools.py` implements both generic types. Both inherit `BaseTool` and implement `health_check()`.
-
----
-
-### V2 Addition: Finding System
-
-`AgentContext` replaces raw string lists with structured `Finding` objects (`models/finding.py`). All tool results containing vulnerability or post-exploitation data are recorded as `Finding` records persisted to a new `findings` table in SQLite.
-
-```
-Tool.execute() returns result
-    │
-    ▼
-agent._record_finding(result, tool_name, phase, target)
-    → Constructs Finding(id, severity, evidence, commands_run, screenshot, ...)
-    → FindingRepository.create(finding)
-    → AgentContext.findings.append(finding)
-    │
-    ▼
-REPORTING phase
-    → FindingRepository.get_by_session(session_id)
-    → report_generator.py renders Finding objects into HTML/PDF
-```
-
----
-
-## Architecture Decisions and Rationale
-
-| Decision                                          | Rationale                                                                   |
-| ------------------------------------------------- | --------------------------------------------------------------------------- |
-| Design plugin system now, no plugins in V1        | XSS plugin can be added in V2 without touching core code                    |
-| No ShellTool                                      | Security risk too high, cannot be audited                                   |
-| Ollama local over OpenRouter local                | Speed: 200ms vs 2s. Ideal for parsing/classification                        |
-| importlib plugin loading                          | stdlib, no extra dependencies, secure                                       |
-| Defense as separate process                       | Stopping the pentest bot should not affect the defense module               |
-| SQLite (aiosqlite)                                | Zero setup, sufficient for capstone, migrate to PostgreSQL in V3            |
-| Single agent (V1)                                 | Easier to understand, every decision is traceable, multi-agent deferred to V3 |
-| health_check() on BaseTool (V2)                   | Tools self-report availability; agent adapts without crashing mid-run       |
-| Three plugin types (V2)                           | CLI wrappers and API tools are config-only; lowers contribution barrier     |
-| MissionBrief permission flags (V2)                | Operator controls blast radius; safety.py enforces at action level as well  |
-| Finding model replaces string lists (V2)          | Enables credible pentest reports with reproducible evidence                 |
-| Self-Correction via Reflect() step (V2)           | Prevents infinite retry loops without requiring multi-agent architecture    |
-| SARIF output (V2)                                 | Machine-readable findings for CI/CD and IDE integration                     |
-| Network proxy support (V2)                        | Analyst can intercept web recon traffic through Burp/mitmproxy              |
-| Vector search / RAG (V2)                          | Semantic KB lookup survives service name variations; uses Ollama embeddings |
-| Internal Reviewer as second LLM (V3)              | Dedicated validation pass requires multi-LLM coordination — deferred to V3 |
-| Docker-isolated tool execution (V3)               | Host filesystem safety requires container orchestration — deferred to V3    |
-| custom_payload LLM code generation (V3)           | Sandboxed arbitrary code execution requires V3 security infrastructure      |
+| Decision | Rationale |
+|---|---|
+| Brain is LLM-based, not rule-based | Adapts to unexpected findings; handles novel situations |
+| Shell Manager is a service, not an agent | Sessions persist independent of agent lifecycle |
+| Only Brain writes MissionContext | Prevents race conditions; single source of truth |
+| Safety pipeline runs on every tool call | No agent can bypass safety regardless of authority |
+| Per-agent model selection | Balance cost vs capability |
+| Plugin system for all new tools | Core stays stable; capabilities added without risk |
+| Agents are stateless | Killed/restarted without data loss; all state in DB |
+| Audit log attributes agent_id | Full accountability — know which agent did what |
+| V2 permission flags default False | Blast radius controlled by operator explicitly |
+| Max 8 parallel agents (default) | Balance parallelism with LLM API rate limits |
+| V1 PentestAgent preserved | Backward compatibility; can run without multi-agent |
