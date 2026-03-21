@@ -78,6 +78,14 @@ function switchView(viewName) {
     currentView = viewName;
     syncInputMode();
 
+    // Restore saved agent sub-view (feed/graph) when switching to agent
+    if (viewName === 'agent') {
+        try {
+            const saved = localStorage.getItem('agView');
+            if (saved === 'graph' || saved === 'feed') switchAgentView(saved);
+        } catch(e) {}
+    }
+
     // Update nav highlight
     document.querySelectorAll('.bottom-nav-item').forEach(item => {
         const view = item.dataset.view;
@@ -2465,6 +2473,7 @@ function handleSessionEvent(msg) {
         if (!data.resuming) {
             clearMissionFeed();
             renderMissionStart(data.target || '', data.mode || '');
+            agOnMissionStart(data);
         }
         appendConsoleLine(`[START] Target: ${data.target || ''} · Mode: ${data.mode || ''}`, 'text-primary');
         // Initialize objectives tracker from start event
@@ -2491,6 +2500,7 @@ function handleSessionEvent(msg) {
         finalizeAgentStreamCard();
         renderMissionReasoning(data);
         updatePhaseFromEvent(data);
+        agOnThinking(data);
         appendConsoleLine(`[THINK] ${data.thought || data.action || ''}`, 'text-secondary-text');
         if (data.action) {
             appendConsoleLine(`[ACTION] → ${data.action}`, 'text-slate-400');
@@ -2500,11 +2510,13 @@ function handleSessionEvent(msg) {
         const toolName = data.tool || data.tool_name || data.action || '';
         setAgentStatus('acting', toolName);
         _openOrAddToToolBatch(data);
+        agOnToolCall(data);
         appendConsoleToolCall(data);
 
     } else if (event === 'tool_result') {
         setAgentStatus('reasoning');
         if (!_resolveToolBatchItem(data)) renderMissionToolResult(data); // fallback for replays
+        agOnToolResult(data);
         appendConsoleToolResult(data);
         // Feed intel panels
         if (data.tool === 'searchsploit_search' && data.success) {
@@ -2514,6 +2526,7 @@ function handleSessionEvent(msg) {
     } else if (event === 'reflection') {
         setAgentStatus('reflecting');
         finalizeAgentStreamCard();
+        agOnReflection(data);
         // Streaming card already shows the full reflection content — skip duplicate static card
         if (data.content) {
             appendConsoleLine(`[REFLECT] ${data.content.slice(0, 120)}`, 'text-purple-400');
@@ -2531,9 +2544,11 @@ function handleSessionEvent(msg) {
         const tools = (data.tools || []).join(', ');
         setAgentStatus('acting', `⚡ parallel ×${data.count}`);
         appendConsoleLine(`[PARALLEL] Starting ${data.count} tools simultaneously: ${tools}`, 'text-yellow-400');
+        agOnParallelStart(data);
 
     } else if (event === 'parallel_done') {
         appendConsoleLine(`[PARALLEL] ${data.count} tools completed`, 'text-green-400');
+        agOnParallelDone(data);
 
     } else if (event === 'phase_change' || event === 'discovery') {
         updatePhaseFromEvent(data);
@@ -2661,6 +2676,7 @@ function handleSessionDone(msg) {
         findings: counts.findings || [],
         objective_result: counts.objective_result || counts.objective || '',
     });
+    agOnDone(counts);
     appendConsoleLine('[SESSION] Agent finished — report available in the Report tab', 'text-primary');
 
     // Only overwrite sidebar stats if user is viewing this session
@@ -2898,6 +2914,7 @@ async function forkFromIteration(iteration) {
                         const mode = sessionInfo?.mode || 'full_auto';
                         renderMissionStart(target, mode);
                         eventsUpTo.forEach(ev => replaySessionEvent(ev.event_type, ev.data));
+                        setTimeout(_agRender, 150);
                     }
                 } catch (_) { /* replay best-effort */ }
 
@@ -3468,6 +3485,36 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
     const d3      = window.d3;
     const svgEl   = document.getElementById(svgId);
     if (!svgEl) return;
+
+    // Theme palette
+    const _tL = document.documentElement.classList.contains('light');
+    const _TC = {
+        svgBg:       _tL ? '#f4f4f0' : '#030303',
+        linkNorm:    _tL ? '#ccc'    : '#222',
+        linkExploit: '#FF3B3B',
+        nodeNorm:    _tL ? '#ebebea' : '#0f0f0f',
+        nodeStroke:  _tL ? '#bbb'    : '#333',
+        nodeMed:     _tL ? '#fff4ea' : '#1a0800',
+        nodeMedStr:  '#FF8C00',
+        nodeExpl:    _tL ? '#fff0f0' : '#1a0000',
+        nodeExplStr: '#FF3B3B',
+        ipNorm:      _tL ? '#333'    : '#aaa',
+        ipMed:       '#FF8C00',
+        ipExpl:      '#ff5555',
+        statusNorm:  _tL ? '#777'    : '#555',
+        statusMed:   '#FF8C00',
+        statusExpl:  '#FF3B3B',
+        osText:      _tL ? '#999'    : '#555',
+        outerNorm:   _tL ? '#ccc'    : '#2a2a2a',
+        emptyText1:  _tL ? '#ccc'    : '#1a1a1a',
+        emptyText2:  _tL ? '#aaa'    : '#2a2a2a',
+        emptyText3:  _tL ? '#bbb'    : '#1a1a1a',
+        tooltipBg:   _tL ? '#fff'    : '#0a0a0a',
+        tooltipBdr:  _tL ? '#ddd'    : '#222',
+        tooltipText: _tL ? '#111'    : '#ccc',
+        pdotFill:    _tL ? '#f0f0ee' : '#080808',
+    };
+    svgEl.style.background = _TC.svgBg;
     // Use real dimensions; fall back to safe defaults when element is hidden
     const realW = svgEl.clientWidth;
     const realH = svgEl.clientHeight;
@@ -3481,11 +3528,11 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
         if (emptyG.empty()) {
             const eg = state.g.append('g').attr('class', 'topo-empty').attr('transform', `translate(${W/2},${H/2})`);
             eg.append('text').attr('text-anchor','middle').attr('y',-12)
-                .attr('fill','#1a1a1a').attr('font-family','monospace').attr('font-size', 13).attr('font-weight','bold').text('AEGIS');
+                .attr('fill',_TC.emptyText1).attr('font-family','monospace').attr('font-size', 13).attr('font-weight','bold').text('AEGIS');
             eg.append('text').attr('text-anchor','middle').attr('y',8)
-                .attr('fill','#2a2a2a').attr('font-family','monospace').attr('font-size', 10).text('Waiting for scan results…');
+                .attr('fill',_TC.emptyText2).attr('font-family','monospace').attr('font-size', 10).text('Waiting for scan results…');
             eg.append('text').attr('text-anchor','middle').attr('y',26)
-                .attr('fill','#1a1a1a').attr('font-family','monospace').attr('font-size', 9).text('Start a mission or load a session');
+                .attr('fill',_TC.emptyText3).attr('font-family','monospace').attr('font-size', 9).text('Start a mission or load a session');
         }
         return;
     }
@@ -3533,10 +3580,10 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
         .merge(linkSel)
         .attr('x1', AEGIS_X).attr('y1', AEGIS_Y + 20)
         .attr('x2', d => hostPos[d.ip]?.x || 0).attr('y2', d => (hostPos[d.ip]?.y || 0) - nodeR)
-        .attr('stroke', d => xMap[d.ip] ? '#FF3B3B' : '#222')
+        .attr('stroke', d => xMap[d.ip] ? _TC.linkExploit : _TC.linkNorm)
         .attr('stroke-width', d => xMap[d.ip] ? 1.5 : 0.8)
         .attr('stroke-dasharray', d => xMap[d.ip] ? '6,3' : '3,4')
-        .attr('opacity', d => xMap[d.ip] ? 0.6 : 0.25)
+        .attr('opacity', d => xMap[d.ip] ? 0.6 : (_tL ? 0.5 : 0.25))
         .attr('marker-end', d => xMap[d.ip] ? 'url(#topo-arr-exploit)' : 'url(#topo-arr-scan)');
     linkSel.exit().remove();
 
@@ -3640,33 +3687,33 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
     allNodeSel.select('.topo-outer')
         .attr('r', nodeR + 6)
         .attr('fill','none')
-        .attr('stroke', d => xMap[d.ip] ? '#FF3B3B' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#2a2a2a'))
+        .attr('stroke', d => xMap[d.ip] ? _TC.nodeExplStr : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? _TC.nodeMedStr : _TC.outerNorm))
         .attr('stroke-width', d => xMap[d.ip] ? 1.5 : 1)
         .attr('stroke-dasharray', d => xMap[d.ip] ? null : '3,3')
         .attr('opacity', 0.6);
 
     allNodeSel.select('.topo-circle')
         .attr('r', nodeR)
-        .attr('fill', d => xMap[d.ip] ? '#1a0000' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#1a0800' : '#0f0f0f'))
-        .attr('stroke', d => xMap[d.ip] ? '#FF3B3B' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#333'))
+        .attr('fill', d => xMap[d.ip] ? _TC.nodeExpl : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? _TC.nodeMed : _TC.nodeNorm))
+        .attr('stroke', d => xMap[d.ip] ? _TC.nodeExplStr : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? _TC.nodeMedStr : _TC.nodeStroke))
         .attr('stroke-width', d => xMap[d.ip] ? 2.5 : 1.5);
 
     allNodeSel.select('.topo-ip')
         .attr('y', d => xMap[d.ip] ? -5 : -4)
         .attr('font-size', isFullscreen ? 13 : 11)
-        .attr('fill', d => xMap[d.ip] ? '#ff5555' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#aaa'))
+        .attr('fill', d => xMap[d.ip] ? _TC.ipExpl : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? _TC.ipMed : _TC.ipNorm))
         .text(d => `.${(d.ip || '').split('.').pop()}`);
 
     allNodeSel.select('.topo-status')
         .attr('y', d => xMap[d.ip] ? nodeR - 8 : nodeR - 8)
         .attr('font-size', isFullscreen ? 8 : 7)
-        .attr('fill', d => xMap[d.ip] ? '#FF3B3B' : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? '#FF8C00' : '#555'))
+        .attr('fill', d => xMap[d.ip] ? _TC.statusExpl : (d.ports.some(p => _MED_RISK_PORTS.has(p.number) || _HIGH_RISK_PORTS.has(p.number)) ? _TC.statusMed : _TC.statusNorm))
         .text(d => xMap[d.ip] ? 'PWNED' : (d.ports.filter(p => p.state === 'open').length + ' ports'));
 
     allNodeSel.select('.topo-os')
         .attr('y', d => xMap[d.ip] ? 7 : 6)
         .attr('font-size', isFullscreen ? 8 : 7)
-        .attr('fill', '#555')
+        .attr('fill', _TC.osText)
         .text(d => (d.os || '').split(' ').slice(0,2).join(' ').slice(0,12) || '');
 
     // Port dots around each host
@@ -3680,7 +3727,7 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
             .attr('r', isFullscreen ? 5 : 4)
             .attr('cx', (p, pi) => { const n = openPorts.length; const a = -Math.PI/2 + (pi/(Math.max(n-1,1))) * Math.PI; return dotR * Math.cos(a); })
             .attr('cy', (p, pi) => { const n = openPorts.length; const a = -Math.PI/2 + (pi/(Math.max(n-1,1))) * Math.PI; return dotR * Math.sin(a); })
-            .attr('fill','#080808')
+            .attr('fill', _TC.pdotFill)
             .attr('stroke', p => _portRiskColor(p.number))
             .attr('stroke-width', p => xMap[d.ip]?.ports.has(p.number) ? 2.5 : 1.5);
         pdSel.exit().remove();
@@ -3734,6 +3781,17 @@ function _topoFitView(isFullscreen, svgId) {
 function _topoShowTooltip(ev, host, xMap, exploitResults, tooltipId) {
     const tip = document.getElementById(tooltipId || 'topo-tooltip');
     if (!tip) return;
+    const _tL = document.documentElement.classList.contains('light');
+    const tipBg   = _tL ? '#fff'  : '#0a0a0a';
+    const tipBdr  = _tL ? '#ddd'  : '#222';
+    const tipText = _tL ? '#333'  : '#ccc';
+    const subText = _tL ? '#888'  : '#555';
+    const muted   = _tL ? '#bbb'  : '#444';
+    const divBdr  = _tL ? '#eee'  : '#1a1a1a';
+    tip.style.background = tipBg;
+    tip.style.border = `1px solid ${tipBdr}`;
+    tip.style.color = tipText;
+
     const ex       = xMap[host.ip];
     const openPorts = host.ports.filter(p => p.state === 'open');
     const isEx     = !!ex;
@@ -3746,8 +3804,8 @@ function _topoShowTooltip(ev, host, xMap, exploitResults, tooltipId) {
         return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;">
             <span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0"></span>
             <span style="color:${isExp ? '#FF3B3B' : c};font-weight:${isExp ? 'bold' : 'normal'}">${p.number}</span>
-            <span style="color:#555">/${p.protocol || 'tcp'}</span>
-            <span style="color:#888">${_esc(p.service || '')}</span>
+            <span style="color:${subText}">/${p.protocol || 'tcp'}</span>
+            <span style="color:${subText}">${_esc(p.service || '')}</span>
             ${isExp ? '<span style="color:#FF3B3B;margin-left:auto">⚡</span>' : ''}
         </div>`;
     }).join('');
@@ -3757,16 +3815,16 @@ function _topoShowTooltip(ev, host, xMap, exploitResults, tooltipId) {
     const lateralTgt = (exploitResults || []).filter(e => e.source_ip === host.ip).map(e => e.host_ip);
 
     tip.innerHTML = `
-        <div style="color:${statusColor};font-weight:bold;font-size:11px;margin-bottom:6px;border-bottom:1px solid #1a1a1a;padding-bottom:5px;">
-            ${_esc(host.ip)} ${host.hostname ? `<span style="color:#555;font-weight:normal">(${_esc(host.hostname)})</span>` : ''}
+        <div style="color:${statusColor};font-weight:bold;font-size:11px;margin-bottom:6px;border-bottom:1px solid ${divBdr};padding-bottom:5px;">
+            ${_esc(host.ip)} ${host.hostname ? `<span style="color:${subText};font-weight:normal">(${_esc(host.hostname)})</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
             <span style="width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>
             <span style="color:${statusColor}">${statusText}</span>
-            ${host.os ? `<span style="color:#555;margin-left:auto">${_esc(host.os.slice(0,24))}</span>` : ''}
+            ${host.os ? `<span style="color:${subText};margin-left:auto">${_esc(host.os.slice(0,24))}</span>` : ''}
         </div>
-        ${openPorts.length > 0 ? `<div style="color:#444;margin-bottom:3px;font-size:9px;text-transform:uppercase;letter-spacing:1px">Open Ports (${openPorts.length})</div>${portRows}` : ''}
-        ${ex ? `<div style="color:#444;margin-top:6px;margin-bottom:3px;font-size:9px;text-transform:uppercase;letter-spacing:1px">Modules</div>${moduleList}` : ''}
+        ${openPorts.length > 0 ? `<div style="color:${muted};margin-bottom:3px;font-size:9px;text-transform:uppercase;letter-spacing:1px">Open Ports (${openPorts.length})</div>${portRows}` : ''}
+        ${ex ? `<div style="color:${muted};margin-top:6px;margin-bottom:3px;font-size:9px;text-transform:uppercase;letter-spacing:1px">Modules</div>${moduleList}` : ''}
         ${lateralSrc.length ? `<div style="color:#fb923c;margin-top:5px;font-size:9px">← Pivot from: ${lateralSrc.join(', ')}</div>` : ''}
         ${lateralTgt.length ? `<div style="color:#fb923c;font-size:9px">→ Moved to: ${lateralTgt.join(', ')}</div>` : ''}
     `;
@@ -5542,7 +5600,10 @@ async function switchToSession(sessionId) {
                 const evData = evRes.ok ? await evRes.json() : null;
                 if (evData && evData.events && evData.events.length > 0) {
                     renderMissionStart(session.target, session.mode);
+                    agOnMissionStart({ target: session.target, mode: session.mode });
                     evData.events.forEach(ev => replaySessionEvent(ev.event_type, ev.data));
+                    // Always render graph after full replay and fit view
+                    setTimeout(function(){ _agRender(); setTimeout(agZoomFit, 100); }, 150);
                 } else {
                     renderHistoricalSession(session);
                 }
@@ -5571,21 +5632,31 @@ function replaySessionEvent(event, data) {
             _closeToolBatch();
             renderMissionReasoning(data);
             updatePhaseFromEvent(data);
+            agOnThinking(data);
             break;
         case 'tool_call':
             _openOrAddToToolBatch(data);
+            agOnToolCall(data);
             break;
         case 'tool_result':
             if (!_resolveToolBatchItem(data)) renderMissionToolResult(data);
+            agOnToolResult(data);
             break;
         case 'reflection':
             renderMissionReflection(data);
+            agOnReflection(data);
             break;
         case 'safety_block':
             renderMissionSafetyBlock(data);
             break;
         case 'error':
             renderMissionError(data);
+            break;
+        case 'parallel_start':
+            agOnParallelStart(data);
+            break;
+        case 'parallel_done':
+            agOnParallelDone(data);
             break;
         case 'phase_change':
         case 'observation':
@@ -7515,4 +7586,550 @@ function _shellPrint(htmlContent) {
     d.innerHTML = htmlContent;
     out.appendChild(d);
     out.scrollTop = out.scrollHeight;
+}
+
+
+
+// ─── Attack Graph View v2 ──────────────────────────────────────────────────────
+
+let _agView           = 'feed';
+let _agNodes          = [];   // {id,type,label,detail,parentId,depth,x,y,_expanded,_children}
+let _agEdges          = [];   // {from,to}
+let _agNodeSeq        = 0;
+let _agD3Zoom         = null;
+let _agLastThinkId    = null;
+let _agLastToolId     = null;
+let _agParallelGrpId  = null;   // id of current parallel group node
+let _agParallelActive = false;
+
+// ── Node style registry ────────────────────────────────────────────────────────
+const _AG = {
+    aegis:      { color:'#ccff00', bg:'#0d1a00', bgL:'#f0ffd0', icon:'radar',          r:32, stroke:2.5 },
+    target:     { color:'#ef4444', bg:'#1a0000', bgL:'#fff0f0', icon:'computer',        r:28, stroke:1.5 },
+    thinking:   { color:'#eab308', bg:'#1a1100', bgL:'#fffbe8', icon:'psychology',      r:26, stroke:1.5 },
+    reflecting: { color:'#a855f7', bg:'#0d0018', bgL:'#faf0ff', icon:'lightbulb',       r:26, stroke:1.5 },
+    tool_nmap:  { color:'#3b82f6', bg:'#00102a', bgL:'#eff6ff', icon:'wifi_find',       r:28, stroke:1.5 },
+    tool_msf:   { color:'#ef4444', bg:'#1a0000', bgL:'#fff0f0', icon:'rocket_launch',   r:28, stroke:1.5 },
+    tool_bash:  { color:'#22c55e', bg:'#001a08', bgL:'#f0fff4', icon:'terminal',        r:28, stroke:1.5 },
+    tool_ssh:   { color:'#06b6d4', bg:'#001018', bgL:'#ecfeff', icon:'key',             r:28, stroke:1.5 },
+    tool_spy:   { color:'#f97316', bg:'#1a0800', bgL:'#fff7ed', icon:'manage_search',   r:28, stroke:1.5 },
+    tool_other: { color:'#60a5fa', bg:'#001020', bgL:'#eff6ff', icon:'terminal',        r:28, stroke:1.5 },
+    parallel:   { color:'#f97316', bg:'#1a0800', bgL:'#fff7ed', icon:'bolt',            r:30, stroke:2 },
+    result_ok:  { color:'#ccff00', bg:'#0a1400', bgL:'#f7ffde', icon:'check_circle',    r:20, stroke:1 },
+    result_fail:{ color:'#ef4444', bg:'#1a0000', bgL:'#fff0f0', icon:'error',           r:20, stroke:1 },
+    reflection: { color:'#a855f7', bg:'#0d0018', bgL:'#faf0ff', icon:'lightbulb',       r:26, stroke:1.5 },
+    done:       { color:'#ccff00', bg:'#0a1400', bgL:'#f7ffde', icon:'flag',            r:32, stroke:2.5 },
+    error:      { color:'#ef4444', bg:'#1a0000', bgL:'#fff0f0', icon:'error',           r:26, stroke:1.5 },
+};
+
+function _agS(type) { return _AG[type] || _AG.tool_other; }
+function _agIsLight() { return document.documentElement.classList.contains('light'); }
+function _agBg(type) { return _agIsLight() ? _agS(type).bgL : _agS(type).bg; }
+function _agSvgBg() { return _agIsLight() ? '#f7f7f7' : '#030303'; }
+function _agEdgeColor(main) { return _agIsLight() ? (main ? '#ccc' : '#ddd') : (main ? '#1e1e1e' : '#111'); }
+
+function _agToolType(name) {
+    const n = (name || '').toLowerCase();
+    if (n.includes('nmap'))                              return 'tool_nmap';
+    if (n.includes('msf') || n.includes('metasploit'))  return 'tool_msf';
+    if (n.includes('bash') || n === 'exec' || n === 'run_command' || n === 'shell') return 'tool_bash';
+    if (n.includes('ssh'))                               return 'tool_ssh';
+    if (n.includes('searchsploit') || n.includes('exploit_db')) return 'tool_spy';
+    return 'tool_other';
+}
+
+// ── Node management ────────────────────────────────────────────────────────────
+
+function _agAddNode(type, label, detail, parentId) {
+    detail   = detail   !== undefined ? detail   : {};
+    parentId = parentId !== undefined ? parentId : null;
+    const id = ++_agNodeSeq;
+    const par = _agNodes.find(function(n){ return n.id === parentId; });
+    const depth = par ? par.depth + 1 : (_agNodes.length > 0 ? _agNodes[_agNodes.length-1].depth + 1 : 0);
+    _agNodes.push({ id:id, type:type, label:label, detail:detail, parentId:parentId,
+                    depth:depth, x:0, y:0, _expanded:false, _children:[] });
+    if (parentId !== null) {
+        _agEdges.push({ from:parentId, to:id });
+        if (par) par._children.push(id);
+    }
+    if (_agView === 'graph') _agScheduleRender();
+    return id;
+}
+
+function _agReset() {
+    _agNodes=[]; _agEdges=[]; _agNodeSeq=0;
+    _agLastThinkId=null; _agLastToolId=null;
+    _agParallelGrpId=null; _agParallelActive=false;
+    const cnt = document.getElementById('ag-node-count');
+    if (cnt) cnt.textContent = '';
+    if (_agView === 'graph') _agRender();
+}
+
+let _agRenderTimer = null;
+function _agScheduleRender() {
+    if (_agRenderTimer) clearTimeout(_agRenderTimer);
+    _agRenderTimer = setTimeout(_agRender, 60);
+}
+
+// ── View switch ────────────────────────────────────────────────────────────────
+
+function switchAgentView(v) {
+    _agView = v;
+    try { localStorage.setItem('agView', v); } catch(e) {}
+    const feedArea  = document.getElementById('agent-scroll-area');
+    const minimap   = document.getElementById('ag-minimap-col');
+    const graphView = document.getElementById('ag-graph-view');
+    const btnFeed   = document.getElementById('ag-view-btn-feed');
+    const btnGraph  = document.getElementById('ag-view-btn-graph');
+
+    const isLight = _agIsLight();
+    const limePrimary = isLight ? '#4a7c00' : '#ccff00';
+    const activeS   = 'border-color:'+limePrimary+';color:'+limePrimary+';background:'+limePrimary+'18;';
+    const inactiveS = 'border-color:#333;color:#444;background:transparent;';
+
+    if (v === 'graph') {
+        if (feedArea)  feedArea.style.display  = 'none';
+        if (minimap)   minimap.style.display   = 'none';
+        if (graphView) { graphView.style.display = 'flex'; graphView.style.flex = '1'; }
+        if (btnFeed)   btnFeed.setAttribute('style',  inactiveS);
+        if (btnGraph)  btnGraph.setAttribute('style', activeS);
+        // Sync SVG background
+        const svgEl = document.getElementById('ag-graph-svg');
+        if (svgEl) svgEl.style.background = _agSvgBg();
+        _agRender();
+    } else {
+        if (feedArea)  feedArea.style.display  = '';
+        if (minimap)   minimap.style.display   = 'flex';
+        if (graphView) { graphView.style.display = 'none'; }
+        if (btnFeed)   btnFeed.setAttribute('style',  activeS);
+        if (btnGraph)  btnGraph.setAttribute('style', inactiveS);
+    }
+}
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+function _agComputeLayout() {
+    if (_agNodes.length === 0) return;
+    const wrap = document.getElementById('ag-svg-wrap');
+    const W  = wrap ? wrap.clientWidth  : 800;
+    const cx = W / 2;
+    const YSTEP   = 160;
+    const XBRANCH = 230;
+    const XPAR    = 180;   // horizontal spread for parallel children
+    let chainY = 100;
+
+    // Categorize nodes
+    _agNodes.forEach(function(node) {
+        const isBranch   = (node.type === 'result_ok' || node.type === 'result_fail');
+        const isParChild  = _agParentType(node) === 'parallel';
+
+        if (isParChild && !isBranch) {
+            // Parallel children: positioned when parent expands
+            const grp = _agNodes.find(function(n){ return n.id === node.parentId; });
+            if (grp && grp._expanded) {
+                const siblings = grp._children.filter(function(cid){
+                    const c = _agNodes.find(function(n){ return n.id === cid; });
+                    return c && c.type !== 'result_ok' && c.type !== 'result_fail';
+                });
+                const idx   = siblings.indexOf(node.id);
+                const total = siblings.length;
+                const spread = Math.min(XPAR * (total - 1), 600);
+                node.x = grp.x + (idx - (total-1)/2) * (total > 1 ? spread/(total-1) : 0);
+                node.y = grp.y + YSTEP;
+                node._visible = true;
+            } else {
+                node.x = _agNodes.find(function(n){ return n.id === node.parentId; })?.x || cx;
+                node.y = _agNodes.find(function(n){ return n.id === node.parentId; })?.y || chainY;
+                node._visible = false;
+            }
+        } else if (isBranch) {
+            const parent = _agNodes.find(function(n){ return n.id === node.parentId; });
+            node.x = parent ? parent.x + XBRANCH : cx + XBRANCH;
+            node.y = parent ? parent.y : chainY;
+            node._visible = true;
+        } else {
+            node.x = cx + (node.depth % 2 === 0 ? -20 : 20);
+            node.y = chainY;
+            node._visible = true;
+            chainY += YSTEP;
+            // Leave extra room if this is an expanded parallel group
+            if (node.type === 'parallel' && node._expanded) {
+                chainY += YSTEP;
+            }
+        }
+    });
+}
+
+function _agParentType(node) {
+    if (!node.parentId) return null;
+    const par = _agNodes.find(function(n){ return n.id === node.parentId; });
+    return par ? par.type : null;
+}
+
+// ── D3 Render ─────────────────────────────────────────────────────────────────
+
+function _agRender() {
+    const svgEl = document.getElementById('ag-graph-svg');
+    if (!svgEl || typeof d3 === 'undefined') return;
+    const svg = d3.select(svgEl);
+    const isLight = _agIsLight();
+
+    // SVG background
+    svgEl.style.background = _agSvgBg();
+
+    // Init zoom
+    if (!_agD3Zoom) {
+        _agD3Zoom = d3.zoom().scaleExtent([0.05, 6]).on('zoom', function(e) {
+            svg.select('.ag-root').attr('transform', e.transform);
+        });
+        svg.call(_agD3Zoom);
+        svg.on('click', function(ev) {
+            if (ev.target === svgEl) agCloseDetail();
+        });
+    }
+
+    // Defs
+    let defs = svg.select('defs');
+    if (defs.empty()) defs = svg.append('defs');
+    // Rebuild markers (color-sensitive)
+    defs.selectAll('marker').remove();
+    var markerDefs = [
+        ['ag-arr-main',  isLight ? '#bbb' : '#252525'],
+        ['ag-arr-ok',    isLight ? 'rgba(74,124,0,0.6)'    : 'rgba(204,255,0,0.5)'],
+        ['ag-arr-fail',  isLight ? 'rgba(220,38,38,0.6)'   : 'rgba(239,68,68,0.5)'],
+        ['ag-arr-par',   isLight ? 'rgba(234,88,12,0.6)'   : 'rgba(249,115,22,0.5)'],
+    ];
+    markerDefs.forEach(function(pair) {
+        defs.append('marker').attr('id',pair[0]).attr('viewBox','0 -4 8 8')
+            .attr('refX',15).attr('refY',0).attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+            .append('path').attr('d','M0,-4L8,0L0,4').attr('fill',pair[1]);
+    });
+
+    // Root group
+    let root = svg.select('.ag-root');
+    if (root.empty()) {
+        root = svg.append('g').attr('class','ag-root');
+        root.append('g').attr('class','ag-edge-layer');
+        root.append('g').attr('class','ag-node-layer');
+    }
+
+    if (_agNodes.length === 0) { root.selectAll('*').remove(); return; }
+    _agComputeLayout();
+
+    // Node count badge
+    const cnt = document.getElementById('ag-node-count');
+    if (cnt) cnt.textContent = _agNodes.length + ' nodes · ' + _agEdges.length + ' edges';
+
+    // ── Edges ──
+    var visibleEdges = _agEdges.filter(function(e) {
+        var tgt = _agNodes.find(function(n){ return n.id === e.to; });
+        return tgt && tgt._visible !== false;
+    });
+    var edgeSel = root.select('.ag-edge-layer').selectAll('.ag-edge')
+        .data(visibleEdges, function(d){ return d.from+'-'+d.to; });
+    edgeSel.exit().transition().duration(200).attr('opacity',0).remove();
+    var edgeEnter = edgeSel.enter().append('path').attr('class','ag-edge')
+        .attr('fill','none').attr('opacity',0);
+    edgeEnter.transition().duration(300).attr('opacity',1);
+    edgeEnter.merge(edgeSel).attr('stroke-width',1.5).each(function(d) {
+        var src = _agNodes.find(function(n){ return n.id === d.from; });
+        var tgt = _agNodes.find(function(n){ return n.id === d.to; });
+        if (!src || !tgt) return;
+        var isOk     = tgt.type === 'result_ok';
+        var isFail   = tgt.type === 'result_fail';
+        var isPar    = tgt.type.startsWith('tool_') && src.type === 'parallel';
+        var r1 = _agS(src.type).r, r2 = _agS(tgt.type).r;
+        var dx = tgt.x-src.x, dy = tgt.y-src.y;
+        var len = Math.sqrt(dx*dx+dy*dy)||1;
+        var ux=dx/len, uy=dy/len;
+        var sx=src.x+ux*r1, sy=src.y+uy*r1;
+        var ex=tgt.x-ux*(r2+2), ey=tgt.y-uy*(r2+2);
+        var qx=(sx+ex)/2+(isPar?0:isOk||isFail?0:-20), qy=(sy+ey)/2;
+        var stroke = isPar  ? (isLight?'rgba(234,88,12,.35)' :'rgba(249,115,22,.3)') :
+                     isOk   ? (isLight?'rgba(74,124,0,.4)'   :'rgba(204,255,0,.25)') :
+                     isFail ? (isLight?'rgba(220,38,38,.4)'  :'rgba(239,68,68,.25)') :
+                               (isLight?'#ccc':'#1c1c1c');
+        var dash = (isPar||isOk||isFail)?'5,3':'3,5';
+        var arr  = isPar  ? 'url(#ag-arr-par)' :
+                   isOk   ? 'url(#ag-arr-ok)'  :
+                   isFail ? 'url(#ag-arr-fail)' : 'url(#ag-arr-main)';
+        d3.select(this)
+            .attr('d','M'+sx+','+sy+' Q'+qx+','+qy+' '+ex+','+ey)
+            .attr('stroke',stroke).attr('stroke-dasharray',dash).attr('marker-end',arr);
+    });
+
+    // ── Nodes ──
+    var visibleNodes = _agNodes.filter(function(n){ return n._visible !== false; });
+    var nodeSel = root.select('.ag-node-layer').selectAll('.ag-node')
+        .data(visibleNodes, function(d){ return d.id; });
+    nodeSel.exit().transition().duration(200).attr('opacity',0).remove();
+    var nodeEnter = nodeSel.enter().append('g').attr('class','ag-node').style('cursor','pointer')
+        .attr('opacity',0)
+        .attr('transform', function(d){ return 'translate('+d.x+','+d.y+')'; });
+    nodeEnter.transition().duration(350).attr('opacity',1);
+
+    // Glow
+    nodeEnter.append('circle').attr('class','ag-glow').attr('fill','none').attr('stroke-width',1);
+    // Body
+    nodeEnter.append('circle').attr('class','ag-circle');
+    // Icon
+    nodeEnter.append('text').attr('class','ag-icon')
+        .attr('text-anchor','middle').attr('dominant-baseline','central')
+        .style('font-family','Material Symbols Outlined')
+        .style('font-variation-settings',"'FILL' 1,'wght' 300")
+        .style('pointer-events','none');
+    // Label
+    nodeEnter.append('text').attr('class','ag-label')
+        .attr('text-anchor','middle')
+        .style('font-family','JetBrains Mono, monospace')
+        .style('text-transform','uppercase').style('letter-spacing','0.07em')
+        .style('pointer-events','none');
+    // Expand hint for parallel nodes
+    nodeEnter.append('text').attr('class','ag-expand-hint')
+        .attr('text-anchor','middle')
+        .style('font-family','Material Symbols Outlined')
+        .style('font-variation-settings',"'FILL' 1")
+        .style('pointer-events','none')
+        .attr('opacity',0.5);
+
+    nodeEnter.on('click', function(ev, d) {
+        ev.stopPropagation();
+        if (d.type === 'parallel') { _agToggleParallel(d); return; }
+        agShowDetail(d);
+    });
+
+    var nodeMerge = nodeEnter.merge(nodeSel);
+    nodeMerge.transition().duration(350)
+        .attr('transform', function(d){ return 'translate('+d.x+','+d.y+')'; })
+        .attr('opacity', function(d){ return d._visible===false ? 0 : 1; });
+
+    nodeMerge.select('.ag-glow')
+        .attr('r', function(d){ return _agS(d.type).r + 14; })
+        .attr('stroke', function(d){ return _agS(d.type).color; })
+        .attr('opacity', isLight ? 0.08 : 0.1);
+    nodeMerge.select('.ag-circle')
+        .attr('r', function(d){ return _agS(d.type).r; })
+        .attr('fill',         function(d){ return _agBg(d.type); })
+        .attr('stroke',       function(d){ return _agS(d.type).color; })
+        .attr('stroke-width', function(d){ return _agS(d.type).stroke; });
+    nodeMerge.select('.ag-icon')
+        .attr('font-size', function(d){ return _agS(d.type).r * 0.7; })
+        .attr('fill',      function(d){ return _agS(d.type).color; })
+        .text(function(d){ return _agS(d.type).icon; });
+    nodeMerge.select('.ag-label')
+        .attr('y',         function(d){ return _agS(d.type).r + 15; })
+        .attr('font-size', 9)
+        .attr('fill',      function(d){ return _agS(d.type).color; })
+        .attr('opacity',   isLight ? 0.8 : 0.7)
+        .text(function(d){ return d.label.length > 12 ? d.label.slice(0,11)+'...' : d.label; });
+    nodeMerge.select('.ag-expand-hint')
+        .attr('y',         function(d){ return _agS(d.type).r + 27; })
+        .attr('font-size', 10)
+        .attr('fill',      function(d){ return _agS(d.type).color; })
+        .attr('opacity',   function(d){ return d.type==='parallel' ? 0.45 : 0; })
+        .text(function(d){ return d.type==='parallel' ? (d._expanded ? 'unfold_less' : 'unfold_more') : ''; });
+
+    // Hover effects
+    nodeMerge
+        .on('mouseenter', function(ev, d) {
+            d3.select(this).select('.ag-glow').transition().duration(120)
+                .attr('opacity', isLight ? 0.22 : 0.28);
+            d3.select(this).select('.ag-circle').transition().duration(120)
+                .attr('stroke-width', _agS(d.type).stroke + 1);
+        })
+        .on('mouseleave', function(ev, d) {
+            d3.select(this).select('.ag-glow').transition().duration(120)
+                .attr('opacity', isLight ? 0.08 : 0.1);
+            d3.select(this).select('.ag-circle').transition().duration(120)
+                .attr('stroke-width', _agS(d.type).stroke);
+        });
+
+    if (_agNodes.filter(function(n){ return n._visible!==false; }).length <= 3) {
+        setTimeout(agZoomFit, 250);
+    }
+}
+
+// ── Parallel expand/collapse ──────────────────────────────────────────────────
+
+function _agToggleParallel(grpNode) {
+    grpNode._expanded = !grpNode._expanded;
+    _agRender();
+    if (grpNode._expanded) setTimeout(agZoomFit, 450);
+    agShowDetail(grpNode);
+}
+
+// ── Zoom ──────────────────────────────────────────────────────────────────────
+
+function agZoom(factor) {
+    if (!_agD3Zoom) return;
+    d3.select('#ag-graph-svg').transition().duration(220).call(_agD3Zoom.scaleBy, factor);
+}
+
+function agZoomFit() {
+    var svgEl = document.getElementById('ag-graph-svg');
+    if (!svgEl || !_agD3Zoom || _agNodes.length === 0) return;
+    var vis = _agNodes.filter(function(n){ return n._visible !== false; });
+    if (vis.length === 0) return;
+    var W = svgEl.clientWidth || 800, H = svgEl.clientHeight || 600;
+    var xs = vis.map(function(n){ return n.x; });
+    var ys = vis.map(function(n){ return n.y; });
+    var x0=Math.min.apply(null,xs)-80, x1=Math.max.apply(null,xs)+80;
+    var y0=Math.min.apply(null,ys)-80, y1=Math.max.apply(null,ys)+80;
+    var k = Math.min(0.92, Math.min(W/((x1-x0)||1), H/((y1-y0)||1)));
+    var tx = W/2 - k*(x0+x1)/2, ty = H/2 - k*(y0+y1)/2;
+    d3.select(svgEl).transition().duration(380)
+        .call(_agD3Zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(k));
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────────
+
+function agShowDetail(node) {
+    var panel   = document.getElementById('ag-detail-panel');
+    var titleEl = document.getElementById('ag-detail-title');
+    var iconEl  = document.getElementById('ag-detail-icon');
+    var bodyEl  = document.getElementById('ag-detail-body');
+    if (!panel) return;
+
+    var st = _agS(node.type);
+    var isLight = _agIsLight();
+    if (titleEl) { titleEl.textContent = node.label; titleEl.style.color = isLight ? '#333' : '#aaa'; }
+    if (iconEl)  { iconEl.textContent = st.icon; iconEl.style.color = st.color; }
+
+    var d   = node.detail || {};
+    var html = '<span class="ag-type-badge" style="border:1px solid '+st.color+'44;color:'+st.color+';">'
+             + node.type.replace(/_/g,' ') + '</span><br>';
+
+    if (node.type === 'parallel') {
+        var toolCount = node._children.length;
+        html += '<div style="margin-bottom:10px;font-size:10px;color:'+(isLight?'#555':'#888')+';">'
+              + toolCount + ' tools ' + (node._expanded ? '(click to collapse)' : '(click node to expand)') + '</div>';
+        node._children.forEach(function(cid) {
+            var c = _agNodes.find(function(n){ return n.id === cid; });
+            if (c) {
+                var cs = _agS(c.type);
+                html += '<div style="margin-bottom:4px;display:flex;align-items:center;gap:6px;">'
+                      + '<div style="width:8px;height:8px;border-radius:50%;background:'+cs.color+';flex-shrink:0;"></div>'
+                      + '<span style="font-size:10px;color:'+(isLight?'#444':'#888')+';">'+_esc(c.label)+'</span></div>';
+            }
+        });
+    }
+
+    if (d.thought)   html += _agSec('Thought',     _esc(d.thought), isLight);
+    if (d.reasoning) html += _agSec('Reasoning',   _esc(d.reasoning), isLight);
+    if (d.action)    html += '<div style="color:'+st.color+';font-weight:700;margin:6px 0 10px;font-size:11px;">&#8594; '+_esc(d.action)+'</div>';
+    if (d.tool)      html += _agKV('Tool',   _esc(d.tool), isLight);
+    if (d.target)    html += _agKV('Target', _esc(d.target), isLight);
+    if (d.mode)      html += _agKV('Mode',   _esc(d.mode), isLight);
+    if (d.params && Object.keys(d.params).length > 0)
+                     html += _agSec('Parameters', _esc(JSON.stringify(d.params, null, 2)), isLight);
+    if (d.output)    html += _agSec('Output',    _esc(String(d.output).slice(0, 3000)), isLight);
+    if (d.error)     html += _agSec('Error',     _esc(String(d.error)), isLight);
+    if (d.content)   html += _agSec('Content',   _esc(d.content), isLight);
+
+    if (bodyEl) bodyEl.innerHTML = html || '<span style="color:#444;">No details</span>';
+    panel.style.width = '310px';
+}
+
+function _agKV(title, val, isLight) {
+    return '<div style="margin-bottom:8px;">'
+         + '<div class="ag-detail-section-title">'+title+'</div>'
+         + '<span style="font-size:11px;color:'+(isLight?'#333':'#bbb')+';">'+val+'</span></div>';
+}
+
+function _agSec(title, content, isLight) {
+    return '<div style="margin-bottom:10px;">'
+         + '<div class="ag-detail-section-title">'+title+'</div>'
+         + '<pre class="ag-detail-pre">'+content+'</pre></div>';
+}
+
+function agCloseDetail() {
+    var panel = document.getElementById('ag-detail-panel');
+    if (panel) panel.style.width = '0';
+}
+
+// ── Injection from graph view ─────────────────────────────────────────────────
+
+function agInject() {
+    var inp = document.getElementById('ag-inject-input');
+    if (!inp || !inp.value.trim()) return;
+    var text = inp.value.trim();
+    inp.value = '';
+    if (!activeMissionId) { showToast('No active mission'); return; }
+    fetch('/api/v1/sessions/' + activeMissionId + '/inject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+    }).then(function(r){ return r.json(); }).then(function(d){
+        if (d.ok) showToast('Instruction injected into agent');
+        else showToast('Agent not running or session not found');
+    }).catch(function(e){ showToast('Error: ' + e.message); });
+}
+
+// ── Event hooks ───────────────────────────────────────────────────────────────
+
+function agOnMissionStart(data) {
+    _agReset();
+    var aegisId = _agAddNode('aegis', 'AEGIS', {}, null);
+    _agAddNode('target', data.target || 'TARGET', { target:data.target, mode:data.mode }, aegisId);
+}
+
+function agOnThinking(data) {
+    var tgt = _agNodes.find(function(n){ return n.type === 'target'; });
+    var parentId = _agLastToolId !== null ? _agLastToolId : (tgt ? tgt.id : null);
+    var label = data.action ? data.action.slice(0,14) : 'THINKING';
+    _agLastThinkId = _agAddNode('thinking', label, data, parentId);
+    _agLastToolId  = null;
+    _agParallelGrpId = null;
+}
+
+function agOnToolCall(data) {
+    var type = _agToolType(data.tool || '');
+    var label = (data.tool || 'TOOL').toUpperCase().slice(0, 12);
+    var parentId;
+    if (_agParallelActive && _agParallelGrpId !== null) {
+        parentId = _agParallelGrpId;
+    } else {
+        var tgt = _agNodes.find(function(n){ return n.type === 'target'; });
+        parentId = _agLastThinkId !== null ? _agLastThinkId : (tgt ? tgt.id : null);
+    }
+    _agLastToolId = _agAddNode(type, label, data, parentId);
+}
+
+function agOnToolResult(data) {
+    if (_agLastToolId === null) return;
+    var type  = data.success !== false ? 'result_ok' : 'result_fail';
+    var label = data.success !== false ? 'OK' : 'FAILED';
+    _agAddNode(type, label, data, _agLastToolId);
+}
+
+function agOnParallelStart(data) {
+    var tgt = _agNodes.find(function(n){ return n.type === 'target'; });
+    var parentId = _agLastThinkId !== null ? _agLastThinkId : (tgt ? tgt.id : null);
+    var count = data.count || (data.tools ? data.tools.length : '?');
+    var label = 'PAR x' + count;
+    _agParallelGrpId  = _agAddNode('parallel', label, data, parentId);
+    _agParallelActive = true;
+    _agLastToolId     = null;
+}
+
+function agOnParallelDone(data) {
+    _agParallelActive = false;
+    // Make the parallel group node the new "last tool" so next thinking connects to it
+    if (_agParallelGrpId !== null) _agLastToolId = _agParallelGrpId;
+    _agParallelGrpId = null;
+    if (_agView === 'graph') _agRender();
+}
+
+function agOnReflection(data) {
+    var tgt = _agNodes.find(function(n){ return n.type === 'target'; });
+    var parentId = _agLastToolId !== null ? _agLastToolId
+                 : _agLastThinkId !== null ? _agLastThinkId
+                 : (tgt ? tgt.id : null);
+    _agAddNode('reflection', 'REFLECTION', data, parentId);
+}
+
+function agOnDone(data) {
+    var lastId = _agNodes.length > 0 ? _agNodes[_agNodes.length-1].id : null;
+    _agAddNode('done', 'DONE', data, lastId);
+    if (_agView === 'graph') setTimeout(agZoomFit, 700);
 }
