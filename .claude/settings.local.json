@@ -50,7 +50,8 @@
       "Bash(find /home/fatih/AEGIS -name *.html -o -name *.jsx -o -name *.tsx -o -name *.vue)",
       "Bash(netstat -tlnp)",
       "Bash(wsl -- md5sum /home/fatih/AEGIS/web/static/app.js)",
-      "Bash(cmd /c \"wsl -d kali-linux md5sum /home/fatih/AEGIS/web/static/app.js\")"
+      "Bash(cmd /c \"wsl -d kali-linux md5sum /home/fatih/AEGIS/web/static/app.js\")",
+      "Bash(rm append_ag.py)"
     ]
   }
 }
