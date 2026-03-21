@@ -17,8 +17,8 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from enum import Enum, auto
 
+from core.base_agent import AgentState  # re-exported for backward compatibility
 from core.llm_client import LLMRouter, llm_router
 from core.memory import SessionMemory
 from core.prompts import PromptBuilder
@@ -37,19 +37,8 @@ ApprovalCallback = Callable[[dict], Awaitable[bool]]
 
 _DEFAULT_MAX_ITERATIONS = 150
 
-
-# ── Agent State Machine ────────────────────────────────────────────────────────
-
-class AgentState(Enum):
-    """States in the ReAct state machine."""
-    IDLE = auto()
-    REASONING = auto()
-    ACTING = auto()
-    OBSERVING = auto()
-    REFLECTING = auto()
-    DONE = auto()
-    ERROR = auto()
-    WAITING_FOR_OPERATOR = auto()  # post-report pause; exits on inject or kill
+# AgentState is defined in core.base_agent and re-exported here so that
+# existing code using `from core.agent import AgentState` continues to work.
 
 
 # ── Agent Context ──────────────────────────────────────────────────────────────
