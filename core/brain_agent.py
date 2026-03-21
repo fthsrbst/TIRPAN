@@ -45,7 +45,7 @@ import logging
 import uuid
 from typing import Any
 
-from core.base_agent import AgentResult, BaseAgent
+from core.base_agent import AgentResult, AgentState, BaseAgent
 from core.message_bus import AgentMessage, AgentMessageBus, MessageType
 from core.mission_context import (
     AgentStatus,
@@ -68,9 +68,13 @@ logger = logging.getLogger(__name__)
 # Keys are the agent_type strings the LLM uses in spawn_agent calls.
 
 _AGENT_REGISTRY: dict[str, tuple[str, str]] = {
-    # "agent_type": ("module.path", "ClassName")
-    # e.g. "scanner": ("core.scanner_agent", "ScannerAgent")
-    # Added here as each step is completed.
+    "scanner":      ("core.agents.scanner_agent",    "ScannerAgent"),
+    "exploit":      ("core.agents.exploit_agent",    "ExploitAgent"),
+    "post_exploit": ("core.agents.postexploit_agent","PostExploitAgent"),
+    "webapp":       ("core.agents.webapp_agent",     "WebAppAgent"),
+    "osint":        ("core.agents.osint_agent",      "OSINTAgent"),
+    "lateral":      ("core.agents.lateral_agent",    "LateralMovementAgent"),
+    "reporting":    ("core.agents.reporting_agent",  "ReportingAgent"),
 }
 
 
@@ -141,7 +145,7 @@ class BrainAgent(BaseAgent):
         msgs: list[dict] = [{"role": "system", "content": system}]
         # Inject memory (SessionMemory stores via _messages / build_context)
         for m in self.memory._messages:
-            msgs.append(m)
+            msgs.append({"role": m.role, "content": m.content})
         return msgs
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
@@ -158,10 +162,52 @@ class BrainAgent(BaseAgent):
         elif tool_name == "mission_done":
             self._mission_done = True
 
-    # ── Meta-tool dispatch (called by BaseAgent.act) ──────────────────────────
+    # ── act() override — intercepts meta-tools before ToolRegistry ───────────
+
+    async def act(self, action_dict: dict) -> dict:
+        """
+        BrainAgent override of BaseAgent.act().
+
+        1. Normalises the LLM key: the brain system prompt uses "tool" but
+           BaseAgent.act() reads "action".  Accept both.
+        2. If the resolved tool name is one of _META_TOOLS, dispatch directly
+           to _execute_tool() without touching the ToolRegistry.
+        3. Otherwise fall through to BaseAgent.act() for regular tools.
+        """
+        # ── Key normalisation: accept {"tool": ...} or {"action": ...} ──────
+        tool_name = action_dict.get("action") or action_dict.get("tool", "")
+        if tool_name and "action" not in action_dict:
+            # Add the canonical key so BaseAgent.act() works if we fall through
+            action_dict = dict(action_dict)
+            action_dict["action"] = tool_name
+
+        params = action_dict.get("parameters", {})
+
+        # ── Meta-tool fast path ───────────────────────────────────────────────
+        if tool_name in self._META_TOOLS:
+            self.emit_event("tool_call", {"tool": tool_name, "params": params})
+            try:
+                result = await self._execute_tool(tool_name, params)
+            except Exception as exc:
+                self._log.error("Meta-tool '%s' raised: %s", tool_name, exc)
+                result = {"status": "error", "error": str(exc)}
+
+            success = result.get("status") not in ("error",)
+            self.emit_event("tool_result", {
+                "tool": tool_name,
+                "success": success,
+                "output": result,
+                "error": result.get("error"),
+            })
+            return {"success": success, "output": result, "error": result.get("error")}
+
+        # ── Fallthrough: regular tools via BaseAgent ──────────────────────────
+        return await super().act(action_dict)
+
+    # ── Meta-tool dispatch ────────────────────────────────────────────────────
 
     async def _execute_tool(self, tool_name: str, params: dict) -> dict:
-        """Override BaseAgent._execute_tool for meta-tools."""
+        """Dispatch meta-tool calls to the appropriate internal handler."""
         if tool_name == "spawn_agent":
             return await self._spawn_agent(params)
         if tool_name == "wait_for_agents":
@@ -222,9 +268,11 @@ class BrainAgent(BaseAgent):
             "target":             target,
             "task_type":          task_type,
         }
+        # Pass options as a single dict — do NOT spread into constructor kwargs
+        # (options keys like scan_type, ports etc. are not BaseAgent constructor params)
+        child_kwargs["options"] = options
         # Override with any agent-specific kwargs from registry
         child_kwargs.update(self._agent_ctor_kwargs.get(agent_type, {}))
-        child_kwargs.update(options)
 
         # Dynamically import and instantiate
         module_path, class_name = _AGENT_REGISTRY[agent_type]
@@ -441,7 +489,7 @@ class BrainAgent(BaseAgent):
             "question": question,
             "agent_id": self.agent_id,
         })
-        self._state = self._state.__class__["WAITING_FOR_OPERATOR"]  # type: ignore[index]
+        self._state = AgentState.WAITING_FOR_OPERATOR
 
         # Brain waits for OPERATOR_REPLY on its own queue
         msg = await self.bus.receive(self.agent_id, timeout=timeout)
@@ -511,20 +559,17 @@ Permission flags:
   allow_data_exfil:        {self.ctx.allow_data_exfil}
 
 Respond ONLY with a valid JSON action dict:
-{{"tool": "<tool_name>", "parameters": {{...}}}}
+{{"thought": "<brief reasoning>", "action": "<tool_name>", "parameters": {{...}}}}
 or
-{{"tool": "mission_done", "parameters": {{"summary": "..."}}}}
+{{"thought": "<brief reasoning>", "action": "mission_done", "parameters": {{"summary": "..."}}}}
 """
 
     # ── Handle terminal action ────────────────────────────────────────────────
 
     async def handle_terminal_action(self, action_dict: dict) -> bool:
-        """mission_done signals the end of the Brain loop."""
-        return (
-            action_dict.get("tool") == "mission_done"
-            or action_dict.get("action") == "done"
-            or self._mission_done
-        )
+        """mission_done (or legacy 'done') signals the end of the Brain loop."""
+        tool = action_dict.get("action") or action_dict.get("tool", "")
+        return tool in ("mission_done", "done") or self._mission_done
 
     # ── on_run_end ────────────────────────────────────────────────────────────
 
@@ -536,3 +581,37 @@ or
                 logger.info("BrainAgent: cancelled child %s on run_end", agent_id)
         self._child_tasks.clear()
         self.bus.unregister_agent(self.agent_id)
+
+
+# ── Factory helper ────────────────────────────────────────────────────────────
+
+def make_brain(
+    *,
+    target: str,
+    session_id: str,
+    mission_brief,          # MissionBrief (avoid circular import — typed as Any)
+    mission_ctx,            # MissionContext
+    message_bus,            # AgentMessageBus
+    tool_registry=None,
+    safety=None,
+    progress_callback=None,
+    audit_repo=None,
+    max_iterations: int = 100,
+) -> "BrainAgent":
+    """
+    Convenience factory for creating a BrainAgent with all required deps.
+
+    Used by web/routes.py start_session (mode=v2_auto).
+    """
+    return BrainAgent(
+        mission_context=mission_ctx,
+        message_bus=message_bus,
+        agent_type="brain",
+        mission_id=session_id,
+        session_id=session_id,
+        tool_registry=tool_registry,
+        safety=safety,
+        progress_callback=progress_callback,
+        audit_repo=audit_repo,
+        max_iterations=max_iterations,
+    )

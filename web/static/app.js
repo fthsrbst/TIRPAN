@@ -6546,6 +6546,7 @@ const _advModeDesc = {
     scan_only: 'Scan and identify vulnerabilities — no exploitation.',
     ask_before_exploit: 'Agent will ask for confirmation before running any exploit.',
     full_auto: 'Agent exploits autonomously within configured safety limits.',
+    v2_auto: 'V2 Multi-Agent: BrainAgent coordinates specialized sub-agents (scanner, exploit, post-exploit, webapp, osint, lateral, reporting).',
 };
 
 function _advInitModeButtons() {
@@ -7676,35 +7677,181 @@ function _agScheduleRender() {
 function switchAgentView(v) {
     _agView = v;
     try { localStorage.setItem('agView', v); } catch(e) {}
-    const feedArea  = document.getElementById('agent-scroll-area');
-    const minimap   = document.getElementById('ag-minimap-col');
-    const graphView = document.getElementById('ag-graph-view');
-    const btnFeed   = document.getElementById('ag-view-btn-feed');
-    const btnGraph  = document.getElementById('ag-view-btn-graph');
+    const feedArea      = document.getElementById('agent-scroll-area');
+    const minimap       = document.getElementById('ag-minimap-col');
+    const graphView     = document.getElementById('ag-graph-view');
+    const orchestraView = document.getElementById('ag-orchestra-view');
+    const btnFeed       = document.getElementById('ag-view-btn-feed');
+    const btnGraph      = document.getElementById('ag-view-btn-graph');
+    const btnOrchestra  = document.getElementById('ag-view-btn-orchestra');
 
     const isLight = _agIsLight();
     const limePrimary = isLight ? '#4a7c00' : '#ccff00';
     const activeS   = 'border-color:'+limePrimary+';color:'+limePrimary+';background:'+limePrimary+'18;';
     const inactiveS = 'border-color:#333;color:#444;background:transparent;';
 
+    // Hide all panels first
+    if (feedArea)       feedArea.style.display  = 'none';
+    if (minimap)        minimap.style.display   = 'none';
+    if (graphView)      graphView.style.display = 'none';
+    if (orchestraView)  orchestraView.style.display = 'none';
+    if (btnFeed)        btnFeed.setAttribute('style',       inactiveS);
+    if (btnGraph)       btnGraph.setAttribute('style',      inactiveS);
+    if (btnOrchestra)   btnOrchestra.setAttribute('style',  inactiveS);
+
     if (v === 'graph') {
-        if (feedArea)  feedArea.style.display  = 'none';
-        if (minimap)   minimap.style.display   = 'none';
-        if (graphView) { graphView.style.display = 'flex'; graphView.style.flex = '1'; }
-        if (btnFeed)   btnFeed.setAttribute('style',  inactiveS);
-        if (btnGraph)  btnGraph.setAttribute('style', activeS);
-        // Sync SVG background
+        if (graphView)  { graphView.style.display = 'flex'; graphView.style.flex = '1'; }
+        if (btnGraph)   btnGraph.setAttribute('style', activeS);
         const svgEl = document.getElementById('ag-graph-svg');
         if (svgEl) svgEl.style.background = _agSvgBg();
         _agRender();
+    } else if (v === 'orchestra') {
+        if (orchestraView) { orchestraView.style.display = 'flex'; orchestraView.style.flex = '1'; }
+        if (btnOrchestra)  btnOrchestra.setAttribute('style', activeS);
+        fetchAgentOrchestra();
     } else {
+        // feed (default)
         if (feedArea)  feedArea.style.display  = '';
         if (minimap)   minimap.style.display   = 'flex';
-        if (graphView) { graphView.style.display = 'none'; }
         if (btnFeed)   btnFeed.setAttribute('style',  activeS);
-        if (btnGraph)  btnGraph.setAttribute('style', inactiveS);
     }
 }
+
+// ── V2 Agent Orchestra ────────────────────────────────────────────────────────
+
+const _V2_AGENT_STATUS_COLORS = {
+    spawning: '#eab308',
+    running: '#ccff00',
+    done: '#3b82f6',
+    failed: '#ef4444',
+    paused: '#a855f7',
+};
+const _V2_AGENT_TYPE_ICONS = {
+    scanner: 'radar', exploit: 'bug_report', post_exploit: 'terminal',
+    webapp: 'web', osint: 'search', lateral: 'share', reporting: 'description',
+    brain: 'psychology',
+};
+
+async function fetchAgentOrchestra() {
+    const sid = _currentSessionId;
+    if (!sid) return;
+
+    try {
+        // Fetch agents
+        const agentsResp = await fetch(`/api/v1/sessions/${sid}/agents`);
+        if (agentsResp.ok) {
+            const { agents } = await agentsResp.json();
+            _renderAgentCards(agents || []);
+        }
+
+        // Fetch mission context for stats
+        const ctxResp = await fetch(`/api/v1/sessions/${sid}/mission-context`);
+        if (ctxResp.ok) {
+            const ctx = await ctxResp.json();
+            const h = ctx.hosts ? Object.keys(ctx.hosts).length : 0;
+            const v = ctx.vulnerabilities ? ctx.vulnerabilities.length : 0;
+            const s = ctx.active_sessions ? ctx.active_sessions.length : 0;
+            const c = ctx.credentials ? ctx.credentials.length : 0;
+            _setEl('v2-stat-hosts', h);
+            _setEl('v2-stat-vulns', v);
+            _setEl('v2-stat-sessions', s);
+            _setEl('v2-stat-creds', c);
+            if (ctx.current_phase) _setEl('v2-mission-phase', 'Phase: ' + ctx.current_phase);
+        }
+
+        // Fetch harvested credentials
+        const credResp = await fetch(`/api/v1/sessions/${sid}/credentials/harvested`);
+        if (credResp.ok) {
+            const { credentials } = await credResp.json();
+            _renderHarvestedCreds(credentials || []);
+        }
+
+        // Fetch loot
+        const lootResp = await fetch(`/api/v1/sessions/${sid}/loot`);
+        if (lootResp.ok) {
+            const { loot } = await lootResp.json();
+            _renderLoot(loot || []);
+        }
+    } catch(e) {
+        console.warn('Orchestra fetch error:', e);
+    }
+}
+
+function _setEl(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
+
+function _renderAgentCards(agents) {
+    const container = document.getElementById('v2-agent-cards');
+    if (!container) return;
+    if (!agents.length) {
+        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text col-span-2 py-4 text-center">No agents spawned yet</div>';
+        return;
+    }
+    container.innerHTML = agents.map(a => {
+        const color = _V2_AGENT_STATUS_COLORS[a.status] || '#555';
+        const icon  = _V2_AGENT_TYPE_ICONS[a.agent_type] || 'smart_toy';
+        const dur   = a.finished_at ? ((a.finished_at - a.started_at) / 1000).toFixed(1) + 's' : 'running…';
+        return `<div class="bg-card border p-3 flex flex-col gap-1" style="border-color:${color}22;">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined" style="font-size:14px;color:${color};">${icon}</span>
+            <span class="text-[11px] font-bold uppercase tracking-wider" style="color:${color};">${a.agent_type}</span>
+            <span class="ml-auto text-[9px] mono-text" style="color:${color};">${a.status.toUpperCase()}</span>
+          </div>
+          <div class="text-[10px] text-secondary-text mono-text truncate">${a.target || '—'}</div>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="text-[9px] text-secondary-text/50">${a.iterations || 0} iters · ${dur}</span>
+            <span class="text-[9px] text-secondary-text/50">${(a.findings||[]).length} findings</span>
+          </div>
+        </div>`;
+    }).join('');
+}
+
+function _renderHarvestedCreds(creds) {
+    const container = document.getElementById('v2-harvested-creds');
+    if (!container) return;
+    if (!creds.length) {
+        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>';
+        return;
+    }
+    container.innerHTML = `<table class="w-full text-[10px] mono-text">
+      <thead><tr class="border-b border-border-color/30">
+        <th class="text-left p-2 text-secondary-text/50">Host</th>
+        <th class="text-left p-2 text-secondary-text/50">Type</th>
+        <th class="text-left p-2 text-secondary-text/50">Username</th>
+        <th class="text-left p-2 text-secondary-text/50">Service</th>
+      </tr></thead>
+      <tbody>${creds.map(c => `<tr class="border-b border-border-color/10">
+        <td class="p-2 text-primary/80">${c.source_host||'—'}</td>
+        <td class="p-2 text-secondary-text">${c.credential_type||'—'}</td>
+        <td class="p-2 text-yellow-400">${c.username||'—'}</td>
+        <td class="p-2 text-secondary-text">${c.service||'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function _renderLoot(loot) {
+    const container = document.getElementById('v2-loot');
+    if (!container) return;
+    if (!loot.length) {
+        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>';
+        return;
+    }
+    container.innerHTML = loot.map(l => `<div class="p-2 border-b border-border-color/20 flex items-center gap-2">
+      <span class="material-symbols-outlined text-purple-400" style="font-size:13px;">folder</span>
+      <div>
+        <div class="text-[10px] text-primary/80">${l.description||l.loot_type}</div>
+        <div class="text-[9px] text-secondary-text/50">${l.source_host} · ${l.source_path||''}</div>
+      </div>
+    </div>`).join('');
+}
+
+// Auto-refresh orchestra view every 5s when visible
+setInterval(() => {
+    if (_agView === 'orchestra') fetchAgentOrchestra();
+}, 5000);
+
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
