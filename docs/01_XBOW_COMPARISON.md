@@ -1,205 +1,142 @@
-# AEGIS vs XBOW — Full Comparison
+# AEGIS vs XBOW — Architecture Comparison
 
-## What XBOW Has That We Don't (Yet)
-
-XBOW is built by a well-funded company with a large team. Our architecture is inspired by XBOW but differs in several key areas. Here's every difference, and **when we'll close the gap**.
+> XBOW is a well-funded professional penetration testing platform.
+> This document tracks where AEGIS stands relative to XBOW and where it's headed.
 
 ---
 
 ## Architecture Model
 
-| Aspect | XBOW | AEGIS V1 | Gap Closes In |
-|--------|------|-------------|---------------|
-| **Agent Model** | Coordinator spawns multiple Solvers | Single ReAct agent | V3 |
-| **Parallelism** | Hundreds of solvers run simultaneously | Sequential, one target at a time | V2 (basic), V3 (full) |
-| **Isolation** | Each solver gets its own isolated attack machine | Runs directly on host | V2 (Docker), V3 (full isolation) |
-
-### Why we're different in V1:
-- **Single agent is actually better for learning** — you understand every decision
-- **XBOW's multi-solver approach requires infrastructure** (cloud VMs, orchestration) — overkill for V1
-- **Research shows** single meta-agent can outperform multi-agent for maintaining strategic coherence
-
-### XBOW's Coordinator-Solver Model (our V3 target):
-```
-XBOW:
-┌─────────────────────────┐
-│     COORDINATOR          │
-│  (Master AI Brain)       │
-│  - Discovers targets     │
-│  - Assigns objectives    │
-│  - Manages solvers       │
-└──────────┬──────────────┘
-           │ spawns
-    ┌──────┼──────┐
-    ▼      ▼      ▼
-┌──────┐┌──────┐┌──────┐
-│Solver││Solver││Solver│  ← Each is a full AI pentester
-│  #1  ││  #2  ││  #3  │
-│------││------││------│
-│Find  ││Find  ││Find  │
-│XSS on││SQLi  ││SSRF  │
-│/login││on API││on    │
-│      ││      ││/proxy│
-│[Own  ││[Own  ││[Own  │
-│ VM]  ││ VM]  ││ VM]  │
-└──────┘└──────┘└──────┘
-
-AEGIS V1:
-┌─────────────────────────┐
-│     SINGLE AGENT         │
-│  (One AI Brain)          │
-│  - Scans targets         │
-│  - Finds exploits        │
-│  - Runs exploits         │
-│  - All sequential        │
-└─────────────────────────┘
-```
+| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+|---|---|---|---|
+| Agent model | Coordinator + Solver multi-agent | Single ReAct agent | Brain + 8 specialized agents |
+| Parallelism | Hundreds of parallel solvers | Sequential | Parallel agents (default: 8) |
+| Isolation | Each solver in isolated VM | Host execution | Host execution (V3: Docker) |
+| Shell persistence | Sessions maintained across tasks | Sessions abandoned | Shell Manager (persistent, auto-reconnect) |
+| Target scale | Thousands simultaneously | One at a time | Multiple concurrent |
+| Agent specialization | Solvers specialized per domain | One agent does everything | One expert agent per domain |
 
 ---
 
 ## Testing Capabilities
 
-| Capability | XBOW | AEGIS V1 | Gap Closes In |
-|-----------|------|-------------|---------------|
-| **Port/Service Scanning** | ✅ | ✅ | — |
-| **Exploit Search** | ✅ Custom + DB | ✅ SearchSploit | — |
-| **Exploit Execution** | ✅ Custom + Metasploit | ✅ Metasploit RPC | — |
-| **Web App Testing (XSS, SQLi, SSRF)** | ✅ Deep | ❌ | V2 |
-| **DOM-Based Vulnerability Detection** | ✅ Headless browser | ❌ | V2 |
-| **Source Code Analysis** | ✅ White-box | ❌ | V3 |
-| **Custom Payload Generation** | ✅ LLM writes payloads | ❌ | V2 |
-| **Out-of-Band (OOB) Callbacks** | ✅ InteractSH-like | ❌ | V2 |
-| **Payload Hosting Server** | ✅ Built-in | ❌ | V2 |
-| **Blind Injection Detection** | ✅ | ❌ | V2 |
-
-### What each missing capability means:
-
-**Headless Browser (V2)**
-XBOW uses Chrome DevTools Protocol to:
-- Render pages like a real browser
-- Monitor DOM changes for XSS
-- Track JavaScript event listeners
-- Execute client-side exploits
-→ We'll add this with **Playwright** in V2
-
-**Source Code Analysis (V3)**
-XBOW reads application source code to:
-- Find dangerous functions (eval, exec, system)
-- Identify risky routes and input handling
-- Combine static findings with dynamic attacks
-→ We'll add this with **Semgrep + LLM analysis** in V3
-
-**Custom Payload Generation (V2)**
-XBOW's LLM can:
-- Write custom exploit scripts
-- Generate Python/bash exploit code
-- Debug and iterate on failed payloads
-→ We'll add this by **letting the LLM generate scripts** in V2
-
-**OOB Callbacks (V2)**
-XBOW detects blind vulnerabilities by:
-- Starting a callback server (like InteractSH)
-- Injecting payloads that trigger DNS/HTTP calls back
-- Confirming blind SQLi, SSRF, XXE this way
-→ We'll integrate **InteractSH** in V2
+| Capability | XBOW | AEGIS V1 | AEGIS V2 | Notes |
+|---|---|---|---|---|
+| Network port scanning | Yes | Yes (nmap) | Yes (masscan + nmap) | V2 adds masscan for speed |
+| Service enumeration | Yes | Yes | Yes + NSE scripts | V2 adds SMB/SNMP/LDAP |
+| CVE search | Yes | Yes (searchsploit) | Yes + cve_lookup | |
+| Exploit execution | Yes | Yes (Metasploit) | Yes (Metasploit + manual) | |
+| Web app scanning | Yes | No | Yes | nikto, nuclei, ffuf, sqlmap |
+| Authenticated web testing | Yes | No | Yes | Credential reuse |
+| OSINT | Yes | No | Yes | theHarvester, subfinder, DNS |
+| Subdomain enumeration | Yes | No | Yes | subfinder, amass |
+| Post-exploitation | Yes | Minimal | Deep | LinPEAS/WinPEAS, automated privesc |
+| Privilege escalation | Yes | No | Yes | Automated path selection |
+| Persistence | Yes | No | Yes (optional) | Gated behind permission flag |
+| Credential harvesting | Yes | No | Yes (optional) | Gated behind permission flag |
+| Lateral movement | Yes | No | Yes (optional) | Pass-the-hash, PSExec, etc. |
+| AD attacks | Yes | No | Yes | Kerberoast, ASREPRoast, DCSync |
+| Container/Docker escape | Yes | No | Yes (optional) | Gated behind permission flag |
+| Cloud (AWS/Azure/GCP) | Yes | No | V3 | Future roadmap |
+| OOB/blind injection | Yes | No | Partial (nuclei) | interactsh planned |
+| DOM-based XSS | Yes | No | V3 | Requires headless browser |
+| Source code analysis | Yes | No | V3 | Semgrep + LLM |
+| Custom exploit generation | Yes | No | V3 | Sandboxed LLM code execution |
 
 ---
 
 ## AI & Decision Making
 
-| Aspect | XBOW | AEGIS V1 | Gap Closes In |
-|--------|------|-------------|---------------|
-| **LLM Provider** | Custom (likely fine-tuned) | OpenRouter (Claude) + Ollama | — |
-| **Reasoning Pattern** | Autonomous multi-step | ReAct loop | — (same pattern) |
-| **Self-Correction** | Writes scripts, debugs, retries with new approach | Basic retry on failure | V2 |
-| **Internal Reviewer** | Secondary AI validates findings | ❌ | V2 |
-| **False Positive Reduction** | Algorithmic validators + reviewer model | Basic (trust LLM judgment) | V2 |
-| **Adaptive Strategy** | Changes tactics when blocked, pivots autonomously | Follows linear attack plan | V2 |
-| **Tool Generation** | Creates custom tools on the fly | Uses predefined tools only | V3 |
-
-### Key AI differences:
-
-**Self-Correction (V2 addition)**
-```
-XBOW:                              AEGIS V1:
-Exploit fails →                     Exploit fails →
-  Try different payload →             Try next exploit in list
-    Generate custom script →
-      Debug the script →
-        Modify and retry →
-          If still fails,
-            try completely
-            different approach
-```
-
-**Internal Reviewer (V2 addition)**
-XBOW has a second AI model that reviews every finding:
-```
-Solver: "I found XSS on /search"
-Reviewer: "Let me verify... Yes, confirmed. Real vulnerability."
-         OR
-Reviewer: "That's a false positive — the output is encoded."
-```
-→ We'll add this by calling the LLM a second time with a "reviewer" prompt
+| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+|---|---|---|---|
+| LLM provider | Proprietary | OpenRouter / Ollama / LM Studio | Same + per-agent model selection |
+| Reasoning pattern | Multi-agent with specialized LLMs | Single ReAct loop | Brain + specialized agent LLMs |
+| Self-correction | Yes | Basic (reflect step) | Full adaptive strategy |
+| Failure handling | Automatic retry/pivot | Limited | Try differently → alternative vector → ask user |
+| Knowledge base | Cross-campaign learning | Per-session KB | Per-session KB (V3: cross-campaign RAG) |
+| Strategy adaptation | Yes | Limited | Yes (Brain adapts based on findings) |
+| Environment detection | Yes | No | Yes (production vs staging vs lab) |
+| Operator clarification | Yes | No | Yes (Brain asks if mission is ambiguous) |
 
 ---
 
-## Infrastructure & Operations
+## Infrastructure
 
-| Aspect | XBOW | AEGIS V1 | Gap Closes In |
-|--------|------|-------------|---------------|
-| **Network Monitoring** | Full traffic proxying for scope enforcement | IP-based scope check only | V2 |
-| **Isolated Environments** | Per-solver VM/container | Shared host | V2 (Docker) |
-| **Scaling** | Thousands of apps simultaneously | One target session | V2 |
-| **CI/CD Integration** | GitHub/GitLab plugins | ❌ | V3 |
-| **API Interface** | Full REST API | Basic FastAPI | — (similar) |
-| **Continuous Testing** | Always-on monitoring | Manual session start | V3 |
+| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+|---|---|---|---|
+| Tool isolation | Docker per tool | Host | Host (V3: Docker) |
+| Session persistence | Yes | No | Yes (Shell Manager) |
+| Pivot/tunneling | Yes | No | Yes (ligolo-ng, chisel) |
+| Health monitoring | Yes | No | Yes (heartbeat, auto-reconnect) |
 
 ---
 
 ## Reporting & Output
 
-| Aspect | XBOW | AEGIS V1 | Gap Closes In |
-|--------|------|-------------|---------------|
-| **Real-time Output** | ✅ | ✅ WebSocket stream | — |
-| **PDF Report** | ✅ Professional | ✅ Basic | — |
-| **Reproducible PoCs** | ✅ Every finding has PoC | Partial | V2 |
-| **CVSS Scoring** | ✅ | ✅ | — |
-| **SARIF Output** | ✅ | ❌ | V2 |
-| **Bug Bounty Integration** | ✅ HackerOne format | ❌ | V3 |
+| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+|---|---|---|---|
+| Real-time streaming | Yes | Yes (WebSocket) | Yes + per-agent feeds |
+| HTML/PDF report | Yes | Yes | Yes + attack narrative |
+| CVSS scoring | Yes | Yes | Yes |
+| Evidence/PoC | Yes | Partial | Yes (commands run, raw output) |
+| SARIF output | Yes | No | V3 |
+| Bug bounty format | Yes | No | V3 |
+| Credentials panel | N/A | No | Yes |
+| Attack graph | Partial | Yes (basic) | Yes (compromise levels, attack paths) |
 
 ---
 
-## What We DO Have That's Similar to XBOW
+## Safety & Control
 
-Despite the differences, our V1 shares the core DNA:
+| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+|---|---|---|---|
+| Safety guardrails | Yes | Yes (10 rules) | Yes (10 rules + 5 permission flags) |
+| Kill switch | Yes | Yes | Yes (stops all agents) |
+| Operator intervention | Yes | Pause/inject | Pause/inject per-agent |
+| Audit logging | Yes | Yes | Yes (per-agent attribution) |
 
-| Shared Concept | How XBOW Does It | How We Do It |
+---
+
+## Shared Concepts
+
+Both AEGIS and XBOW share these fundamental approaches:
+- AI-driven decision making (LLM selects tools and strategies)
+- Tool calling (structured JSON actions)
+- Similar attack lifecycle (recon → scan → exploit → post-exploit → report)
+- Safety guardrails with configurable scope
+- Knowledge base for learning from successful attacks
+- Real-time output streaming
+- Operator kill switch
+- Dual execution modes (automated + interactive)
+
+---
+
+## Gap Closure Plan
+
+```
+V1 (Complete)         V2 (Building)                    V3 (Future)
+──────────────         ──────────────────────────       ──────────────────────────
+Single agent      →    Brain + 8 specialized agents →   + Internal Reviewer agent
+3 tools           →    50+ tools                    →   + Custom LLM exploit gen
+Network only      →    + Web, OSINT, Post-exploit   →   + Source code analysis
+No shell persist  →    + Shell Manager              →   + Docker-isolated tools
+No lateral move   →    + Full lateral + pivoting    →   + Thousands simultaneous
+No OSINT          →    + OSINT agent                →   + Cross-campaign RAG
+Single LLM        →    Per-agent model selection    →   + Zero-day discovery
+Basic report      →    + Attack narrative + creds   →   + SARIF + bug bounty
+Sequential only   →    Parallel agents              →   + Cloud environments
+```
+
+---
+
+## What Makes AEGIS Different from XBOW
+
+| Aspect | XBOW | AEGIS |
 |---|---|---|
-| **AI-Driven Decisions** | LLM reasons about what to do | ✅ Same — ReAct loop |
-| **Tool Calling** | AI selects and calls tools | ✅ Same — structured JSON output |
-| **Attack Lifecycle** | Recon → Scan → Exploit → Report | ✅ Same flow |
-| **Safety Guardrails** | Scope enforcement | ✅ Same — 10 safety rules |
-| **Knowledge Base** | Learns from past exploits | ✅ Same — SQLite-based |
-| **Audit Logging** | Full action history | ✅ Same |
-| **Kill Switch** | Emergency stop | ✅ Same |
-| **Two Execution Modes** | Autonomous + supervised | ✅ Same — Full Auto + Ask |
-
----
-
-## The Bridge Plan: V1 → XBOW
-
-```
-V1 (Capstone)                 V2 (Growth)                    V3 (XBOW Level)
-──────────────                ──────────────                  ──────────────
-Single Agent          →       Single Agent + Reviewer    →    Coordinator + Solvers
-Network Only          →       + Web App Testing          →    + Source Code Analysis
-Nmap + MSF            →       + Playwright + InteractSH  →    + Custom Tool Generation
-Basic Retry           →       + Self-Correction          →    + Full Adaptation
-Host Execution        →       + Docker Isolation          →   + Isolated Attack Machines
-1 Target              →       + Multi-Target Parallel     →   + Thousands Simultaneous
-SearchSploit          →       + NVD API + Nuclei         →    + Zero-Day Discovery
-PDF Report            →       + SARIF + PoC Generation   →    + Bug Bounty Integration
-```
-
-> **Bottom line**: V1 is the solid foundation. Every XBOW feature is planned and mapped to a version. You're not building something different from XBOW — you're building the V1 of the same idea.
+| Access | Paid SaaS platform | Open source, self-hosted |
+| Privacy | Cloud-based | Fully local option (Ollama) |
+| Cost | Subscription | Free (pay only for LLM API if cloud) |
+| Customization | Limited | Full control — add any tool as a plugin |
+| Transparency | Black box | Full source code, all decisions visible |
+| Lab use | Cloud target required | Works on local lab VMs |
+| Operator control | Enterprise controls | Full configurable safety + permission flags |
