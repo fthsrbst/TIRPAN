@@ -109,7 +109,11 @@ def _action_json(action: str, params: dict | None = None, thought: str = "t") ->
 # ── 8.1 AgentState enum ────────────────────────────────────────────────────────
 
 def test_agent_state_has_all_states():
-    expected = {"IDLE", "REASONING", "ACTING", "OBSERVING", "REFLECTING", "DONE", "ERROR"}
+    # WAITING_FOR_OPERATOR added in V2 BaseAgent for Brain's ask_operator flow
+    expected = {
+        "IDLE", "REASONING", "ACTING", "OBSERVING",
+        "REFLECTING", "DONE", "ERROR", "WAITING_FOR_OPERATOR",
+    }
     actual = {s.name for s in AgentState}
     assert expected == actual
 
