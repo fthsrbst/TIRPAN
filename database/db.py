@@ -7,6 +7,10 @@ Migration versions:
   v1 — conversations, messages, app_settings (chat UI)
   v2 — pentest_sessions, scan_results, vulnerabilities,
         exploit_results, knowledge_base, audit_log
+  v9 — V2 multi-agent tables: agent_instances, agent_messages,
+        shell_sessions, harvested_credentials, loot,
+        mission_phases, network_nodes, network_edges;
+        mission_brief_json + mission_context_json on pentest_sessions
 """
 
 import json
@@ -224,6 +228,145 @@ async def init_db(db_path: Path | None = None) -> None:
             )
             await db.commit()
             logger.info("DB migration v8 applied: source_ip column in exploit_results")
+
+        if version < 9:
+            await db.executescript("""
+                -- ── agent_instances ─────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS agent_instances (
+                    id            TEXT    PRIMARY KEY,
+                    session_id    TEXT    NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    agent_type    TEXT    NOT NULL,  -- scanner|exploit|post_exploit|webapp|osint|lateral|reporting|brain
+                    status        TEXT    NOT NULL DEFAULT 'spawning',  -- spawning|running|paused|done|failed
+                    target        TEXT    NOT NULL DEFAULT '',
+                    started_at    REAL    NOT NULL,
+                    finished_at   REAL,
+                    iterations    INTEGER NOT NULL DEFAULT 0,
+                    findings_json TEXT    NOT NULL DEFAULT '[]',
+                    error         TEXT    NOT NULL DEFAULT '',
+                    result_json   TEXT    NOT NULL DEFAULT '{}'
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_instances_session
+                    ON agent_instances(session_id, status);
+
+                -- ── agent_messages ───────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS agent_messages (
+                    id             TEXT    PRIMARY KEY,
+                    session_id     TEXT    NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    msg_type       TEXT    NOT NULL,
+                    sender_id      TEXT    NOT NULL,
+                    recipient_id   TEXT,
+                    correlation_id TEXT,
+                    payload_json   TEXT    NOT NULL DEFAULT '{}',
+                    created_at     REAL    NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_messages_session
+                    ON agent_messages(session_id, created_at);
+
+                -- ── shell_sessions ───────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS shell_sessions (
+                    id            TEXT    PRIMARY KEY,
+                    session_id    TEXT    NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    host_ip       TEXT    NOT NULL,
+                    shell_type    TEXT    NOT NULL DEFAULT 'bash',  -- bash|cmd|powershell|meterpreter
+                    status        TEXT    NOT NULL DEFAULT 'active',  -- active|closed|lost
+                    username      TEXT    NOT NULL DEFAULT '',
+                    privilege_lvl INTEGER NOT NULL DEFAULT 0,   -- 0=user 1=root/SYSTEM
+                    opened_at     REAL    NOT NULL,
+                    closed_at     REAL,
+                    notes         TEXT    NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_shell_sessions_session
+                    ON shell_sessions(session_id, status);
+
+                -- ── harvested_credentials ────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS harvested_credentials (
+                    id              TEXT PRIMARY KEY,
+                    session_id      TEXT NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    source_host     TEXT NOT NULL,
+                    credential_type TEXT NOT NULL DEFAULT 'plaintext',  -- plaintext|hash|key|token
+                    username        TEXT NOT NULL DEFAULT '',
+                    secret_enc      TEXT NOT NULL DEFAULT '',  -- encrypted; never stored plaintext
+                    hash_type       TEXT NOT NULL DEFAULT '',  -- ntlm|sha512|bcrypt|...
+                    service         TEXT NOT NULL DEFAULT '',
+                    valid_on_json   TEXT NOT NULL DEFAULT '[]',
+                    harvested_at    REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_harvcreds_session
+                    ON harvested_credentials(session_id, source_host);
+
+                -- ── loot ─────────────────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS loot (
+                    id           TEXT PRIMARY KEY,
+                    session_id   TEXT NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    source_host  TEXT NOT NULL,
+                    loot_type    TEXT NOT NULL DEFAULT 'file',  -- file|data|screenshot|config|key
+                    description  TEXT NOT NULL DEFAULT '',
+                    source_path  TEXT NOT NULL DEFAULT '',
+                    local_path   TEXT NOT NULL DEFAULT '',  -- path in loot storage dir
+                    content_preview TEXT NOT NULL DEFAULT '',  -- first 500 chars
+                    collected_at REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_loot_session
+                    ON loot(session_id, source_host);
+
+                -- ── mission_phases ───────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS mission_phases (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id  TEXT    NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    phase       TEXT    NOT NULL,
+                    transitioned_at REAL NOT NULL,
+                    notes       TEXT    NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_mission_phases_session
+                    ON mission_phases(session_id, transitioned_at);
+
+                -- ── network_nodes ────────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS network_nodes (
+                    id                TEXT    PRIMARY KEY,
+                    session_id        TEXT    NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    node_id           TEXT    NOT NULL,
+                    ip                TEXT    NOT NULL,
+                    hostname          TEXT    NOT NULL DEFAULT '',
+                    os_type           TEXT    NOT NULL DEFAULT '',
+                    compromise_level  INTEGER NOT NULL DEFAULT 0,
+                    node_type         TEXT    NOT NULL DEFAULT 'host',
+                    updated_at        REAL    NOT NULL,
+                    UNIQUE(session_id, node_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_network_nodes_session
+                    ON network_nodes(session_id);
+
+                -- ── network_edges ────────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS network_edges (
+                    id          TEXT PRIMARY KEY,
+                    session_id  TEXT NOT NULL REFERENCES pentest_sessions(id) ON DELETE CASCADE,
+                    from_node   TEXT NOT NULL,
+                    to_node     TEXT NOT NULL,
+                    edge_type   TEXT NOT NULL DEFAULT 'scan',  -- scan|exploit|lateral|pivot
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at  REAL NOT NULL,
+                    UNIQUE(session_id, from_node, to_node, edge_type)
+                );
+                CREATE INDEX IF NOT EXISTS idx_network_edges_session
+                    ON network_edges(session_id);
+            """)
+            # mission_brief_json + mission_context_json on pentest_sessions
+            for col, default in [
+                ("mission_brief_json", "'{}'"),
+                ("mission_context_json", "'{}'"),
+            ]:
+                try:
+                    await db.execute(
+                        f"ALTER TABLE pentest_sessions ADD COLUMN {col} TEXT NOT NULL DEFAULT {default}"
+                    )
+                except Exception:
+                    pass  # Column may already exist
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (9, time.time(), "V2 multi-agent tables: agent_instances, agent_messages, shell_sessions, harvested_credentials, loot, mission_phases, network_nodes, network_edges"),
+            )
+            await db.commit()
+            logger.info("DB migration v9 applied: V2 multi-agent tables")
 
     logger.info("Database ready: %s", path)
 
