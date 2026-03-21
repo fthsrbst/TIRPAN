@@ -1126,3 +1126,116 @@ html.light .adv-label { color: #4a7c00; }
 html.light .adv-check-row { color: #18181b; }
 html.light .adv-btn-sm { color: #71717a; border-color: #d4d4d8; }
 html.light .adv-btn-sm:hover { color: #4a7c00; border-color: #4a7c00; }
+
+/* ─── Attack Graph ──────────────────────────────────────────────────────────── */
+
+#ag-graph-view {
+    background: #030303;
+    font-family: 'JetBrains Mono', monospace;
+}
+html.light #ag-graph-view { background: #f7f7f7; }
+
+#ag-graph-svg { background: #030303; }
+html.light #ag-graph-svg { background: #f7f7f7; }
+
+.ag-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.ag-ld {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: currentColor;
+}
+.ag-legend-row[data-color="#ccff00"] .ag-ld { background:#ccff00; }
+.ag-legend-row[data-color="#eab308"] .ag-ld { background:#eab308; }
+.ag-legend-row[data-color="#3b82f6"] .ag-ld { background:#3b82f6; }
+.ag-legend-row[data-color="#a855f7"] .ag-ld { background:#a855f7; }
+.ag-legend-row[data-color="#f97316"] .ag-ld { background:#f97316; }
+.ag-lt {
+    font-size: 9px; font-family: monospace; color: #444;
+    text-transform: uppercase; letter-spacing: .1em;
+}
+html.light .ag-lt { color: #999; }
+
+.ag-zoom-btn {
+    width: 26px; height: 26px;
+    background: #0a0a0a; border: 1px solid #1e1e1e;
+    color: #444; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: border-color .15s, color .15s;
+}
+.ag-zoom-btn:hover { border-color: rgba(204,255,0,0.4); color: #ccff00; }
+html.light .ag-zoom-btn { background: #f0f0f0; border-color: #d0d0d0; color: #999; }
+html.light .ag-zoom-btn:hover { border-color: #4a7c00; color: #4a7c00; }
+
+#ag-detail-panel {
+    border-left: 1px solid #111;
+    background: #060606;
+}
+html.light #ag-detail-panel { background: #f0f0f0; border-left-color: #d8d8d8; }
+
+#ag-detail-header {
+    border-bottom: 1px solid #111;
+    color: #aaa;
+}
+html.light #ag-detail-header { border-bottom-color: #d8d8d8; color: #666; }
+
+#ag-detail-body {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: #555;
+}
+html.light #ag-detail-body { color: #444; }
+
+.ag-detail-section-title {
+    font-size: 9px; text-transform: uppercase; letter-spacing: .1em;
+    color: #333; margin-bottom: 4px;
+}
+html.light .ag-detail-section-title { color: #999; }
+
+.ag-detail-pre {
+    white-space: pre-wrap; word-break: break-all;
+    color: #666; font-size: 10px; line-height: 1.5;
+    max-height: 200px; overflow-y: auto;
+    background: #0a0a0a; padding: 8px;
+    border: 1px solid #111; margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+}
+html.light .ag-detail-pre { background: #e8e8e8; border-color: #d0d0d0; color: #555; }
+
+.ag-type-badge {
+    display: inline-block; padding: 2px 8px;
+    font-size: 9px; text-transform: uppercase; letter-spacing: .12em;
+    margin-bottom: 12px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+#ag-inject-bar {
+    border-top-color: #111;
+    background: #040404;
+}
+html.light #ag-inject-bar { background: #efefef; border-top-color: #d8d8d8; }
+
+#ag-inject-input { color: #aaa; }
+#ag-inject-input::placeholder { color: #333; }
+html.light #ag-inject-input { color: #444; }
+html.light #ag-inject-input::placeholder { color: #bbb; }
+
+/* View toggle buttons */
+#ag-view-btn-feed, #ag-view-btn-graph {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 8px; font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .12em;
+    border-width: 1px; border-style: solid;
+    cursor: pointer; transition: all .15s;
+    font-family: 'Space Grotesk', sans-serif;
+}
+
+/* ── Network Topology light mode ───────────────────────────────────────────── */
+html.light #topo-fullscreen-overlay { background: #f4f4f0 !important; }
+html.light #topo-fullscreen-overlay > div:first-child { background: #ebebea !important; }
+html.light #topo-detail-panel { background: #ebebea !important; }
+html.light #topo-timeline-bar { background: #ebebea !important; }
+html.light #topo-tooltip { background: #fff !important; border-color: #ddd !important; color: #333 !important; }
+html.light #topo-fs-tooltip { background: #fff !important; border-color: #ddd !important; color: #333 !important; }
+html.light #topo-timeline-track > div:first-child { background: #d0d0d0 !important; }
+html.light #topo-detail-content { color: #333; }

@@ -304,6 +304,18 @@
         <div id="agent-status-dot" class="w-1.5 h-1.5 rounded-full bg-border-color shrink-0 transition-colors"></div>
         <span id="agent-status-text" class="text-[10px] mono-text text-secondary-text uppercase tracking-widest transition-colors">No active mission</span>
         <span id="agent-status-detail" class="text-[10px] mono-text text-slate-600 ml-1 truncate hidden"></span>
+        <!-- View toggle -->
+        <div class="ml-auto flex items-center gap-1 shrink-0">
+          <button onclick="switchAgentView('feed')" id="ag-view-btn-feed"
+            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border transition-colors"
+            style="border-color:rgba(204,255,0,0.5);color:#ccff00;background:rgba(204,255,0,0.08);">
+            <span class="material-symbols-outlined" style="font-size:11px;">list</span>FEED
+          </button>
+          <button onclick="switchAgentView('graph')" id="ag-view-btn-graph"
+            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
+            <span class="material-symbols-outlined" style="font-size:11px;">account_tree</span>GRAPH
+          </button>
+        </div>
       </div>
 
       <!-- Mission feed stream + minimap -->
@@ -326,7 +338,7 @@
         </div>
 
         <!-- VS Code-style minimap (with feed-filter button on top) -->
-        <div style="width:52px; flex-shrink:0; display:flex; flex-direction:column; border-left:1px solid #111;">
+        <div id="ag-minimap-col" style="width:52px; flex-shrink:0; display:flex; flex-direction:column; border-left:1px solid #111;">
           <!-- Feed filter toggle -->
           <div class="relative shrink-0" style="border-bottom:1px solid #111;">
             <button onclick="toggleFeedFilter()" title="Feed display settings"
@@ -353,10 +365,54 @@
           <!-- Viewport highlight overlay (moved by JS) -->
           <div id="agent-minimap-vp"
             style="position:absolute; left:0; right:0; top:0; height:40px;
-                   background:rgba(200,255,0,0.06); border-top:1px solid rgba(200,255,0,0.2);
-                   border-bottom:1px solid rgba(200,255,0,0.2); pointer-events:none;"></div>
+                   background:rgba(200,255,0,0.13);
+                   backdrop-filter:blur(1px) brightness(1.15);
+                   -webkit-backdrop-filter:blur(1px) brightness(1.15);
+                   border-top:2px solid rgba(200,255,0,0.55);
+                   border-bottom:2px solid rgba(200,255,0,0.55);
+                   box-shadow:0 0 6px rgba(200,255,0,0.15) inset;
+                   pointer-events:none;"></div>
         </div>
         </div><!-- end minimap column -->
+
+        <!-- ── Attack Graph View ─────────────────────────────────── -->
+        <div id="ag-graph-view" style="display:none;flex:1;min-width:0;flex-direction:column;">
+          <!-- SVG + detail panel row -->
+          <div style="flex:1;min-height:0;display:flex;overflow:hidden;">
+            <!-- Canvas area -->
+            <div style="flex:1;position:relative;overflow:hidden;" id="ag-svg-wrap">
+              <svg id="ag-graph-svg" style="width:100%;height:100%;display:block;"></svg>
+              <!-- Legend -->
+              <div id="ag-legend" style="position:absolute;top:12px;left:14px;display:flex;flex-direction:column;gap:5px;pointer-events:none;">
+                <div class="ag-legend-row" data-color="#ccff00"><span class="ag-ld"></span><span class="ag-lt">Agent / OK</span></div>
+                <div class="ag-legend-row" data-color="#eab308"><span class="ag-ld"></span><span class="ag-lt">Thinking</span></div>
+                <div class="ag-legend-row" data-color="#3b82f6"><span class="ag-ld"></span><span class="ag-lt">Tool</span></div>
+                <div class="ag-legend-row" data-color="#a855f7"><span class="ag-ld"></span><span class="ag-lt">Reflection</span></div>
+                <div class="ag-legend-row" data-color="#f97316"><span class="ag-ld"></span><span class="ag-lt">Parallel</span></div>
+              </div>
+              <!-- Zoom controls -->
+              <div style="position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:3px;">
+                <button onclick="agZoom(1.3)" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">add</span></button>
+                <button onclick="agZoomFit()" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">fit_screen</span></button>
+                <button onclick="agZoom(0.77)" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">remove</span></button>
+              </div>
+              <!-- Node count badge -->
+              <div id="ag-node-count" style="position:absolute;top:12px;right:14px;font-size:9px;font-family:monospace;text-transform:uppercase;letter-spacing:.1em;opacity:0.4;"></div>
+            </div>
+            <!-- Detail panel -->
+            <div id="ag-detail-panel" style="width:0;overflow:hidden;flex-shrink:0;transition:width 0.22s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;">
+              <div id="ag-detail-header" style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding:11px 14px;">
+                <span id="ag-detail-icon" class="material-symbols-outlined" style="font-size:14px;font-variation-settings:'FILL' 1;">info</span>
+                <span id="ag-detail-title" style="font-size:10px;font-family:monospace;font-weight:700;text-transform:uppercase;letter-spacing:.12em;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                <button onclick="agCloseDetail()" style="background:none;border:none;cursor:pointer;padding:0;opacity:.5;" class="hover:opacity-100 transition-opacity">
+                  <span class="material-symbols-outlined" style="font-size:14px;color:inherit;">close</span>
+                </button>
+              </div>
+              <div id="ag-detail-body" style="flex:1;overflow-y:auto;padding:14px 14px 20px;line-height:1.65;"></div>
+            </div>
+          </div>
+        </div>
+        <!-- ── End Attack Graph View ──────────────────────────────── -->
 
         <!-- Scroll-to-bottom button (hidden when already at bottom) -->
         <button id="agent-scroll-btn"
@@ -1348,7 +1404,7 @@
 
             <!-- Topology D3 canvas -->
             <div class="flex-1 relative min-h-0" id="topo-canvas-container">
-              <svg id="topo-d3-svg" class="w-full h-full" style="background:#030303;display:block;cursor:grab"></svg>
+              <svg id="topo-d3-svg" class="w-full h-full" style="display:block;cursor:grab"></svg>
 
               <!-- Hover tooltip -->
               <div id="topo-tooltip" class="hidden absolute z-50 pointer-events-none"
