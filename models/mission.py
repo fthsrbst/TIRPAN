@@ -123,6 +123,10 @@ class MissionBrief:
     allow_lateral_movement: bool = False
     allow_docker_escape: bool = False
     allow_browser_recon: bool = False
+    # V2 additions — must be explicitly enabled by operator
+    allow_persistence: bool = False          # crontab / service / SSH-key backdoors
+    allow_credential_harvest: bool = False   # /etc/shadow, mimikatz, browser creds
+    allow_data_exfil: bool = False           # file download / loot collection
 
     # ── Scan policy ─────────────────────────────────────────────────────
     port_range: str = "1-65535"
