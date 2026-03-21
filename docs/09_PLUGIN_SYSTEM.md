@@ -1,307 +1,239 @@
-# AEGIS — Plugin System Specification
+# AEGIS — Plugin System
 
 > **Purpose:** Add new attack capabilities without touching the core.
-> V1 ships with 3 built-in tools — everything else arrives via plugins.
-> V2 introduces three plugin types so most tools need zero Python code.
+> V1 ships with 3 built-in tools. Everything else arrives as plugins.
+> Three plugin types: Python class, CLI wrapper, API wrapper.
 
 ---
 
 ## Why a Plugin System?
 
-| Approach                     | Problem                                                                           |
-| ---------------------------- | --------------------------------------------------------------------------------- |
-| Embedding tools into core    | Adding XSS means touching Nmap code = risk of breakage                            |
-| Rewriting everything         | Updating Metasploit affects the entire system                                     |
-| **Plugin system** ✅          | Write an XSS tool → drop it in `/plugins/web_scan/` → register → it runs         |
+| Approach | Problem |
+|----------|---------|
+| Embedding tools into core | Adding ffuf means touching nmap code — risk of breakage |
+| Rewriting everything | Updating Metasploit affects the entire system |
+| **Plugin system** | Write a tool → drop it in `/plugins/` → it's available to agents |
 
 ---
 
-## Plugin vs Core Tool Distinction
+## Core Tools vs Plugin Tools
 
-| Category                       | Examples                              | Location          |
-| ------------------------------ | ------------------------------------- | ----------------- |
-| **Core Tools** (V1 built-in)   | Nmap, SearchSploit, Metasploit        | `tools/`          |
-| **Plugin Tools** (V2+)         | WebScan, Nuclei, Gobuster, SQLMap     | `plugins/<name>/` |
+| Category | Examples | Location |
+|---|---|---|
+| **Core Tools** (V1 built-in) | Nmap, SearchSploit, Metasploit | `tools/` |
+| **Plugin Tools** (V2+) | ffuf, nuclei, sqlmap, crackmapexec, theHarvester... | `plugins/<name>/` |
 
-### Rule:
-
-- A tool that **works at network-level, is self-contained, requires no extra install** → `tools/` (core)
-- A tool that **has external dependencies, targets a specific type, is optional** → `plugins/` (plugin)
+**Rule:** A tool that is self-contained and required for basic operation → `tools/` (core).
+A tool that has external dependencies, is optional, or targets a specific domain → `plugins/`.
 
 ---
 
-## Plugin Anatomy (Every Plugin Contains Exactly This)
+## Plugin Anatomy
 
 ```
 plugins/
-└── web_scanner/            ← Plugin directory (lowercase, underscore)
+└── ffuf/                   ← Plugin directory name (lowercase, underscore)
     ├── plugin.json         ← Manifest (REQUIRED)
-    ├── tool.py             ← Main tool implementation (REQUIRED)
-    ├── requirements.txt    ← Plugin-specific dependencies (optional)
+    ├── tool.py             ← Python implementation (only for python_class type)
+    ├── requirements.txt    ← Plugin-specific Python deps (optional)
     └── README.md           ← Usage guide (recommended)
 ```
 
 ---
 
-## `plugin.json` Schema (Full Spec)
+## Three Plugin Types
 
-```json
-{
-  "name": "web_scanner",
-  "version": "1.0.0",
-  "display_name": "Web Vulnerability Scanner",
-  "description": "Headless browser-based scanner for XSS, SQLi, and SSRF detection.",
-  "author": "your_name",
-  "license": "MIT",
-  "category": "web",
-  "enabled": false,
-  "entry_point": "plugins.web_scanner.tool",
-  "class_name": "WebScannerTool",
-  "requires_packages": ["playwright>=1.40", "beautifulsoup4>=4.12"],
-  "min_core_version": "2.0.0",
-  "safety_level": "medium",
-  "target_type": "url",
-  "tags": ["web", "xss", "sqli", "ssrf"]
-}
-```
+| `"type"` | Use Case | `tool.py` Needed |
+|---|---|---|
+| `python_class` | Complex logic, stateful tools, custom parsers | Yes |
+| `cli_wrapper` | Any CLI binary with parseable output | No — JSON config only |
+| `api_wrapper` | REST API endpoints with authentication | No — JSON config only |
 
-> **Note:** `entry_point` is the Python module path and `class_name` is the class within that module.
-> The loader does: `cls = getattr(importlib.import_module(entry_point), class_name)`
-
-### Field Descriptions
-
-| Field               | Type   | Description                                                       |
-| ------------------- | ------ | ----------------------------------------------------------------- |
-| `name`              | string | Unique plugin identifier (same as directory name)                 |
-| `version`           | semver | Plugin version                                                    |
-| `enabled`           | bool   | `false` → not loaded; set to `true` to activate                   |
-| `entry_point`       | string | Python module path (e.g. `"plugins.web_scanner.tool"`)            |
-| `class_name`        | string | Class name inside the module (e.g. `"WebScannerTool"`)            |
-| `requires_packages` | list   | pip dependencies to install                                       |
-| `min_core_version`  | semver | Minimum core version this plugin supports                         |
-| `safety_level`      | enum   | `"low"` / `"medium"` / `"high"` — shown to the user              |
-| `target_type`       | enum   | `"ip"` / `"url"` / `"cidr"` / `"any"`                             |
+If `"type"` is omitted, `"python_class"` is assumed (backward compatible with V1 plugins).
 
 ---
 
-## `tool.py` Template (Copy-Paste Ready)
+## Type A — `python_class`
 
+Write a Python class inheriting `BaseTool`.
+
+**`plugin.json`:**
+```json
+{
+  "name": "linpeas",
+  "type": "python_class",
+  "version": "1.0.0",
+  "display_name": "LinPEAS",
+  "description": "Upload and run LinPEAS on target via Shell Manager for privilege escalation enumeration.",
+  "author": "aegis",
+  "category": "post-exploit",
+  "enabled": true,
+  "entry_point": "plugins.linpeas.tool",
+  "class_name": "LinPEASTool",
+  "min_core_version": "2.0.0",
+  "safety_level": "high",
+  "target_type": "session"
+}
+```
+
+**`tool.py` template:**
 ```python
-# plugins/web_scanner/tool.py
 from tools.base_tool import BaseTool, ToolMetadata
 
-class WebScannerTool(BaseTool):
-    """
-    Detects XSS, SQLi, and SSRF using a headless browser.
-    Requires Playwright.
-    """
-
+class LinPEASTool(BaseTool):
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="web_scan",
+            name="run_linpeas",
             description=(
-                "Scan a web application for XSS, SQLi, and SSRF vulnerabilities. "
-                "Use only for URL targets, not IP addresses."
+                "Upload LinPEAS to target and execute it to enumerate "
+                "privilege escalation vectors. Requires an active session_id."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "url": {
+                    "session_id": {
                         "type": "string",
-                        "description": "URL to scan (e.g. http://target.com/login)"
-                    },
-                    "scan_type": {
-                        "type": "string",
-                        "enum": ["xss", "sqli", "ssrf", "all"],
-                        "description": "Which vulnerability types to look for"
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "default": 2,
-                        "description": "How many link levels deep to scan"
+                        "description": "Shell Manager session ID"
                     }
                 },
-                "required": ["url"]
+                "required": ["session_id"]
             },
-            category="web",
+            category="post-exploit",
             version="1.0.0"
         )
 
     async def execute(self, params: dict) -> dict:
-        url = params["url"]
-        scan_type = params.get("scan_type", "all")
+        session_id = params["session_id"]
+        shell_manager = params.get("_shell_manager")  # injected at runtime
 
         try:
-            results = await self._run_scan(url, scan_type)
-            return {
-                "success": True,
-                "output": {
-                    "findings": results,
-                    "total": len(results)
-                },
-                "error": None
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "output": None,
-                "error": str(e)
-            }
+            # Upload script
+            await shell_manager.upload_file(
+                session_id,
+                "tools/scripts/linpeas.sh",
+                "/tmp/linpeas.sh"
+            )
+            await shell_manager.execute(session_id, "chmod +x /tmp/linpeas.sh")
 
-    async def _run_scan(self, url: str, scan_type: str) -> list:
-        # Actual scanning implementation
+            # Run with timeout
+            result = await shell_manager.execute(
+                session_id,
+                "bash /tmp/linpeas.sh 2>/dev/null",
+                timeout=300.0
+            )
+
+            # Cleanup
+            await shell_manager.execute(session_id, "rm -f /tmp/linpeas.sh")
+
+            findings = self._parse_output(result.output)
+            return {"success": True, "output": findings, "raw": result.output}
+
+        except Exception as e:
+            return {"success": False, "output": None, "error": str(e)}
+
+    async def health_check(self):
+        from pathlib import Path
+        from tools.base_tool import ToolHealthStatus
+        script = Path("tools/scripts/linpeas.sh")
+        return ToolHealthStatus(
+            available=script.exists(),
+            message="linpeas.sh found" if script.exists() else "linpeas.sh not found",
+            install_hint="Download from: https://github.com/carlospolop/PEASS-ng"
+        )
+
+    def _parse_output(self, output: str) -> dict:
+        # Extract key findings from LinPEAS output
         ...
 ```
 
 ---
 
-## Enabling a Plugin
+## Type B — `cli_wrapper`
 
-```bash
-# Method 1: Edit plugin.json directly
-# plugins/web_scanner/plugin.json → "enabled": true
+Wrap any CLI binary entirely in `plugin.json`. No `tool.py` needed.
+`ToolRegistry` auto-generates a `GenericCLITool` instance.
 
-# Method 2: CLI (V2 target)
-python main.py --enable-plugin web_scanner
-
-# Method 3: Web UI (V2 target)
-# Settings → Plugins → Web Scanner → Enable
-```
-
----
-
-## Current + Planned Plugin List (V1 View)
-
-> See the full V2 catalogue at the bottom of this document.
-
-| Plugin Name            | Status       | Version | Description                          |
-| ---------------------- | ------------ | ------- | ------------------------------------ |
-| `web_scanner`          | 📋 Planned   | V2      | XSS, SQLi, SSRF (Playwright)         |
-| `nuclei_scanner`       | 📋 Planned   | V2      | Nuclei template-based scanning       |
-| `gobuster`             | 📋 Planned   | V2      | Directory/file brute force           |
-| `interactsh`           | 📋 Planned   | V2      | OOB (blind injection) detection      |
-| `sqlmap_plugin`        | 📋 Planned   | V2      | Automated SQL injection              |
-| `ffuf_plugin`          | 📋 Planned   | V2      | Web fuzzing                          |
-| `custom_payload`       | 📋 Planned   | V3      | LLM-written exploit scripts          |
-| `source_code_analyzer` | 📋 Planned   | V3      | Semgrep + LLM white-box analysis     |
-
----
-
-## ToolRegistry Integration Flow
-
-```
-At main.py startup:
-  1. Create ToolRegistry()
-  2. Register core tools:
-       registry.register(NmapTool())
-       registry.register(SearchSploitTool())
-       registry.register(MetasploitTool())
-  3. Call registry.load_plugins(Path("plugins/"))
-       → Read each plugin.json
-       → Import enabled ones via importlib
-       → registry.register(PluginToolClass())
-  4. Inject registry into agent
-  5. Agent provides tool list to LLM via registry.list_for_llm()
-```
-
----
-
-## V2: Three Plugin Types
-
-V1 supports only one plugin type — a Python class that implements `BaseTool`. V2 adds two configuration-only types so that wrapping a CLI binary or a REST API requires **no Python code**.
-
-> Full technical spec: [11_V2_FEATURE_SPEC.md — Section 5](11_V2_FEATURE_SPEC.md#5-plugin-architecture-v2--three-plugin-types)
-
-### Type Overview
-
-| `"type"` value  | Use case                                      | Python `tool.py` needed |
-| --------------- | --------------------------------------------- | ----------------------- |
-| `python_class`  | Complex logic, stateful tools, custom parsers | **Yes**                 |
-| `cli_wrapper`   | Any CLI binary with parseable output          | **No**                  |
-| `api_wrapper`   | REST API endpoints with authentication        | **No**                  |
-
-The `"type"` field must be present in `plugin.json`. If omitted, `"python_class"` is assumed for backward compatibility.
-
----
-
-### Type A — `python_class` (V1 behaviour, unchanged)
-
-Declare `"type": "python_class"` in `plugin.json` and provide a `tool.py` that subclasses `BaseTool`. See the `tool.py` template above.
-
----
-
-### Type B — `cli_wrapper`
-
-Wrap any CLI binary entirely through `plugin.json`. `ToolRegistry` generates a `GenericCLITool` instance automatically — there is no `tool.py`.
-
-**`plugin.json` for `cli_wrapper`:**
-
+**`plugin.json`:**
 ```json
 {
-  "name": "nuclei_scan",
+  "name": "ffuf",
   "type": "cli_wrapper",
   "version": "1.0.0",
-  "display_name": "Nuclei Scanner",
-  "description": "Template-based vulnerability scanner. Best used after port scanning identifies open services.",
-  "category": "vuln-scan",
+  "display_name": "ffuf Web Fuzzer",
+  "description": "Fast web fuzzer for directory, file, and vhost discovery. Use after identifying HTTP services.",
+  "category": "web",
   "enabled": true,
-  "binary": "nuclei",
-  "install_hint": "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
-  "args_template": ["-u", "{target}", "-t", "{templates}", "-o", "{output_file}", "-json", "-silent"],
-  "output_format": "jsonlines",
+  "binary": "ffuf",
+  "install_hint": "go install github.com/ffuf/ffuf/v2@latest",
+  "args_template": [
+    "-u", "{url}/FUZZ",
+    "-w", "{wordlist}",
+    "-o", "{output_file}",
+    "-of", "json",
+    "-mc", "{status_codes}",
+    "-t", "{threads}",
+    "-silent"
+  ],
+  "output_format": "json",
   "timeout_seconds": 300,
   "parameters": {
     "type": "object",
     "properties": {
-      "target": {
+      "url": {
         "type": "string",
-        "description": "URL or IP to scan"
+        "description": "Target base URL (e.g. http://target.com)"
       },
-      "templates": {
+      "wordlist": {
         "type": "string",
-        "default": "cves/",
-        "description": "Nuclei template path or category"
+        "default": "/usr/share/seclists/Discovery/Web-Content/common.txt",
+        "description": "Path to wordlist file"
+      },
+      "status_codes": {
+        "type": "string",
+        "default": "200,201,301,302,401,403",
+        "description": "HTTP status codes to match"
+      },
+      "threads": {
+        "type": "integer",
+        "default": 40,
+        "description": "Number of concurrent threads"
       }
     },
-    "required": ["target"]
+    "required": ["url"]
   }
 }
 ```
 
-**Key fields:**
-
-| Field             | Description                                                              |
-| ----------------- | ------------------------------------------------------------------------ |
-| `binary`          | Executable name; verified via `shutil.which()` at health check           |
-| `install_hint`    | Shown in UI when binary is not found                                     |
-| `args_template`   | Array of arguments; `{param}` placeholders are substituted at runtime   |
-| `{output_file}`   | Auto-generated temp file; content is read back after execution           |
-| `output_format`   | `"jsonlines"` / `"json"` / `"text"` / `"csv"` — determines how stdout is parsed |
-| `timeout_seconds` | Process killed after this duration; `ToolHealthStatus.degraded` set     |
-
 **`args_template` substitution rules:**
-- `{param_name}` → replaced with the LLM-supplied parameter value
-- Parameters not supplied use their JSON Schema `default` value
-- Missing required parameters → validation error before the subprocess starts
+- `{param_name}` → replaced with LLM-supplied parameter value
+- Parameters not supplied use JSON Schema `default` value
+- Missing required parameters → validation error before subprocess starts
+- `{output_file}` → auto-generated temp file; content read back after execution
+
+**`output_format` options:**
+- `"json"` — parse as JSON object
+- `"jsonlines"` — parse as newline-delimited JSON
+- `"text"` — return raw stdout string
+- `"csv"` — parse as CSV
 
 ---
 
-### Type C — `api_wrapper`
+## Type C — `api_wrapper`
 
-Call a REST API entirely through `plugin.json`. `ToolRegistry` generates a `GenericAPITool` instance. Authentication is resolved from environment variables or `SecureStore`.
+Call a REST API entirely through `plugin.json`. No `tool.py` needed.
+`ToolRegistry` generates a `GenericAPITool` instance.
 
-**`plugin.json` for `api_wrapper`:**
-
+**`plugin.json`:**
 ```json
 {
-  "name": "shodan_lookup",
+  "name": "shodan_search",
   "type": "api_wrapper",
   "version": "1.0.0",
   "display_name": "Shodan Lookup",
-  "description": "Query Shodan for a target IP to retrieve known open ports, services, and CVEs without active scanning.",
-  "category": "recon",
-  "enabled": true,
+  "description": "Query Shodan for a target IP to retrieve known open ports, services, and CVEs without active scanning. Requires SHODAN_API_KEY.",
+  "category": "osint",
+  "enabled": false,
   "base_url": "https://api.shodan.io",
   "auth_type": "query_param",
   "auth_param_name": "key",
@@ -311,6 +243,11 @@ Call a REST API entirely through `plugin.json`. `ToolRegistry` generates a `Gene
     "host_lookup": {
       "method": "GET",
       "path": "/shodan/host/{ip}"
+    },
+    "search": {
+      "method": "GET",
+      "path": "/shodan/host/search",
+      "params": {"query": "{query}", "facets": "port,country"}
     }
   },
   "timeout_seconds": 15,
@@ -319,103 +256,197 @@ Call a REST API entirely through `plugin.json`. `ToolRegistry` generates a `Gene
     "properties": {
       "ip": {
         "type": "string",
-        "description": "IPv4 address to look up on Shodan"
+        "description": "IPv4 address to look up"
+      },
+      "query": {
+        "type": "string",
+        "description": "Shodan search query (alternative to direct IP lookup)"
       }
-    },
-    "required": ["ip"]
+    }
   }
 }
 ```
 
 **Authentication resolution order:**
-1. Environment variable named by `auth_env`
-2. `SecureStore` (`core/secure_store.py`) key named by `auth_secure_store_key`
-3. Database `settings` table
-4. If none found → `health_check()` returns `available=False`, UI shows: "API key not configured"
+1. Environment variable named by `auth_env` (`SHODAN_API_KEY`)
+2. `SecureStore` (OS keychain) key named by `auth_secure_store_key`
+3. Database `app_settings` table
+4. Not found → `health_check()` returns `available=False`, UI shows: "API key not configured. Set SHODAN_API_KEY."
 
-**`health_check()` for `api_wrapper`:** verifies credential presence only — no live API call is made (avoids billing charges).
+**Note:** `health_check()` for `api_wrapper` only checks credential presence — no live API call is made.
 
 ---
 
-### Type Routing in `ToolRegistry`
+## `plugin.json` Full Schema
 
-`core/tool_registry.py` `_load_single_plugin()` dispatches on the `type` field:
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Unique identifier (matches directory name) |
+| `type` | enum | No | `"python_class"` (default) \| `"cli_wrapper"` \| `"api_wrapper"` |
+| `version` | semver | Yes | Plugin version |
+| `display_name` | string | Yes | Human-readable name shown in UI |
+| `description` | string | Yes | LLM reads this to decide when to use the tool |
+| `author` | string | No | Author name |
+| `category` | enum | Yes | `"recon"` \| `"osint"` \| `"web"` \| `"exploit"` \| `"post-exploit"` \| `"lateral"` \| `"pivot"` \| `"brute-force"` \| `"cracking"` |
+| `enabled` | bool | Yes | `false` → not loaded; `true` → loaded at startup |
+| `entry_point` | string | python_class only | Python module path |
+| `class_name` | string | python_class only | Class name in module |
+| `binary` | string | cli_wrapper only | Executable name (verified via `shutil.which`) |
+| `install_hint` | string | No | Shown in UI when binary/key missing |
+| `args_template` | list | cli_wrapper only | CLI argument list with `{param}` placeholders |
+| `output_format` | enum | cli_wrapper | `"json"` \| `"jsonlines"` \| `"text"` \| `"csv"` |
+| `base_url` | string | api_wrapper only | API base URL |
+| `auth_env` | string | api_wrapper | Environment variable name for API key |
+| `requires_packages` | list | No | pip dependencies for this plugin |
+| `min_core_version` | semver | No | Minimum AEGIS core version required |
+| `safety_level` | enum | No | `"low"` \| `"medium"` \| `"high"` — shown in UI |
+| `target_type` | enum | No | `"ip"` \| `"url"` \| `"session"` \| `"domain"` \| `"any"` |
+| `timeout_seconds` | int | No | Process/request timeout |
+| `parameters` | JSON Schema | Yes | LLM uses this to generate tool parameters |
 
-```python
-match cfg.get("type", "python_class"):
-    case "python_class":
-        # Existing importlib path (unchanged)
-        module = importlib.import_module(cfg["entry_point"])
-        cls = getattr(module, cfg["class_name"])
-        tool_instance = cls()
-    case "cli_wrapper":
-        from core.generic_tools import GenericCLITool
-        tool_instance = GenericCLITool(cfg)
-    case "api_wrapper":
-        from core.generic_tools import GenericAPITool
-        tool_instance = GenericAPITool(cfg)
-    case _:
-        logger.warning("Unknown plugin type '%s' — skipping", cfg.get("type"))
-        return
+---
+
+## Tool Registry Flow
+
+```
+At startup:
+  1. ToolRegistry initialized
+  2. Core tools registered: NmapTool, SearchSploitTool, MetasploitTool
+  3. /plugins/ directory scanned
+  4. Each plugin.json read
+  5. Enabled plugins dispatched by type:
+       python_class → importlib.import_module(entry_point).ClassName()
+       cli_wrapper  → GenericCLITool(plugin_config)
+       api_wrapper  → GenericAPITool(plugin_config)
+  6. Tool registered in registry
+
+Per-mission:
+  7. ToolRegistry.run_health_checks()
+       → Each tool reports available/degraded/unavailable
+       → Unavailable tools excluded from agent prompts
+       → Install hints available via GET /api/v1/tools/status
+  8. Brain assigns tool subset to each agent
+  9. Agent provides its tool list to LLM
+  10. LLM calls tools by name
+  11. Tool fetched from registry, executed through SafetyGuard
 ```
 
-Both `GenericCLITool` and `GenericAPITool` are implemented in `core/generic_tools.py` and inherit from `BaseTool`. The `health_check()` method is implemented for both.
+---
+
+## Tool Health Check System
+
+Every tool implements `health_check()` returning a `ToolHealthStatus`:
+
+```python
+class ToolHealthStatus(BaseModel):
+    available: bool           # True = tool can be used
+    degraded: bool = False    # True = works but at reduced capability
+    message: str              # e.g. "nmap 7.94 found"
+    install_hint: str | None  # e.g. "sudo apt install nmap"
+    fallback_active: bool = False
+```
+
+**Examples:**
+
+| Tool | Check | Degraded Condition |
+|---|---|---|
+| `NmapTool` | `shutil.which("nmap")` + version | Present but no sudo → OS scan limited |
+| `SearchSploitTool` | `shutil.which("searchsploit")` | Not found |
+| `MetasploitTool` | Try RPC connect → try `msfconsole` | CLI mode only (no session management) |
+| `ffuf` (cli_wrapper) | `shutil.which("ffuf")` | Not found |
+| `shodan_search` (api_wrapper) | Check `SHODAN_API_KEY` env var | Key not configured |
+| `linpeas` (python_class) | Check linpeas.sh exists locally | Script not downloaded |
+
+---
+
+## Enabling / Disabling Plugins
+
+```bash
+# Method 1: Edit plugin.json directly
+# plugins/ffuf/plugin.json → "enabled": true
+
+# Method 2: Web UI
+# Settings → Plugins → ffuf → Enable toggle
+
+# Method 3: API (future)
+# POST /api/v1/plugins/ffuf/enable
+```
 
 ---
 
 ## Plugin Authoring Guidelines
 
-### ✅ Do
+### Do
 
-- Set `"type"` explicitly in `plugin.json`
-- For `python_class`: inherit from `BaseTool`, honour the return contract
-- Write a detailed `metadata.description` — the LLM reads this to decide when to use it
+- Set `"type"` explicitly
+- Write a detailed `description` — the LLM reads this to decide when to use the tool
 - Always return `{"success": bool, "output": any, "error": str|None}`
-- Catch exceptions inside `execute()`; never let them propagate unchecked
-- Implement `health_check()` so the UI can report your tool's status
-- Specify `min_core_version` and `install_hint` in `plugin.json`
+- Catch all exceptions inside `execute()`; never let them propagate
+- Implement `health_check()` with a useful `install_hint`
+- For `cli_wrapper`: write the `install_hint` and test the `args_template`
+- For `api_wrapper`: specify `auth_env` so users know what env var to set
 
-### ❌ Don't
+### Don't
 
-- Touch core files (`core/`, `tools/`, `database/`)
+- Touch `core/`, `tools/`, `database/` — plugins must not modify core files
 - Hold global mutable state across calls (keep `execute()` stateless)
-- Import `config.py` directly → receive settings through the constructor
-- Run commands that would be blocked by `safety.py` — they will be blocked regardless
+- Import `config.py` directly — receive settings through constructor or params
+- Run commands that SafetyGuard blocks — they will always be blocked
 
 ---
 
-## Current + Planned Plugin List
+## Current Plugin Status
 
-| Plugin Name            | Type           | Status       | Version | Description                              |
-| ---------------------- | -------------- | ------------ | ------- | ---------------------------------------- |
-| `nuclei_scan`          | `cli_wrapper`  | 📋 Planned   | V2      | Nuclei template-based scanning           |
-| `gobuster_scan`        | `cli_wrapper`  | 📋 Planned   | V2      | Directory / file brute force             |
-| `ffuf_fuzz`            | `cli_wrapper`  | 📋 Planned   | V2      | Web fuzzing                              |
-| `sqlmap_scan`          | `cli_wrapper`  | 📋 Planned   | V2      | Automated SQL injection                  |
-| `nikto_scan`           | `cli_wrapper`  | 📋 Planned   | V2      | Web server vulnerability scan            |
-| `hydra_brute`          | `cli_wrapper`  | 📋 Planned   | V2      | Credential brute force                   |
-| `shodan_lookup`        | `api_wrapper`  | 📋 Planned   | V2      | Passive host recon via Shodan API        |
-| `virustotal_lookup`    | `api_wrapper`  | 📋 Planned   | V2      | Domain / hash reputation lookup          |
-| `web_scanner`          | `python_class` | 📋 Planned   | V2      | XSS, SQLi, SSRF via Playwright           |
-| `docker_escape`        | `python_class` | 📋 Planned   | V2      | Container escape detection & execution   |
-| `lateral_pivot`        | `python_class` | 📋 Planned   | V2      | Internal subnet pivoting                 |
-| `source_code_analyzer` | `python_class` | 📋 Planned   | V3      | Semgrep + LLM white-box analysis         |
+### V1 — Core Tools (built-in, always available)
 
----
+| Tool | File | Category |
+|---|---|---|
+| `nmap_scan` | `tools/nmap_tool.py` | recon |
+| `searchsploit_search` | `tools/searchsploit_tool.py` | exploit-search |
+| `metasploit_run` | `tools/metasploit_tool.py` | exploit-exec |
 
-## V1 Reference: Core Tool List
+### V2 — Plugins (implement in priority order)
 
-Only these 3 tools ship built-in in V1:
+**Priority 1 — Core new tools:**
 
-| Tool Name             | File                         | What It Does                               |
-| --------------------- | ---------------------------- | ------------------------------------------ |
-| `nmap_scan`           | `tools/nmap_tool.py`         | Port scanning, host discovery, service ID  |
-| `searchsploit_search` | `tools/searchsploit_tool.py` | Exploit database search                    |
-| `metasploit_run`      | `tools/metasploit_tool.py`   | Exploit execution, session management      |
+| Plugin | Type | Binary / Dep | Category |
+|---|---|---|---|
+| `masscan` | cli_wrapper | `masscan` | recon |
+| `nuclei` | cli_wrapper | `nuclei` | vuln-scan |
+| `ffuf` | cli_wrapper | `ffuf` | web |
+| `sqlmap` | cli_wrapper | `sqlmap` | exploit |
+| `nikto` | cli_wrapper | `nikto` | web |
+| `whatweb` | cli_wrapper | `whatweb` | web |
+| `linpeas` | python_class | linpeas.sh | post-exploit |
+| `winpeas` | python_class | winpeas.exe | post-exploit |
 
-And 2 built-in meta-actions (not tools — internal agent actions):
+**Priority 2 — OSINT:**
 
-| Meta-action       | What It Does                                        |
-| ----------------- | --------------------------------------------------- |
-| `generate_report` | Produces PDF/HTML report from session findings      |
-| `finish`          | Terminates the agent loop                           |
+| Plugin | Type | Binary / Dep | Category |
+|---|---|---|---|
+| `theharvester` | cli_wrapper | `theHarvester` | osint |
+| `subfinder` | cli_wrapper | `subfinder` | osint |
+| `amass` | cli_wrapper | `amass` | osint |
+| `whois_lookup` | python_class | `python-whois` | osint |
+| `dns_lookup` | python_class | `dnspython` | osint |
+| `wpscan` | cli_wrapper | `wpscan` | web |
+| `dirsearch` | cli_wrapper | `dirsearch` | web |
+
+**Priority 3 — Post-exploit / Lateral:**
+
+| Plugin | Type | Binary / Dep | Category |
+|---|---|---|---|
+| `crackmapexec` | cli_wrapper | `nxc` / `cme` | lateral |
+| `impacket_psexec` | python_class | `impacket` | lateral |
+| `impacket_secretsdump` | python_class | `impacket` | post-exploit |
+| `hydra` | cli_wrapper | `hydra` | brute-force |
+| `hashcat` | cli_wrapper | `hashcat` | cracking |
+| `ligolo` | python_class | `ligolo-ng` | pivot |
+| `chisel` | cli_wrapper | `chisel` | pivot |
+
+**Priority 4 — Optional paid API:**
+
+| Plugin | Type | Requires | Category |
+|---|---|---|---|
+| `shodan_search` | api_wrapper | `SHODAN_API_KEY` | osint |
+| `censys_search` | api_wrapper | `CENSYS_API_KEY` | osint |
