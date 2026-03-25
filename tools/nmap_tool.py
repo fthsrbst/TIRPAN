@@ -195,11 +195,12 @@ class NmapTool(BaseTool):
         if scan_type == "ping":
             base += ["-sn"]
         elif scan_type == "service":
-            base += (["-sS", "-sV", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
+            # -Pn: treat host as up even if ICMP ping fails (firewalled hosts)
+            base += (["-Pn", "-sS", "-sV", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
         elif scan_type == "os":
-            base += (["-O", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
+            base += (["-Pn", "-O", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
         elif scan_type == "full":
-            base += (["-sS", "-sV", "-O", "-p", port_range] if can_do_os else ["-sV", "-p", port_range])
+            base += (["-Pn", "-sS", "-sV", "-O", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
 
         # NSE scripts
         if scripts.strip() and scan_type != "ping":

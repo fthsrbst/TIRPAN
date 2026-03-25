@@ -28,13 +28,16 @@ Available tools:
   ffuf_scan(url, wordlist, extensions)       — directory and file brute-force
   report_finding(finding_type, data)         — report vulnerability or webapp_info
 
+IMPORTANT: All tools require a full URL (not just an IP). Build it as:
+  http://<TARGET>:<port>/  or  https://<TARGET>/
+
 Workflow:
-  1. whatweb_scan → identify technology stack
-  2. nikto_scan → quick vulnerability check
-  3. nuclei_scan → CVE/misconfiguration check (severity: medium,high,critical)
-  4. If interesting paths found → ffuf_scan for directory enumeration
-  5. report_finding for each vulnerability found
-  6. {"action": "done"}
+  1. whatweb_scan(url="http://TARGET/") → identify technology stack
+  2. nikto_scan(url="http://TARGET/", timeout=300) → quick vulnerability check
+  3. nuclei_scan(url="http://TARGET/", severity="medium,high,critical") → CVE check
+  4. If interesting paths found → ffuf_scan(url="http://TARGET/") for directory enum
+  5. report_finding(finding_type="vulnerability", data={...}) for each finding
+  6. {"thought": "...", "action": "done", "parameters": {"findings_summary": "..."}}
 """
 
 
@@ -43,25 +46,36 @@ class WebAppAgent(BaseSpecializedAgent):
     def get_available_tools(self) -> list[str]:
         tools = ["report_finding"]
         for tool_name in ("whatweb_scan", "nikto_scan", "nuclei_scan", "ffuf_scan"):
-            if self._registry and self._registry.get(tool_name):
+            if self._registry and self._registry.has(tool_name):
                 tools.append(tool_name)
         return tools
 
     def build_messages(self) -> list[dict]:
-        system = self._base_system("WebAppAgent", _TOOLS_DESC)
-        msgs = [{"role": "system", "content": system}]
-        for m in self.memory._messages:
-            msgs.append({"role": m.role, "content": m.content})
-        return msgs
+        port = self.options.get("port", 80) if self.options else 80
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            port = 80
+        scheme = "https" if port == 443 else "http"
+        port_suffix = f":{port}" if port not in (80, 443) else ""
+        base_url = f"{scheme}://{self.target}{port_suffix}/"
+
+        tools_desc = _TOOLS_DESC.replace("<TARGET>", self.target).replace(
+            "<TARGET>:<port>", f"{self.target}:{port}"
+        )
+        tools_desc += f"\nYour target URL is: {base_url}\n"
+        system = self._base_system("WebAppAgent", tools_desc)
+        return [{"role": "system", "content": system}] + self._build_memory_messages()
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
         if tool_name == "report_finding":
             await self._process_report_finding(action_dict)
-        elif result.get("status") == "success":
+        elif result.get("success"):
             await self._process_scan_result(tool_name, result, action_dict)
 
     async def _process_scan_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
-        findings_raw = result.get("findings", result.get("vulnerabilities", []))
+        data = result.get("output") or result
+        findings_raw = data.get("findings", data.get("vulnerabilities", []))
         for f in findings_raw:
             if isinstance(f, dict):
                 finding = {
@@ -76,21 +90,16 @@ class WebAppAgent(BaseSpecializedAgent):
                 self._add_finding(finding)
                 await self.publish_finding(finding)
 
-        if tool_name == "whatweb_scan" and result.get("plugins"):
+        if tool_name == "whatweb_scan" and data.get("plugins"):
             finding = {
                 "type": "webapp_info",
                 "host_ip": self.target,
-                "tech": result.get("plugins", {}),
+                "tech": data.get("plugins", {}),
                 "url": action_dict.get("parameters", action_dict).get("url", self.target),
             }
             self._add_finding(finding)
             await self.publish_finding(finding)
 
-    async def _process_report_finding(self, action_dict: dict) -> None:
-        params = action_dict.get("parameters", action_dict)
-        finding = {"type": params.get("finding_type", "unknown"), **params.get("data", {})}
-        self._add_finding(finding)
-        await self.publish_finding(finding)
 
 
 _register_agent_type("webapp", "core.agents.webapp_agent", "WebAppAgent")

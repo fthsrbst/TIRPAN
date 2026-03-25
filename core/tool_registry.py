@@ -50,6 +50,10 @@ class ToolRegistry:
             raise ToolNotFoundError(f"Tool not found: '{name}'")
         return self._tools[name]
 
+    def has(self, name: str) -> bool:
+        """Return True if the tool is registered (never raises)."""
+        return name in self._tools
+
     def list_tools(self) -> list[BaseTool]:
         """Returns all registered tools."""
         return list(self._tools.values())
