@@ -69,7 +69,53 @@ class BaseSpecializedAgent(BaseAgent):
             },
         ))
 
+    # ── Common report_finding handler ─────────────────────────────────────────
+
+    async def _process_report_finding(self, action_dict: dict) -> None:
+        """
+        Handle a report_finding tool result.
+
+        Reads from the validated tool result (action_dict["parameters"]) and
+        safely coerces the data field to a dict so that **unpacking never fails.
+        Subclasses may override for custom logic.
+        """
+        params = action_dict.get("parameters", action_dict)
+        finding_type = params.get("finding_type", "unknown")
+        data = params.get("data", {})
+        if not isinstance(data, dict):
+            data = {"note": str(data)}
+        finding = {"type": finding_type, **data}
+        self._add_finding(finding)
+        await self.publish_finding(finding)
+
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _build_memory_messages(self) -> list[dict]:
+        """
+        Return memory messages for LLM context, with proper role mapping
+        and token budgeting via build_context().
+
+        If memory is empty (first iteration), returns a single starter
+        user message so the LLM always has at least one user turn.
+        """
+        if not self.memory._messages:
+            return [{"role": "user", "content": self._initial_user_message()}]
+        return self.memory.build_context()
+
+    def _initial_user_message(self) -> str:
+        """
+        Return a starter user message so the LLM has at least one user turn.
+
+        Many OpenRouter / cloud models require messages to start with a user
+        message — without it the API may error or the model may immediately
+        return 'done'.
+        """
+        available = self.get_available_tools()
+        return (
+            f"You are assigned to target {self.target} with task: {self.task_type}. "
+            f"Your available tools are: {available}. "
+            f"Begin your work now. Call your first tool."
+        )
 
     def _base_system(self, role: str, tools_description: str) -> str:
         ctx_summary = self.ctx.to_summary() if self.ctx else "(no context)"
@@ -88,7 +134,8 @@ MISSION STATE:
 
 Rules:
 - Focus exclusively on your assigned target ({self.target}) and task type.
-- Always include the "target" parameter when calling scan/lookup tools — use {self.target}.
+- ONLY use tools listed in "Available tools" above. Do NOT call any other tool.
+- If you cannot proceed with your available tools, call "done" immediately.
 - Report every significant finding immediately with the appropriate tool.
 - When done or if you cannot proceed further, respond with:
   {{"thought": "...", "action": "done", "parameters": {{"findings_summary": "..."}}}}
@@ -96,7 +143,4 @@ Rules:
 
 Respond ONLY with a single valid JSON object in this exact format:
 {{"thought": "<your brief reasoning>", "action": "<tool_name>", "parameters": {{"param1": "value1", "param2": "value2"}}}}
-
-Example for nmap_scan:
-{{"thought": "Starting with a ping scan on the target to check if it's alive.", "action": "nmap_scan", "parameters": {{"target": "{self.target}", "scan_type": "ping"}}}}
 """

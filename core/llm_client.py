@@ -88,6 +88,7 @@ class OllamaClient(LLMClient):
                 "model": self.model,
                 "messages": messages,
                 "stream": True,
+                "options": {"num_predict": 8192},
             },
         ) as resp:
             resp.raise_for_status()
@@ -165,6 +166,7 @@ class OpenRouterClient(LLMClient):
                         json={
                             "model": self._current_model,
                             "messages": messages,
+                            "max_tokens": 8192,
                         },
                     )
                     resp.raise_for_status()
@@ -218,6 +220,7 @@ class OpenRouterClient(LLMClient):
                         "model": self._current_model,
                         "messages": messages,
                         "stream": True,
+                        "max_tokens": 8192,
                     },
                 ) as resp:
                     if resp.status_code >= 400:

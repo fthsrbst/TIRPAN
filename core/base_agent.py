@@ -54,6 +54,8 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_ITERATIONS = 150
 _MAX_SAME_FAIL = 3           # failures before hard-blocking a tool/module
 _CONNECT_LOOP_THRESHOLD = 2  # shell_exec(connect) already_open hits before nudge
+_UNAVAILABLE_TOOL_LIMIT = 3  # consecutive unavailable-tool calls before warning
+_UNAVAILABLE_TOOL_FORCE_DONE = 5  # consecutive unavailable-tool calls → force agent done
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -289,12 +291,12 @@ class BaseAgent(ABC):
         """
         Convert raw tool output to a compact, LLM-friendly string.
 
-        Default: JSON dump with 2 000-char hard cap.
+        Default: JSON dump with 4 000-char hard cap.
         Override per tool category for smarter summarization (see PentestAgent).
         """
         result_str = json.dumps(raw_output, ensure_ascii=False, default=str)
-        if len(result_str) > 2000:
-            result_str = result_str[:2000] + " ... [truncated]"
+        if len(result_str) > 4000:
+            result_str = result_str[:4000] + " ... [truncated]"
         return result_str
 
     # ── Finding accumulation ──────────────────────────────────────────────────
@@ -426,6 +428,9 @@ class BaseAgent(ABC):
 
         # Repeated-failure guard state
         _failure_counts: dict[str, int] = {}   # "tool|error_prefix" → consecutive count
+
+        # Unavailable-tool loop breaker
+        _unavailable_consecutive: int = 0
 
         # Connect-loop guard state
         _already_open_counts: dict[str, int] = {}  # session_key → count
@@ -594,8 +599,44 @@ class BaseAgent(ABC):
                             f"error: {_err!r}. PERMANENTLY BLOCKED — do NOT retry.",
                             pinned=True,
                         )
+                    # ── Unavailable-tool loop breaker ─────────────────────
+                    _err_str = str(result.get("error") or "")
+                    if "is not available to" in _err_str or "is permanently blocked" in _err_str:
+                        _unavailable_consecutive += 1
+                        if _unavailable_consecutive >= _UNAVAILABLE_TOOL_FORCE_DONE:
+                            # Agent is stuck in an infinite loop calling unavailable tools.
+                            # Force-stop to prevent wasting tokens.
+                            self._log.error(
+                                "Agent %s called unavailable tools %d times — force-stopping",
+                                self.agent_id, _unavailable_consecutive,
+                            )
+                            self.memory.add_tool_result(
+                                f"[SYSTEM] FORCE STOP: Agent called unavailable tools "
+                                f"{_unavailable_consecutive} times. Terminating.",
+                                pinned=True,
+                            )
+                            self._state = AgentState.DONE
+                            break
+                        elif _unavailable_consecutive >= _UNAVAILABLE_TOOL_LIMIT:
+                            available = self.get_available_tools()
+                            self.memory.add_tool_result(
+                                f"[SYSTEM] You have called unavailable/blocked tools "
+                                f"{_unavailable_consecutive} times in a row. "
+                                f"Your ONLY available tools are: {available}. "
+                                f"If none of these can accomplish your task, you MUST call "
+                                f'"done" immediately. Do NOT try any other tool.',
+                                pinned=True,
+                            )
+                            self._log.warning(
+                                "Unavailable-tool loop breaker fired for agent %s "
+                                "(%d consecutive unavailable calls)",
+                                self.agent_id, _unavailable_consecutive,
+                            )
+                    else:
+                        _unavailable_consecutive = 0
                 else:
                     _tool = action_dict.get("action", "unknown")
+                    _unavailable_consecutive = 0
                     for k in list(_failure_counts):
                         if k.startswith(f"{_tool}|"):
                             _failure_counts[k] = 0

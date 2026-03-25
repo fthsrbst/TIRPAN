@@ -48,7 +48,7 @@ class FfufTool(BaseTool):
         filter_codes = params.get("filter_codes", "404,403")
 
         if not shutil.which("ffuf"):
-            return {"status": "error", "error": "ffuf not found — install with: apt install ffuf"}
+            return {"success": False, "error": "ffuf not found — install with: apt install ffuf"}
 
         fuzz_url = f"{url}/FUZZ"
         cmd = [
@@ -65,9 +65,9 @@ class FfufTool(BaseTool):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            return {"status": "error", "error": "ffuf timeout"}
+            return {"success": False, "error": "ffuf timeout"}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"success": False, "error": str(e)}
 
         try:
             data = json.loads(stdout.decode(errors="replace"))
@@ -79,7 +79,7 @@ class FfufTool(BaseTool):
         except Exception:
             results = []
 
-        return {"status": "success", "results": results, "total": len(results), "base_url": url}
+        return {"success": True, "output": {"results": results, "total": len(results), "base_url": url}}
 
     async def health_check(self) -> ToolHealthStatus:
         if shutil.which("ffuf"):

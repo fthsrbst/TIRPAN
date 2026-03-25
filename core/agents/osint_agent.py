@@ -45,16 +45,13 @@ class OSINTAgent(BaseSpecializedAgent):
         tools = ["report_finding"]
         for tool_name in ("theharvester_scan", "subfinder_scan",
                           "whois_lookup", "dns_enum"):
-            if self._registry and self._registry.get(tool_name):
+            if self._registry and self._registry.has(tool_name):
                 tools.append(tool_name)
         return tools
 
     def build_messages(self) -> list[dict]:
         system = self._base_system("OSINTAgent", _TOOLS_DESC)
-        msgs = [{"role": "system", "content": system}]
-        for m in self.memory._messages:
-            msgs.append({"role": m.role, "content": m.content})
-        return msgs
+        return [{"role": "system", "content": system}] + self._build_memory_messages()
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
         if tool_name == "report_finding":
@@ -82,11 +79,6 @@ class OSINTAgent(BaseSpecializedAgent):
             self._add_finding(finding)
             await self.publish_finding(finding)
 
-    async def _process_report_finding(self, action_dict: dict) -> None:
-        params = action_dict.get("parameters", action_dict)
-        finding = {"type": params.get("finding_type", "unknown"), **params.get("data", {})}
-        self._add_finding(finding)
-        await self.publish_finding(finding)
 
 
 _register_agent_type("osint", "core.agents.osint_agent", "OSINTAgent")

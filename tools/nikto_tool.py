@@ -41,7 +41,7 @@ class NiktoTool(BaseTool):
         tuning = params.get("tuning", "")
 
         if not shutil.which("nikto"):
-            return {"status": "error", "error": "nikto not found — install with: apt install nikto"}
+            return {"success": False, "error": "nikto not found — install with: apt install nikto"}
 
         cmd = ["nikto", "-h", url, "-nointeractive", "-Format", "txt"]
         if tuning:
@@ -55,14 +55,14 @@ class NiktoTool(BaseTool):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            return {"status": "error", "error": "nikto timeout"}
+            return {"success": False, "error": "nikto timeout"}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"success": False, "error": str(e)}
 
         output = stdout.decode(errors="replace")
         findings = self._parse_nikto_output(output, url)
-        return {"status": "success", "url": url, "findings": findings,
-                "total": len(findings), "raw_output": output[:4096]}
+        return {"success": True, "output": {"url": url, "findings": findings,
+                                             "total": len(findings), "raw_output": output[:4096]}}
 
     def _parse_nikto_output(self, output: str, url: str) -> list[dict]:
         findings = []

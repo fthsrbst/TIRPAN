@@ -21,15 +21,15 @@ logger = logging.getLogger(__name__)
 
 _TOOLS_DESC = """\
 Available tools:
-  generate_report(format, include_sections)
+  generate_report(format, session_id)
                      — produce the final pentest report (formats: html, markdown, json)
+    ALWAYS include session_id — it is injected below.
   report_finding(finding_type, data)
                      — add supplemental note or executive summary section
 
 Workflow:
-  1. generate_report(format="html") → full HTML report
-  2. generate_report(format="markdown") → markdown summary
-  3. {"action": "done", "findings_summary": "Report generated."}
+  1. generate_report(format="html", session_id="SESSION_ID_PLACEHOLDER") → full HTML report
+  2. {"thought": "Report generated.", "action": "done", "parameters": {"findings_summary": "Report generated."}}
 """
 
 
@@ -40,50 +40,40 @@ class ReportingAgent(BaseSpecializedAgent):
 
     def build_messages(self) -> list[dict]:
         ctx_summary = self.ctx.to_summary() if self.ctx else ""
+        tools_desc = _TOOLS_DESC.replace("SESSION_ID_PLACEHOLDER", self.session_id)
         system = f"""You are AEGIS ReportingAgent — the final stage of a penetration test engagement.
 
 Your task is to generate a comprehensive pentest report based on all mission findings.
 
+SESSION ID: {self.session_id}
+
 MISSION STATE:
 {ctx_summary}
 
-{_TOOLS_DESC}
+{tools_desc}
 
-The report must include:
-- Executive Summary
-- Attack Narrative (timeline of compromise)
-- Technical Findings (per host, per vulnerability)
-- Credentials and Loot (if any)
-- Remediation Recommendations
-- Attack Path diagram description
-
-Respond ONLY with a valid JSON action dict.
+Respond ONLY with a single valid JSON object:
+{{"thought": "<your brief reasoning>", "action": "<tool_name>", "parameters": {{"param1": "value1"}}}}
 """
-        msgs = [{"role": "system", "content": system}]
-        for m in self.memory._messages:
-            msgs.append({"role": m.role, "content": m.content})
-        return msgs
+        return [{"role": "system", "content": system}] + self._build_memory_messages()
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
         if tool_name == "generate_report":
             await self._handle_report_generated(result, action_dict)
         elif tool_name == "report_finding":
-            params = action_dict.get("parameters", action_dict)
-            finding = {"type": params.get("finding_type", "report_note"),
-                       **params.get("data", {})}
-            self._add_finding(finding)
-            await self.publish_finding(finding)
+            await self._process_report_finding(action_dict)
 
     async def _handle_report_generated(self, result: dict, action_dict: dict) -> None:
-        if result.get("status") != "success":
+        if not result.get("success"):
             return
+        data = result.get("output") or result
         params = action_dict.get("parameters", action_dict)
         report_format = params.get("format", "html")
         finding = {
             "type": "report_generated",
             "format": report_format,
-            "path": result.get("path", result.get("output_path", "")),
-            "size_bytes": result.get("size", 0),
+            "path": data.get("path", data.get("output_path", "")),
+            "size_bytes": data.get("size", 0),
             "generated_at": time.time(),
         }
         self._add_finding(finding)

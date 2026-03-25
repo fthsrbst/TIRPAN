@@ -40,7 +40,7 @@ class WhatWebTool(BaseTool):
         aggression = int(params.get("aggression", 1))
 
         if not shutil.which("whatweb"):
-            return {"status": "error", "error": "whatweb not found — install with: apt install whatweb"}
+            return {"success": False, "error": "whatweb not found — install with: apt install whatweb"}
 
         cmd = ["whatweb", f"-a{aggression}", "--log-json=-", url]
         try:
@@ -51,9 +51,9 @@ class WhatWebTool(BaseTool):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=WHATWEB_TIMEOUT)
         except asyncio.TimeoutError:
-            return {"status": "error", "error": "whatweb timeout"}
+            return {"success": False, "error": "whatweb timeout"}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"success": False, "error": str(e)}
 
         plugins = {}
         for line in stdout.decode(errors="replace").splitlines():
@@ -71,7 +71,7 @@ class WhatWebTool(BaseTool):
                 continue
 
         tech = [{"name": k, "detail": v} for k, v in plugins.items()]
-        return {"status": "success", "url": url, "plugins": plugins, "technologies": tech}
+        return {"success": True, "output": {"url": url, "plugins": plugins, "technologies": tech}}
 
     async def health_check(self) -> ToolHealthStatus:
         if shutil.which("whatweb"):

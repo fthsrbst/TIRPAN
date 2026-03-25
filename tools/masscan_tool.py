@@ -41,7 +41,7 @@ class MasscanTool(BaseTool):
         rate = int(params.get("rate", 1000))
 
         if not shutil.which("masscan"):
-            return {"status": "error", "error": "masscan not found — install with: apt install masscan"}
+            return {"success": False, "error": "masscan not found — install with: apt install masscan"}
 
         cmd = ["sudo", "masscan", target, f"-p{port_range}", f"--rate={rate}", "-oJ", "-"]
         try:
@@ -54,12 +54,12 @@ class MasscanTool(BaseTool):
                 proc.communicate(), timeout=MASSCAN_TIMEOUT
             )
         except asyncio.TimeoutError:
-            return {"status": "error", "error": "masscan timeout"}
+            return {"success": False, "error": "masscan timeout"}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"success": False, "error": str(e)}
 
         if proc.returncode not in (0, None):
-            return {"status": "error", "error": stderr.decode(errors="replace")[:500]}
+            return {"success": False, "error": stderr.decode(errors="replace")[:500]}
 
         return self._parse_masscan_json(stdout.decode(errors="replace"))
 
@@ -86,7 +86,7 @@ class MasscanTool(BaseTool):
                     "service": p.get("service", {}).get("name", ""),
                     "name":    p.get("service", {}).get("name", ""),
                 })
-        return {"status": "success", "hosts": list(hosts.values()), "total": len(hosts)}
+        return {"success": True, "output": {"hosts": list(hosts.values()), "total": len(hosts)}}
 
     async def health_check(self) -> ToolHealthStatus:
         if shutil.which("masscan"):
