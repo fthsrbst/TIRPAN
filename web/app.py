@@ -91,10 +91,13 @@ async def lifespan(app: FastAPI):
     from tools.dns_tool import DnsTool
     from tools.crackmapexec_tool import CrackMapExecTool
     from tools.impacket_tool import ImpacketTool
+    from tools.report_finding_tool import ReportFindingTool
+    from tools.generate_report_tool import GenerateReportTool
 
     for _tool in (MasscanTool(), NucleiTool(), FfufTool(), WhatWebTool(),
                   NiktoTool(), TheHarvesterTool(), SubfinderTool(),
-                  WhoisTool(), DnsTool(), CrackMapExecTool(), ImpacketTool()):
+                  WhoisTool(), DnsTool(), CrackMapExecTool(), ImpacketTool(),
+                  ReportFindingTool(), GenerateReportTool()):
         tool_registry.register(_tool)
 
     # Import specialized agents so they self-register into BrainAgent registry

@@ -26,7 +26,10 @@ Available tools:
                                               — SMB/WMI/SSH credential spray + command exec
   impacket_run(tool, target, username, password, hash, command)
                                               — psexec/smbexec/wmiexec/secretsdump
-  shell_exec(shell_key, command, timeout)    — execute on existing pivot shell
+  shell_exec(action, shell_key, command)     — execute on existing pivot shell
+    action MUST be "exec". Example:
+    {"thought": "Run id", "action": "shell_exec",
+     "parameters": {"action": "exec", "shell_key": "<KEY>", "command": "id"}}
   report_finding(finding_type, data)         — report new session or lateral_edge
 
 Lateral movement workflow:
@@ -35,7 +38,7 @@ Lateral movement workflow:
   3. Successful login → impacket_run(psexec/smbexec) for shell
   4. report_finding(type="session") for new shells
   5. report_finding(type="lateral_edge") for each hop
-  6. {"action": "done"}
+  6. {"thought": "...", "action": "done", "parameters": {"findings_summary": "..."}}
 """
 
 
@@ -46,34 +49,32 @@ class LateralMovementAgent(BaseSpecializedAgent):
             return []  # Hard block — no tools if not permitted
         tools = ["report_finding", "shell_exec"]
         for tool_name in ("crackmapexec_run", "impacket_run"):
-            if self._registry and self._registry.get(tool_name):
+            if self._registry and self._registry.has(tool_name):
                 tools.append(tool_name)
         return tools
 
     def build_messages(self) -> list[dict]:
         system = self._base_system("LateralMovementAgent", _TOOLS_DESC)
-        msgs = [{"role": "system", "content": system}]
-        for m in self.memory._messages:
-            msgs.append({"role": m.role, "content": m.content})
-        return msgs
+        return [{"role": "system", "content": system}] + self._build_memory_messages()
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
         if tool_name == "report_finding":
             await self._process_report_finding(action_dict)
             return
-        if result.get("status") != "success":
+        if not result.get("success"):
             return
+        data = result.get("output") or result
         params = action_dict.get("parameters", action_dict)
         target_host = params.get("target", params.get("targets", self.target))
         if isinstance(target_host, list):
             target_host = target_host[0] if target_host else self.target
 
-        if result.get("session_opened") or result.get("shell"):
+        if data.get("session_opened") or data.get("shell"):
             finding = {
                 "type": "session",
                 "host_ip": target_host,
                 "session_type": "shell",
-                "privilege_level": 1 if "SYSTEM" in result.get("output", "") else 0,
+                "privilege_level": 1 if "SYSTEM" in data.get("raw_output", "") else 0,
                 "username": params.get("username", ""),
                 "source": "lateral",
             }
@@ -89,11 +90,6 @@ class LateralMovementAgent(BaseSpecializedAgent):
             self._add_finding(edge_finding)
             await self.publish_finding(edge_finding)
 
-    async def _process_report_finding(self, action_dict: dict) -> None:
-        params = action_dict.get("parameters", action_dict)
-        finding = {"type": params.get("finding_type", "unknown"), **params.get("data", {})}
-        self._add_finding(finding)
-        await self.publish_finding(finding)
 
 
 _register_agent_type("lateral", "core.agents.lateral_agent", "LateralMovementAgent")

@@ -53,7 +53,7 @@ class CrackMapExecTool(BaseTool):
 
         binary = shutil.which("crackmapexec") or shutil.which("cme") or shutil.which("nxc")
         if not binary:
-            return {"status": "error",
+            return {"success": False,
                     "error": "crackmapexec/nxc not found — install with: apt install crackmapexec"}
 
         cmd = [binary, protocol, targets, "-u", username]
@@ -72,17 +72,19 @@ class CrackMapExecTool(BaseTool):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            return {"status": "error", "error": "crackmapexec timeout"}
+            return {"success": False, "error": "crackmapexec timeout"}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"success": False, "error": str(e)}
 
         output = stdout.decode(errors="replace")
         successes = self._parse_successes(output)
         return {
-            "status": "success",
-            "output": output[:4096],
-            "successes": successes,
-            "session_opened": len(successes) > 0,
+            "success": True,
+            "output": {
+                "raw_output": output[:4096],
+                "successes": successes,
+                "session_opened": len(successes) > 0,
+            },
         }
 
     def _parse_successes(self, output: str) -> list[dict]:

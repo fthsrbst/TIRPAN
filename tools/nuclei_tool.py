@@ -44,7 +44,7 @@ class NucleiTool(BaseTool):
         timeout = int(params.get("timeout", NUCLEI_TIMEOUT))
 
         if not shutil.which("nuclei"):
-            return {"status": "error", "error": "nuclei not found — install from https://nuclei.projectdiscovery.io"}
+            return {"success": False, "error": "nuclei not found — install from https://nuclei.projectdiscovery.io"}
 
         cmd = ["nuclei", "-u", url, "-severity", severity, "-json", "-silent", "-nc"]
         if templates:
@@ -58,9 +58,9 @@ class NucleiTool(BaseTool):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            return {"status": "error", "error": "nuclei timeout"}
+            return {"success": False, "error": "nuclei timeout"}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"success": False, "error": str(e)}
 
         findings = []
         for line in stdout.decode(errors="replace").splitlines():
@@ -81,7 +81,7 @@ class NucleiTool(BaseTool):
             except Exception:
                 continue
 
-        return {"status": "success", "findings": findings, "total": len(findings), "url": url}
+        return {"success": True, "output": {"findings": findings, "total": len(findings), "url": url}}
 
     async def health_check(self) -> ToolHealthStatus:
         if shutil.which("nuclei"):

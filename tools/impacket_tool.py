@@ -65,7 +65,7 @@ class ImpacketTool(BaseTool):
         if not binary:
             binary = shutil.which(tool)  # some installs don't use prefix
         if not binary:
-            return {"status": "error",
+            return {"success": False,
                     "error": f"impacket-{tool} not found — install with: apt install python3-impacket"}
 
         # Build credential string: domain/user:password or domain/user (hash via -hashes)
@@ -89,21 +89,23 @@ class ImpacketTool(BaseTool):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            return {"status": "error", "error": f"impacket-{tool} timeout"}
+            return {"success": False, "error": f"impacket-{tool} timeout"}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return {"success": False, "error": str(e)}
 
-        output = stdout.decode(errors="replace")
+        raw_out = stdout.decode(errors="replace")
         err = stderr.decode(errors="replace")
-        success = proc.returncode == 0 or (len(output) > 20 and "error" not in output.lower()[:50])
+        success = proc.returncode == 0 or (len(raw_out) > 20 and "error" not in raw_out.lower()[:50])
 
         return {
-            "status": "success" if success else "error",
-            "tool": tool,
-            "output": output[:8192],
-            "error": err[:1024] if err else "",
-            "session_opened": success and tool != "secretsdump",
-            "shell": success,
+            "success": success,
+            "output": {
+                "tool": tool,
+                "raw_output": raw_out[:8192],
+                "session_opened": success and tool != "secretsdump",
+                "shell": success,
+            },
+            "error": err[:1024] if (err and not success) else None,
         }
 
     async def health_check(self) -> ToolHealthStatus:

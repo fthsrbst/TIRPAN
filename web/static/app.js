@@ -2650,6 +2650,14 @@ function handleSessionEvent(msg) {
         setAgentStatus('error', data.error ? data.error.slice(0, 60) : '');
         renderMissionError(data);
         appendConsoleLine(`[ERROR] ${data.error || ''}`, 'text-danger');
+
+    } else if (event === 'finding') {
+        _handleV2Finding(data);
+
+    } else if (event === 'child_agent_done') {
+        const agId = data.agent_id || '';
+        const cnt  = data.findings || 0;
+        appendConsoleLine(`[AGENT DONE] ${agId} — ${cnt} finding(s)`, 'text-green-400');
     }
 
     if (activeMissionId) {
@@ -3024,10 +3032,10 @@ async function refreshMissionStats(sessionId) {
         ).size;
         const liveVulns = (data.vulnerabilities || []).length;
 
-        // Use live counts; fall back to DB summary fields if live counts are still 0
-        setStatValue('stat-vulns', liveVulns || data.vulns_found || '—');
-        setStatValue('stat-hosts', liveHosts || data.hosts_found || '—');
-        setStatValue('stat-ports', livePorts || data.ports_found || '—');
+        // Use live counts; fall back to V2 in-memory counters; fall back to DB summary fields
+        setStatValue('stat-vulns', liveVulns || _v2Vulns  || data.vulns_found || '—');
+        setStatValue('stat-hosts', liveHosts || _v2Hosts.size || data.hosts_found || '—');
+        setStatValue('stat-ports', livePorts || _v2Ports  || data.ports_found || '—');
 
         // Update network panel with live scan data
         updateNetworkPanelFromSession(data);
@@ -3064,6 +3072,39 @@ function resetMissionStats() {
     setStatValue('stat-ports', '0');
     setStatValue('stat-uptime', '00h 00m 00s');
     setStatValue('stat-shells', '0');
+    // Reset V2 live finding counters
+    _v2Hosts.clear();
+    _v2Vulns  = 0;
+    _v2Ports  = 0;
+    _v2Shells = 0;
+}
+
+// ── V2 live finding counters (updated via "finding" WebSocket events) ──────────
+const _v2Hosts = new Set();  // unique IPs
+let _v2Vulns  = 0;
+let _v2Ports  = 0;
+let _v2Shells = 0;
+
+function _handleV2Finding(data) {
+    const type = data.type || '';
+    if (type === 'host') {
+        if (data.ip) _v2Hosts.add(data.ip);
+        if (Array.isArray(data.ports)) _v2Ports += data.ports.filter(p => p.state === 'open').length;
+        setStatValue('stat-hosts', _v2Hosts.size || '—');
+        setStatValue('stat-ports', _v2Ports   || '—');
+    } else if (type === 'vulnerability') {
+        _v2Vulns++;
+        setStatValue('stat-vulns', _v2Vulns || '—');
+    } else if (type === 'session') {
+        _v2Shells++;
+        setStatValue('stat-shells', _v2Shells || '—');
+    } else if (type === 'subdomain') {
+        // Show subdomain in console
+        if (data.subdomain) appendConsoleLine(`[OSINT] Subdomain: ${data.subdomain}`, 'text-cyan-400');
+    } else if (type === 'credential') {
+        if (data.username) appendConsoleLine(`[CRED] ${data.username}@${data.host_ip || '?'}`, 'text-yellow-400');
+    }
+    appendConsoleLine(`[FINDING] ${type}${data.ip ? ' — ' + data.ip : data.subdomain ? ' — ' + data.subdomain : ''}`, 'text-primary');
 }
 
 // ─── Intel Panel: Analysis ─────────────────────────────────────────────────────
