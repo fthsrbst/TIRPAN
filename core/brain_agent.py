@@ -48,6 +48,7 @@ from typing import Any
 from core.base_agent import AgentResult, AgentState, BaseAgent
 from core.message_bus import AgentMessage, AgentMessageBus, MessageType
 from core.soul_loader import SoulLoader
+from core.playbook import get_playbook
 import core.debug_logger as dbg
 from core.mission_context import (
     AgentStatus,
@@ -697,6 +698,9 @@ class BrainAgent(BaseAgent):
             dbg.bus_agent_done(aid, msg.msg_type, status)
             self._active_agents.pop(aid, None)
             self._child_agents.pop(aid, None)
+            # Save successful techniques to the persistent playbook
+            if status in ("success", "partial"):
+                self._record_playbook_entries(msg.payload)
             self.emit_event("child_agent_done", {
                 "agent_id": aid,
                 "findings": len(msg.payload.get("findings", [])),
@@ -714,11 +718,81 @@ class BrainAgent(BaseAgent):
             "allow_credential_harvest":self.ctx.allow_credential_harvest,
             "allow_data_exfil":        self.ctx.allow_data_exfil,
         }
+        # Inject relevant playbook entries based on discovered services
+        pb = get_playbook()
+        discovered = self._get_discovered_service_strings()
+        playbook_section = pb.to_prompt_section(
+            services=discovered if discovered else None,
+            max_entries=12,
+        )
         return self._soul.build_brain_prompt(
             ctx_summary=ctx_summary,
             active_agents=self._active_agents,
             permissions=permissions,
+            playbook_section=playbook_section,
         )
+
+    def _get_discovered_service_strings(self) -> list[str]:
+        """Extract 'service version' strings from mission context for playbook lookup."""
+        services = []
+        try:
+            for host in self.ctx.hosts.values():
+                for port in host.ports:
+                    svc = port.service or ""
+                    ver = port.version or ""
+                    if svc:
+                        services.append(f"{svc} {ver}".strip())
+        except Exception:
+            pass
+        return services
+
+    def _record_playbook_entries(self, payload: dict) -> None:
+        """
+        Extract successful technique info from agent completion payload
+        and persist to the playbook for future sessions.
+        """
+        pb = get_playbook()
+        findings: list[dict] = payload.get("findings", [])
+        agent_type = payload.get("agent_type", "")
+
+        for finding in findings:
+            ftype = finding.get("type", finding.get("finding_type", ""))
+
+            # Shell opened
+            if ftype in ("session_opened", "shell_opened", "session"):
+                data = finding.get("data", finding)
+                module = data.get("module", "")
+                service = data.get("service", agent_type)
+                version = data.get("version", "")
+                pb.record(
+                    service=service,
+                    version=version,
+                    technique=module or data.get("technique", ""),
+                    result="shell",
+                    cve=data.get("cve", ""),
+                    module=module,
+                    payload=data.get("payload", ""),
+                    options=data.get("options", {}),
+                    notes=data.get("notes", data.get("shell_output", "")[:120]),
+                    session_id=self.session_id,
+                )
+                dbg.info(self.agent_id,
+                         f"Playbook saved: shell via {module or service} {version}")
+
+            # Credential harvested
+            elif ftype in ("credential_found", "credential"):
+                data = finding.get("data", finding)
+                service = data.get("service", "")
+                version = data.get("version", "")
+                if service:
+                    pb.record(
+                        service=service,
+                        version=version,
+                        technique=data.get("method", "credential_harvest"),
+                        result="credential",
+                        notes=f"user={data.get('username','')} via {data.get('method','')}",
+                        session_id=self.session_id,
+                    )
 
     # ── Handle terminal action ────────────────────────────────────────────────
 

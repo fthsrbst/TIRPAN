@@ -62,6 +62,8 @@ class SoulLoader:
         ctx_summary: str,
         active_agents: dict[str, str],
         permissions: dict[str, bool],
+        playbook_section: str = "",
+        discovered_services: list[str] | None = None,
     ) -> str:
         """Build the full BrainAgent system prompt from soul files + runtime context."""
         brain_soul = self.load("BRAIN_SOUL")
@@ -82,6 +84,8 @@ class SoulLoader:
             f"  {k}: {v}" for k, v in permissions.items()
         )
 
+        playbook_part = f"\n---\n\n{playbook_section}\n" if playbook_section.strip() else ""
+
         return f"""{brain_soul}
 
 ---
@@ -91,7 +95,7 @@ class SoulLoader:
 ---
 
 {exploit_kb}
-
+{playbook_part}
 ---
 
 ## CURRENT MISSION STATE
