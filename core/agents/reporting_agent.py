@@ -41,7 +41,7 @@ class ReportingAgent(BaseSpecializedAgent):
     def build_messages(self) -> list[dict]:
         ctx_summary = self.ctx.to_summary() if self.ctx else ""
         tools_desc = _TOOLS_DESC.replace("SESSION_ID_PLACEHOLDER", self.session_id)
-        system = f"""You are AEGIS ReportingAgent — the final stage of a penetration test engagement.
+        system = f"""You are TIRPAN ReportingAgent — the final stage of a penetration test engagement.
 
 Your task is to generate a comprehensive pentest report based on all mission findings.
 

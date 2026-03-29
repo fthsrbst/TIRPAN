@@ -1,5 +1,5 @@
 """
-Shared pytest fixtures for the AEGIS test suite.
+Shared pytest fixtures for the TIRPAN test suite.
 
 Provides:
   - mock_llm_router       : LLMRouter stub that returns deterministic JSON
@@ -122,7 +122,7 @@ async def tmp_db(tmp_path: Path):
     """
     import database.db as db_module
 
-    db_path = tmp_path / "test_aegis.db"
+    db_path = tmp_path / "test_tirpan.db"
     original = db_module.DB_PATH
 
     db_module.DB_PATH = db_path

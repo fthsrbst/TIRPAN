@@ -1,5 +1,5 @@
 """
-AEGIS — FastAPI application entry point.
+TIRPAN — FastAPI application entry point.
 
 Serves static frontend and provides:
   - REST API at /api/v1/...
@@ -120,11 +120,11 @@ def create_app() -> FastAPI:
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse
 
-    application = FastAPI(title="AEGIS", version="0.1.0", lifespan=lifespan)
+    application = FastAPI(title="TIRPAN", version="0.1.0", lifespan=lifespan)
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(request, exc):
-        logging.getLogger("aegis.validation").error(
+        logging.getLogger("tirpan.validation").error(
             "422 on %s: %s", request.url.path, exc.errors()
         )
         return JSONResponse(status_code=422, content={"detail": exc.errors()})

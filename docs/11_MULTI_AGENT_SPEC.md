@@ -1,10 +1,10 @@
-# AEGIS — Multi-Agent Architecture Specification
+# TIRPAN — Multi-Agent Architecture Specification
 
 > **Status:** Design complete — implementation starting
 > **Document Version:** 1.0 — March 2026
 > **Supersedes:** 11_V2_FEATURE_SPEC.md (single-agent V2 spec, archived)
 
-This document is the complete technical specification for AEGIS V2's multi-agent system.
+This document is the complete technical specification for TIRPAN V2's multi-agent system.
 Each section maps to a discrete implementation unit.
 
 ---
@@ -725,7 +725,7 @@ class LateralAgent(BaseAgent):
         1. Discover internal network from compromised host
         2. Map reachable hosts and services
         3. Try harvested credentials against all reachable targets
-        4. Set up pivot/tunnel for AEGIS to reach internal networks
+        4. Set up pivot/tunnel for TIRPAN to reach internal networks
         5. Escalate in AD if possible (Kerberoast, DCSync)
 
         Report every new host compromised immediately."""

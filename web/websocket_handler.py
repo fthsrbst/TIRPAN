@@ -218,8 +218,8 @@ async def stream_openrouter(
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": "https://github.com/aegis-pentest",
-        "X-Title": "AEGIS",
+        "HTTP-Referer": "https://github.com/tirpan-pentest",
+        "X-Title": "TIRPAN",
     }
     payload = {"model": model, "messages": messages, "stream": True}
 

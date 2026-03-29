@@ -121,7 +121,7 @@ class SafetyGuard:
     def emergency_stop(self) -> None:
         """Activate kill switch — block all future actions."""
         self._kill_switch = True
-        logger.critical("AEGIS EMERGENCY STOP — kill switch activated")
+        logger.critical("TIRPAN EMERGENCY STOP — kill switch activated")
 
     def reset_kill_switch(self) -> None:
         self._kill_switch = False

@@ -1,5 +1,5 @@
 """
-AEGIS V2 — MissionContext
+TIRPAN V2 — MissionContext
 
 Shared read-only view of the entire mission state.
 

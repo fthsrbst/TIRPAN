@@ -1,4 +1,4 @@
-# AEGIS — Plugin System
+# TIRPAN — Plugin System
 
 > **Purpose:** Add new attack capabilities without touching the core.
 > V1 ships with 3 built-in tools. Everything else arrives as plugins.
@@ -65,7 +65,7 @@ Write a Python class inheriting `BaseTool`.
   "version": "1.0.0",
   "display_name": "LinPEAS",
   "description": "Upload and run LinPEAS on target via Shell Manager for privilege escalation enumeration.",
-  "author": "aegis",
+  "author": "tirpan",
   "category": "post-exploit",
   "enabled": true,
   "entry_point": "plugins.linpeas.tool",
@@ -298,7 +298,7 @@ Call a REST API entirely through `plugin.json`. No `tool.py` needed.
 | `base_url` | string | api_wrapper only | API base URL |
 | `auth_env` | string | api_wrapper | Environment variable name for API key |
 | `requires_packages` | list | No | pip dependencies for this plugin |
-| `min_core_version` | semver | No | Minimum AEGIS core version required |
+| `min_core_version` | semver | No | Minimum TIRPAN core version required |
 | `safety_level` | enum | No | `"low"` \| `"medium"` \| `"high"` — shown in UI |
 | `target_type` | enum | No | `"ip"` \| `"url"` \| `"session"` \| `"domain"` \| `"any"` |
 | `timeout_seconds` | int | No | Process/request timeout |

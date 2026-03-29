@@ -1,4 +1,4 @@
-# AEGIS — Safety & Legal Guidelines
+# TIRPAN — Safety & Legal Guidelines
 
 ## Legal Requirements
 
@@ -128,7 +128,7 @@ the following commands are always blocked regardless of permission flags:
 - `mkfs` — filesystem formatting
 - `shutdown`, `reboot`, `halt` — system control
 - Commands piping to `/dev/` devices
-- `iptables -F` or full firewall flush (blocks AEGIS's own access)
+- `iptables -F` or full firewall flush (blocks TIRPAN's own access)
 
 ---
 

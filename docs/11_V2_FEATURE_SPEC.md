@@ -1,4 +1,4 @@
-# AEGIS — V2 Feature Specification (Archived)
+# TIRPAN — V2 Feature Specification (Archived)
 
 > **Status:** Superseded
 > **Replaced by:** [11_MULTI_AGENT_SPEC.md](11_MULTI_AGENT_SPEC.md)

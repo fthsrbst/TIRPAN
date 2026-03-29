@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>AEGIS</title>
+<title>TIRPAN</title>
+<link rel="icon" type="image/png" href="logo.png"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet"/>
@@ -60,8 +61,8 @@
 
     <!-- Logo -->
     <div class="p-6 flex items-center gap-2">
-      <span class="material-symbols-outlined text-primary" style='font-variation-settings: "wght" 300;'>swords</span>
-      <h1 class="font-display font-bold text-xl tracking-tight uppercase">AEGIS</h1>
+      <img src="scythe.png" width="22" height="22" alt="scythe"/>
+      <h1 class="font-display font-bold text-xl tracking-tight uppercase">TIRPAN</h1>
     </div>
 
     <!-- Pentest / Defense toggle -->
@@ -388,7 +389,7 @@
             <div class="flex items-center gap-3 mb-4">
               <span class="material-symbols-outlined" style="color:#ccff00;font-size:20px;">psychology</span>
               <div>
-                <div class="text-[11px] font-bold uppercase tracking-widest" style="color:#ccff00;">AEGIS V2 · Brain Agent</div>
+                <div class="text-[11px] font-bold uppercase tracking-widest" style="color:#ccff00;">TIRPAN V2 · Brain Agent</div>
                 <div id="v2-mission-phase" class="text-[10px] text-secondary-text mono-text">Phase: —</div>
               </div>
               <button onclick="fetchAgentOrchestra()" class="ml-auto text-[9px] mono-text text-secondary-text/40 hover:text-secondary-text px-2 py-1 border border-border-color/30 hover:border-border-color transition-colors">↻ Refresh</button>
@@ -550,7 +551,7 @@
           <div id="chat-empty-state" class="flex flex-col items-center justify-center flex-1 py-24 gap-5 select-none pointer-events-none">
             <span class="material-symbols-outlined text-[48px]" style="color:#1A1A1A; font-variation-settings:'FILL' 1;">psychology</span>
             <div class="flex flex-col items-center gap-1">
-              <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">AEGIS Chat</p>
+              <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">TIRPAN Chat</p>
               <p class="text-[11px] mono-text" style="color:#333;">Ask anything — security questions, code analysis, threat intel…</p>
             </div>
           </div>
@@ -666,14 +667,14 @@
         <!-- Output history -->
         <div id="terminal-output" class="flex-1 overflow-y-auto p-4 font-mono text-xs scrollbar-hide flex flex-col gap-0.5">
           <div class="text-secondary-text select-none mb-3 border-b border-border-color pb-3">
-            <p class="text-primary font-bold mb-1">AEGIS Interactive Terminal</p>
+            <p class="text-primary font-bold mb-1">TIRPAN Interactive Terminal</p>
             <p>Commands typed here are injected directly into the active agent session.</p>
             <p class="text-secondary-text/60 mt-1">Type <span class="text-primary">/help</span> for built-in commands · <span class="text-primary">/shells</span> to list active reverse shells</p>
           </div>
         </div>
         <!-- Input bar -->
         <div class="border-t border-border-color bg-black/90 px-4 py-2.5 flex items-center gap-3 shrink-0">
-          <span class="text-primary font-mono text-xs shrink-0 select-none">aegis&gt;</span>
+          <span class="text-primary font-mono text-xs shrink-0 select-none">tirpan&gt;</span>
           <input id="terminal-cmd-input" class="flex-1 bg-transparent text-slate-200 font-mono text-xs outline-none border-none caret-primary" placeholder="inject task, instruction, or command to active agent…" type="text" autocomplete="off" spellcheck="false"/>
           <kbd class="text-[9px] text-secondary-text font-mono shrink-0 select-none">↵ Enter</kbd>
         </div>
@@ -1068,7 +1069,7 @@
               <div id="nmap-admin-hint" class="hidden bg-card border border-amber-500/30 p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-amber-400 uppercase tracking-widest">Not Running as Administrator</label>
                 <p class="text-[10px] text-secondary-text">
-                  Privileged scans (OS detection, SYN scan) are disabled. To enable them, restart AEGIS with elevated rights:
+                  Privileged scans (OS detection, SYN scan) are disabled. To enable them, restart TIRPAN with elevated rights:
                   right-click the terminal and choose <span class="text-primary mono-text">Run as Administrator</span>.
                 </p>
               </div>
@@ -2464,9 +2465,9 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
             </button>
           </div>
           <svg id="network-topology-svg" viewBox="0 0 220 178" class="w-full" xmlns="http://www.w3.org/2000/svg">
-            <!-- AEGIS Agent (top-left, compact) -->
+            <!-- TIRPAN Agent (top-left, compact) -->
             <rect x="2" y="4" width="44" height="22" rx="1" fill="#0c0c00" stroke="#ccff00" stroke-width="1"/>
-            <text x="24" y="14" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="5.5" font-weight="bold">AEGIS</text>
+            <text x="24" y="14" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="5.5" font-weight="bold">TIRPAN</text>
             <text x="24" y="23" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>
             <circle cx="42" cy="6" r="2.5" fill="#ccff00"/>
             <!-- Arrow: agent → gateway -->

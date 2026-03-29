@@ -19,7 +19,7 @@ import asyncio
 import sys
 import os
 
-# Make sure AEGIS root is in path
+# Make sure TIRPAN root is in path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest

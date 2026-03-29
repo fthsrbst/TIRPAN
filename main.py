@@ -1,5 +1,5 @@
 """
-AEGIS — Main entry point.
+TIRPAN — Main entry point.
 
 Modes
 -----
@@ -74,7 +74,7 @@ def print_banner(subtitle: str = "") -> None:
             f"[bold green]{ASCII_BANNER}[/bold green]\n"
             f"[dim]Autonomous Penetration Testing & Network Defense[/dim]"
             + (f"\n[cyan]{subtitle}[/cyan]" if subtitle else ""),
-            title=f"[bold white]AEGIS v{_VERSION}[/bold white]",
+            title=f"[bold white]TIRPAN v{_VERSION}[/bold white]",
             border_style="green",
             padding=(0, 2),
         )
@@ -117,8 +117,8 @@ def print_run_config(
 
 def build_parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="aegis",
-        description="AEGIS — Autonomous Penetration Testing Agent",
+        prog="tirpan",
+        description="TIRPAN — Autonomous Penetration Testing Agent",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
@@ -150,7 +150,7 @@ examples:
     run_p = subparsers.add_parser(
         "run",
         help="run a pentest directly from the terminal (no web UI)",
-        description="Run the AEGIS pentest agent directly in the terminal.",
+        description="Run the TIRPAN pentest agent directly in the terminal.",
     )
     run_p.add_argument(
         "--target", "-t", required=True,

@@ -1,5 +1,5 @@
-# AEGIS — Lab Environment & Testing Scenarios
-> Professional reference for building an isolated penetration testing laboratory to validate all AEGIS capabilities.
+# TIRPAN — Lab Environment & Testing Scenarios
+> Professional reference for building an isolated penetration testing laboratory to validate all TIRPAN capabilities.
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Decision: VirtualBox VMs with Host-Only networks.**
 
-Each VM has a real IP on a dedicated subnet. AEGIS running in Kali WSL can reach all of them. This mirrors a real engagement where you control one machine and pivot through the network.
+Each VM has a real IP on a dedicated subnet. TIRPAN running in Kali WSL can reach all of them. This mirrors a real engagement where you control one machine and pivot through the network.
 
 ### Lab Network Design Goals
 
@@ -57,7 +57,7 @@ Each VM has a real IP on a dedicated subnet. AEGIS running in Kali WSL can reach
 │  Windows 11 Host                                                          │
 │                                                                           │
 │  ┌──────────────────────┐                                                 │
-│  │  Kali Linux (WSL2)   │  ← AEGIS runs here (localhost:8000)            │
+│  │  Kali Linux (WSL2)   │  ← TIRPAN runs here (localhost:8000)            │
 │  │  "Attacker"          │                                                 │
 │  └──────────┬───────────┘                                                 │
 │             │ vEthernet (WSL) — 172.x.x.x                                 │
@@ -348,7 +348,7 @@ netsh interface portproxy add v4tov4 `
 ```bash
 # Add to /etc/wsl.conf or create a startup script:
 cat >> ~/.bashrc << 'EOF'
-# AEGIS Lab Routes
+# TIRPAN Lab Routes
 _setup_lab_routes() {
   local gw=$(ip route | grep default | awk '{print $3}')
   sudo ip route add 192.168.56.0/24 via "$gw" 2>/dev/null
@@ -362,7 +362,7 @@ EOF
 
 ## 8. Current Capability Scenarios (V1)
 
-These scenarios test every feature currently implemented in AEGIS.
+These scenarios test every feature currently implemented in TIRPAN.
 
 ---
 
@@ -370,7 +370,7 @@ These scenarios test every feature currently implemented in AEGIS.
 
 **Goal:** Confirm nmap integration, host discovery, service detection
 **Target:** `192.168.56.10`
-**AEGIS Settings:**
+**TIRPAN Settings:**
 
 ```
 Advanced Config → Targets:
@@ -406,7 +406,7 @@ Advanced Config → Policy:
 
 **Goal:** Full ReAct cycle — scan → find vuln → searchsploit → exploit
 **Target:** `192.168.56.10` (vsftpd 2.3.4 backdoor)
-**AEGIS Settings:**
+**TIRPAN Settings:**
 
 ```
 Advanced Config → Targets:
@@ -445,7 +445,7 @@ Advanced Config → Policy:
 
 **Goal:** Validate SSH tool (paramiko), credential storage, escalation
 **Target:** `192.168.56.12` (SSH Lab)
-**AEGIS Settings:**
+**TIRPAN Settings:**
 
 ```
 Advanced Config → Credentials → SSH:
@@ -564,7 +564,7 @@ sudo tcpdump -i eth0 -n tcp | head -50
 
 ### Scenario 7 — Web Application Scan
 
-**Goal:** Test AEGIS against a web application
+**Goal:** Test TIRPAN against a web application
 **Target:** `192.168.56.11` (DVWA)
 
 ```
@@ -687,10 +687,10 @@ Scope:
   Management:    192.168.58.0/24  (AD, monitoring — restricted)
 
 Attack path:
-  1. AEGIS scans DMZ → finds exposed Tomcat on 192.168.56.10:8180
+  1. TIRPAN scans DMZ → finds exposed Tomcat on 192.168.56.10:8180
   2. Exploits Tomcat → shell on DMZ host
   3. SSH tool enumerates internal routes from DMZ host
-  4. AEGIS pivots to 192.168.57.0/24 (lateral movement)
+  4. TIRPAN pivots to 192.168.57.0/24 (lateral movement)
   5. Enumerates Windows workstations via SMB
   6. Uses SMB credentials to authenticate to Domain Controller
   7. Extracts AD users / GPO configs
@@ -758,11 +758,11 @@ These scenarios map to V2/V3 roadmap items. Document them now, implement as feat
 sudo ifconfig eth1 192.168.57.20 netmask 255.255.255.0 up
 ```
 
-**AEGIS Test:**
+**TIRPAN Test:**
 ```
 Phase 1: Compromise 192.168.56.10 (DMZ)
 Phase 2: SSH tool runs on .10 and discovers 192.168.57.0/24
-Phase 3: AEGIS updates scope to include 192.168.57.0/24
+Phase 3: TIRPAN updates scope to include 192.168.57.0/24
 Phase 4: Scan continues into internal network
 ```
 
@@ -782,24 +782,24 @@ Mission Briefing:
 
 ### LM-3: WLAN Interface Integration (Planned)
 
-When WLAN support is added to AEGIS:
+When WLAN support is added to TIRPAN:
 
 ```
 Setup:
   - USB WiFi adapter passed through to Kali WSL (or native Kali)
   - VirtualBox VM with wireless NIC in monitor mode
-  - Isolated AP (old router, lab SSID: "AEGIS-LAB-NET")
+  - Isolated AP (old router, lab SSID: "TIRPAN-LAB-NET")
 
-AEGIS Config:
+TIRPAN Config:
   Interface: wlan0
   Mode: Monitor → Active Scan
-  Target: AEGIS-LAB-NET clients
+  Target: TIRPAN-LAB-NET clients
 
 Attack chain:
   1. Passive recon (client probe requests)
   2. Identify connected devices
   3. Deauth + capture handshake
-  4. Feed captured hosts into main AEGIS scope
+  4. Feed captured hosts into main TIRPAN scope
   5. Standard vuln scan + exploit on discovered clients
 ```
 
@@ -845,15 +845,15 @@ VBoxManage startvm "DVWA" --type headless
 VBoxManage startvm "SSH-Lab" --type headless
 ```
 
-### AEGIS Database Reset
+### TIRPAN Database Reset
 
 ```bash
 # Clear all sessions from previous tests:
-cd ~/AEGIS
-sqlite3 data/aegis.db "DELETE FROM sessions WHERE target LIKE '192.168.56.%';"
+cd ~/TIRPAN
+sqlite3 data/tirpan.db "DELETE FROM sessions WHERE target LIKE '192.168.56.%';"
 
 # Or full DB reset (keeps tool registry, deletes sessions + logs):
-sqlite3 data/aegis.db "
+sqlite3 data/tirpan.db "
   DELETE FROM sessions;
   DELETE FROM agent_events;
   DELETE FROM scan_results;
@@ -865,7 +865,7 @@ sqlite3 data/aegis.db "
 ```bash
 #!/bin/bash
 # ~/lab-check.sh
-echo "=== AEGIS Lab Connectivity ==="
+echo "=== TIRPAN Lab Connectivity ==="
 for host in 192.168.56.10 192.168.56.11 192.168.56.12; do
   if ping -c 1 -W 1 "$host" &>/dev/null; then
     echo "  ONLINE  $host"
@@ -875,11 +875,11 @@ for host in 192.168.56.10 192.168.56.11 192.168.56.12; do
 done
 
 echo ""
-echo "=== AEGIS Server ==="
+echo "=== TIRPAN Server ==="
 if curl -s http://localhost:8000/api/v1/tools/status | grep -q "available"; then
   echo "  ONLINE  localhost:8000"
 else
-  echo "  OFFLINE localhost:8000  ← Run: cd ~/AEGIS && python3 main.py"
+  echo "  OFFLINE localhost:8000  ← Run: cd ~/TIRPAN && python3 main.py"
 fi
 ```
 
@@ -897,7 +897,7 @@ chmod +x ~/lab-check.sh
 
 ### What This Lab Is For
 
-- Developing and validating AEGIS features in a safe, isolated environment
+- Developing and validating TIRPAN features in a safe, isolated environment
 - Learning offensive security techniques in a controlled setting
 - Preparing for CTF competitions
 - Building professional penetration testing workflows
@@ -911,21 +911,21 @@ chmod +x ~/lab-check.sh
 ### Before Any Real Engagement
 
 1. Obtain **written authorisation** specifying: scope, dates, allowed techniques
-2. Configure AEGIS **never-scan list** with all out-of-scope hosts before starting
+2. Configure TIRPAN **never-scan list** with all out-of-scope hosts before starting
 3. Set the **scope CIDRs** to only authorised ranges
 4. Review the Safety Guard settings (Policy tab) — Block DoS and Destructive are always on
 5. Keep a copy of your authorisation document accessible during testing
 
 ### Responsible Disclosure
 
-If AEGIS discovers real vulnerabilities in a production engagement:
+If TIRPAN discovers real vulnerabilities in a production engagement:
 1. Stop exploitation immediately upon discovery
 2. Document findings with CVSS score and evidence
 3. Follow the agreed disclosure timeline in your scope document
-4. Use AEGIS's built-in PDF/HTML report for professional deliverables
+4. Use TIRPAN's built-in PDF/HTML report for professional deliverables
 
 ---
 
-*Document version: 1.0 — AEGIS V1 Lab Reference*
+*Document version: 1.0 — TIRPAN V1 Lab Reference*
 *Last updated: 2026-03-15*
 *Covers: V1 current capabilities + V2/V3 planned scenarios*
