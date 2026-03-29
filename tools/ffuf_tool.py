@@ -46,6 +46,7 @@ class FfufTool(BaseTool):
         extensions = params.get("extensions", ".php,.txt,.html,.bak")
         timeout = int(params.get("timeout", FFUF_TIMEOUT))
         filter_codes = params.get("filter_codes", "404,403")
+        session_id = params.get("_session_id", "")
 
         if not shutil.which("ffuf"):
             return {"success": False, "error": "ffuf not found — install with: apt install ffuf"}
@@ -78,6 +79,17 @@ class FfufTool(BaseTool):
             ]
         except Exception:
             results = []
+
+        # Save raw JSON artifact
+        if session_id:
+            try:
+                from core.artifact_store import get_store
+                import re as _re
+                raw_text = stdout.decode(errors="replace")
+                safe_url = _re.sub(r"[^\w\-.]", "_", url)[:60]
+                get_store().save(session_id, "ffuf", f"ffuf_{safe_url}.json", raw_text)
+            except Exception as _ae:
+                logger.debug("ffuf artifact save failed: %s", _ae)
 
         return {"success": True, "output": {"results": results, "total": len(results), "base_url": url}}
 

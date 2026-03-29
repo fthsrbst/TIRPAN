@@ -22,6 +22,38 @@ logger = logging.getLogger(__name__)
 # souls/ directory is always relative to the project root (parent of core/)
 _SOULS_DIR = Path(__file__).parent.parent / "souls"
 
+# Sections always included regardless of discovered services
+_KB_ALWAYS_INCLUDE = {
+    "How to Use This Reference",
+    "Target Profiling Methodology",
+    "Universal Rules",
+}
+
+# Maps section header keywords → service name patterns to match against
+# discovered service strings (case-insensitive substring match)
+_KB_SERVICE_MAP: dict[str, list[str]] = {
+    "FTP":                              ["ftp"],
+    "SSH":                              ["ssh", "openssh"],
+    "SMB / Samba":                      ["smb", "samba", "netbios", "microsoft-ds", "cifs"],
+    "HTTP / HTTPS":                     ["http", "https", "www", "apache", "nginx",
+                                         "iis", "tomcat", "lighttpd", "httpd"],
+    "CMS Platforms":                    ["http", "https", "www", "apache", "nginx",
+                                         "iis", "tomcat", "wordpress", "drupal", "joomla"],
+    "Windows — Active Directory":       ["smb", "ldap", "kerberos", "msrpc", "rdp",
+                                         "microsoft", "windows", "netlogon"],
+    "Database Services":                ["mysql", "mssql", "postgresql", "postgres",
+                                         "redis", "mongodb", "oracle", "ms-sql", "db"],
+    "R-Services":                       ["rsh", "rexec", "rlogin", "shell", "login",
+                                         "exec", "remote"],
+    "VoIP / Telephony":                 ["sip", "voip", "asterisk", "h.323"],
+    "Network Equipment":                ["snmp", "cisco", "nfs", "tftp"],
+    "Container & Cloud":                ["docker", "kubernetes", "k8s", "aws", "etcd"],
+    "Distccd":                          ["distcc", "distccd"],
+    "IRC":                              ["irc", "unreal"],
+    "VNC":                              ["vnc"],
+    "Telnet":                           ["telnet"],
+}
+
 
 class SoulLoader:
     """Loads and caches soul files from the souls/ directory."""
@@ -51,7 +83,93 @@ class SoulLoader:
     def reload(self, name: str) -> str:
         """Force reload from disk (bypass cache)."""
         self._cache.pop(name, None)
+        if name == "EXPLOIT_KB":
+            self._cache.pop("__kb_sections__", None)
         return self.load(name)
+
+    def _parse_kb_sections(self) -> dict[str, str]:
+        """
+        Parse EXPLOIT_KB.md into a dict of {section_title: section_content}.
+        Result is cached on first call.
+        """
+        cache_key = "__kb_sections__"
+        if cache_key in self._cache:
+            import json as _json
+            return _json.loads(self._cache[cache_key])
+
+        raw = self.load("EXPLOIT_KB")
+        sections: dict[str, str] = {}
+        current_title = "__preamble__"
+        current_lines: list[str] = []
+
+        for line in raw.splitlines(keepends=True):
+            if line.startswith("## "):
+                if current_lines:
+                    sections[current_title] = "".join(current_lines).strip()
+                current_title = line[3:].strip()
+                current_lines = [line]
+            else:
+                current_lines.append(line)
+
+        if current_lines:
+            sections[current_title] = "".join(current_lines).strip()
+
+        import json as _json
+        self._cache[cache_key] = _json.dumps(sections)
+        return sections
+
+    def build_dynamic_kb(self, discovered_services: list[str] | None = None) -> str:
+        """
+        Return a trimmed EXPLOIT_KB containing only sections relevant to
+        the discovered services + always-included sections.
+
+        If discovered_services is None or empty, returns the full KB.
+        """
+        if not discovered_services:
+            return self.load("EXPLOIT_KB")
+
+        sections = self._parse_kb_sections()
+        service_lower = " ".join(discovered_services).lower()
+
+        selected: list[str] = []
+
+        # Preamble (intro text before first ## heading)
+        if "__preamble__" in sections:
+            selected.append(sections["__preamble__"])
+
+        for title, content in sections.items():
+            if title == "__preamble__":
+                continue
+
+            # Always-include sections
+            if any(always in title for always in _KB_ALWAYS_INCLUDE):
+                selected.append(content)
+                continue
+
+            # Match section to discovered services
+            section_key = next(
+                (k for k in _KB_SERVICE_MAP if k in title or title in k), None
+            )
+            if section_key is None:
+                # Unknown section — include it to be safe
+                selected.append(content)
+                continue
+
+            patterns = _KB_SERVICE_MAP[section_key]
+            if any(p in service_lower for p in patterns):
+                selected.append(content)
+
+        result = "\n\n".join(selected)
+
+        # Log compression ratio for debugging
+        full_len = len(self.load("EXPLOIT_KB"))
+        logger.debug(
+            "dynamic_kb: %d/%d chars (%.0f%%) for services: %s",
+            len(result), full_len,
+            100 * len(result) / max(full_len, 1),
+            discovered_services[:5],
+        )
+        return result
 
     def reload_all(self) -> None:
         """Clear entire cache — all files reloaded on next access."""
@@ -68,7 +186,8 @@ class SoulLoader:
         """Build the full BrainAgent system prompt from soul files + runtime context."""
         brain_soul = self.load("BRAIN_SOUL")
         mindset = self.load("HACKER_MINDSET")
-        exploit_kb = self.load("EXPLOIT_KB")
+        # Dynamic: only inject KB sections relevant to discovered services
+        exploit_kb = self.build_dynamic_kb(discovered_services)
 
         # Active agents table
         if active_agents:

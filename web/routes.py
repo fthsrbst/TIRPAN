@@ -1735,3 +1735,122 @@ async def get_session_shells(sid: str):
         stats = agent._shell_manager.stats()
         return {"shells": stats.get("sessions", []), "total": stats.get("total", 0)}
     return {"shells": [], "total": 0}
+
+
+# ── Session Artifacts ─────────────────────────────────────────────────────────
+
+@router.get("/sessions/{sid}/artifacts")
+async def list_session_artifacts(sid: str):
+    """List all saved artifacts (nmap XML, nikto txt, ffuf JSON…) for a session."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    from core.artifact_store import get_store
+    artifacts = get_store().list_artifacts(sid)
+    return {"session_id": sid, "artifacts": artifacts, "total": len(artifacts)}
+
+
+@router.get("/sessions/{sid}/artifacts/{filename}")
+async def download_session_artifact(sid: str, filename: str):
+    """Download a specific artifact file."""
+    import re as _re
+    # Prevent path traversal
+    if not _re.match(r'^[\w\-. ]+$', filename) or ".." in filename:
+        raise HTTPException(400, "Invalid filename")
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    from core.artifact_store import get_store
+    from fastapi.responses import Response
+    content = get_store().read(sid, filename)
+    if content is None:
+        raise HTTPException(404, "Artifact not found")
+    # Infer media type from extension
+    if filename.endswith(".xml"):
+        media_type = "application/xml"
+    elif filename.endswith(".json"):
+        media_type = "application/json"
+    else:
+        media_type = "text/plain"
+    return Response(content=content, media_type=media_type,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+# ── Training data config ──────────────────────────────────────────────────────
+
+@router.get("/config/training")
+async def get_training_config():
+    """Return current training data collection setting."""
+    saved = await database.get_all_settings()
+    enabled = saved.get("collect_training_data", None)
+    if enabled is None:
+        enabled = settings.collect_training_data
+    else:
+        enabled = str(enabled).lower() not in ("false", "0", "no")
+    return {"collect_training_data": enabled}
+
+
+@router.post("/config/training")
+async def set_training_config(body: dict):
+    """Toggle LoRA training data collection on/off."""
+    enabled = bool(body.get("collect_training_data", True))
+    settings.collect_training_data = enabled
+    await database.set_setting("collect_training_data", str(enabled).lower())
+    return {"ok": True, "collect_training_data": enabled}
+
+
+# ── Training data export ──────────────────────────────────────────────────────
+
+@router.get("/sessions/{sid}/training")
+async def get_session_training(sid: str, label: str | None = None):
+    """
+    Export LoRA training data collected during a session.
+
+    Query params:
+        label  — filter by "positive" | "negative" (optional)
+
+    Returns the list of training records (messages + label + metadata).
+    """
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    from core.training_data import get_collector
+    collector = get_collector()
+    records = collector.export_session(sid)
+
+    if label in ("positive", "negative"):
+        records = [r for r in records if r.get("label") == label]
+
+    stats = collector.label_stats(sid)
+    return {
+        "session_id": sid,
+        "records":    records,
+        "total":      len(records),
+        "stats":      stats,
+    }
+
+
+@router.get("/training/stats")
+async def get_training_stats():
+    """
+    Return aggregate training data statistics across all sessions.
+    Lists all JSONL files in data/training/ and their label distributions.
+    """
+    from pathlib import Path
+    from core.training_data import get_collector, _TRAINING_DIR
+
+    collector = get_collector()
+    training_dir = _TRAINING_DIR
+    if not training_dir.exists():
+        return {"sessions": [], "total_records": 0}
+
+    sessions = []
+    total = 0
+    for f in sorted(training_dir.glob("*.jsonl")):
+        sid = f.stem
+        stats = collector.label_stats(sid)
+        sessions.append({"session_id": sid, **stats})
+        total += stats["total"]
+
+    return {"sessions": sessions, "total_records": total}

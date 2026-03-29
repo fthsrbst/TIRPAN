@@ -2402,6 +2402,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initReportView();
     loadSafetyConfig();
     loadMsfConfig();
+    loadTrainingConfig();
     loadSessionsForSelects();
 });
 
@@ -6386,6 +6387,28 @@ function updateReportBadge(sessionId) {
     if (sel && sessionId && sel.value !== sessionId) sel.value = sessionId;
 }
 
+// ─── Training Data Config Load/Save ───────────────────────────────────────────
+
+async function loadTrainingConfig() {
+    try {
+        const res = await fetch('/api/v1/config/training');
+        if (!res.ok) return;
+        const d = await res.json();
+        const el = document.getElementById('cfg-training-enabled');
+        if (el) el.checked = d.collect_training_data !== false;
+    } catch { /* ignore */ }
+}
+
+async function saveTrainingConfig() {
+    const el = document.getElementById('cfg-training-enabled');
+    const enabled = el ? el.checked : true;
+    await fetch('/api/v1/config/training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collect_training_data: enabled }),
+    });
+}
+
 // ─── Safety Config Load/Save ───────────────────────────────────────────────────
 
 async function loadSafetyConfig() {
@@ -6484,6 +6507,7 @@ saveConfig = async function () {
     await _origSaveConfig();
     await saveSafetyConfig();
     await saveMsfConfig();
+    await saveTrainingConfig();
 };
 
 // ─── Toast helper extension ────────────────────────────────────────────────────
