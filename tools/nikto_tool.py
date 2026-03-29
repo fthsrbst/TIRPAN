@@ -9,7 +9,7 @@ import shutil
 from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 
 logger = logging.getLogger(__name__)
-NIKTO_TIMEOUT = 300
+NIKTO_TIMEOUT = 120
 
 
 class NiktoTool(BaseTool):
@@ -43,7 +43,10 @@ class NiktoTool(BaseTool):
         if not shutil.which("nikto"):
             return {"success": False, "error": "nikto not found — install with: apt install nikto"}
 
-        cmd = ["nikto", "-h", url, "-nointeractive", "-Format", "txt"]
+        cmd = [
+            "nikto", "-h", url, "-nointeractive", "-Format", "txt",
+            f"-maxtime={timeout}s",
+        ]
         if tuning:
             cmd += ["-Tuning", tuning]
 
