@@ -1,13 +1,13 @@
-# AEGIS vs XBOW — Architecture Comparison
+# TIRPAN vs XBOW — Architecture Comparison
 
 > XBOW is a well-funded professional penetration testing platform.
-> This document tracks where AEGIS stands relative to XBOW and where it's headed.
+> This document tracks where TIRPAN stands relative to XBOW and where it's headed.
 
 ---
 
 ## Architecture Model
 
-| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+| Feature | XBOW | TIRPAN V1 | TIRPAN V2 |
 |---|---|---|---|
 | Agent model | Coordinator + Solver multi-agent | Single ReAct agent | Brain + 8 specialized agents |
 | Parallelism | Hundreds of parallel solvers | Sequential | Parallel agents (default: 8) |
@@ -20,7 +20,7 @@
 
 ## Testing Capabilities
 
-| Capability | XBOW | AEGIS V1 | AEGIS V2 | Notes |
+| Capability | XBOW | TIRPAN V1 | TIRPAN V2 | Notes |
 |---|---|---|---|---|
 | Network port scanning | Yes | Yes (nmap) | Yes (masscan + nmap) | V2 adds masscan for speed |
 | Service enumeration | Yes | Yes | Yes + NSE scripts | V2 adds SMB/SNMP/LDAP |
@@ -47,7 +47,7 @@
 
 ## AI & Decision Making
 
-| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+| Feature | XBOW | TIRPAN V1 | TIRPAN V2 |
 |---|---|---|---|
 | LLM provider | Proprietary | OpenRouter / Ollama / LM Studio | Same + per-agent model selection |
 | Reasoning pattern | Multi-agent with specialized LLMs | Single ReAct loop | Brain + specialized agent LLMs |
@@ -62,7 +62,7 @@
 
 ## Infrastructure
 
-| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+| Feature | XBOW | TIRPAN V1 | TIRPAN V2 |
 |---|---|---|---|
 | Tool isolation | Docker per tool | Host | Host (V3: Docker) |
 | Session persistence | Yes | No | Yes (Shell Manager) |
@@ -73,7 +73,7 @@
 
 ## Reporting & Output
 
-| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+| Feature | XBOW | TIRPAN V1 | TIRPAN V2 |
 |---|---|---|---|
 | Real-time streaming | Yes | Yes (WebSocket) | Yes + per-agent feeds |
 | HTML/PDF report | Yes | Yes | Yes + attack narrative |
@@ -88,7 +88,7 @@
 
 ## Safety & Control
 
-| Feature | XBOW | AEGIS V1 | AEGIS V2 |
+| Feature | XBOW | TIRPAN V1 | TIRPAN V2 |
 |---|---|---|---|
 | Safety guardrails | Yes | Yes (10 rules) | Yes (10 rules + 5 permission flags) |
 | Kill switch | Yes | Yes | Yes (stops all agents) |
@@ -99,7 +99,7 @@
 
 ## Shared Concepts
 
-Both AEGIS and XBOW share these fundamental approaches:
+Both TIRPAN and XBOW share these fundamental approaches:
 - AI-driven decision making (LLM selects tools and strategies)
 - Tool calling (structured JSON actions)
 - Similar attack lifecycle (recon → scan → exploit → post-exploit → report)
@@ -129,9 +129,9 @@ Sequential only   →    Parallel agents              →   + Cloud environments
 
 ---
 
-## What Makes AEGIS Different from XBOW
+## What Makes TIRPAN Different from XBOW
 
-| Aspect | XBOW | AEGIS |
+| Aspect | XBOW | TIRPAN |
 |---|---|---|
 | Access | Paid SaaS platform | Open source, self-hosted |
 | Privacy | Cloud-based | Fully local option (Ollama) |

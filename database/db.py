@@ -1,7 +1,7 @@
 """
 SQLite database layer — chat UI tables + pentest tables.
 
-DB path: data/aegis.db
+DB path: data/tirpan.db
 
 Migration versions:
   v1 — conversations, messages, app_settings (chat UI)
@@ -25,7 +25,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = settings.data_dir / "aegis.db"
+DB_PATH = settings.data_dir / "tirpan.db"
 
 # ── Schema v1: chat UI tables ──────────────────────────────────────────────────
 

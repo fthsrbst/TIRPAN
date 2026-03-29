@@ -1,10 +1,10 @@
 ---
 name: V2 Multi-Agent Implementation
-description: AEGIS V2 multi-agent architecture redesign - 16-step implementation plan with Sonnet 4.6 prompts
+description: TIRPAN V2 multi-agent architecture redesign - 16-step implementation plan with Sonnet 4.6 prompts
 type: project
 ---
 
-AEGIS V2 multi-agent architecture implementation in progress.
+TIRPAN V2 multi-agent architecture implementation in progress.
 
 **Why:** V1 single-agent (PentestAgent) is sequential, slow, not specialized. V2 replaces with Brain Agent + 7 specialized agents running in parallel.
 

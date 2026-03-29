@@ -1,4 +1,4 @@
-# AEGIS V2 — Harmonized Implementation Plan
+# TIRPAN V2 — Harmonized Implementation Plan
 
 > **Amaç:** Mevcut V1 altyapısını minimum değişiklikle multi-agent mimariye dönüştürmek.
 > **Prensip:** Her adım kendi başına çalışır, bir sonrakine bağımlıdır ama V1 hiçbir zaman kırılmaz.
@@ -330,7 +330,7 @@ GEREKSİNİMLER:
 ```python
 class BaseAgent(ABC):
     """
-    Tüm AEGIS agent'larının base class'ı.
+    Tüm TIRPAN agent'larının base class'ı.
     ReAct loop (reason → act → observe → reflect) çalıştırır.
     """
 ```
@@ -409,7 +409,7 @@ class BaseAgent(ABC):
     ```
 
 13. Logging:
-    - logger = logging.getLogger(f"aegis.agent.{agent_type}")
+    - logger = logging.getLogger(f"tirpan.agent.{agent_type}")
     - Her state transition logla
 
 DİKKAT EDİLECEKLER:
@@ -1105,7 +1105,7 @@ async def run(self):
 
 9. System Prompt (build_system_prompt override):
 ```
-Sen AEGIS'in Brain Agent'ısın — senior pentester gibi düşünürsün.
+Sen TIRPAN'in Brain Agent'ısın — senior pentester gibi düşünürsün.
 
 Görevin: Bir penetrasyon testi mission'ını koordine etmek.
 
@@ -1196,7 +1196,7 @@ class ScannerAgent(BaseAgent):
 
 2. build_system_prompt() override:
 ```
-Sen AEGIS Scanner Agent'ısın — network enumeration uzmanısın.
+Sen TIRPAN Scanner Agent'ısın — network enumeration uzmanısın.
 
 Görevin: {task_description}
 
@@ -1406,7 +1406,7 @@ GEREKSİNİMLER:
 
 7. System Prompt:
 ```
-Sen AEGIS Post-Exploitation Agent'ısın.
+Sen TIRPAN Post-Exploitation Agent'ısın.
 
 Görevin: {task_description}
 Hedef host: {host_ip}

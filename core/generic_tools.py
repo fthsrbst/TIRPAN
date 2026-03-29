@@ -122,7 +122,7 @@ class GenericCLITool(BaseTool):
         resolved_args: list[str] = []
         for arg in args_template:
             if arg == "{output_file}":
-                resolved_args.append(tmp_file or "/tmp/aegis_out.txt")
+                resolved_args.append(tmp_file or "/tmp/tirpan_out.txt")
             elif arg.startswith("{") and arg.endswith("}"):
                 key = arg[1:-1]
                 resolved_args.append(str(params.get(key, "")))

@@ -21,7 +21,7 @@ class TestMessageHistory:
 
     def test_all_message_types(self):
         mem = SessionMemory()
-        mem.add_system("You are AEGIS.")
+        mem.add_system("You are TIRPAN.")
         mem.add_user("Scan 10.0.0.1")
         mem.add_assistant("Running nmap...")
         mem.add_tool_result('{"hosts": []}')

@@ -29,7 +29,7 @@ _CHARS_PER_TOKEN = 4  # rough estimate
 # ── System Prompt ──────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
-You are AEGIS, an autonomous network penetration testing agent.
+You are TIRPAN, an autonomous network penetration testing agent.
 You are a professional penetration tester with expertise in network reconnaissance,
 vulnerability assessment, exploitation, post-exploitation, and lateral movement.
 
@@ -92,7 +92,7 @@ FILE CONTENT DISPLAY RULES (apply whenever a find/cat/shell command returns a fi
 - Binary/Office files (.png .jpg .pdf .zip .exe .pptx .docx .xlsx .tar .gz) →
     Do NOT attempt to cat. Instead, state the path and provide transfer instructions:
     "Found: /path/to/file — cannot display binary. To download: scp <user>@<IP>:/path/to/file /local/dir"
-- If post_commands already contain cat output in your memory (check [AEGIS_CMD_OUT] lines) →
+- If post_commands already contain cat output in your memory (check [TIRPAN_CMD_OUT] lines) →
     Extract and report the content directly — no need to re-run cat.
 - If output was truncated and file content is missing →
     Re-run the exploit with cat included in post_commands — do NOT use session_exec (session is already closed).
@@ -565,7 +565,7 @@ class PromptBuilder:
         Plain text response — no JSON required here.
         """
         system_text = (
-            "You are AEGIS in reflection mode. "
+            "You are TIRPAN in reflection mode. "
             "Analyze the last tool result and provide a concise 1-2 sentence "
             "tactical update: what did you learn, and what should be prioritized next? "
             "Be brief. No JSON required."

@@ -415,7 +415,7 @@ function initThemeToggle() {
     const icon = document.getElementById('theme-toggle-icon');
     if (!btn || !icon) return;
 
-    const stored = localStorage.getItem('aegis-theme');
+    const stored = localStorage.getItem('tirpan-theme');
     if (stored === 'light') {
         document.documentElement.classList.remove('dark');
         document.documentElement.classList.add('light');
@@ -430,12 +430,12 @@ function initThemeToggle() {
                 document.documentElement.classList.remove('light');
                 document.documentElement.classList.add('dark');
                 icon.textContent = 'dark_mode';
-                localStorage.setItem('aegis-theme', 'dark');
+                localStorage.setItem('tirpan-theme', 'dark');
             } else {
                 document.documentElement.classList.remove('dark');
                 document.documentElement.classList.add('light');
                 icon.textContent = 'light_mode';
-                localStorage.setItem('aegis-theme', 'light');
+                localStorage.setItem('tirpan-theme', 'light');
             }
         };
 
@@ -554,10 +554,10 @@ function attachMsgActions(el, rawText, _isUser) {
 }
 
 function showToast(msg) {
-    let toast = document.getElementById('aegis-toast');
+    let toast = document.getElementById('tirpan-toast');
     if (!toast) {
         toast = document.createElement('div');
-        toast.id = 'aegis-toast';
+        toast.id = 'tirpan-toast';
         toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-card border border-border-color text-secondary-text text-[11px] font-display uppercase tracking-widest px-4 py-2 z-50 pointer-events-none transition-opacity duration-300';
         document.body.appendChild(toast);
     }
@@ -848,25 +848,25 @@ let _pendingProjectId = null;
 // Projects stay in localStorage (client-side folders only)
 function loadProjectsFromStorage() {
     try {
-        projects = JSON.parse(localStorage.getItem('aegis_projects') || '[]');
+        projects = JSON.parse(localStorage.getItem('tirpan_projects') || '[]');
     } catch {
         projects = [];
     }
 }
 
 function saveProjectsToStorage() {
-    localStorage.setItem('aegis_projects', JSON.stringify(projects));
+    localStorage.setItem('tirpan_projects', JSON.stringify(projects));
     // Save conversation → project mappings separately
     const mappings = {};
     conversations.forEach(c => { if (c.projectId) mappings[c.id] = c.projectId; });
-    localStorage.setItem('aegis_conv_projects', JSON.stringify(mappings));
+    localStorage.setItem('tirpan_conv_projects', JSON.stringify(mappings));
 }
 
 async function loadConversationsFromAPI() {
     try {
         const res = await fetch('/api/v1/conversations');
         const data = await res.json();
-        const mappings = JSON.parse(localStorage.getItem('aegis_conv_projects') || '{}');
+        const mappings = JSON.parse(localStorage.getItem('tirpan_conv_projects') || '{}');
         conversations = data.map(c => ({
             id: c.id,
             title: c.title,
@@ -926,7 +926,7 @@ function resetMessageStream() {
       <div id="chat-empty-state" class="flex flex-col items-center justify-center flex-1 py-24 gap-5 select-none pointer-events-none">
         <span class="material-symbols-outlined text-[48px]" style="color:#1A1A1A; font-variation-settings:'FILL' 1;">psychology</span>
         <div class="flex flex-col items-center gap-1">
-          <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">AEGIS Chat</p>
+          <p class="text-secondary-text text-xs font-display font-bold uppercase tracking-[0.2em]">TIRPAN Chat</p>
           <p class="text-[11px] mono-text" style="color:#333;">Ask anything — security questions, code analysis, threat intel…</p>
         </div>
       </div>`;
@@ -2501,9 +2501,10 @@ function handleSessionEvent(msg) {
         renderMissionReasoning(data);
         updatePhaseFromEvent(data);
         agOnThinking(data);
-        appendConsoleLine(`[THINK] ${data.thought || data.action || ''}`, 'text-secondary-text');
+        const _thinkPrefix = data.agent_id ? `[${data.agent_id}] ` : '';
+        appendConsoleLine(`[THINK] ${_thinkPrefix}${(data.thought || data.action || '').slice(0, 300)}`, 'text-secondary-text');
         if (data.action) {
-            appendConsoleLine(`[ACTION] → ${data.action}`, 'text-slate-400');
+            appendConsoleLine(`[ACTION] ${_thinkPrefix}→ ${data.action}`, 'text-slate-400');
         }
 
     } else if (event === 'tool_call') {
@@ -2654,10 +2655,26 @@ function handleSessionEvent(msg) {
     } else if (event === 'finding') {
         _handleV2Finding(data);
 
+    } else if (event === 'agent_start') {
+        const agId   = data.agent_id   || '';
+        const agType = data.agent_type || '';
+        appendConsoleLine(`[AGENT START] ${agId} (${agType}) — mission: ${data.mission_id || ''}`, 'text-cyan-400');
+
     } else if (event === 'child_agent_done') {
-        const agId = data.agent_id || '';
-        const cnt  = data.findings || 0;
+        const agId = data.agent_id   || '';
+        const cnt  = data.findings   || 0;
         appendConsoleLine(`[AGENT DONE] ${agId} — ${cnt} finding(s)`, 'text-green-400');
+
+    } else if (event === 'agent_done') {
+        const agId   = data.agent_id   || '';
+        const agType = data.agent_type || '';
+        const status = data.status     || '';
+        const iters  = data.iterations !== undefined ? ` (${data.iterations} iters)` : '';
+        const color  = status === 'failed' ? 'text-danger' : 'text-green-400';
+        appendConsoleLine(`[AGENT DONE] ${agId} (${agType}) → ${status}${iters}`, color);
+        if (data.error) {
+            appendConsoleLine(`             error: ${data.error}`, 'text-danger');
+        }
     }
 
     if (activeMissionId) {
@@ -3421,7 +3438,7 @@ function _renderTopologySVG(svg, allHosts, exploitResults) {
         svg.innerHTML = `
             <text x="110" y="90" text-anchor="middle" fill="#333" font-family="monospace" font-size="9">Waiting for scan results…</text>
             <rect x="83" y="10" width="54" height="26" rx="2" fill="#0c0c00" stroke="#ccff00" stroke-width="1.5"/>
-            <text x="110" y="22" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6.5" font-weight="bold">AEGIS</text>
+            <text x="110" y="22" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6.5" font-weight="bold">TIRPAN</text>
             <text x="110" y="32" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
         return;
     }
@@ -3435,7 +3452,7 @@ function _renderTopologySVG(svg, allHosts, exploitResults) {
     const CX = 110, CY = 28, R = 62, hostR = 20;
     let inner = `
         <rect x="83" y="10" width="54" height="26" rx="2" fill="#0c0c00" stroke="#ccff00" stroke-width="1.5"/>
-        <text x="${CX}" y="22" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6.5" font-weight="bold">AEGIS</text>
+        <text x="${CX}" y="22" text-anchor="middle" fill="#ccff00" font-family="monospace" font-size="6.5" font-weight="bold">TIRPAN</text>
         <text x="${CX}" y="32" text-anchor="middle" fill="#778800" font-family="monospace" font-size="5">AGENT</text>`;
     const count = Math.min(allHosts.length, 8);
     const startAngle = count === 1 ? Math.PI / 2 : Math.PI * 0.15;
@@ -3569,7 +3586,7 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
         if (emptyG.empty()) {
             const eg = state.g.append('g').attr('class', 'topo-empty').attr('transform', `translate(${W/2},${H/2})`);
             eg.append('text').attr('text-anchor','middle').attr('y',-12)
-                .attr('fill',_TC.emptyText1).attr('font-family','monospace').attr('font-size', 13).attr('font-weight','bold').text('AEGIS');
+                .attr('fill',_TC.emptyText1).attr('font-family','monospace').attr('font-size', 13).attr('font-weight','bold').text('TIRPAN');
             eg.append('text').attr('text-anchor','middle').attr('y',8)
                 .attr('fill',_TC.emptyText2).attr('font-family','monospace').attr('font-size', 10).text('Waiting for scan results…');
             eg.append('text').attr('text-anchor','middle').attr('y',26)
@@ -3595,8 +3612,8 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
         .filter(e => e.success && e.source_ip && e.source_ip !== e.host_ip && e.source_ip !== '' && allHosts.find(h => h.ip === e.source_ip))
         .map(e => ({ from_ip: e.source_ip, to_ip: e.host_ip, port: e.port || e.target_port || 0, module: e.module || '' }));
 
-    // Layout: AEGIS center-top, hosts in grid rows
-    const AEGIS_X = W / 2, AEGIS_Y = isFullscreen ? 70 : 60;
+    // Layout: TIRPAN center-top, hosts in grid rows
+    const TIRPAN_X = W / 2, TIRPAN_Y = isFullscreen ? 70 : 60;
     const nodeR   = isFullscreen ? 36 : 30;
     const COLS    = allHosts.length <= 3 ? allHosts.length : allHosts.length <= 8 ? 4 : Math.min(6, Math.ceil(Math.sqrt(allHosts.length)));
     const COL_W   = Math.max(nodeR * 4.5, (W - 100) / Math.max(COLS, 1));
@@ -3608,18 +3625,18 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
     allHosts.forEach((h, i) => {
         const col = i % COLS;
         const row = Math.floor(i / COLS);
-        hostPos[h.ip] = { x: gridOffX + col * COL_W, y: AEGIS_Y + 100 + row * ROW_H };
+        hostPos[h.ip] = { x: gridOffX + col * COL_W, y: TIRPAN_Y + 100 + row * ROW_H };
     });
 
     const sel = state.sel;
     const g   = state.g;
 
-    // ── Links: AEGIS → host ───────────────────────────────────────────────────
+    // ── Links: TIRPAN → host ───────────────────────────────────────────────────
     const linksG = g.select('.topo-links');
     const linkSel = linksG.selectAll('.topo-link').data(allHosts, d => d.ip);
     linkSel.enter().append('line').attr('class','topo-link')
         .merge(linkSel)
-        .attr('x1', AEGIS_X).attr('y1', AEGIS_Y + 20)
+        .attr('x1', TIRPAN_X).attr('y1', TIRPAN_Y + 20)
         .attr('x2', d => hostPos[d.ip]?.x || 0).attr('y2', d => (hostPos[d.ip]?.y || 0) - nodeR)
         .attr('stroke', d => xMap[d.ip] ? _TC.linkExploit : _TC.linkNorm)
         .attr('stroke-width', d => xMap[d.ip] ? 1.5 : 0.8)
@@ -3632,8 +3649,8 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
     const portLabelSel = linksG.selectAll('.topo-link-lbl').data(allHosts.filter(h => xMap[h.ip]), d => d.ip);
     portLabelSel.enter().append('text').attr('class','topo-link-lbl')
         .merge(portLabelSel)
-        .attr('x', d => (AEGIS_X + (hostPos[d.ip]?.x || 0)) / 2)
-        .attr('y', d => (AEGIS_Y + 20 + (hostPos[d.ip]?.y || 0) - nodeR) / 2 - 4)
+        .attr('x', d => (TIRPAN_X + (hostPos[d.ip]?.x || 0)) / 2)
+        .attr('y', d => (TIRPAN_Y + 20 + (hostPos[d.ip]?.y || 0) - nodeR) / 2 - 4)
         .attr('text-anchor','middle').attr('fill','#FF3B3B').attr('font-family','monospace')
         .attr('font-size', isFullscreen ? 9 : 7)
         .text(d => xMap[d.ip] ? `⚡${[...xMap[d.ip].ports].filter(Boolean).join(',')}` : '');
@@ -3645,8 +3662,8 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
     latSel.enter().append('path').attr('class','topo-lateral')
         .merge(latSel)
         .attr('d', d => {
-            const p1 = hostPos[d.from_ip] || { x: AEGIS_X, y: AEGIS_Y };
-            const p2 = hostPos[d.to_ip]   || { x: AEGIS_X, y: AEGIS_Y };
+            const p1 = hostPos[d.from_ip] || { x: TIRPAN_X, y: TIRPAN_Y };
+            const p2 = hostPos[d.to_ip]   || { x: TIRPAN_X, y: TIRPAN_Y };
             const mx = (p1.x + p2.x) / 2;
             const my = Math.min(p1.y, p2.y) - nodeR * 2.5;
             return `M${p1.x},${p1.y} Q${mx},${my} ${p2.x},${p2.y}`;
@@ -3661,13 +3678,13 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
     latLblSel.enter().append('text').attr('class','topo-lat-lbl')
         .merge(latLblSel)
         .attr('x', d => {
-            const p1 = hostPos[d.from_ip] || { x: AEGIS_X, y: AEGIS_Y };
-            const p2 = hostPos[d.to_ip]   || { x: AEGIS_X, y: AEGIS_Y };
+            const p1 = hostPos[d.from_ip] || { x: TIRPAN_X, y: TIRPAN_Y };
+            const p2 = hostPos[d.to_ip]   || { x: TIRPAN_X, y: TIRPAN_Y };
             return (p1.x + p2.x) / 2;
         })
         .attr('y', d => {
-            const p1 = hostPos[d.from_ip] || { x: AEGIS_X, y: AEGIS_Y };
-            const p2 = hostPos[d.to_ip]   || { x: AEGIS_X, y: AEGIS_Y };
+            const p1 = hostPos[d.from_ip] || { x: TIRPAN_X, y: TIRPAN_Y };
+            const p2 = hostPos[d.to_ip]   || { x: TIRPAN_X, y: TIRPAN_Y };
             return Math.min(p1.y, p2.y) - nodeR * 2.8;
         })
         .attr('text-anchor','middle').attr('fill','#fb923c').attr('font-family','monospace')
@@ -3678,24 +3695,24 @@ function _topoD3Render(svgId, tooltipId, allHosts, exploitResults, isFullscreen)
     // ── Host nodes ─────────────────────────────────────────────────────────────
     const nodesG = g.select('.topo-nodes');
 
-    // AEGIS node
-    let aegisG = nodesG.select('#topo-aegis');
-    if (aegisG.empty()) {
-        aegisG = nodesG.append('g').attr('id','topo-aegis');
-        aegisG.append('rect').attr('class','topo-aegis-rect')
+    // TIRPAN node
+    let tirpanG = nodesG.select('#topo-tirpan');
+    if (tirpanG.empty()) {
+        tirpanG = nodesG.append('g').attr('id','topo-tirpan');
+        tirpanG.append('rect').attr('class','topo-tirpan-rect')
             .attr('rx',2).attr('fill','#0c0c00').attr('stroke','#ccff00').attr('stroke-width',1.5);
-        aegisG.append('text').attr('class','topo-aegis-t1').attr('text-anchor','middle')
-            .attr('fill','#ccff00').attr('font-family','monospace').attr('font-weight','bold').text('AEGIS');
-        aegisG.append('text').attr('class','topo-aegis-t2').attr('text-anchor','middle')
+        tirpanG.append('text').attr('class','topo-tirpan-t1').attr('text-anchor','middle')
+            .attr('fill','#ccff00').attr('font-family','monospace').attr('font-weight','bold').text('TIRPAN');
+        tirpanG.append('text').attr('class','topo-tirpan-t2').attr('text-anchor','middle')
             .attr('fill','#778800').attr('font-family','monospace').text('AGENT');
-        aegisG.append('circle').attr('class','topo-aegis-dot').attr('fill','#ccff00');
+        tirpanG.append('circle').attr('class','topo-tirpan-dot').attr('fill','#ccff00');
     }
     const bw = isFullscreen ? 80 : 64, bh = isFullscreen ? 34 : 28, fs1 = isFullscreen ? 12 : 9, fs2 = isFullscreen ? 9 : 7;
-    aegisG.attr('transform',`translate(${AEGIS_X},${AEGIS_Y})`);
-    aegisG.select('.topo-aegis-rect').attr('x',-bw/2).attr('y',-bh/2).attr('width',bw).attr('height',bh);
-    aegisG.select('.topo-aegis-t1').attr('y',-2).attr('font-size',fs1);
-    aegisG.select('.topo-aegis-t2').attr('y',bh/2-4).attr('font-size',fs2);
-    aegisG.select('.topo-aegis-dot').attr('cx',bw/2-4).attr('cy',-bh/2+4).attr('r', isFullscreen ? 5 : 4);
+    tirpanG.attr('transform',`translate(${TIRPAN_X},${TIRPAN_Y})`);
+    tirpanG.select('.topo-tirpan-rect').attr('x',-bw/2).attr('y',-bh/2).attr('width',bw).attr('height',bh);
+    tirpanG.select('.topo-tirpan-t1').attr('y',-2).attr('font-size',fs1);
+    tirpanG.select('.topo-tirpan-t2').attr('y',bh/2-4).attr('font-size',fs2);
+    tirpanG.select('.topo-tirpan-dot').attr('cx',bw/2-4).attr('cy',-bh/2+4).attr('r', isFullscreen ? 5 : 4);
 
     // Host node groups
     const nodeSel = nodesG.selectAll('.topo-host').data(allHosts, d => d.ip);
@@ -4338,16 +4355,17 @@ function appendConsoleLine(text, colorClass = 'text-primary') {
 
 function appendConsoleToolCall(data) {
     const tool = data.tool || data.tool_name || data.action || '';
+    const agentId = data.agent_id ? `[${data.agent_id}] ` : '';
     const ts = new Date().toLocaleTimeString();
-    const line = `[${ts}] TOOL_CALL: ${tool}`;
+    const line = `[${ts}] ${agentId}TOOL_CALL: ${tool}`;
     _consoleAppend('console-bash', line, 'text-slate-300');
     if (data.params) {
         _consoleAppend('console-bash', `         params: ${JSON.stringify(data.params)}`, 'text-secondary-text');
     }
 
     // Mirror to specialist tabs
-    const isNmap = tool === 'nmap_scan';
-    const isMsf  = tool === 'metasploit_run' || tool === 'metasploit_search';
+    const isNmap = tool.includes('nmap');
+    const isMsf  = tool.includes('metasploit');
     if (isNmap || isMsf) {
         const tabId = isNmap ? 'console-nmap' : 'console-msf';
         _consoleAppend(tabId, line, 'text-slate-300');
@@ -4364,23 +4382,26 @@ function appendConsoleToolResult(data) {
     const resultLine = `         result: ${success ? 'OK' : 'FAILED'}`;
     _consoleAppend('console-bash', resultLine, color);
 
-    let outputPreview = '';
     if (data.output) {
-        outputPreview = data.output.slice(0, 400).replace(/\n/g, '\n         ');
-        _consoleAppend('console-bash', `         output: ${outputPreview}${data.output.length > 400 ? '\u2026' : ''}`, 'text-secondary-text');
+        // Show up to 8000 chars in the general console so full nmap/nikto output is visible
+        const preview = data.output.slice(0, 8000).replace(/\n/g, '\n         ');
+        _consoleAppend('console-bash', `         output: ${preview}${data.output.length > 8000 ? '\u2026 (truncated, copy from specialist tab)' : ''}`, 'text-secondary-text');
+    }
+    if (data.error) {
+        _consoleAppend('console-bash', `         error: ${data.error}`, 'text-danger');
     }
 
-    // Mirror output to specialist tabs
-    const isNmap = tool === 'nmap_scan';
-    const isMsf  = tool === 'metasploit_run' || tool === 'metasploit_search';
+    // Mirror output to specialist tabs (full output, no truncation)
+    const isNmap = tool.includes('nmap');
+    const isMsf  = tool.includes('metasploit');
     if (isNmap || isMsf) {
         const tabId = isNmap ? 'console-nmap' : 'console-msf';
         _consoleAppend(tabId, resultLine, color);
         if (data.output) {
-            // Show full output in the specialist tab (up to 2000 chars)
-            const lines = data.output.slice(0, 2000).split('\n');
-            lines.forEach(l => _consoleAppend(tabId, l, 'text-secondary-text'));
-            if (data.output.length > 2000) _consoleAppend(tabId, '\u2026 (truncated)', 'text-secondary-text');
+            data.output.split('\n').forEach(l => _consoleAppend(tabId, l, 'text-secondary-text'));
+        }
+        if (data.error) {
+            _consoleAppend(tabId, `error: ${data.error}`, 'text-danger');
         }
     }
 }
@@ -4648,7 +4669,7 @@ let _feedFilter = null;   // lazily loaded from localStorage
 function _getFeedFilter() {
     if (_feedFilter) return _feedFilter;
     try {
-        const saved = localStorage.getItem('aegis_feed_filter');
+        const saved = localStorage.getItem('tirpan_feed_filter');
         _feedFilter = saved ? JSON.parse(saved) : {};
     } catch { _feedFilter = {}; }
     // Default: everything expanded
@@ -4659,7 +4680,7 @@ function _getFeedFilter() {
 }
 
 function _saveFeedFilter() {
-    try { localStorage.setItem('aegis_feed_filter', JSON.stringify(_feedFilter)); } catch {}
+    try { localStorage.setItem('tirpan_feed_filter', JSON.stringify(_feedFilter)); } catch {}
 }
 
 function _feedFilterAutoExpand(toolKey) {
@@ -6068,7 +6089,7 @@ function exportAuditCSV() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `aegis_audit_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `tirpan_audit_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast(`Exported ${_auditLastEntries.length} entries`);
@@ -6452,10 +6473,10 @@ saveConfig = async function () {
 // Override showToast to support error styling
 const _origShowToast = showToast;
 showToast = function (msg, isError = false) {
-    let toast = document.getElementById('aegis-toast');
+    let toast = document.getElementById('tirpan-toast');
     if (!toast) {
         toast = document.createElement('div');
-        toast.id = 'aegis-toast';
+        toast.id = 'tirpan-toast';
         toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-card border border-border-color text-secondary-text text-[11px] font-display uppercase tracking-widest px-4 py-2 z-50 pointer-events-none transition-opacity duration-300';
         document.body.appendChild(toast);
     }
@@ -7514,7 +7535,7 @@ async function _termSubmit() {
     input.value = '';
     _termHistoryIdx = -1;
     _termHistory.push(cmd);
-    _termPrint(`<span class="text-primary">aegis&gt;</span> ${_escHtml(cmd)}`);
+    _termPrint(`<span class="text-primary">tirpan&gt;</span> ${_escHtml(cmd)}`);
 
     if (cmd === '/help') {
         _termPrint(`<span class="text-secondary-text">  /help            show this help
@@ -7646,7 +7667,7 @@ let _agParallelActive = false;
 
 // ── Node style registry ────────────────────────────────────────────────────────
 const _AG = {
-    aegis:      { color:'#ccff00', bg:'#0d1a00', bgL:'#f0ffd0', icon:'radar',          r:32, stroke:2.5 },
+    tirpan:      { color:'#ccff00', bg:'#0d1a00', bgL:'#f0ffd0', icon:'radar',          r:32, stroke:2.5 },
     target:     { color:'#ef4444', bg:'#1a0000', bgL:'#fff0f0', icon:'computer',        r:28, stroke:1.5 },
     thinking:   { color:'#eab308', bg:'#1a1100', bgL:'#fffbe8', icon:'psychology',      r:26, stroke:1.5 },
     reflecting: { color:'#a855f7', bg:'#0d0018', bgL:'#faf0ff', icon:'lightbulb',       r:26, stroke:1.5 },
@@ -8257,8 +8278,8 @@ function agInject() {
 
 function agOnMissionStart(data) {
     _agReset();
-    var aegisId = _agAddNode('aegis', 'AEGIS', {}, null);
-    _agAddNode('target', data.target || 'TARGET', { target:data.target, mode:data.mode }, aegisId);
+    var tirpanId = _agAddNode('tirpan', 'TIRPAN', {}, null);
+    _agAddNode('target', data.target || 'TARGET', { target:data.target, mode:data.mode }, tirpanId);
 }
 
 function agOnThinking(data) {

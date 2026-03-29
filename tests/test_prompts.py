@@ -99,10 +99,10 @@ def test_prompt_builder_no_examples_flag(builder_no_examples):
 
 # ── 9.2 System prompt content ─────────────────────────────────────────────────
 
-def test_system_prompt_contains_aegis_identity(builder, sample_tools, empty_context):
+def test_system_prompt_contains_tirpan_identity(builder, sample_tools, empty_context):
     messages = builder.build_full_prompt(empty_context, SessionMemory(), sample_tools)
     system = messages[0]["content"]
-    assert "AEGIS" in system
+    assert "TIRPAN" in system
 
 
 def test_system_prompt_contains_constraints(builder, sample_tools, empty_context):

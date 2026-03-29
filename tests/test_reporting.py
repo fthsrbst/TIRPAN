@@ -244,11 +244,11 @@ class TestReportGenerator:
         assert "10.0.0.0/24" in html
 
     @pytest.mark.asyncio
-    async def test_html_contains_aegis_title(self, populated_session):
+    async def test_html_contains_tirpan_title(self, populated_session):
         session_id, db_path = populated_session
         rg = ReportGenerator(db_path)
         html = await rg.generate_html(session_id)
-        assert "AEGIS" in html
+        assert "TIRPAN" in html
 
     @pytest.mark.asyncio
     async def test_html_executive_summary_host_count(self, populated_session):

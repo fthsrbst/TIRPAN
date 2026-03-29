@@ -1,4 +1,4 @@
-# AEGIS — Architecture
+# TIRPAN — Architecture
 
 > *Autonomous Ethical Guardrailed Intelligence System*
 
@@ -6,7 +6,7 @@
 
 ## Design Principle
 
-> **"A senior pentester thinks before they act — so does AEGIS."**
+> **"A senior pentester thinks before they act — so does TIRPAN."**
 >
 > A **Brain Agent** coordinates a team of specialized sub-agents. Each agent is an expert
 > in its domain. The Brain assesses the target, decides strategy, delegates tasks in parallel,
@@ -16,11 +16,11 @@
 
 ## Current State (V1 — Implemented)
 
-AEGIS V1 ships a fully working autonomous pentest platform with a single ReAct agent:
+TIRPAN V1 ships a fully working autonomous pentest platform with a single ReAct agent:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│                          AEGIS V1 (current)                           │
+│                          TIRPAN V1 (current)                           │
 │                                                                       │
 │  ┌──────────┐    ┌────────────────────────────────────────────────┐   │
 │  │  Web UI  │───>│             FastAPI Backend                    │   │
@@ -78,7 +78,7 @@ The V2 architecture replaces the single agent with a hierarchical multi-agent sy
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│                          AEGIS V2 (planned)                           │
+│                          TIRPAN V2 (planned)                           │
 │                                                                       │
 │  ┌──────────┐    ┌─────────────────────────────────────────────────┐  │
 │  │  Web UI  │───>│  FastAPI Backend + WebSocket Event Bus          │  │
@@ -532,7 +532,7 @@ All providers runtime-switchable. Each agent independently configurable.
 ## Directory Structure (V2 Target)
 
 ```
-AEGIS/
+TIRPAN/
 ├── main.py
 ├── config.py
 ├── requirements.txt
