@@ -79,6 +79,41 @@ _LEVEL: int    = _parse_level(os.getenv("TIRPAN_LOG_LEVEL", "debug"))
 # Başlangıç zamanı (göreli timestamp için)
 _T0: float = time.time()
 
+# ── UI Callback Registry (session_id → progress_callback) ────────────────────
+# UI'ya debug mesajı göndermek için kullanılır.
+# Session başladığında register_session() ile kayıt olur.
+from typing import Callable as _Callable
+_ui_callbacks: dict[str, _Callable] = {}
+
+
+def register_session(session_id: str, callback: _Callable) -> None:
+    """V2 session başladığında progress_callback'i kaydet."""
+    _ui_callbacks[session_id] = callback
+
+
+def unregister_session(session_id: str) -> None:
+    """Session bittiğinde callback'i temizle."""
+    _ui_callbacks.pop(session_id, None)
+
+
+def _emit_to_ui(prefix: str, agent_id: str, msg: str, level: str = "debug") -> None:
+    """Tüm aktif session'lara debug_log event'i gönder."""
+    if not _ui_callbacks:
+        return
+    payload = {
+        "prefix": prefix.strip(),
+        "agent_id": agent_id,
+        "short_id": _short(agent_id) if agent_id else "sys",
+        "msg": msg,
+        "level": level,
+        "ts": f"+{time.time() - _T0:7.3f}s",
+    }
+    for cb in list(_ui_callbacks.values()):
+        try:
+            cb("debug_log", payload)
+        except Exception:
+            pass
+
 
 # ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
 
@@ -111,8 +146,9 @@ def _trim(val: Any, max_len: int = 200) -> str:
     return s
 
 
-def _print(color: str, prefix: str, agent_id: str, msg: str, dim_suffix: str = "") -> None:
-    """Tek satır debug çıktısı stderr'e."""
+def _print(color: str, prefix: str, agent_id: str, msg: str,
+           dim_suffix: str = "", level: str = "debug") -> None:
+    """Tek satır debug çıktısı stderr'e + UI console'a."""
     ts = _ts()
     aid = _short(agent_id)
     suffix = f" {C.DIM_W}{dim_suffix}{C.RESET}" if dim_suffix else ""
@@ -123,6 +159,8 @@ def _print(color: str, prefix: str, agent_id: str, msg: str, dim_suffix: str = "
         f"{msg}{suffix}"
     )
     print(line, file=sys.stderr, flush=True)
+    # UI console'a da gönder (ANSI kodları olmadan)
+    _emit_to_ui(prefix, agent_id, msg, level=level)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -260,32 +298,33 @@ def safety_block(agent_id: str, tool_name: str, reason: str) -> None:
     if not _ENABLED or _LEVEL > WARN:
         return
     _print(C.SAFETY, "SAFETY!", agent_id,
-           f"{C.BOLD}{tool_name}{C.RESET} BLOCKED: {_trim(reason, 200)}")
+           f"{C.BOLD}{tool_name}{C.RESET} BLOCKED: {_trim(reason, 200)}",
+           level="warn")
 
 
 # Genel
 def info(agent_id: str, msg: str) -> None:
     if not _ENABLED or _LEVEL > INFO:
         return
-    _print(C.DIM_W, "INFO", agent_id, msg)
+    _print(C.DIM_W, "INFO", agent_id, msg, level="info")
 
 
 def warn(agent_id: str, msg: str) -> None:
     if not _ENABLED or _LEVEL > WARN:
         return
-    _print(C.WARN, "WARN", agent_id, msg)
+    _print(C.WARN, "WARN", agent_id, msg, level="warn")
 
 
 def error(agent_id: str, msg: str) -> None:
     if not _ENABLED:
         return
-    _print(C.ERROR, "ERROR", agent_id, msg)
+    _print(C.ERROR, "ERROR", agent_id, msg, level="error")
 
 
 def trace(agent_id: str, msg: str) -> None:
     if not _ENABLED or _LEVEL > TRACE:
         return
-    _print(C.DIM, "TRACE", agent_id, msg)
+    _print(C.DIM, "TRACE", agent_id, msg, level="trace")
 
 
 # ── Session banner ───────────────────────────────────────────────────────────

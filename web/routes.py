@@ -778,6 +778,7 @@ async def _run_v2_agent_task(
 
     finally:
         session_manager.cleanup(session_id)
+        import core.debug_logger as _dbg; _dbg.unregister_session(session_id)
 
 
 async def _run_agent_task(
@@ -1139,7 +1140,9 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     if body.mode == "v2_auto":
         # ── V2 BrainAgent path ────────────────────────────────────────────────
         import core.debug_logger as dbg; dbg.print_banner()
-        dbg.info("routes", f"V2 session started | target={body.target} session={session_id}")
+        # Register session for UI debug log streaming (unregistered on session end)
+        dbg.register_session(session_id, progress_cb)
+        dbg.info("routes", f"V2 session started | target={body.target} session={session_id[:8]}")
         from core.brain_agent import BrainAgent, make_brain
         from core.message_bus import AgentMessageBus
         from core.mission_context import MissionContext
