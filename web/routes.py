@@ -1138,6 +1138,8 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
     if body.mode == "v2_auto":
         # ── V2 BrainAgent path ────────────────────────────────────────────────
+        import core.debug_logger as dbg; dbg.print_banner()
+        dbg.info("routes", f"V2 session started | target={body.target} session={session_id}")
         from core.brain_agent import BrainAgent, make_brain
         from core.message_bus import AgentMessageBus
         from core.mission_context import MissionContext
