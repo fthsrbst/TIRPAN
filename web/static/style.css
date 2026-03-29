@@ -2,7 +2,6 @@ body {
     background-color: #000000;
     color: #FFFFFF;
     font-family: 'Inter', sans-serif;
-    cursor: url('cursor.svg') 0 0, auto;
 }
 
 .mono-text {

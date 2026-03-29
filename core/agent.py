@@ -932,8 +932,8 @@ class PentestAgent(BaseAgent):
             if isinstance(msf_raw, str):
                 for line in msf_raw.splitlines():
                     clean = _ANSI.sub("", line).strip()
-                    # Keep important MSF status lines and AEGIS debug tags
-                    if _re.match(r"^\[[\+\-!\*]\]", clean) or "AEGIS_CMD_OUT" in clean:
+                    # Keep important MSF status lines and TIRPAN debug tags
+                    if _re.match(r"^\[[\+\-!\*]\]", clean) or "TIRPAN_CMD_OUT" in clean:
                         key_lines.append(clean)
             summary = {
                 "success":              raw_output.get("success"),

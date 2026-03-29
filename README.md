@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="logo.png" alt="AEGIS" width="160"/>
+<img src="logo.png" alt="TIRPAN" width="160"/>
 
-# AEGIS
+# TIRPAN
 
-**Autonomous Ethical Guardrailed Intelligence System**
+**Targeted Intrusion Recon, Penetration & Autonomy Node**
 
 *An AI agent that reasons like a senior penetration tester and executes like one.*
 
@@ -22,7 +22,7 @@
 
 ---
 
-Give AEGIS a target and a scope. It handles the rest.
+Give TIRPAN a target and a scope. It handles the rest.
 
 The agent scans the network, enumerates services, searches for known exploits, selects and executes the best attack path, performs post-exploitation reconnaissance, and produces a structured vulnerability report with CVSS scores — all autonomously, all in real time, all with a built-in kill switch.
 
@@ -32,18 +32,18 @@ The agent scans the network, enumerates services, searches for known exploits, s
 
 ## Demo
 
-[![AEGIS Demo](https://img.youtube.com/vi/L7qgV6r2qiA/maxresdefault.jpg)](https://youtu.be/L7qgV6r2qiA)
+[![TIRPAN Demo](https://img.youtube.com/vi/L7qgV6r2qiA/maxresdefault.jpg)](https://youtu.be/L7qgV6r2qiA)
 
 ---
 
 ## How It Works
 
-AEGIS runs a **ReAct loop** — Reason, Act, Observe, Reflect — continuously until the engagement is complete or all objectives are satisfied.
+TIRPAN runs a **ReAct loop** — Reason, Act, Observe, Reflect — continuously until the engagement is complete or all objectives are satisfied.
 
 ```
 Operator:  "Scan 192.168.1.0/24, exploit what you find, collect post-exploitation data."
 
-AEGIS:     [Thought]   No hosts discovered yet. Starting ping sweep.
+TIRPAN:     [Thought]   No hosts discovered yet. Starting ping sweep.
            [Act]       nmap_scan — ping sweep on 192.168.1.0/24
            [Observe]   4 live hosts: .5, .10, .23, .42
            [Thought]   Running full service detection on all hosts in parallel.
@@ -88,7 +88,7 @@ Every step is visible in the web UI in real time. Every action is logged for aud
 
 ```
 +----------------------------------------------------------+
-|                         AEGIS                            |
+|                         TIRPAN                            |
 |                                                          |
 |  +----------+     +----------------------------------+   |
 |  |  Web UI  |<--->|  FastAPI  —  REST + WebSocket    |   |
@@ -136,8 +136,8 @@ The ReAct loop, safety layer, and LLM client are stable. Every attack capability
 
 ```bash
 # Clone
-git clone https://github.com/fthsrbst/aegis.git
-cd aegis
+git clone https://github.com/fthsrbst/tirpan.git
+cd tirpan
 
 # Install dependencies
 python3 -m venv .venv
@@ -165,7 +165,7 @@ python3 main.py run --target 192.168.1.0/24 --mode full_auto --scope 192.168.1.0
 # Start a vulnerable target (Metasploitable 2)
 docker run -d --name target tleemcjr/metasploitable2
 
-# Point AEGIS at it
+# Point TIRPAN at it
 python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' target)
 ```
 
@@ -173,7 +173,7 @@ python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Netwo
 
 ## CLI Reference
 
-AEGIS operates in two modes: **web UI** (default) and **terminal** (headless).
+TIRPAN operates in two modes: **web UI** (default) and **terminal** (headless).
 
 ### Web UI
 
@@ -225,7 +225,7 @@ python3 main.py run --target 192.168.1.0/24 --exclude-ips 192.168.1.1,192.168.1.
 
 ## Safety Guardrails
 
-AEGIS enforces ten configurable safety constraints on every action. These cannot be bypassed by the LLM — they are evaluated in a separate layer before any tool executes.
+TIRPAN enforces ten configurable safety constraints on every action. These cannot be bypassed by the LLM — they are evaluated in a separate layer before any tool executes.
 
 | Guardrail | Default | Description |
 |-----------|---------|-------------|
@@ -244,7 +244,7 @@ AEGIS enforces ten configurable safety constraints on every action. These cannot
 
 ## Mission Configuration
 
-For structured engagements, AEGIS accepts a `MissionBrief` configuration that controls scope, permissions, credentials, and objectives.
+For structured engagements, TIRPAN accepts a `MissionBrief` configuration that controls scope, permissions, credentials, and objectives.
 
 ```json
 {
@@ -276,7 +276,7 @@ For structured engagements, AEGIS accepts a `MissionBrief` configuration that co
 
 ## Roadmap
 
-AEGIS is built in three phases. V1 is the network-level foundation — everything after it arrives as a plugin.
+TIRPAN is built in three phases. V1 is the network-level foundation — everything after it arrives as a plugin.
 
 ### V1 — Network Pentesting (complete)
 
@@ -422,9 +422,9 @@ The agent discovers, loads, and uses plugins automatically — including exposin
 
 ## Comparison with XBOW
 
-XBOW is the current commercial benchmark for autonomous AI pentesting. AEGIS is the open-source equivalent.
+XBOW is the current commercial benchmark for autonomous AI pentesting. TIRPAN is the open-source equivalent.
 
-| Capability | XBOW | AEGIS V1 | AEGIS V2+ |
+| Capability | XBOW | TIRPAN V1 | TIRPAN V2+ |
 |------------|------|----------|-----------|
 | Network scanning and exploitation | Yes | Yes | Yes |
 | AI-driven ReAct loop | Yes | Yes | Yes |
@@ -495,7 +495,7 @@ Never test on systems you do not own or have explicit written authorization to t
 
 ## Contributing
 
-AEGIS grows through its plugin ecosystem. Contributions are welcome:
+TIRPAN grows through its plugin ecosystem. Contributions are welcome:
 
 - **New plugins** — Add a new attack type following the plugin guide
 - **Core improvements** — Agent loop, safety layer, LLM client
@@ -522,12 +522,12 @@ By using this software, you agree that:
 
 ## License
 
-[AEGIS Non-Commercial License](LICENSE) — Free for personal, educational, and research use. Commercial use requires explicit written permission from the authors.
+[TIRPAN Non-Commercial License](LICENSE) — Free for personal, educational, and research use. Commercial use requires explicit written permission from the authors.
 
 ---
 
 <div align="center">
 
-[Star this repository](https://github.com/fthsrbst/aegis) · [Report a bug](https://github.com/fthsrbst/aegis/issues) · [Request a feature](https://github.com/fthsrbst/aegis/issues)
+[Star this repository](https://github.com/fthsrbst/tirpan) · [Report a bug](https://github.com/fthsrbst/tirpan/issues) · [Request a feature](https://github.com/fthsrbst/tirpan/issues)
 
 </div>

@@ -1,8 +1,8 @@
-# AEGIS — Learning Curriculum
+# TIRPAN — Learning Curriculum
 
 ## How This Project Teaches You to Code
 
-Each phase of building AEGIS teaches you specific programming concepts. You'll go from beginner-intermediate to someone who can build complex AI-powered systems.
+Each phase of building TIRPAN teaches you specific programming concepts. You'll go from beginner-intermediate to someone who can build complex AI-powered systems.
 
 ---
 

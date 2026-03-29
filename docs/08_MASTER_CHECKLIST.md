@@ -1,4 +1,4 @@
-# AEGIS — Master Checklist (Per Phase, Complete)
+# TIRPAN — Master Checklist (Per Phase, Complete)
 
 > Detailed task list for each phase. Mark with ✅ when complete.
 >
@@ -7,7 +7,7 @@
 
 ---
 
-## 🔵 SECTION A: AEGIS Pentest Bot (V1)
+## 🔵 SECTION A: TIRPAN Pentest Bot (V1)
 
 ---
 

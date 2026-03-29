@@ -1,5 +1,5 @@
 """
-AEGIS V2 — BrainAgent
+TIRPAN V2 — BrainAgent
 
 Meta-coordinator that spawns, monitors, and synthesises results from all
 specialized agents.
@@ -622,7 +622,7 @@ class BrainAgent(BaseAgent):
         else:
             active_agents_section = "\nRUNNING AGENTS: none\n"
 
-        return f"""You are AEGIS BrainAgent — the master coordinator of an autonomous penetration test.
+        return f"""You are TIRPAN BrainAgent — the master coordinator of an autonomous penetration test.
 
 MISSION STATE:
 {ctx_summary}
