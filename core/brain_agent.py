@@ -47,6 +47,7 @@ from typing import Any
 
 from core.base_agent import AgentResult, AgentState, BaseAgent
 from core.message_bus import AgentMessage, AgentMessageBus, MessageType
+import core.debug_logger as dbg
 from core.mission_context import (
     AgentStatus,
     AttackEdge,
@@ -197,13 +198,23 @@ class BrainAgent(BaseAgent):
         # ── Meta-tool fast path ───────────────────────────────────────────────
         if tool_name in self._META_TOOLS:
             self.emit_event("tool_call", {"tool": tool_name, "params": params})
+            dbg.brain_iter(self.agent_id, self._iteration, self._active_agents)
+            dbg.tool_call(self.agent_id, tool_name, params)
+            import time as _time
+            _t0 = _time.monotonic()
             try:
                 result = await self._execute_tool(tool_name, params)
             except Exception as exc:
                 self._log.error("Meta-tool '%s' raised: %s", tool_name, exc)
+                dbg.tool_fail(self.agent_id, tool_name, str(exc))
                 result = {"status": "error", "error": str(exc)}
+            _dur = (_time.monotonic() - _t0) * 1000
 
             success = result.get("status") not in ("error",)
+            if success:
+                dbg.tool_ok(self.agent_id, tool_name, result, _dur)
+            else:
+                dbg.tool_fail(self.agent_id, tool_name, result.get("error", ""), _dur)
             self.emit_event("tool_result", {
                 "tool": tool_name,
                 "success": success,
@@ -327,6 +338,7 @@ class BrainAgent(BaseAgent):
             "agent_type": agent_type,
             "target": target,
         })
+        dbg.agent_spawn(self.agent_id, agent_id, agent_type, target)
         logger.info("BrainAgent: spawned %s (id=%s) for %s", agent_type, agent_id, target)
 
         return {
@@ -340,6 +352,7 @@ class BrainAgent(BaseAgent):
         self, agent: BaseAgent, agent_id: str, agent_type: str
     ) -> AgentResult:
         """Wrapper that runs a child agent and posts AGENT_DONE/ERROR to the bus."""
+        dbg.info(agent_id, f"_run_child started → agent_type={agent_type}")
         await self.ctx.update_agent_status(AgentStatus(
             agent_id=agent_id, agent_type=agent_type, status="running"
         ))
@@ -347,6 +360,7 @@ class BrainAgent(BaseAgent):
             result: AgentResult = await agent.run()
         except Exception as exc:
             logger.exception("Child agent %s raised: %s", agent_id, exc)
+            dbg.agent_error(agent_id, str(exc))
             result = AgentResult(
                 agent_id=agent_id,
                 agent_type=agent_type,
@@ -370,6 +384,8 @@ class BrainAgent(BaseAgent):
                 "error":       result.error or "",
             },
         ))
+        dbg.agent_done(agent_id, agent_type, result.status,
+                       len(result.findings), result.iterations)
         await self.ctx.update_agent_status(AgentStatus(
             agent_id=agent_id,
             agent_type=agent_type,
@@ -403,8 +419,10 @@ class BrainAgent(BaseAgent):
             agent_ids = raw_ids if isinstance(raw_ids, list) else [raw_ids]
 
         if not agent_ids:
+            dbg.warn(self.agent_id, "wait_for_agents called but no agents to wait for")
             return {"status": "ok", "completed": [], "timed_out": [], "hint": "No agents to wait for."}
 
+        dbg.wait_start(self.agent_id, agent_ids, timeout)
         done_results: dict[str, AgentMessage | None] = {}
 
         async def wait_one(aid: str):
@@ -440,6 +458,7 @@ class BrainAgent(BaseAgent):
 
         completed = [aid for aid, r in done_results.items() if r is not None]
         timed_out = [aid for aid, r in done_results.items() if r is None]
+        dbg.wait_done(self.agent_id, completed, timed_out)
 
         return {
             "status": "ok",
@@ -598,9 +617,14 @@ class BrainAgent(BaseAgent):
         """
         if msg.msg_type == MessageType.FINDING:
             # Queue finding for integration into next Brain iteration
+            finding_type = msg.payload.get("finding_type") or msg.payload.get("type", "?")
+            dbg.bus_finding(msg.sender_id, finding_type,
+                            str(msg.payload.get("data", msg.payload))[:200])
             self._add_finding(msg.payload)
         elif msg.msg_type in (MessageType.AGENT_DONE, MessageType.AGENT_ERROR):
             aid = msg.payload.get("agent_id", "")
+            status = msg.payload.get("status", "?")
+            dbg.bus_agent_done(aid, msg.msg_type, status)
             self._active_agents.pop(aid, None)
             self._child_agents.pop(aid, None)
             self.emit_event("child_agent_done", {

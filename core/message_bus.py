@@ -20,6 +20,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine
 
+import core.debug_logger as dbg
+
 
 # ── Message types ────────────────────────────────────────────────────────────
 
@@ -193,6 +195,10 @@ class AgentMessageBus:
         - If recipient_id is None → broadcast to all.
         Also fires subscriptions and updates history.
         """
+        # TRACE: log every bus message (verbose — disable with TIRPAN_LOG_LEVEL=debug)
+        payload_summary = str(msg.payload)[:120]
+        dbg.bus_send(msg.sender_id, msg.msg_type, msg.recipient_id, payload_summary)
+
         self._record(msg)
         await self._fire_subscriptions(msg)
         await self._resolve_pending(msg)
@@ -316,13 +322,20 @@ class AgentMessageBus:
         # Agent already completed before we started waiting — return immediately.
         # Previously this branch created a new empty future, causing a hang until timeout.
         if fut is not None and fut.done():
+            dbg.trace(agent_id, "wait_for_agent_done: already done (fast path)")
             return fut.result()
         if fut is None:
             fut = loop.create_future()
             self._done_futures[agent_id] = fut
+            dbg.trace(agent_id, f"wait_for_agent_done: future created, waiting (timeout={timeout}s)")
+        else:
+            dbg.trace(agent_id, f"wait_for_agent_done: future exists but not done yet (timeout={timeout}s)")
         try:
-            return await asyncio.wait_for(asyncio.shield(fut), timeout=timeout)
+            result = await asyncio.wait_for(asyncio.shield(fut), timeout=timeout)
+            dbg.trace(agent_id, "wait_for_agent_done: resolved OK")
+            return result
         except asyncio.TimeoutError:
+            dbg.warn(agent_id, f"wait_for_agent_done: TIMEOUT after {timeout}s")
             return None
 
     async def _resolve_pending(self, msg: AgentMessage) -> None:
