@@ -1541,7 +1541,7 @@ async def get_report_pdf(sid: str):
             content=pdf_bytes,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="aegis-report-{sid[:8]}.pdf"'
+                "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"'
             },
         )
     except Exception as exc:

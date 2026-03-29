@@ -2,7 +2,7 @@
 Phase 10 — Database Tests
 
 All tests use an in-memory (temporary file) SQLite database so they
-never touch the real aegis.db and run fully isolated.
+never touch the real tirpan.db and run fully isolated.
 """
 
 import asyncio
@@ -28,7 +28,7 @@ from database.knowledge_base import KnowledgeBase
 @pytest_asyncio.fixture
 async def db_path(tmp_path):
     """Provide a fresh temporary SQLite file for each test."""
-    path = tmp_path / "test_aegis.db"
+    path = tmp_path / "test_tirpan.db"
     await init_db(path)
     return path
 

@@ -1,4 +1,4 @@
-# AEGIS — Prerequisites & Setup Guide
+# TIRPAN — Prerequisites & Setup Guide
 
 ## System Requirements
 
@@ -65,7 +65,7 @@ msfrpcd -P your_password_here -S -a 127.0.0.1 -p 55553
 
 ### Step 3: Local LLM (Ollama or LM Studio)
 
-AEGIS supports two local inference backends. Install at least one, or skip both and use OpenRouter (cloud API).
+TIRPAN supports two local inference backends. Install at least one, or skip both and use OpenRouter (cloud API).
 
 #### Option A — Ollama
 
@@ -87,9 +87,9 @@ LM Studio is a GUI-based local LLM runner that exposes an OpenAI-compatible REST
 1. Download from https://lmstudio.ai/ (Linux, macOS, Windows)
 2. Load any GGUF model from the *Model Catalog*
 3. In *Local Server* → start the server on port `1234` (default)
-4. In AEGIS Web UI → Settings → LM Studio → set Base URL to `http://127.0.0.1:1234` and choose the loaded model
+4. In TIRPAN Web UI → Settings → LM Studio → set Base URL to `http://127.0.0.1:1234` and choose the loaded model
 
-Default base URL used by AEGIS: `http://127.0.0.1:1234`
+Default base URL used by TIRPAN: `http://127.0.0.1:1234`
 
 ```bash
 # Verify LM Studio server is running
@@ -317,7 +317,7 @@ curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/winPEAS
 
 ### API Plugin Keys (Optional)
 
-API plugins require credentials. Set as environment variables or configure in AEGIS Web UI (Settings → Secrets → API Keys).
+API plugins require credentials. Set as environment variables or configure in TIRPAN Web UI (Settings → Secrets → API Keys).
 
 | Plugin | Environment Variable | Free Tier | Where to Get |
 |---|---|---|---|

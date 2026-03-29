@@ -122,7 +122,7 @@ class BaseSpecializedAgent(BaseAgent):
         options_note = (
             f"\nOPTIONS: {self.options}" if self.options else ""
         )
-        return f"""You are AEGIS {role} — a specialized penetration testing sub-agent.
+        return f"""You are TIRPAN {role} — a specialized penetration testing sub-agent.
 
 TARGET: {self.target}
 TASK: {self.task_type}{options_note}

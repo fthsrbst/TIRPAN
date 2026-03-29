@@ -1,5 +1,5 @@
 """
-AEGIS Session Manager
+TIRPAN Session Manager
 
 Lifecycle management for running PentestAgent instances.
 

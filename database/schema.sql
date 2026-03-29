@@ -1,4 +1,4 @@
--- AEGIS — Pentest Database Schema
+-- TIRPAN — Pentest Database Schema
 -- Applied via migration version 2 (version 1 = chat tables in db.py)
 
 -- ── Schema version tracking ────────────────────────────────────────────────
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS exploit_results (
     output         TEXT    NOT NULL DEFAULT '',
     error          TEXT    NOT NULL DEFAULT '',
     poc_output     TEXT    NOT NULL DEFAULT '',
-    source_ip      TEXT    NOT NULL DEFAULT '',  -- pivot origin IP; empty = direct from AEGIS
+    source_ip      TEXT    NOT NULL DEFAULT '',  -- pivot origin IP; empty = direct from TIRPAN
     created_at     REAL    NOT NULL
 );
 

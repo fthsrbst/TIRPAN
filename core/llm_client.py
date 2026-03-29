@@ -147,8 +147,8 @@ class OpenRouterClient(LLMClient):
     def _headers(self) -> dict:
         headers: dict = {
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/aegis-pentest",
-            "X-Title": "AEGIS",
+            "HTTP-Referer": "https://github.com/tirpan-pentest",
+            "X-Title": "TIRPAN",
         }
         if self._has_valid_key():
             headers["Authorization"] = f"Bearer {self._current_key}"
@@ -527,7 +527,7 @@ class LLMRouter:
                     params[pname] = pvalue  # keep as string
 
             if tool_name == "parallel_tools":
-                # Reconstruct the AEGIS parallel_tools format
+                # Reconstruct the TIRPAN parallel_tools format
                 tools = params.get("tools", [])
                 reasoning = params.get("reasoning", "")
                 thought = params.get("thought", "Parallel tool execution.")
@@ -538,7 +538,7 @@ class LLMRouter:
                     "reasoning": reasoning,
                 }
             else:
-                # Single tool call — reconstruct as AEGIS action dict
+                # Single tool call — reconstruct as TIRPAN action dict
                 thought = params.pop("thought", f"Calling {tool_name}.")
                 reasoning = params.pop("reasoning", "")
                 return {

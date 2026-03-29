@@ -1,7 +1,7 @@
 """
-AEGIS V2 — BaseAgent
+TIRPAN V2 — BaseAgent
 
-Abstract foundation for all AEGIS agents.
+Abstract foundation for all TIRPAN agents.
 
 Provides:
   - AgentState enum (shared across all agents, imported by core/agent.py)
@@ -132,7 +132,7 @@ class AgentResult:
 
 class BaseAgent(ABC):
     """
-    Abstract base class for all AEGIS V2 agents.
+    Abstract base class for all TIRPAN V2 agents.
 
     The generic ReAct loop lives here. Specialized agents override the abstract
     methods to inject domain-specific logic (prompts, result handling, tools).
@@ -195,7 +195,7 @@ class BaseAgent(ABC):
         # Accumulated findings — populated by _add_finding() inside process_result()
         self._findings: list[dict] = []
 
-        self._log = logging.getLogger(f"aegis.agent.{agent_type}")
+        self._log = logging.getLogger(f"tirpan.agent.{agent_type}")
 
     # ── Public properties ─────────────────────────────────────────────────────
 
