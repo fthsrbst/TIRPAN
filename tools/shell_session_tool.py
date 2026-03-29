@@ -343,7 +343,30 @@ class ShellSessionTool(BaseTool):
 
     # ── Public entry point ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _normalize_params(params: dict) -> dict:
+        """Fix common LLM mistakes before validation/execution."""
+        p = dict(params)
+        # If target_ip looks like a session_key (e.g. "bind:192.168.56.101:6200"),
+        # extract the real IP and port from it to avoid DNS resolution errors.
+        raw_ip = p.get("target_ip", "")
+        if raw_ip and ":" in raw_ip:
+            parts = raw_ip.split(":")
+            # "bind:192.168.56.101:6200" or "reverse:192.168.56.101:4444"
+            if parts[0] in ("bind", "reverse", "ssh") and len(parts) == 3:
+                p["target_ip"] = parts[1]
+                if "target_port" not in p:
+                    try:
+                        p["target_port"] = int(parts[2])
+                    except ValueError:
+                        pass
+                # Also treat it as session_key if not already set
+                if not p.get("session_key"):
+                    p["session_key"] = raw_ip
+        return p
+
     async def execute(self, params: dict) -> dict:
+        params = self._normalize_params(params)
         ok, msg = await self.validate(params)
         if not ok:
             return {"success": False, "output": None, "error": msg}

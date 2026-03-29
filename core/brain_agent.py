@@ -47,6 +47,7 @@ from typing import Any
 
 from core.base_agent import AgentResult, AgentState, BaseAgent
 from core.message_bus import AgentMessage, AgentMessageBus, MessageType
+from core.soul_loader import SoulLoader
 import core.debug_logger as dbg
 from core.mission_context import (
     AgentStatus,
@@ -100,6 +101,7 @@ class BrainAgent(BaseAgent):
     # The brain uses meta-tools only
     _META_TOOLS = [
         "spawn_agent",
+        "spawn_agents_batch",
         "wait_for_agents",
         "kill_agent",
         "update_context",
@@ -107,6 +109,8 @@ class BrainAgent(BaseAgent):
         "set_phase",
         "mission_done",
     ]
+
+    _soul = SoulLoader()
 
     def __init__(
         self,
@@ -164,6 +168,8 @@ class BrainAgent(BaseAgent):
         """Handle meta-tool results."""
         if tool_name == "spawn_agent":
             self._handle_spawn_result(result)
+        elif tool_name == "spawn_agents_batch":
+            pass  # _spawn_agents_batch already calls _handle_spawn_result per agent
         elif tool_name == "update_context":
             await self._handle_update_context(result, action_dict)
         elif tool_name == "set_phase":
@@ -232,6 +238,8 @@ class BrainAgent(BaseAgent):
         """Dispatch meta-tool calls to the appropriate internal handler."""
         if tool_name == "spawn_agent":
             return await self._spawn_agent(params)
+        if tool_name == "spawn_agents_batch":
+            return await self._spawn_agents_batch(params)
         if tool_name == "wait_for_agents":
             return await self._wait_for_agents(params)
         if tool_name == "kill_agent":
@@ -348,6 +356,62 @@ class BrainAgent(BaseAgent):
             "target": target,
         }
 
+    async def _spawn_agents_batch(self, params: dict) -> dict:
+        """
+        Spawn multiple agents simultaneously.
+
+        params:
+            agents: list of dicts, each with the same fields as spawn_agent params
+                    (agent_type, target, task_type, options)
+
+        Returns summary of all spawn results.
+        """
+        agents_list = params.get("agents", [])
+        if not agents_list:
+            return {"status": "error", "error": "spawn_agents_batch requires 'agents' list"}
+
+        spawned = []
+        skipped = []
+        errors = []
+
+        for agent_params in agents_list:
+            result = await self._spawn_agent(agent_params)
+            status = result.get("status", "error")
+            if status == "spawned":
+                spawned.append({
+                    "agent_id": result["agent_id"],
+                    "agent_type": result["agent_type"],
+                    "target": result.get("target", ""),
+                })
+                # Register for process_result handling (same as single spawn)
+                self._handle_spawn_result(result)
+            elif status == "already_running":
+                skipped.append({
+                    "agent_type": agent_params.get("agent_type"),
+                    "reason": "already_running",
+                    "agent_id": result.get("agent_id"),
+                })
+            else:
+                errors.append({
+                    "agent_type": agent_params.get("agent_type"),
+                    "error": result.get("error", "unknown error"),
+                })
+
+        dbg.info(self.agent_id,
+                 f"spawn_agents_batch: spawned={len(spawned)} skipped={len(skipped)} errors={len(errors)}")
+
+        return {
+            "status": "ok",
+            "spawned": spawned,
+            "skipped": skipped,
+            "errors": errors,
+            "hint": (
+                f"Spawned {len(spawned)} agents. "
+                f"Now call: wait_for_agents({{\"agent_ids\": \"all\"}}) to wait for all."
+                if spawned else "No new agents were spawned."
+            ),
+        }
+
     async def _run_child(
         self, agent: BaseAgent, agent_id: str, agent_type: str
     ) -> AgentResult:
@@ -411,10 +475,16 @@ class BrainAgent(BaseAgent):
 
         # Support "all" shorthand to wait for all currently tracked agents
         if raw_ids == "all" or raw_ids == ["all"]:
-            # Prefer _active_agents, fall back to _child_tasks for still-running tasks
+            # 1. Currently running agents
             agent_ids = list(self._active_agents.keys())
+            # 2. Tasks not yet done (may have been removed from _active_agents early)
+            for aid, t in self._child_tasks.items():
+                if not t.done() and aid not in agent_ids:
+                    agent_ids.append(aid)
+            # 3. Also include any that already completed (pre-resolved futures)
+            #    so the caller gets a full picture of what ran
             if not agent_ids:
-                agent_ids = [aid for aid, t in self._child_tasks.items() if not t.done()]
+                agent_ids = list(self._child_tasks.keys())
         else:
             agent_ids = raw_ids if isinstance(raw_ids, list) else [raw_ids]
 
@@ -636,79 +706,19 @@ class BrainAgent(BaseAgent):
 
     def _build_system_prompt(self) -> str:
         ctx_summary = self.ctx.to_summary()
-
-        # Inject currently running agent IDs so the LLM can use exact IDs
-        if self._active_agents:
-            agents_table = "\n".join(
-                f"  {aid}  ({atype})" for aid, atype in self._active_agents.items()
-            )
-            active_agents_section = f"\nRUNNING AGENTS (use these exact IDs in wait_for_agents):\n{agents_table}\n"
-        else:
-            active_agents_section = "\nRUNNING AGENTS: none\n"
-
-        return f"""You are TIRPAN BrainAgent — the master coordinator of an autonomous penetration test.
-
-MISSION STATE:
-{ctx_summary}
-{active_agents_section}
-Your role:
-- Analyse the current mission state and decide which specialized agents to spawn next.
-- Integrate findings from completed agents into the mission context.
-- Advance the mission phase when objectives are achieved.
-- Ask the operator if you need permission to proceed with a sensitive action.
-- Call mission_done when the engagement is complete.
-
-Available meta-tools:
-  spawn_agent(agent_type, target, task_type, options)
-    agent_type: scanner | exploit | post_exploit | webapp | osint | lateral | reporting
-    → returns {{"agent_id": "<id>", ...}} — copy the returned agent_id exactly
-    IMPORTANT agent_type selection:
-      - scanner:  network discovery, port scanning, service enumeration (nmap, masscan)
-      - webapp:   web application scanning (HTTP/HTTPS targets — whatweb, nikto, nuclei, ffuf)
-      - exploit:  exploitation of known CVEs via searchsploit + metasploit ONLY
-      - osint:    OSINT gathering (whois, dns, subfinder, theharvester)
-    When HTTP ports (80, 443, 8080, etc.) are found, spawn "webapp" NOT "exploit".
-  wait_for_agents(agent_ids, timeout)
-    agent_ids: list of agent_id strings from RUNNING AGENTS above (e.g. ["osint-abc12345"])
-    Use agent_ids: "all" to wait for all running agents at once.
-  kill_agent(agent_id)
-  update_context(item)  — item: {{type, ...fields}}
-    types: host | vulnerability | session | credential | loot | lateral_edge
-  ask_operator(question, timeout)
-  set_phase(phase)
-    phases: recon | scanning | exploitation | post_exploitation | lateral_movement |
-            reporting | done
-  mission_done(summary)
-
-Strategy guidelines:
-1. Start by spawning a scanner agent on the target scope.
-2. IMMEDIATELY after spawning, you MUST call wait_for_agents(agent_ids: "all") to wait for results.
-   DO NOT spawn the same agent type twice — if one is already running, wait for it.
-3. After scanning completes, spawn exploit agents for high-CVSS findings.
-4. After exploitation, spawn post_exploit agents on compromised hosts.
-5. If lateral movement is allowed and credentials harvested, spawn lateral agents.
-6. Finally, spawn a reporting agent to produce the final report.
-7. Never exceed the permissions granted in the mission brief.
-
-CRITICAL RULES:
-- You are a COORDINATOR. You do NOT run scans or tools yourself — only spawn agents and wait.
-- After EVERY spawn_agent call, your next action MUST be wait_for_agents.
-- If an agent is already running (status: "already_running"), wait for it instead of spawning again.
-- Do NOT call nmap_scan, masscan_scan, or any scan tools directly. Those belong to specialized agents.
-
-Permission flags:
-  allow_exploitation:      {self.ctx.allow_exploitation}
-  allow_post_exploitation: {self.ctx.allow_post_exploitation}
-  allow_lateral_movement:  {self.ctx.allow_lateral_movement}
-  allow_persistence:       {self.ctx.allow_persistence}
-  allow_credential_harvest:{self.ctx.allow_credential_harvest}
-  allow_data_exfil:        {self.ctx.allow_data_exfil}
-
-Respond ONLY with a valid JSON action dict:
-{{"thought": "<brief reasoning>", "action": "<tool_name>", "parameters": {{...}}}}
-or
-{{"thought": "<brief reasoning>", "action": "mission_done", "parameters": {{"summary": "..."}}}}
-"""
+        permissions = {
+            "allow_exploitation":      self.ctx.allow_exploitation,
+            "allow_post_exploitation": self.ctx.allow_post_exploitation,
+            "allow_lateral_movement":  self.ctx.allow_lateral_movement,
+            "allow_persistence":       self.ctx.allow_persistence,
+            "allow_credential_harvest":self.ctx.allow_credential_harvest,
+            "allow_data_exfil":        self.ctx.allow_data_exfil,
+        }
+        return self._soul.build_brain_prompt(
+            ctx_summary=ctx_summary,
+            active_agents=self._active_agents,
+            permissions=permissions,
+        )
 
     # ── Handle terminal action ────────────────────────────────────────────────
 

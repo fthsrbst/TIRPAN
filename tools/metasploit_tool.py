@@ -61,11 +61,11 @@ class MetasploitTool(BaseTool):
                     },
                     "target_ip": {
                         "type": "string",
-                        "description": "Target IP address",
+                        "description": "Target IP address. Use 'target_ip' (not 'rhosts' or 'rhost')",
                     },
                     "target_port": {
                         "type": "integer",
-                        "description": "Target port",
+                        "description": "Target port number. Use 'target_port' (not 'rport')",
                     },
                     "payload": {
                         "type": "string",
@@ -131,7 +131,34 @@ class MetasploitTool(BaseTool):
                 return False, "'command' is required for action='session_exec'"
         return True, ""
 
+    @staticmethod
+    def _normalize_params(params: dict) -> dict:
+        """Map LLM-style MSF names to internal names before validation."""
+        p = dict(params)
+        # RHOSTS / RHOST → target_ip
+        for alias in ("rhosts", "rhost", "RHOSTS", "RHOST"):
+            if alias in p and "target_ip" not in p:
+                p["target_ip"] = p.pop(alias)
+            else:
+                p.pop(alias, None)
+        # RPORT → target_port
+        for alias in ("rport", "RPORT"):
+            if alias in p and "target_port" not in p:
+                p["target_port"] = p.pop(alias)
+            else:
+                p.pop(alias, None)
+        # LHOST / lhost → options["LHOST"]
+        for alias in ("lhost", "LHOST"):
+            if alias in p:
+                p.setdefault("options", {})[alias.upper()] = p.pop(alias)
+        # LPORT / lport → options["LPORT"]
+        for alias in ("lport", "LPORT"):
+            if alias in p:
+                p.setdefault("options", {})[alias.upper()] = p.pop(alias)
+        return p
+
     async def execute(self, params: dict) -> dict:
+        params = self._normalize_params(params)
         ok, msg = await self.validate(params)
         if not ok:
             return {"success": False, "output": None, "error": msg}

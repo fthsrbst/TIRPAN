@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from typing import Any
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 
 # ── Renk kodları (ANSI) ───────────────────────────────────────────────────────
@@ -104,7 +107,7 @@ def _emit_to_ui(prefix: str, agent_id: str, msg: str, level: str = "debug") -> N
         "prefix": prefix.strip(),
         "agent_id": agent_id,
         "short_id": _short(agent_id) if agent_id else "sys",
-        "msg": msg,
+        "msg": _ANSI_RE.sub("", msg),
         "level": level,
         "ts": f"+{time.time() - _T0:7.3f}s",
     }
