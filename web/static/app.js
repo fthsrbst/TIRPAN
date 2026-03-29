@@ -2675,6 +2675,24 @@ function handleSessionEvent(msg) {
         if (data.error) {
             appendConsoleLine(`             error: ${data.error}`, 'text-danger');
         }
+
+    } else if (event === 'debug_log') {
+        // ── TIRPAN Debug Logger → UI console-bash ─────────────────────────
+        const lvl  = data.level  || 'debug';
+        const pfx  = data.prefix || 'DBG';
+        const aid  = data.short_id || data.agent_id || 'sys';
+        const ts   = data.ts || '';
+        const dmsg = data.msg  || '';
+        const colorMap = {
+            error: 'text-danger',
+            warn:  'text-orange-400',
+            info:  'text-slate-300',
+            trace: 'text-slate-600',
+            debug: 'text-slate-400',
+        };
+        const clr = colorMap[lvl] || 'text-slate-400';
+        _consoleAppend('console-bash',
+            `${ts} ${pfx.padEnd(10)} [${aid.padEnd(9)}] ${dmsg}`, clr);
     }
 
     if (activeMissionId) {
