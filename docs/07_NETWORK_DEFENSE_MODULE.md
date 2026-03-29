@@ -1,4 +1,4 @@
-# AEGIS — Network Defense Module (Blue Team Extension)
+# TIRPAN — Network Defense Module (Blue Team Extension)
 
 > 🛡️ An LLM-powered **active defense** layer that monitors the local network, detects attacks in real-time, and autonomously responds using AI-driven decision making.
 
@@ -6,10 +6,10 @@
 
 ## 1. Overview & Vision
 
-AEGIS V1 is a **Red Team** (offensive) tool. This module adds a **Blue Team** (defensive) counterpart. Together they form a full security loop:
+TIRPAN V1 is a **Red Team** (offensive) tool. This module adds a **Blue Team** (defensive) counterpart. Together they form a full security loop:
 
 ```
-RED  → AEGIS attacks target network  → finds vulnerabilities
+RED  → TIRPAN attacks target network  → finds vulnerabilities
 BLUE → DefenseAI monitors YOUR network   → detects & stops attacks
 ```
 
@@ -343,7 +343,7 @@ class LLMHoneypot:
 
 ---
 
-## 6. Integration with Existing AEGIS
+## 6. Integration with Existing TIRPAN
 
 ### 6.1 Dual-Mode Operation
 

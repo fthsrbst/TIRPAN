@@ -312,9 +312,12 @@ class AgentMessageBus:
         Brain uses this to join on spawned agents.
         """
         loop = asyncio.get_event_loop()
-        # If already done (race condition protection)
         fut = self._done_futures.get(agent_id)
-        if fut is None or fut.done():
+        # Agent already completed before we started waiting — return immediately.
+        # Previously this branch created a new empty future, causing a hang until timeout.
+        if fut is not None and fut.done():
+            return fut.result()
+        if fut is None:
             fut = loop.create_future()
             self._done_futures[agent_id] = fut
         try:

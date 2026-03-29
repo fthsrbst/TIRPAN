@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEGIS Pentest Report — {{ session.target }}</title>
+  <title>TIRPAN Pentest Report — {{ session.target }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" media="screen">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="screen">
   <style>
@@ -678,7 +678,7 @@
   <div class="cover-badge">&#x1F512; CONFIDENTIAL</div>
 
   <h1>Penetration Test Report</h1>
-  <p class="cover-subtitle">AEGIS Autonomous Security Assessment &mdash; {{ session.target }}</p>
+  <p class="cover-subtitle">TIRPAN Autonomous Security Assessment &mdash; {{ session.target }}</p>
 
   <div class="cover-grid">
     <div class="cover-grid-row">
@@ -706,7 +706,7 @@
       </div>
       <div class="cover-cell">
         <label>Scanner Engine</label>
-        <span class="val">AEGIS v0.1.0</span>
+        <span class="val">TIRPAN v0.1.0</span>
       </div>
     </div>
     <div class="cover-grid-row">
@@ -731,7 +731,7 @@
     Distribution is restricted to authorized personnel only.
     All findings must be verified by a qualified security professional before remediation.
     Do not share, copy, or distribute without written authorization.
-    Generated automatically by AEGIS Autonomous Penetration Testing Agent.
+    Generated automatically by TIRPAN Autonomous Penetration Testing Agent.
   </div>
 </div>
 
@@ -802,7 +802,7 @@
   {% endif %}
 
   <p style="margin-bottom:20px; color: var(--ink-light); font-size:13px; line-height:1.7;">
-    AEGIS conducted an autonomous penetration test against <strong>{{ session.target }}</strong>
+    TIRPAN conducted an autonomous penetration test against <strong>{{ session.target }}</strong>
     using mode <strong>{{ session.mode | replace('_', ' ') | title }}</strong>.
     The assessment covered network reconnaissance, service enumeration, vulnerability identification,
     and {% if session.mode != 'scan_only' %}controlled exploitation{% else %}vulnerability validation{% endif %}.
@@ -918,7 +918,7 @@
         The engagement covers all reachable hosts within <code>{{ session.target }}</code>.
         Testing is bounded to network-accessible services only.
         No physical access or social engineering was performed.
-        All activities were automated through the AEGIS ReAct agent loop.
+        All activities were automated through the TIRPAN ReAct agent loop.
       </div>
     </div>
   </div>
@@ -971,7 +971,7 @@
       <tr>
         <td><strong>5. Reporting</strong></td>
         <td>CVSS v3.1 scoring, remediation guidance</td>
-        <td>AEGIS Report Engine</td>
+        <td>TIRPAN Report Engine</td>
         <td><span class="sev sev-LOW">Done</span></td>
       </tr>
     </tbody>
@@ -986,7 +986,7 @@
       <tr><td><code>nmap</code></td><td>7.94+</td><td>Network scanning, service detection, OS fingerprinting</td></tr>
       <tr><td><code>searchsploit</code></td><td>ExploitDB current</td><td>CVE and PoC lookup from ExploitDB</td></tr>
       <tr><td><code>metasploit</code></td><td>6.x</td><td>Exploit framework for controlled vulnerability validation</td></tr>
-      <tr><td>AEGIS LLM Engine</td><td>v0.1.0</td><td>Autonomous ReAct reasoning: Reason → Act → Observe → Reflect</td></tr>
+      <tr><td>TIRPAN LLM Engine</td><td>v0.1.0</td><td>Autonomous ReAct reasoning: Reason → Act → Observe → Reflect</td></tr>
     </tbody>
   </table>
 </div>
@@ -1001,7 +1001,7 @@
   <h2 class="section-title">Discovered Hosts &amp; Services</h2>
 
   <p style="color:var(--ink-light); margin-bottom:20px;">
-    AEGIS discovered <strong>{{ stats.hosts_found }} live host(s)</strong> with a total of
+    TIRPAN discovered <strong>{{ stats.hosts_found }} live host(s)</strong> with a total of
     <strong>{{ stats.ports_found }} open port(s)</strong> within the target scope.
     The following table lists all identified services with version information where available.
   </p>
@@ -1483,10 +1483,10 @@
   <!-- Footer -->
   <div class="report-footer">
     <span>
-      AEGIS Autonomous Penetration Testing Agent &nbsp;&middot;&nbsp;
+      TIRPAN Autonomous Penetration Testing Agent &nbsp;&middot;&nbsp;
       Session <code>{{ session.id }}</code>
     </span>
-    <span class="footer-logo">AEGIS v0.1.0</span>
+    <span class="footer-logo">TIRPAN v0.1.0</span>
     <span>{{ generated_at }}</span>
   </div>
 
