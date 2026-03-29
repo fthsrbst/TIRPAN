@@ -144,6 +144,7 @@ class NmapTool(BaseTool):
         port_range = params.get("port_range", "1-1024")
         scripts = params.get("scripts", "")
         excluded_ports = params.get("excluded_ports", "")
+        session_id = params.get("_session_id", "")
 
         cmd = self._build_command(target, scan_type, port_range, scripts, excluded_ports)
 
@@ -153,6 +154,20 @@ class NmapTool(BaseTool):
             duration = time.time() - start
 
             result = self._parse_xml(xml_output, target, scan_type, duration)
+
+            # Save raw XML artifact
+            if session_id and xml_output:
+                try:
+                    from core.artifact_store import get_store
+                    safe_target = target.replace("/", "_").replace(":", "_")
+                    get_store().save(
+                        session_id, "nmap",
+                        f"nmap_{safe_target}_{scan_type}.xml",
+                        xml_output,
+                    )
+                except Exception as _ae:
+                    logger.debug("nmap artifact save failed: %s", _ae)
+
             return {"success": True, "output": result.model_dump(), "error": None}
 
         except TimeoutError:

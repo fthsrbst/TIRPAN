@@ -49,6 +49,7 @@ from core.base_agent import AgentResult, AgentState, BaseAgent
 from core.message_bus import AgentMessage, AgentMessageBus, MessageType
 from core.soul_loader import SoulLoader
 from core.playbook import get_playbook
+from core.training_data import get_collector as _get_training_collector
 import core.debug_logger as dbg
 from core.mission_context import (
     AgentStatus,
@@ -141,6 +142,11 @@ class BrainAgent(BaseAgent):
         # Set to True when mission_done meta-tool is called
         self._mission_done: bool = False
 
+        # Training data capture — store per-iteration context for reflect()
+        self._last_messages: list[dict] = []
+        self._last_action: dict = {}
+        self._last_result: dict = {}
+
         # Subscribe to bus events so Brain can react to findings
         self.bus.register_agent(self.agent_id)
         self.bus.subscribe_global(self._on_bus_message)
@@ -163,6 +169,8 @@ class BrainAgent(BaseAgent):
             # Use build_context() for proper role mapping (tool_result → user)
             # and token budget enforcement
             msgs.extend(self.memory.build_context())
+        # Cache for training data capture in reflect()
+        self._last_messages = msgs
         return msgs
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
@@ -228,10 +236,17 @@ class BrainAgent(BaseAgent):
                 "output": result,
                 "error": result.get("error"),
             })
-            return {"success": success, "output": result, "error": result.get("error")}
+            final = {"success": success, "output": result, "error": result.get("error")}
+            # Capture for training data (reflect() will write it)
+            self._last_action = action_dict
+            self._last_result = final
+            return final
 
         # ── Fallthrough: regular tools via BaseAgent ──────────────────────────
-        return await super().act(action_dict)
+        result = await super().act(action_dict)
+        self._last_action = action_dict
+        self._last_result = result
+        return result
 
     # ── Meta-tool dispatch ────────────────────────────────────────────────────
 
@@ -793,6 +808,33 @@ class BrainAgent(BaseAgent):
                         notes=f"user={data.get('username','')} via {data.get('method','')}",
                         session_id=self.session_id,
                     )
+
+    # ── LoRA training data capture ────────────────────────────────────────────
+
+    async def reflect(self) -> None:
+        """
+        Post-iteration hook: save this Brain iteration to the training corpus.
+
+        Called by BaseAgent.run() after every act/observe cycle.
+        Only writes if we have a captured action from this iteration.
+        """
+        if not self._last_action or not self._last_messages:
+            return
+        try:
+            _get_training_collector().record(
+                session_id=self.session_id,
+                iteration=self._iteration,
+                messages=self._last_messages,
+                action_dict=self._last_action,
+                result=self._last_result,
+                agent_type="brain",
+            )
+        except Exception as exc:
+            logger.debug("training_data.record failed: %s", exc)
+        finally:
+            # Reset so a missed act() doesn't re-emit stale data
+            self._last_action = {}
+            self._last_result = {}
 
     # ── Handle terminal action ────────────────────────────────────────────────
 

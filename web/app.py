@@ -55,6 +55,11 @@ async def lifespan(app: FastAPI):
         if _sudo_pw:
             settings.sudo_password = _sudo_pw
 
+    # LoRA training data toggle
+    _training_val = _all_settings.get("collect_training_data", None)
+    if _training_val is not None:
+        settings.collect_training_data = str(_training_val).lower() not in ("false", "0", "no")
+
     # Cleanup sessions that were left in "running" or "idle" state from a previous crash/restart.
     # "idle" sessions were created but the background task was killed before it could set status
     # to "running" (e.g. server reloaded immediately after a mission was launched).

@@ -139,6 +139,9 @@ class AppConfig(BaseSettings):
     # sudo password (Linux/macOS only). Loaded from OS keychain at startup, never persisted.
     sudo_password: str = Field(default="")
 
+    # LoRA training data collection — write per-session JSONL to data/training/
+    collect_training_data: bool = Field(default=True, alias="COLLECT_TRAINING_DATA")
+
     def model_post_init(self, __context):
         self.data_dir.mkdir(exist_ok=True)
 

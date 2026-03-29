@@ -1240,6 +1240,33 @@
             </div>
           </div>
 
+          <!-- ── SECTION: Training Data ─────────────────────────────── -->
+          <div>
+            <div class="flex items-center gap-4 mb-6">
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Training Data</span>
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+            </div>
+            <div class="flex flex-col gap-3">
+
+              <!-- Collect Training Data toggle -->
+              <div class="bg-card border border-border-color p-4 flex items-center gap-4">
+                <div class="shrink-0 w-8 h-8 border border-border-color flex items-center justify-center bg-surface">
+                  <span class="material-symbols-outlined text-secondary-text text-[16px]">model_training</span>
+                </div>
+                <div class="flex-1">
+                  <p class="text-xs font-bold uppercase tracking-wider">Collect LoRA Training Data</p>
+                  <p class="text-[10px] text-secondary-text mt-0.5">Save Brain agent reasoning traces to <span class="mono-text">data/training/</span> for Qwen3 fine-tuning. Each session produces a labelled JSONL file.</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input id="cfg-training-enabled" type="checkbox" class="sr-only peer" checked/>
+                  <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+                </label>
+              </div>
+
+            </div>
+          </div>
+
           <!-- Bottom save button -->
           <div class="flex justify-end pb-4">
             <button id="save-config-btn-bottom" class="bg-primary text-black font-display font-bold text-sm py-2.5 px-10 rounded-full uppercase tracking-tighter hover:brightness-90 transition-all">
