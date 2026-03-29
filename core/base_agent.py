@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -46,6 +47,7 @@ from core.llm_client import LLMRouter, llm_router
 from core.memory import SessionMemory
 from core.safety import AgentAction, SafetyGuard
 from core.tool_registry import ToolNotFoundError, ToolRegistry
+import core.debug_logger as dbg
 
 logger = logging.getLogger(__name__)
 
@@ -749,6 +751,10 @@ class BaseAgent(ABC):
                 "action": action_dict.get("action", ""),
                 "reasoning": action_dict.get("reasoning", ""),
             })
+            # Debug: show thought + action for every agent
+            dbg.brain_think(self.agent_id, action_dict.get("thought", ""))
+            dbg.brain_action(self.agent_id, action_dict.get("action", "?"),
+                             action_dict.get("parameters", {}))
             return action_dict
 
         except json.JSONDecodeError:
@@ -830,6 +836,7 @@ class BaseAgent(ABC):
         )
         ok, reason = self._safety.validate_action(agent_action)
         if not ok:
+            dbg.safety_block(self.agent_id, tool_name, reason)
             self.emit_event("safety_block", {"reason": reason, "tool": tool_name})
             await self._audit(
                 "SAFETY_BLOCK",
@@ -853,6 +860,7 @@ class BaseAgent(ABC):
 
         # ── Execute ───────────────────────────────────────────────────────
         self.emit_event("tool_call", {"tool": tool_name, "params": params})
+        dbg.tool_call(self.agent_id, tool_name, params)
         await self._audit(
             "TOOL_CALL",
             tool_name=tool_name,
@@ -860,11 +868,13 @@ class BaseAgent(ABC):
             details={"params": params},
         )
 
+        _t_start = time.monotonic()
         try:
             result = await tool.execute(params)
         except Exception as exc:
             self._log.error("Tool '%s' raised an exception: %s", tool_name, exc)
             result = {"success": False, "output": None, "error": str(exc)}
+        _dur_ms = (time.monotonic() - _t_start) * 1000
 
         # Truncate large outputs before sending over WebSocket (~4 KB limit)
         raw_output = result.get("output") or result.get("error")
@@ -873,6 +883,11 @@ class BaseAgent(ABC):
             output_str = output_str[:3000] + "\n... [truncated]"
 
         success = result.get("success", False)
+        if success:
+            dbg.tool_ok(self.agent_id, tool_name, raw_output, _dur_ms)
+        else:
+            dbg.tool_fail(self.agent_id, tool_name, str(result.get("error") or ""), _dur_ms)
+
         self.emit_event("tool_result", {
             "tool": tool_name,
             "success": success,
