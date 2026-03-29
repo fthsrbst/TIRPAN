@@ -39,6 +39,7 @@ class NiktoTool(BaseTool):
         url = params.get("url", "")
         timeout = int(params.get("timeout", NIKTO_TIMEOUT))
         tuning = params.get("tuning", "")
+        session_id = params.get("_session_id", "")
 
         if not shutil.which("nikto"):
             return {"success": False, "error": "nikto not found — install with: apt install nikto"}
@@ -65,6 +66,17 @@ class NiktoTool(BaseTool):
 
         output = stdout.decode(errors="replace")
         findings = self._parse_nikto_output(output, url)
+
+        # Save raw output artifact
+        if session_id and output:
+            try:
+                from core.artifact_store import get_store
+                import re as _re
+                safe_url = _re.sub(r"[^\w\-.]", "_", url)[:60]
+                get_store().save(session_id, "nikto", f"nikto_{safe_url}.txt", output)
+            except Exception as _ae:
+                logger.debug("nikto artifact save failed: %s", _ae)
+
         return {"success": True, "output": {"url": url, "findings": findings,
                                              "total": len(findings), "raw_output": output[:4096]}}
 

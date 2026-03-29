@@ -868,9 +868,13 @@ class BaseAgent(ABC):
             details={"params": params},
         )
 
+        # Inject session_id so tools can save artifacts without extra wiring
+        exec_params = dict(params)
+        exec_params.setdefault("_session_id", self.session_id)
+
         _t_start = time.monotonic()
         try:
-            result = await tool.execute(params)
+            result = await tool.execute(exec_params)
         except Exception as exc:
             self._log.error("Tool '%s' raised an exception: %s", tool_name, exc)
             result = {"success": False, "output": None, "error": str(exc)}
