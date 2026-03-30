@@ -140,10 +140,20 @@ class MetasploitTool(BaseTool):
                 return False, "'command' is required for action='session_exec'"
         return True, ""
 
-    @staticmethod
-    def _normalize_params(params: dict) -> dict:
+    # Common module path mistakes by LLMs → correct paths
+    _MODULE_ALIASES: dict[str, str] = {
+        "exploit/linux/samba/usermap_script":  "exploit/multi/samba/usermap_script",
+        "exploit/unix/samba/usermap_script":   "exploit/multi/samba/usermap_script",
+        "exploit/linux/samba/is_known_pipename": "exploit/linux/samba/is_known_pipename",
+    }
+
+    @classmethod
+    def _normalize_params(cls, params: dict) -> dict:
         """Map LLM-style MSF names to internal names before validation."""
         p = dict(params)
+        # Fix common module path mistakes
+        if "module" in p and p["module"] in cls._MODULE_ALIASES:
+            p["module"] = cls._MODULE_ALIASES[p["module"]]
         # RHOSTS / RHOST → target_ip
         for alias in ("rhosts", "rhost", "RHOSTS", "RHOST"):
             if alias in p and "target_ip" not in p:
@@ -668,6 +678,16 @@ class MetasploitTool(BaseTool):
     }
     _FALLBACK_BIND_PAYLOAD = "cmd/unix/bind_netcat"
 
+    # Fallback payloads for non-native modules when primary payload is incompatible.
+    # Buffer overflow modules (trans2open, etc.) often need staged payloads,
+    # not cmd/* payloads.
+    _PAYLOAD_FALLBACKS: list[str] = [
+        "cmd/unix/bind_perl",
+        "generic/shell_bind_tcp",
+        "linux/x86/shell/bind_tcp",
+        "cmd/unix/reverse_netcat",
+    ]
+
     @classmethod
     def _is_native_shell_module(cls, module_path: str) -> bool:
         """Return True if the module spawns its own shell (no staged payload needed)."""
@@ -739,6 +759,21 @@ class MetasploitTool(BaseTool):
                 post_commands=post_commands,
                 timeout=exploit_timeout,
             )
+            # If payload was incompatible, retry with fallback payloads
+            if not _session_opened(output) and "not a compatible payload" in output:
+                logger.info("Payload %s incompatible with %s — trying fallbacks",
+                            effective_payload, module_path)
+                for fb_payload in self._PAYLOAD_FALLBACKS:
+                    if fb_payload == effective_payload:
+                        continue
+                    output = await self._try_exploit_with_payload(
+                        module_path, target_ip, target_port, fb_payload, extra_opts,
+                        post_commands=post_commands,
+                        timeout=exploit_timeout,
+                    )
+                    if _session_opened(output):
+                        logger.info("Fallback payload %s succeeded for %s", fb_payload, module_path)
+                        break
 
         duration = time.monotonic() - start
 

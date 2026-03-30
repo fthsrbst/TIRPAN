@@ -72,6 +72,9 @@ class MetasploitConfig(BaseSettings):
     lhost_override: str = Field(default="", alias="MSF_LHOST_OVERRIDE")
     # Override the msfconsole binary path (auto-detected if empty)
     msfconsole_path: str = Field(default="", alias="MSF_CONSOLE_PATH")
+    # Auto-start msfrpcd at server startup for persistent session support
+    auto_start_msfrpcd: bool = Field(default=True, alias="MSF_AUTO_START_RPCD")
+    msfrpcd_path: str = Field(default="", alias="MSF_RPCD_PATH")
 
 
 class ServerConfig(BaseSettings):

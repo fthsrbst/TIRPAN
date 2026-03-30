@@ -1,0 +1,32 @@
+- Nikto v2.6.0
+---------------------------------------------------------------------------
++ Your Nikto installation is out of date.
++ Target IP:          192.168.56.101
++ Target Hostname:    192.168.56.101
++ Target Port:        8180
++ Platform:           Unknown
++ Start Time:         2026-03-30 16:10:07 (GMT3)
+---------------------------------------------------------------------------
++ Server: Apache-Coyote/1.1
++ No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.
++ [500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon
++ [013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
++ [013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options
++ [013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security
++ [013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
++ [013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy
++ [999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.
++ [000356] /: Appears to be a default Apache Tomcat install.
++ [95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies
++ [002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552
++ [003489] /webdav/index.html: WebDAV support is enabled.
++ [003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552
++ [006437] /servlets-examples/: Tomcat servlets examples are visible.
++ [700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tomcat. See: CWE-16
++ [007017] /admin/login.jsp: Tomcat Server Administration interface found.
++ [007342] /: X-Frame-Options header is deprecated and was replaced with the Content-Security-Policy HTTP header with the frame-ancestors directive. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options
++ [007352] /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the site in a different fashion to the MIME type. See: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/
++ 8346 requests: 0 errors and 17 items reported on the remote host
++ End Time:           2026-03-30 16:11:12 (GMT3) (65 seconds)
+---------------------------------------------------------------------------
++ 1 host(s) tested
