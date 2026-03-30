@@ -898,6 +898,21 @@ class BaseAgent(ABC):
             "output": output_str,
             "error": result.get("error"),
         })
+
+        # ── Shell I/O fan-out: emit shell_io so the Shell Panel renders agent activity
+        if tool_name == "metasploit_run" and params.get("action") == "session_exec":
+            msf_sid = params.get("session_id")
+            output_data = (result.get("output") or {})
+            if isinstance(output_data, dict):
+                cmd_out = output_data.get("output", "")
+            else:
+                cmd_out = str(output_data)
+            if msf_sid is not None and cmd_out:
+                self.emit_event("shell_io", {
+                    "shell_key": f"msf-{msf_sid}",
+                    "direction": "output",
+                    "data": f"[agent] {params.get('command','')}\n{cmd_out}",
+                })
         await self._audit(
             "TOOL_RESULT",
             tool_name=tool_name,

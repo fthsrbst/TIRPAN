@@ -2552,12 +2552,14 @@ function handleSessionEvent(msg) {
         appendConsoleLine(`[PARALLEL] ${data.count} tools completed`, 'text-green-400');
         agOnParallelDone(data);
 
-    } else if (event === 'phase_change' || event === 'discovery') {
+    } else if (event === 'phase_change' || event === 'phase_changed' || event === 'discovery') {
         updatePhaseFromEvent(data);
         // Capture topology phase event for timeline
-        if (data.attack_phase) {
-            _topoEvents.push({ ts: Date.now(), type: 'phase_change', label: `Phase: ${data.attack_phase}` });
+        const _evPhase = data.attack_phase || data.phase || '';
+        if (_evPhase) {
+            _topoEvents.push({ ts: Date.now(), type: 'phase_change', label: `Phase: ${_evPhase}` });
             _topoUpdateTimeline();
+            appendConsoleLine(`[PHASE] → ${_evPhase}`, 'text-cyan-400');
         }
 
     } else if (event === 'generate_report') {
@@ -2694,6 +2696,51 @@ function handleSessionEvent(msg) {
         const clr = colorMap[lvl] || 'text-slate-400';
         _consoleAppend('console-bash',
             `${ts} ${pfx.padEnd(10)} [${aid.padEnd(9)}] ${dmsg}`, clr);
+
+    } else if (event === 'finding_confirm') {
+        // ── Objective match — show confirmation card ────────────────────
+        _showFindingConfirm(data);
+
+    } else if (event === 'shell_open') {
+        // ── New shell session opened by agent ──────────────────────────────
+        const shellKey = data.shell_key || '';
+        const hostIp   = data.host_ip   || '';
+        const stype    = data.session_type || 'shell';
+        const module   = data.module    || '';
+        _onReverseShellReceived(shellKey, `${hostIp} [${stype}]`);
+        appendConsoleLine(`[SHELL] New ${stype} session on ${hostIp}${module ? ' via ' + module : ''}`, 'text-green-400');
+        appendMissionCard(`
+            <div class="border border-green-500/40 bg-green-500/5 px-4 py-2 font-mono text-xs">
+                <div class="flex items-center gap-2 text-green-400 font-bold">
+                    <span class="material-symbols-outlined text-[13px]" style="font-variation-settings:'FILL' 1;">cable</span>
+                    SHELL OPENED — ${_escHtml(hostIp)}
+                </div>
+                ${module ? `<div class="text-slate-400 mt-1 text-[10px]">module: ${_escHtml(module)}</div>` : ''}
+            </div>
+        `);
+
+    } else if (event === 'shell_closed') {
+        // ── Shell disconnected ─────────────────────────────────────────────
+        const closedKey = data.shell_key || '';
+        const closedHost = data.host_ip  || '';
+        const closeReason = data.reason  || 'connection lost';
+        _onShellClosed(closedKey, closedHost, closeReason);
+        appendConsoleLine(`[SHELL CLOSED] ${closedHost} — ${closeReason}`, 'text-orange-400');
+
+    } else if (event === 'shell_io') {
+        // ── Shell I/O stream from agent ────────────────────────────────────
+        const shellKey  = data.shell_key  || '';
+        const direction = data.direction  || 'output';
+        const ioData    = data.data       || '';
+        if (direction === 'output') {
+            receiveShellOutput(shellKey, ioData);
+        } else if (direction === 'input') {
+            // Agent executed a command — show with agent prefix
+            if (!_shellOutputBuffers[shellKey]) _shellOutputBuffers[shellKey] = [];
+            const line = `[agent]# ${ioData}`;
+            _shellOutputBuffers[shellKey].push(line);
+            if (_activeShellId === shellKey) _shellPrint(`<span class="text-cyan-400 select-none">[agent]# </span>${_escHtml(ioData)}`);
+        }
     }
 
     if (activeMissionId) {
@@ -7500,6 +7547,94 @@ function _switchConsoleTab(tabName) {
     });
 }
 
+// ─── Objective Confirmation Card ──────────────────────────────────────────────
+
+let _confirmTimers = {};
+
+function _showFindingConfirm(data) {
+    const summary    = data.summary         || '';
+    const objective  = data.objective       || '';
+    const timeout    = data.timeout_seconds || 30;
+    const cardId     = `confirm-${Date.now()}`;
+
+    const card = document.createElement('div');
+    card.id = cardId;
+    card.className = 'border-2 border-primary bg-primary/10 px-5 py-4 font-mono text-xs mx-4 my-2 relative';
+    card.innerHTML = `
+        <div class="flex items-start gap-3">
+            <span class="material-symbols-outlined text-primary text-[20px] shrink-0 mt-0.5" style="font-variation-settings:'FILL' 1;">flag</span>
+            <div class="flex-1 min-w-0">
+                <div class="text-primary font-bold text-[11px] uppercase tracking-widest mb-1">
+                    OBJECTIVE MATCH — Is this what you were looking for?
+                </div>
+                <div class="text-slate-300 mb-1 text-[11px]">Objective: <span class="text-primary">${_escHtml(objective)}</span></div>
+                <div class="text-slate-200 whitespace-pre-wrap leading-relaxed mb-3 bg-black/40 p-2">${_escHtml(summary)}</div>
+                <div class="flex items-center gap-3">
+                    <button onclick="_confirmFinding('${cardId}', true)" class="px-4 py-1.5 bg-primary text-black text-[11px] font-bold hover:bg-primary/80 transition-colors">
+                        YES — This is it
+                    </button>
+                    <button onclick="_confirmFinding('${cardId}', false)" class="px-4 py-1.5 border border-border-color text-secondary-text text-[11px] font-bold hover:text-white hover:border-white transition-colors">
+                        NO — Keep searching
+                    </button>
+                    <span id="${cardId}-timer" class="text-secondary-text text-[10px] ml-2">Auto-YES in ${timeout}s</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    appendMissionCardEl(card);
+    if (currentView !== 'agent') showToast(`Objective match found — check Agent view`);
+
+    // Countdown timer — auto-confirm YES after timeout
+    let remaining = timeout;
+    _confirmTimers[cardId] = setInterval(() => {
+        remaining--;
+        const el = document.getElementById(`${cardId}-timer`);
+        if (el) el.textContent = `Auto-YES in ${remaining}s`;
+        if (remaining <= 0) _confirmFinding(cardId, true);
+    }, 1000);
+}
+
+function _confirmFinding(cardId, accepted) {
+    if (_confirmTimers[cardId]) {
+        clearInterval(_confirmTimers[cardId]);
+        delete _confirmTimers[cardId];
+    }
+    const card = document.getElementById(cardId);
+    if (!card) return;
+
+    // Replace card content with result
+    const label  = accepted ? '✓ CONFIRMED — Mission objective achieved' : '✗ DISMISSED — Agent continues searching';
+    const color  = accepted ? 'text-primary' : 'text-secondary-text';
+    card.innerHTML = `
+        <div class="flex items-center gap-2 ${color} text-[11px] font-bold font-mono py-1">
+            <span class="material-symbols-outlined text-[15px]">${accepted ? 'task_alt' : 'search'}</span>
+            ${label}
+        </div>
+    `;
+    card.classList.remove('border-primary', 'bg-primary/10');
+    card.classList.add(accepted ? 'border-green-500/40 bg-green-500/5' : 'border-border-color bg-transparent');
+
+    // Inject feedback into agent if session is active
+    if (activeMissionId) {
+        const msg = accepted
+            ? 'OPERATOR CONFIRMED: The mission objective has been achieved. Write a final report and call mission_done.'
+            : 'OPERATOR DISMISSED: This is NOT the target. Continue searching for the mission objective.';
+        fetch(`/api/v1/sessions/${activeMissionId}/inject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg }),
+        }).catch(() => {});
+    }
+}
+
+function appendMissionCardEl(el) {
+    const feed = document.getElementById('mission-feed');
+    if (!feed) return;
+    feed.appendChild(el);
+    feed.scrollTop = feed.scrollHeight;
+}
+
 // Called when a reverse shell arrives
 function _onReverseShellReceived(shellId, remoteAddr) {
     const badge = document.getElementById('shell-count-badge');
@@ -7532,6 +7667,35 @@ function _onReverseShellReceived(shellId, remoteAddr) {
 
 let _activeShellId = null;
 
+function _onShellClosed(shellId, hostIp, reason) {
+    // Append a [DEAD] marker to this shell's output buffer
+    const buf = _shellOutputBuffers[shellId];
+    if (buf) buf.push(`\n[!] Shell closed: ${reason}`);
+    if (_activeShellId === shellId) {
+        _shellPrint(`<span class="text-orange-400">[!] Shell closed — ${_escHtml(reason)}</span>`);
+        // Disable input
+        const inp = document.getElementById('shell-cmd-input');
+        if (inp) inp.disabled = true;
+        const row = document.getElementById('shell-input-row');
+        if (row) row.classList.add('opacity-40');
+    }
+    // Mark the subtab as dead
+    const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
+    if (tab) {
+        tab.classList.remove('text-primary', 'text-secondary-text', 'text-yellow-300');
+        tab.classList.add('text-danger', 'line-through', 'opacity-60');
+    }
+    // Update badge count
+    const badge = document.getElementById('shell-count-badge');
+    if (badge && badge.dataset.count > 0) {
+        const newCount = parseInt(badge.dataset.count) - 1;
+        badge.dataset.count = newCount;
+        badge.textContent = newCount;
+        setStatValue('stat-shells', newCount);
+        if (newCount === 0) badge.classList.add('hidden');
+    }
+}
+
 function _activateShell(shellId, remoteAddr) {
     _activeShellId = shellId;
     document.querySelectorAll('.shell-subtab').forEach(t => {
@@ -7539,11 +7703,24 @@ function _activateShell(shellId, remoteAddr) {
         t.classList.toggle('text-primary', active);
         t.classList.toggle('border-primary', active);
         t.classList.toggle('text-secondary-text', !active);
+        if (active) t.classList.remove('text-yellow-300');
     });
     const prompt = document.getElementById('shell-prompt');
     if (prompt) prompt.textContent = `${remoteAddr}#`;
+
+    // Replay buffered output for this shell
+    const out = document.getElementById('shell-output-area');
+    if (out) {
+        out.innerHTML = '';
+        const buf = _shellOutputBuffers[shellId] || [];
+        buf.forEach(line => _shellPrint(_escHtml(line)));
+    }
+
+    // Re-enable input (may have been disabled by a closed-shell state)
+    const row = document.getElementById('shell-input-row');
+    if (row) row.classList.remove('opacity-40');
     const inp = document.getElementById('shell-cmd-input');
-    if (inp) inp.focus();
+    if (inp) { inp.disabled = false; inp.focus(); }
 }
 
 // ─── Interactive Terminal ──────────────────────────────────────────────────────
@@ -7678,10 +7855,22 @@ async function sendShellCommand() {
     }
 }
 
+// Per-shell output buffer so switching tabs shows all output
+const _shellOutputBuffers = {};
+
 // Called by WebSocket handler when shell output arrives
 function receiveShellOutput(shellId, data) {
-    if (_activeShellId !== shellId) return;
-    _shellPrint(_escHtml(data));
+    // Always buffer
+    if (!_shellOutputBuffers[shellId]) _shellOutputBuffers[shellId] = [];
+    _shellOutputBuffers[shellId].push(data);
+    // Print immediately only if this shell is active
+    if (_activeShellId === shellId) {
+        _shellPrint(_escHtml(data));
+    } else {
+        // Flash the subtab to indicate new output
+        const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
+        if (tab) tab.classList.add('text-yellow-300');
+    }
 }
 
 function _shellPrint(htmlContent) {

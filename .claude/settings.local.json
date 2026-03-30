@@ -55,7 +55,9 @@
       "Bash(python -m pytest tests/test_agent.py --tb=line -q --timeout=10)",
       "Bash(python -m pytest tests/test_agent.py --tb=line -q)",
       "Bash(grep -E \"\\\\.py$|static|handlers\")",
-      "Bash(sqlite3 \"//wsl.localhost/kali-linux/home/fatih/TIRPAN/data/tirpan.db\" \".schema pentest_sessions\")"
+      "Bash(sqlite3 \"//wsl.localhost/kali-linux/home/fatih/TIRPAN/data/tirpan.db\" \".schema pentest_sessions\")",
+      "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/souls/**)",
+      "Bash(touch \"//wsl.localhost/kali-linux/home/fatih/TIRPAN/souls/__init__.py\")"
     ]
   }
 }
