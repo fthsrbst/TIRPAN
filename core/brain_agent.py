@@ -135,12 +135,19 @@ class BrainAgent(BaseAgent):
         self._child_tasks: dict[str, asyncio.Task] = {}
         # Track active agents for system prompt injection: agent_id → agent_type
         self._active_agents: dict[str, str] = {}
+        # Track task_type per agent for dedup: agent_id → task_type
+        self._active_agent_task_types: dict[str, str] = {}
+        # Track target per agent for dedup: agent_id → target
+        self._active_agent_targets: dict[str, str] = {}
         # Track child agent instances for pause/resume propagation: agent_id → BaseAgent
         self._child_agents: dict[str, BaseAgent] = {}
         # Cache of pending operator questions: correlation_id → Future
         self._operator_futures: dict[str, asyncio.Future] = {}
         # Set to True when mission_done meta-tool is called
         self._mission_done: bool = False
+
+        # Active shell sessions: shell_key → {host_ip, session_type, msf_session_id, module}
+        self._active_shells: dict[str, dict] = {}
 
         # Training data capture — store per-iteration context for reflect()
         self._last_messages: list[dict] = []
@@ -185,7 +192,10 @@ class BrainAgent(BaseAgent):
             phase = action_dict.get("phase", "") or action_dict.get("parameters", {}).get("phase", "")
             if phase:
                 await self.ctx.set_phase(phase)
-                self.emit_event("phase_changed", {"phase": phase})
+                self.emit_event("phase_changed", {
+                    "phase": phase,
+                    "attack_phase": phase,  # JS updatePhaseFromEvent reads attack_phase
+                })
         elif tool_name == "mission_done":
             self._mission_done = True
 
@@ -294,18 +304,29 @@ class BrainAgent(BaseAgent):
                          f"Available: {list(_AGENT_REGISTRY.keys())}",
             }
 
-        # ── Dedup guard: prevent spawning same agent_type for same target ─────
+        # ── Dedup guard: prevent identical (agent_type, target, task_type) ──────
+        # Agents with the same type but different task_type OR different target
+        # are allowed to run concurrently.  Only block exact duplicates.
+        # Examples of ALLOWED concurrent pairs:
+        #   exploit/192.168.56.101/exploit_vsftpd + exploit/192.168.56.101/exploit_samba
+        #   webapp/http://host:80/web_scan + webapp/http://host:8180/web_scan
         for aid, atype in self._active_agents.items():
-            if atype == agent_type:
-                task = self._child_tasks.get(aid)
-                if task and not task.done():
+            atask = self._active_agent_task_types.get(aid, "")
+            atgt  = self._active_agent_targets.get(aid, "")
+            if atype == agent_type and atask == task_type and atgt == target:
+                task_obj = self._child_tasks.get(aid)
+                if task_obj and not task_obj.done():
                     return {
                         "status": "already_running",
                         "agent_id": aid,
                         "agent_type": agent_type,
+                        "task_type": task_type,
                         "target": target,
-                        "hint": f"A {agent_type} agent ({aid}) is already running. "
-                                f"Use wait_for_agents(agent_ids: [\"{aid}\"]) to wait for it.",
+                        "hint": (
+                            f"A {agent_type}/{task_type} agent ({aid}) is already running "
+                            f"for target {target}. "
+                            f"Use wait_for_agents({{\"agent_ids\": [\"{aid}\"]}}) to wait for it."
+                        ),
                     }
 
         agent_id = f"{agent_type}-{uuid.uuid4().hex[:8]}"
@@ -369,6 +390,7 @@ class BrainAgent(BaseAgent):
             "status": "spawned",
             "agent_id": agent_id,
             "agent_type": agent_type,
+            "task_type": task_type,
             "target": target,
         }
 
@@ -575,11 +597,16 @@ class BrainAgent(BaseAgent):
         if inner.get("status") == "spawned":
             aid = inner["agent_id"]
             atype = inner["agent_type"]
+            atask = inner.get("task_type", "")
+            atgt  = inner.get("target", "")
             self._active_agents[aid] = atype
+            self._active_agent_task_types[aid] = atask
+            self._active_agent_targets[aid] = atgt
             self._add_finding({
                 "type": "agent_spawned",
                 "agent_id": aid,
                 "agent_type": atype,
+                "task_type": atask,
             })
 
     # ── update_context ────────────────────────────────────────────────────────
@@ -707,11 +734,18 @@ class BrainAgent(BaseAgent):
             dbg.bus_finding(msg.sender_id, finding_type,
                             str(msg.payload.get("data", msg.payload))[:200])
             self._add_finding(msg.payload)
+            # Track shell sessions and broadcast to UI
+            if finding_type in ("session", "session_opened", "shell_opened"):
+                self._register_shell(msg.payload)
+            # Objective match check — emit confirmation card to operator
+            self._check_objective_match(msg.payload)
         elif msg.msg_type in (MessageType.AGENT_DONE, MessageType.AGENT_ERROR):
             aid = msg.payload.get("agent_id", "")
             status = msg.payload.get("status", "?")
             dbg.bus_agent_done(aid, msg.msg_type, status)
             self._active_agents.pop(aid, None)
+            self._active_agent_task_types.pop(aid, None)
+            self._active_agent_targets.pop(aid, None)
             self._child_agents.pop(aid, None)
             # Save successful techniques to the persistent playbook
             if status in ("success", "partial"):
@@ -760,6 +794,156 @@ class BrainAgent(BaseAgent):
         except Exception:
             pass
         return services
+
+    # ── Shell session tracking ────────────────────────────────────────────────
+
+    def _register_shell(self, finding: dict) -> None:
+        """Called when a child agent reports a shell/session opened."""
+        import uuid as _uuid
+        data = finding.get("data", finding)
+        msf_sid = data.get("msf_session_id") or data.get("session_id", "")
+        # Normalise msf_session_id: strip "msf-" prefix if present
+        if str(msf_sid).startswith("msf-"):
+            msf_sid = str(msf_sid)[4:]
+        try:
+            msf_sid = int(msf_sid) if msf_sid else None
+        except (ValueError, TypeError):
+            msf_sid = None
+
+        # Use msf-{id} as the canonical key so shell_io events from base_agent match
+        if msf_sid is not None:
+            shell_key = f"msf-{msf_sid}"
+        else:
+            shell_key = data.get("shell_key") or f"shell-{_uuid.uuid4().hex[:8]}"
+        host_ip = data.get("host_ip", self.ctx.target)
+        session_type = data.get("session_type", "shell")
+        module = data.get("module", "")
+
+        self._active_shells[shell_key] = {
+            "shell_key": shell_key,
+            "host_ip": host_ip,
+            "session_type": session_type,
+            "msf_session_id": msf_sid,
+            "module": module,
+            "status": "active",
+        }
+
+        # Broadcast to UI so the Shell Panel shows the new shell
+        self.emit_event("shell_open", {
+            "shell_key": shell_key,
+            "host_ip": host_ip,
+            "session_type": session_type,
+            "module": module,
+            "msf_session_id": msf_sid,
+        })
+        dbg.info(self.agent_id, f"Shell registered: {shell_key} @ {host_ip} (msf={msf_sid})")
+
+    def _mark_shell_closed(self, shell_key: str, reason: str = "connection lost") -> None:
+        """Mark a shell as closed and broadcast to UI."""
+        shell = self._active_shells.get(shell_key)
+        if shell and shell["status"] == "active":
+            shell["status"] = "closed"
+            self.emit_event("shell_closed", {
+                "shell_key": shell_key,
+                "host_ip": shell.get("host_ip", ""),
+                "reason": reason,
+            })
+            dbg.info(self.agent_id, f"Shell closed: {shell_key} ({reason})")
+        self._active_shells.pop(shell_key, None)
+
+    async def exec_on_shell(self, shell_key: str, command: str) -> dict:
+        """Execute a command on an active shell session (called by the UI)."""
+        shell = self._active_shells.get(shell_key)
+        if not shell:
+            return {"status": "error", "error": f"Unknown shell: {shell_key}"}
+        if shell["status"] != "active":
+            return {"status": "error", "error": f"Shell {shell_key} is {shell['status']}"}
+
+        # Broadcast the command to UI first so it appears immediately
+        self.emit_event("shell_io", {
+            "shell_key": shell_key,
+            "direction": "input",
+            "data": command,
+        })
+
+        msf_sid = shell.get("msf_session_id")
+        if msf_sid is None:
+            return {"status": "error", "error": "No MSF session ID — cannot exec"}
+
+        try:
+            from web.app_state import tool_registry as _tr
+            msf_tool = _tr.get_tool("metasploit_run")
+        except Exception:
+            msf_tool = None
+
+        if msf_tool is None:
+            return {"status": "error", "error": "MetasploitTool not available"}
+
+        result = await msf_tool.execute({
+            "action": "session_exec",
+            "session_id": msf_sid,
+            "command": command,
+            "timeout": 30,
+        })
+        output = result.get("output") or result.get("error", "")
+
+        # Detect closed/lost session
+        err_str = str(result.get("error") or "").lower()
+        if result.get("status") != "success" and any(
+            kw in err_str for kw in ("not found", "closed", "disconnected", "no session", "dead")
+        ):
+            self._mark_shell_closed(shell_key, reason=err_str[:80])
+            return {"status": "error", "error": f"Shell closed: {err_str}"}
+
+        # Broadcast output to UI
+        self.emit_event("shell_io", {
+            "shell_key": shell_key,
+            "direction": "output",
+            "data": output,
+        })
+
+        return {"status": "success" if result.get("status") == "success" else "error",
+                "output": output}
+
+    def list_shells(self) -> list[dict]:
+        """Return all tracked shell sessions."""
+        return list(self._active_shells.values())
+
+    def _check_objective_match(self, finding: dict) -> None:
+        """If a finding looks like it satisfies an objective, emit a confirmation card."""
+        if not self.ctx.objectives:
+            return
+        data = finding.get("data", finding)
+        finding_type = finding.get("type", finding.get("finding_type", ""))
+        # Build a short summary of what was found
+        summary = ""
+        if finding_type in ("session", "session_opened", "shell_opened"):
+            host = data.get("host_ip", self.ctx.target)
+            stype = data.get("session_type", "shell")
+            module = data.get("module", "")
+            summary = f"Shell opened on {host} [{stype}]{' via ' + module if module else ''}"
+        elif finding_type in ("loot", "flag", "credential", "credential_found"):
+            summary = str(data.get("content") or data.get("value") or data.get("data") or data)[:200]
+        elif finding_type == "file_found":
+            summary = f"File found: {data.get('path','?')} — {str(data.get('content',''))[:120]}"
+
+        if not summary:
+            return
+
+        # Check if any objective keyword appears in the finding
+        summary_lower = summary.lower()
+        for obj in self.ctx.objectives:
+            obj_lower = obj.lower()
+            # Simple keyword overlap check
+            keywords = [w for w in obj_lower.split() if len(w) > 3]
+            if any(kw in summary_lower for kw in keywords) or "flag" in obj_lower:
+                self.emit_event("finding_confirm", {
+                    "summary": summary,
+                    "finding_type": finding_type,
+                    "objective": obj,
+                    "timeout_seconds": 30,
+                })
+                break
 
     def _record_playbook_entries(self, payload: dict) -> None:
         """
@@ -853,6 +1037,9 @@ class BrainAgent(BaseAgent):
                 logger.info("BrainAgent: cancelled child %s on run_end", agent_id)
         self._child_tasks.clear()
         self._child_agents.clear()
+        self._active_agents.clear()
+        self._active_agent_task_types.clear()
+        self._active_agent_targets.clear()
         self.bus.unregister_agent(self.agent_id)
 
 

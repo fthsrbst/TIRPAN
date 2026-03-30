@@ -31,7 +31,9 @@ class LLMConfig(BaseSettings):
 
 class SafetyConfig(BaseModel):
     # Rule 1-2: Scope
-    allowed_cidr: str = "10.0.0.0/8"        # target must be inside this range
+    # "0.0.0.0/0" = any target (CTF/lab mode).
+    # Set to specific CIDR for production engagements: e.g. "192.168.56.0/24"
+    allowed_cidr: str = "0.0.0.0/0"
     allowed_port_min: int = 1
     allowed_port_max: int = 65535
 
@@ -48,14 +50,14 @@ class SafetyConfig(BaseModel):
     # Rule 7: No destructive
     block_destructive: bool = True
 
-    # Rule 8: CVSS cap
+    # Rule 8: CVSS cap (10.0 = no cap)
     max_cvss_score: float = 10.0
 
-    # Rule 9: Time limit (seconds)
-    session_max_seconds: int = 3600          # 1 hour
+    # Rule 9: Time limit (seconds, 0 = unlimited)
+    session_max_seconds: int = 0
 
     # Rule 10: Rate limit
-    max_requests_per_second: int = 10
+    max_requests_per_second: int = 50
 
 
 class MetasploitConfig(BaseSettings):
@@ -64,9 +66,12 @@ class MetasploitConfig(BaseSettings):
     port: int = Field(default=55553, alias="MSF_RPC_PORT")
     password: str = Field(default="msfrpc", alias="MSF_RPC_PASSWORD")
     ssl: bool = Field(default=False, alias="MSF_RPC_SSL")
-    # Override LHOST for reverse shells — set to the IP reachable FROM targets
-    # e.g. VirtualBox host-only adapter: MSF_LHOST_OVERRIDE=192.168.56.1
+    # Override LHOST for reverse shells — set to the IP reachable FROM targets.
+    # Leave empty for auto-detection (recommended).
+    # Examples: "192.168.56.1" (VirtualBox), "10.10.14.5" (HTB/VPN tun0)
     lhost_override: str = Field(default="", alias="MSF_LHOST_OVERRIDE")
+    # Override the msfconsole binary path (auto-detected if empty)
+    msfconsole_path: str = Field(default="", alias="MSF_CONSOLE_PATH")
 
 
 class ServerConfig(BaseSettings):
@@ -134,10 +139,15 @@ class AppConfig(BaseSettings):
     speed_profile: str = Field(default="normal", alias="SPEED_PROFILE")
 
     # Nmap: request elevated privileges for OS detection and SYN scans.
-    # Linux/macOS: uses sudo. Windows: requires the process to run as Administrator.
-    nmap_sudo: bool = Field(default=True, alias="NMAP_SUDO")
+    # "auto" = use sudo only when NOT already root (recommended).
+    # True = always use sudo, False = never use sudo.
+    nmap_sudo: str = Field(default="auto", alias="NMAP_SUDO")
     # sudo password (Linux/macOS only). Loaded from OS keychain at startup, never persisted.
     sudo_password: str = Field(default="")
+
+    # Platform hints (auto-detected if empty)
+    # Useful for cross-platform deployments: "kali" | "parrot" | "ubuntu" | "arch" | ""
+    platform_hint: str = Field(default="", alias="PLATFORM_HINT")
 
     # LoRA training data collection — write per-session JSONL to data/training/
     collect_training_data: bool = Field(default=True, alias="COLLECT_TRAINING_DATA")
@@ -148,6 +158,25 @@ class AppConfig(BaseSettings):
     def get_speed_profile(self) -> SpeedProfile:
         """Return the active SpeedProfile object."""
         return SPEED_PROFILES.get(self.speed_profile, SPEED_PROFILES["normal"])
+
+    def needs_sudo(self) -> bool:
+        """Return True if nmap/privileged tools should be run via sudo.
+
+        "auto" mode: True when the process is NOT already running as root.
+        This lets Docker/root containers run without sudo, while normal
+        user sessions still escalate for SYN scans and OS detection.
+        """
+        if self.nmap_sudo == "auto":
+            import os as _os
+            # Windows has no geteuid — always use sudo equivalent (runas) when on Windows,
+            # but in practice TIRPAN runs in WSL/Linux where geteuid is always available.
+            if not hasattr(_os, "geteuid"):
+                return False  # Windows host process — not relevant
+            return _os.geteuid() != 0
+        # Legacy bool support (True/False stored as "True"/"False" string)
+        if isinstance(self.nmap_sudo, str):
+            return self.nmap_sudo.lower() not in ("false", "0", "no")
+        return bool(self.nmap_sudo)
 
 
 # Singleton
