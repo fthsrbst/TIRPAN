@@ -141,9 +141,9 @@ class NmapTool(BaseTool):
 
         target = params["target"]
         scan_type = params.get("scan_type", "service")
-        port_range = params.get("port_range", "1-1024")
-        scripts = params.get("scripts", "")
-        excluded_ports = params.get("excluded_ports", "")
+        port_range = params.get("port_range") or "1-1024"
+        scripts = params.get("scripts") or ""          # LLM may pass null → None
+        excluded_ports = params.get("excluded_ports") or ""  # same
         session_id = params.get("_session_id", "")
 
         cmd = self._build_command(target, scan_type, port_range, scripts, excluded_ports)

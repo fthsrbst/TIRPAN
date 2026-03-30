@@ -357,6 +357,9 @@ class MissionContext:
         self.credentials: list[HarvestedCredential] = []
         self.loot: list[LootItem] = []
 
+        # Mission objectives (operator-supplied)
+        self.objectives: list[str] = []
+
         # Progress
         self.phase: str = "OSINT"
         self.completed_tasks: list[str] = []
@@ -557,6 +560,11 @@ class MissionContext:
             f"TARGET: {self.target}",
             f"PHASE: {self.phase} | ENV: {self.environment_type} | MODE: {self.mode}",
         ]
+
+        if self.objectives:
+            lines.append("MISSION OBJECTIVES (MUST ACHIEVE):")
+            for obj in self.objectives:
+                lines.append(f"  • {obj}")
 
         if self.domains:
             lines.append(f"DOMAINS: {', '.join(self.domains[:5])}")

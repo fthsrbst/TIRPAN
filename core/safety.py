@@ -270,6 +270,9 @@ class SafetyGuard:
     # ------------------------------------------------------------------
 
     def _rule9_time_limit(self, action: AgentAction) -> tuple[bool, str]:
+        # 0 = unlimited (disabled) — skip the check entirely
+        if self.config.session_max_seconds == 0:
+            return True, ""
         elapsed = time.time() - self._session_start
         if elapsed > self.config.session_max_seconds:
             return False, (
