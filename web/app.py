@@ -7,6 +7,10 @@ Serves static frontend and provides:
 """
 
 from contextlib import asynccontextmanager
+import asyncio
+import logging
+import os
+import shutil
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
@@ -18,6 +22,76 @@ from config import settings
 from web.routes import router
 from web.websocket_handler import handle_websocket
 from database.db import init_db
+
+_logger = logging.getLogger(__name__)
+
+
+async def _start_msfrpcd() -> "asyncio.subprocess.Process | None":
+    """Start msfrpcd for persistent MSF session support.
+
+    Returns the subprocess if we launched it, or None if it was already running
+    or couldn't be started.
+    """
+    if not settings.msf.auto_start_msfrpcd:
+        return None
+
+    # Check if msfrpcd is already listening
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(settings.msf.host, settings.msf.port),
+            timeout=2.0,
+        )
+        writer.close()
+        await writer.wait_closed()
+        _logger.info("msfrpcd already running on %s:%d", settings.msf.host, settings.msf.port)
+        return None
+    except (ConnectionRefusedError, OSError, asyncio.TimeoutError):
+        pass
+
+    # Find msfrpcd binary
+    msfrpcd_bin = (
+        settings.msf.msfrpcd_path
+        or shutil.which("msfrpcd")
+        or "/usr/bin/msfrpcd"
+    )
+    if not os.path.isfile(msfrpcd_bin):
+        _logger.warning("msfrpcd not found at %s — persistent sessions unavailable", msfrpcd_bin)
+        return None
+
+    cmd = [
+        msfrpcd_bin,
+        "-P", settings.msf.password,
+        "-p", str(settings.msf.port),
+        "-a", settings.msf.host,
+        "-f",  # foreground — we manage the lifecycle
+    ]
+    if not settings.msf.ssl:
+        cmd += ["-S"]  # disable SSL (must match MetasploitTool._connect ssl=False)
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    _logger.info("Started msfrpcd (pid=%d) on %s:%d", proc.pid, settings.msf.host, settings.msf.port)
+
+    # Poll until ready (up to 30 s)
+    for i in range(30):
+        await asyncio.sleep(1)
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(settings.msf.host, settings.msf.port),
+                timeout=1.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            _logger.info("msfrpcd ready after %ds", i + 1)
+            return proc
+        except (ConnectionRefusedError, OSError, asyncio.TimeoutError):
+            continue
+
+    _logger.warning("msfrpcd did not become ready in 30 s — will fall back to msfconsole")
+    return proc
 
 
 @asynccontextmanager
@@ -47,6 +121,10 @@ async def lifespan(app: FastAPI):
     _msf_pw = _load_secret_sync("msf_password")
     if _msf_pw:
         settings.msf.password = _msf_pw
+
+    # Start msfrpcd for persistent session support (non-blocking — exploits fall back to
+    # msfconsole subprocess if RPC isn't ready yet)
+    _msfrpcd_proc = await _start_msfrpcd()
 
     # sudo password is only relevant on Linux/macOS
     from core.platform_utils import IS_WINDOWS
@@ -123,6 +201,15 @@ async def lifespan(app: FastAPI):
     tool_registry.load_plugins(Path("plugins/"))
 
     yield
+
+    # ── Shutdown: stop msfrpcd if we launched it ──────────────────────────────
+    if _msfrpcd_proc is not None:
+        try:
+            _msfrpcd_proc.terminate()
+            await asyncio.wait_for(_msfrpcd_proc.wait(), timeout=5.0)
+            _logger.info("msfrpcd stopped cleanly")
+        except Exception:
+            _msfrpcd_proc.kill()
 
 
 def create_app() -> FastAPI:
