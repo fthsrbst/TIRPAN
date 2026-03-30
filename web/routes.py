@@ -745,6 +745,69 @@ async def _run_v2_agent_task(
         except Exception:
             pass
 
+        # ── Persist findings to report repositories (V2 sessions) ────────
+        # The report generator reads from ScanResult/Vuln/ExploitResult DBs.
+        # V2 agents accumulate findings only in MissionContext — flush them now.
+        try:
+            for host_ip, host_info in mission_ctx.hosts.items():
+                ports = [
+                    {
+                        "number": p.number, "protocol": p.protocol,
+                        "state": p.state, "service": p.service, "version": p.version,
+                    }
+                    for p in host_info.ports
+                ]
+                if ports:
+                    await _scan_repo.save(
+                        session_id=session_id,
+                        target=host_ip,
+                        scan_type="service",
+                        hosts=[{
+                            "ip": host_ip,
+                            "hostname": host_info.hostname,
+                            "os": host_info.os_type,
+                            "os_accuracy": 0,
+                            "state": "up",
+                            "ports": ports,
+                        }],
+                        duration_seconds=0.0,
+                    )
+        except Exception as _e:
+            logger.warning("V2 scan flush failed: %s", _e)
+
+        try:
+            for vuln in mission_ctx.vulnerabilities:
+                await _vuln_repo.save(session_id=session_id, vuln={
+                    "title": vuln.title,
+                    "service": vuln.service,
+                    "service_version": vuln.version,
+                    "cvss_score": vuln.cvss,
+                    "cve_id": getattr(vuln, "cve_id", ""),
+                    "exploit_path": getattr(vuln, "exploit_path", ""),
+                    "exploit_type": getattr(vuln, "exploit_type", ""),
+                    "platform": getattr(vuln, "platform", ""),
+                    "description": getattr(vuln, "description", ""),
+                })
+        except Exception as _e:
+            logger.warning("V2 vuln flush failed: %s", _e)
+
+        try:
+            for sess in mission_ctx.active_sessions:
+                await _exploit_repo.save(session_id=session_id, result={
+                    "host_ip": sess.host_ip,
+                    "port": 0,
+                    "module": getattr(sess, "module", ""),
+                    "payload": "",
+                    "success": True,
+                    "session_opened": 1,
+                    "output": f"{sess.session_type} session opened as {sess.username or 'user'}",
+                    "error": "",
+                    "poc_output": "",
+                    "source_ip": "",
+                })
+        except Exception as _e:
+            logger.warning("V2 exploit flush failed: %s", _e)
+
         await session_repo.update_status(session_id, "done")
         await session_manager.broadcast(session_id, {
             "type": "session_done",
@@ -1162,6 +1225,9 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             allow_docker_escape=mission.allow_docker_escape,
             allow_browser_recon=mission.allow_browser_recon,
         )
+        # Inject mission objectives so they appear in Brain's system prompt
+        if mission.objectives:
+            mission_ctx.objectives = list(mission.objectives)
 
         bus = AgentMessageBus()
         agent = make_brain(
@@ -1724,17 +1790,56 @@ async def get_session_loot(sid: str):
 
 @router.get("/sessions/{sid}/shells")
 async def get_session_shells(sid: str):
-    """Return active shell sessions for a V2 session (from ShellManager)."""
+    """Return active shell sessions for a V2 session."""
     session = await _session_repo.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
 
     from web import session_manager
     agent = session_manager.get_agent(sid)
-    if agent and hasattr(agent, "_shell_manager") and agent._shell_manager is not None:
-        stats = agent._shell_manager.stats()
-        return {"shells": stats.get("sessions", []), "total": stats.get("total", 0)}
+    if agent and hasattr(agent, "list_shells"):
+        shells = agent.list_shells()
+        return {"shells": shells, "total": len(shells)}
     return {"shells": [], "total": 0}
+
+
+@router.get("/shells")
+async def list_all_shells():
+    """List active shell sessions across all running agent sessions."""
+    from web import session_manager as _sm
+    shells = []
+    for sid in _sm.list_running():
+        a = _sm.get_agent(sid)
+        if a and hasattr(a, "list_shells"):
+            for s in a.list_shells():
+                shells.append({**s, "session_id": sid})
+    return {"shells": shells, "total": len(shells)}
+
+
+class ShellSendRequest(BaseModel):
+    command: str
+
+
+@router.post("/shells/{shell_key}/send")
+async def send_shell_command(shell_key: str, body: ShellSendRequest):
+    """Execute a command on an active shell session (operator-initiated)."""
+    from web import session_manager as _sm
+
+    # Find which session owns this shell_key
+    agent = None
+    for sid in _sm.list_running():
+        a = _sm.get_agent(sid)
+        if a and hasattr(a, "_active_shells") and shell_key in a._active_shells:
+            agent = a
+            break
+
+    if agent is None:
+        raise HTTPException(404, f"Shell {shell_key} not found in any active session")
+
+    result = await agent.exec_on_shell(shell_key, body.command)
+    if result.get("status") == "error":
+        raise HTTPException(500, result.get("error", "exec failed"))
+    return {"ok": True, "output": result.get("output", "")}
 
 
 # ── Session Artifacts ─────────────────────────────────────────────────────────

