@@ -332,6 +332,29 @@ class BrainAgent(BaseAgent):
         agent_id = f"{agent_type}-{uuid.uuid4().hex[:8]}"
         self.bus.register_agent(agent_id)
 
+        # For post_exploit agents: inject objectives into task_type AND pass the
+        # most recently opened shell_key so the agent doesn't need to guess.
+        if agent_type == "post_exploit":
+            if self.ctx.objectives:
+                obj_str = "; ".join(self.ctx.objectives)
+                if obj_str not in task_type:
+                    task_type = f"{task_type} | objectives: {obj_str}" if task_type else f"post_exploitation | objectives: {obj_str}"
+            # Auto-inject the latest active shell_key for the target if not already specified
+            if "shell_key" not in options and self._active_shells:
+                # Prefer a shell on the exact target, otherwise take any active one
+                target_shell = next(
+                    (v for v in self._active_shells.values()
+                     if v.get("host_ip") == target and v.get("status") == "active"),
+                    None,
+                ) or next(
+                    (v for v in self._active_shells.values()
+                     if v.get("status") == "active"),
+                    None,
+                )
+                if target_shell:
+                    options = dict(options)
+                    options["shell_key"] = target_shell["shell_key"]
+
         # Build constructor kwargs for the child agent
         child_kwargs = {
             "agent_type":         agent_type,
@@ -910,19 +933,23 @@ class BrainAgent(BaseAgent):
         return list(self._active_shells.values())
 
     def _check_objective_match(self, finding: dict) -> None:
-        """If a finding looks like it satisfies an objective, emit a confirmation card."""
+        """If a finding looks like it satisfies an objective, emit a confirmation card.
+
+        Shell openings are infrastructure — they should NOT trigger the card.
+        Only concrete results (file content, loot, flags, credentials) should.
+        """
         if not self.ctx.objectives:
             return
         data = finding.get("data", finding)
         finding_type = finding.get("type", finding.get("finding_type", ""))
+
+        # Skip shell/session openings — they are steps toward the objective, not the objective itself
+        if finding_type in ("session", "session_opened", "shell_opened"):
+            return
+
         # Build a short summary of what was found
         summary = ""
-        if finding_type in ("session", "session_opened", "shell_opened"):
-            host = data.get("host_ip", self.ctx.target)
-            stype = data.get("session_type", "shell")
-            module = data.get("module", "")
-            summary = f"Shell opened on {host} [{stype}]{' via ' + module if module else ''}"
-        elif finding_type in ("loot", "flag", "credential", "credential_found"):
+        if finding_type in ("loot", "flag", "credential", "credential_found"):
             summary = str(data.get("content") or data.get("value") or data.get("data") or data)[:200]
         elif finding_type == "file_found":
             summary = f"File found: {data.get('path','?')} — {str(data.get('content',''))[:120]}"
@@ -932,11 +959,13 @@ class BrainAgent(BaseAgent):
 
         # Check if any objective keyword appears in the finding
         summary_lower = summary.lower()
+        _STOP = {"find", "search", "get", "read", "show", "list", "dump", "look",
+                 "check", "scan", "fetch", "locate", "grab", "inside", "open", "view"}
         for obj in self.ctx.objectives:
             obj_lower = obj.lower()
-            # Simple keyword overlap check
-            keywords = [w for w in obj_lower.split() if len(w) > 3]
-            if any(kw in summary_lower for kw in keywords) or "flag" in obj_lower:
+            # Extract meaningful keywords — skip action verbs and short words
+            keywords = [w for w in obj_lower.split() if len(w) > 3 and w not in _STOP]
+            if keywords and any(kw in summary_lower for kw in keywords):
                 self.emit_event("finding_confirm", {
                     "summary": summary,
                     "finding_type": finding_type,

@@ -376,7 +376,7 @@ class ShellSessionTool(BaseTool):
 
         try:
             if action == "list":
-                return self._list_sessions()
+                return await self._list_sessions_async()
 
             if action == "connect":
                 return await self._connect(params)
@@ -386,10 +386,16 @@ class ShellSessionTool(BaseTool):
                 if not sk:
                     return {"success": False, "output": None,
                             "error": "session_key required"}
+                # Close MSF session via RPC if applicable
+                if sk.startswith("msf-"):
+                    return await self._msf_close(sk)
                 return await self._close(sk)
 
             sk = params.get("session_key", "").strip()
             if sk:
+                # Route msf-* session keys to MetasploitTool
+                if sk.startswith("msf-"):
+                    return await self._msf_dispatch(sk, action, params, timeout)
                 return await self._dispatch(sk, action, params, timeout)
             else:
                 return await self._legacy(params, action, timeout)
@@ -460,6 +466,7 @@ class ShellSessionTool(BaseTool):
         return {"success": True, "output": {"closed": sk}, "error": None}
 
     def _list_sessions(self) -> dict:
+        """Sync wrapper kept for backward compatibility."""
         now = time.time()
         items = []
         for sk, sess in _SESSIONS.items():
@@ -476,6 +483,103 @@ class ShellSessionTool(BaseTool):
             "output": {"active_sessions": len(items), "sessions": items},
             "error": None,
         }
+
+    async def _list_sessions_async(self) -> dict:
+        """List all sessions: both local (bind/SSH/reverse) and MSF RPC sessions."""
+        base = self._list_sessions()
+        items: list = base["output"]["sessions"]
+
+        # Also include MSF sessions from msfrpcd so post_exploit agent can find them
+        try:
+            from web.app_state import tool_registry as _tr
+            msf_tool = _tr.get_tool("metasploit_run")
+            if msf_tool is not None:
+                msf_result = await msf_tool.execute({"action": "sessions"})
+                msf_sessions = (msf_result.get("output") or {}).get("sessions", {})
+                for sid, sinfo in msf_sessions.items():
+                    sk = f"msf-{sid}"
+                    items.append({
+                        "session_key":  sk,
+                        "method":       "msf",
+                        "target":       sinfo.get("target_host", ""),
+                        "via_exploit":  sinfo.get("via_exploit", ""),
+                        "platform":     sinfo.get("platform", ""),
+                        "status":       "open",
+                        "msf_session_id": int(sid),
+                    })
+        except Exception as _e:
+            logger.debug("Could not list MSF sessions: %s", _e)
+
+        return {
+            "success": True,
+            "output": {"active_sessions": len(items), "sessions": items},
+            "error": None,
+        }
+
+    async def _msf_dispatch(self, sk: str, action: str, params: dict, timeout: int) -> dict:
+        """Route shell_exec calls with msf-{id} keys to MetasploitTool.session_exec."""
+        try:
+            msf_id = int(sk[4:])  # strip "msf-"
+        except ValueError:
+            return {"success": False, "output": None, "error": f"Invalid MSF session key: {sk}"}
+
+        try:
+            from web.app_state import tool_registry as _tr
+            msf_tool = _tr.get_tool("metasploit_run")
+        except Exception:
+            msf_tool = None
+        if msf_tool is None:
+            return {"success": False, "output": None, "error": "MetasploitTool not available"}
+
+        if action == "exec":
+            command = params.get("command", "").strip()
+            if not command:
+                return {"success": False, "output": None, "error": "command required"}
+            result = await msf_tool.execute({
+                "action": "session_exec",
+                "session_id": msf_id,
+                "command": command,
+            })
+            return {
+                "success": result.get("success", False),
+                "output": {"session_key": sk, "output": result.get("output"), "command": command},
+                "error": result.get("error"),
+            }
+
+        if action == "exec_script":
+            commands = params.get("commands", [])
+            if not commands:
+                return {"success": False, "output": None, "error": "commands list required"}
+            outputs = []
+            for cmd in commands:
+                r = await msf_tool.execute({
+                    "action": "session_exec",
+                    "session_id": msf_id,
+                    "command": cmd,
+                })
+                outputs.append(f"$ {cmd}\n{r.get('output') or r.get('error', '')}")
+            return {
+                "success": True,
+                "output": {"session_key": sk, "output": "\n".join(outputs)},
+                "error": None,
+            }
+
+        return {"success": False, "output": None,
+                "error": f"action '{action}' not supported for MSF sessions via shell_exec"}
+
+    async def _msf_close(self, sk: str) -> dict:
+        """Close an MSF session via RPC."""
+        try:
+            msf_id = int(sk[4:])
+            from web.app_state import tool_registry as _tr
+            msf_tool = _tr.get_tool("metasploit_run")
+            if msf_tool:
+                client = await msf_tool._get_client()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: client.sessions.session(msf_id).stop())
+            return {"success": True, "output": {"closed": sk}, "error": None}
+        except Exception as exc:
+            return {"success": False, "output": None, "error": str(exc)}
 
     # ── Connect backends ──────────────────────────────────────────────────────
 
