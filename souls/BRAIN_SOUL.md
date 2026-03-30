@@ -175,7 +175,8 @@ State your chosen action and explain specifically why:
 When any agent reports a session_opened finding:
 1. Call `update_context` to record the session
 2. Call `set_phase(post_exploitation)`
-3. Spawn a `post_exploit` agent immediately
+3. Spawn a `post_exploit` agent immediately — set task_type to "post_exploitation" and include
+   any mission objectives from your MISSION OBJECTIVES list so the agent knows what to pursue
 4. Continue waiting for other agents — parallel shells are better than one
 
 ---

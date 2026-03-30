@@ -188,6 +188,10 @@
         <span class="material-symbols-outlined text-sm">monitoring</span>
         <span class="text-xs font-medium uppercase tracking-wider">Intel</span>
       </div>
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="outputs">
+        <span class="material-symbols-outlined text-sm">folder_open</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Outputs</span>
+      </div>
     </div>
   </aside>
 
@@ -2358,6 +2362,29 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
       </div><!-- end tab bodies -->
     </div><!-- end view-mission -->
 
+    <!-- ─── OUTPUTS VIEW ───────────────────────────────────────────────────── -->
+    <div id="view-outputs" class="hidden flex-1 flex flex-col min-h-0">
+      <!-- Header -->
+      <div class="px-6 py-4 border-b border-border-color bg-surface shrink-0 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-accent">folder_open</span>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-primary">Tool Outputs</h2>
+        </div>
+        <button onclick="clearOutputsPanel()"
+                class="text-xs text-secondary-text hover:text-primary transition-colors flex items-center gap-1">
+          <span class="material-symbols-outlined text-[14px]">delete_sweep</span>
+          Clear
+        </button>
+      </div>
+      <!-- Empty state -->
+      <div id="outputs-empty" class="flex-1 flex flex-col items-center justify-center text-secondary-text gap-3">
+        <span class="material-symbols-outlined text-4xl opacity-30">folder_open</span>
+        <p class="text-sm opacity-50">Tool outputs will appear here as the agent runs.</p>
+      </div>
+      <!-- Outputs list -->
+      <div id="outputs-list" class="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-0"></div>
+    </div><!-- end view-outputs -->
+
   </main>
 
   <!-- ─── RIGHT SIDEBAR ─────────────────────────────────────────────────── -->
@@ -2865,6 +2892,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=18"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>

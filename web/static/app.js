@@ -61,7 +61,7 @@ function initSidebars() {
 let currentView = 'agent';
 let previousView = 'agent';
 
-const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission'];
+const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission', 'outputs'];
 
 function switchView(viewName) {
     if (!viewName) return;
@@ -4470,6 +4470,65 @@ function appendConsoleToolResult(data) {
             _consoleAppend(tabId, `error: ${data.error}`, 'text-danger');
         }
     }
+
+    // Append to Outputs panel
+    appendOutputsEntry(data);
+}
+
+// ── Outputs panel ────────────────────────────────────────────────────────────
+function appendOutputsEntry(data) {
+    const list = document.getElementById('outputs-list');
+    if (!list) return;
+    // Hide empty state
+    const empty = document.getElementById('outputs-empty');
+    if (empty) empty.classList.add('hidden');
+    const tool    = data.tool || data.tool_name || data.action || 'unknown';
+    const success = data.success !== false;
+    const ts      = new Date().toLocaleTimeString();
+    const output  = data.output || data.error || '';
+    if (!output) return;
+
+    const entry = document.createElement('div');
+    entry.className = 'outputs-entry border border-border-color rounded mb-3 overflow-hidden';
+
+    const headerColor = success ? 'text-green-400' : 'text-red-400';
+    const statusText  = success ? 'OK' : 'FAILED';
+    const entryId     = `out-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+
+    entry.innerHTML = `
+        <div class="flex items-center gap-2 px-3 py-2 bg-surface cursor-pointer select-none"
+             onclick="toggleOutputEntry('${entryId}')">
+            <span class="material-symbols-outlined text-[13px] ${headerColor}">
+                ${success ? 'check_circle' : 'error'}
+            </span>
+            <span class="font-mono text-[12px] font-bold text-primary flex-1">${_esc(tool)}</span>
+            <span class="text-[11px] text-secondary-text">${ts}</span>
+            <span class="text-[11px] font-mono ${headerColor}">${statusText}</span>
+            <span class="material-symbols-outlined text-[14px] text-secondary-text ml-1" id="ico-${entryId}">expand_more</span>
+        </div>
+        <div id="${entryId}" class="outputs-entry-body hidden px-3 py-2 bg-black overflow-x-auto max-h-[500px] overflow-y-auto">
+            <pre class="text-[11px] text-secondary-text font-mono whitespace-pre-wrap break-all">${_esc(output)}</pre>
+        </div>`;
+
+    list.prepend(entry);
+
+    // Keep at most 200 entries
+    while (list.children.length > 200) list.lastElementChild.remove();
+}
+
+function toggleOutputEntry(id) {
+    const body = document.getElementById(id);
+    const ico  = document.getElementById('ico-' + id);
+    if (!body) return;
+    const hidden = body.classList.toggle('hidden');
+    if (ico) ico.textContent = hidden ? 'expand_more' : 'expand_less';
+}
+
+function clearOutputsPanel() {
+    const list = document.getElementById('outputs-list');
+    if (list) list.innerHTML = '';
+    const empty = document.getElementById('outputs-empty');
+    if (empty) empty.classList.remove('hidden');
 }
 
 // ─── Agent view live mission feed ─────────────────────────────────────────────
@@ -5110,7 +5169,7 @@ function startAgentStreamCard(mode) {
                 </div>
             </div>`;
     } else {
-        // Thinking: card will be removed on finalization; just show animated header
+        // Thinking: card will be removed on finalization; show streaming tokens visibly
         wrapper.innerHTML = `
             <div class="bg-surface pl-4 pr-4 py-2.5 font-mono text-xs" style="border:1px solid ${borderRgba};border-left:4px solid ${borderHex};">
                 <div class="flex items-center gap-2 ${labelColor} font-bold text-[11px] uppercase tracking-widest">
@@ -5118,7 +5177,7 @@ function startAgentStreamCard(mode) {
                     ${label}
                     ${dots}
                 </div>
-                <pre id="agent-stream-body" class="sr-only"></pre>
+                <pre id="agent-stream-body" class="text-yellow-300/60 text-[11px] italic leading-relaxed whitespace-pre-wrap break-all pt-1.5 pb-2 max-h-48 overflow-y-auto"></pre>
             </div>`;
     }
 
