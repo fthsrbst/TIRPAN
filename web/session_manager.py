@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Callable, Dict, List, Optional
 
+from config import settings
 from core.safety import SafetyGuard
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,8 @@ _subscribers: Dict[str, List[Callable]] = {}
 
 # session_id → recent event buffer (for late-joining WS clients to replay)
 _buffers: Dict[str, List[dict]] = {}
+_buffer_expires_at: Dict[str, float] = {}
+_cleanup_handles: Dict[str, asyncio.TimerHandle] = {}
 
 _BUFFER_MAX = 500
 
@@ -58,8 +62,44 @@ def cleanup(session_id: str) -> None:
     _tasks.pop(session_id, None)
     _guards.pop(session_id, None)
     _agents.pop(session_id, None)
-    # Keep subscribers and buffers briefly so late-arriving WS clients can read
+    _schedule_cleanup(session_id)
     logger.info("Session %s task cleaned up", session_id)
+
+
+def _drop_session_buffers(session_id: str) -> None:
+    _subscribers.pop(session_id, None)
+    _buffers.pop(session_id, None)
+    _buffer_expires_at.pop(session_id, None)
+    handle = _cleanup_handles.pop(session_id, None)
+    if handle is not None:
+        handle.cancel()
+
+
+def _schedule_cleanup(session_id: str) -> None:
+    # Skip while task is still active.
+    task = _tasks.get(session_id)
+    if task is not None and not task.done():
+        return
+
+    subs = _subscribers.get(session_id, [])
+    if not subs:
+        _drop_session_buffers(session_id)
+        return
+
+    ttl = max(0, int(settings.ws_buffer_ttl_seconds))
+    _buffer_expires_at[session_id] = time.time() + ttl
+
+    old = _cleanup_handles.pop(session_id, None)
+    if old is not None:
+        old.cancel()
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _drop_session_buffers(session_id)
+        return
+
+    _cleanup_handles[session_id] = loop.call_later(ttl, lambda: _drop_session_buffers(session_id))
 
 
 # ── Kill switch ────────────────────────────────────────────────────────────────
@@ -105,10 +145,15 @@ def unsubscribe(session_id: str, send_fn: Callable) -> None:
         subs.remove(send_fn)
     except ValueError:
         pass
+    _schedule_cleanup(session_id)
 
 
 async def broadcast(session_id: str, event: dict) -> None:
     """Push an event to all WS subscribers and append to the buffer."""
+    exp = _buffer_expires_at.get(session_id)
+    if exp is not None and exp <= time.time():
+        _drop_session_buffers(session_id)
+
     buf = _buffers.setdefault(session_id, [])
     buf.append(event)
     if len(buf) > _BUFFER_MAX:
@@ -173,6 +218,7 @@ def get_agent(session_id: str):
 def clear_buffer(session_id: str) -> None:
     """Clear the replay buffer for a session (e.g. before restarting it)."""
     _buffers[session_id] = []
+    _buffer_expires_at.pop(session_id, None)
 
 
 # ── Progress callback factory ──────────────────────────────────────────────────
@@ -198,7 +244,7 @@ def make_progress_callback(session_id: str) -> Callable[[str, dict], None]:
             "data": data,
         }
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             if loop.is_running():
                 # Streaming token events are high-frequency — don't buffer them
                 if event_type in _STREAM_EVENTS:

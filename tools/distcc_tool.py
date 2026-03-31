@@ -142,8 +142,8 @@ class DistccTool(BaseTool):
             stderr_data = b""
             status_code = -1
 
-            deadline = asyncio.get_event_loop().time() + _CMD_TIMEOUT
-            while asyncio.get_event_loop().time() < deadline:
+            deadline = asyncio.get_running_loop().time() + _CMD_TIMEOUT
+            while asyncio.get_running_loop().time() < deadline:
                 try:
                     header = await asyncio.wait_for(reader.readexactly(12), timeout=5)
                 except (asyncio.IncompleteReadError, asyncio.TimeoutError):

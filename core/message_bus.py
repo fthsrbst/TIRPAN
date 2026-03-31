@@ -298,7 +298,7 @@ class AgentMessageBus:
 
         Returns the reply AgentMessage, or None on timeout.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         fut: asyncio.Future[AgentMessage] = loop.create_future()
         self._pending[correlation_id] = fut
         try:
@@ -317,7 +317,7 @@ class AgentMessageBus:
         Block until the agent emits AGENT_DONE or AGENT_ERROR.
         Brain uses this to join on spawned agents.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         fut = self._done_futures.get(agent_id)
         # Agent already completed before we started waiting — return immediately.
         # Previously this branch created a new empty future, causing a hang until timeout.
@@ -352,7 +352,7 @@ class AgentMessageBus:
                 fut.set_result(msg)
             else:
                 # Pre-create resolved future for late wait_for_agent_done calls
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 f: asyncio.Future[AgentMessage] = loop.create_future()
                 f.set_result(msg)
                 self._done_futures[agent_id] = f

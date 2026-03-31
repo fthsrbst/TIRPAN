@@ -129,13 +129,16 @@ class ShellManager:
         params.update(extra)
 
         result = await self._shell_tool.execute(params)
-        if result.get("status") != "success":
+        if not result.get("success"):
             raise RuntimeError(
                 f"Failed to open {session_type} shell on {host_ip}: "
                 f"{result.get('error', result.get('message', 'unknown error'))}"
             )
 
-        tool_key: str = result.get("session_key", "")
+        output = result.get("output") or {}
+        tool_key: str = output.get("session_key", "")
+        if not tool_key:
+            raise RuntimeError(f"{session_type} connect succeeded but no session_key was returned")
         shell_key = str(uuid.uuid4())
 
         session = ShellSession(
@@ -162,6 +165,21 @@ class ShellManager:
         Register an already-open Metasploit session so agents can exec through it.
         Called by ExploitAgent after a successful msf_run.
         """
+        if not self._msf_tool:
+            raise RuntimeError("MetasploitTool not configured in ShellManager")
+
+        async with self._msf_sem:
+            sessions_res = await self._msf_tool.execute({"action": "sessions"})
+        if not sessions_res.get("success"):
+            raise RuntimeError(
+                f"Cannot adopt MSF session {msf_session_id}: {sessions_res.get('error', 'sessions lookup failed')}"
+            )
+
+        sessions_out = sessions_res.get("output") or {}
+        sessions = sessions_out.get("sessions") or {}
+        if str(msf_session_id) not in {str(k) for k in sessions.keys()}:
+            raise RuntimeError(f"MSF session {msf_session_id} is not alive")
+
         shell_key = str(uuid.uuid4())
         session = ShellSession(
             shell_key=shell_key,
@@ -183,14 +201,14 @@ class ShellManager:
         Run a command on an open session.
 
         Returns:
-            {"status": "success", "output": str}
-            {"status": "error", "error": str}
+            {"success": True, "output": str, "error": None}
+            {"success": False, "output": None, "error": str}
         """
         session = self._sessions.get(shell_key)
         if session is None:
-            return {"status": "error", "error": f"Unknown shell_key: {shell_key}"}
+            return {"success": False, "output": None, "error": f"Unknown shell_key: {shell_key}"}
         if session.status != "active":
-            return {"status": "error", "error": f"Session {shell_key} is {session.status}"}
+            return {"success": False, "output": None, "error": f"Session {shell_key} is {session.status}"}
 
         if session.session_type == "meterpreter":
             return await self._exec_msf(session, command, timeout)
@@ -199,20 +217,20 @@ class ShellManager:
 
     async def _exec_shell(self, session: ShellSession, command: str, timeout: int) -> dict:
         if not self._shell_tool:
-            return {"status": "error", "error": "ShellSessionTool not configured"}
+            return {"success": False, "output": None, "error": "ShellSessionTool not configured"}
         result = await self._shell_tool.execute({
             "action": "exec",
             "session_key": session._tool_key,
             "command": command,
             "timeout": timeout,
         })
-        if result.get("status") == "success":
-            return {"status": "success", "output": result.get("output", "")}
-        return {"status": "error", "error": result.get("error", result.get("message", "exec failed"))}
+        if result.get("success"):
+            return {"success": True, "output": result.get("output", ""), "error": None}
+        return {"success": False, "output": None, "error": result.get("error", result.get("message", "exec failed"))}
 
     async def _exec_msf(self, session: ShellSession, command: str, timeout: int) -> dict:
         if not self._msf_tool:
-            return {"status": "error", "error": "MetasploitTool not configured"}
+            return {"success": False, "output": None, "error": "MetasploitTool not configured"}
         async with self._msf_sem:
             result = await self._msf_tool.execute({
                 "action": "session_exec",
@@ -220,9 +238,9 @@ class ShellManager:
                 "command": command,
                 "timeout": timeout,
             })
-        if result.get("status") == "success":
-            return {"status": "success", "output": result.get("output", "")}
-        return {"status": "error", "error": result.get("error", result.get("message", "msf exec failed"))}
+        if result.get("success"):
+            return {"success": True, "output": result.get("output", ""), "error": None}
+        return {"success": False, "output": None, "error": result.get("error", result.get("message", "msf exec failed"))}
 
     async def exec_script(
         self,
@@ -235,7 +253,7 @@ class ShellManager:
         for cmd in commands:
             r = await self.exec(shell_key, cmd, timeout=timeout_per_cmd)
             results.append({"command": cmd, **r})
-            if r["status"] != "success":
+            if not r.get("success"):
                 break
         return results
 
@@ -255,7 +273,7 @@ class ShellManager:
         Returns the raw MetasploitTool result dict.
         """
         if not self._msf_tool:
-            return {"status": "error", "error": "MetasploitTool not configured"}
+            return {"success": False, "output": None, "error": "MetasploitTool not configured"}
         params = {
             "action": "run",
             "module": module,
@@ -275,7 +293,10 @@ class ShellManager:
             return {}
         async with self._msf_sem:
             result = await self._msf_tool.execute({"action": "sessions"})
-        return result.get("sessions", {})
+        if not result.get("success"):
+            return {}
+        output = result.get("output") or {}
+        return output.get("sessions", {})
 
     # ── Closing sessions ───────────────────────────────────────────────────
 
