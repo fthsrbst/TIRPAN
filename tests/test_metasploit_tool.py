@@ -5,29 +5,50 @@ All tests run without a real msfrpcd (mocked).
 pymetasploit3 import is also mocked.
 """
 
+import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from tools.metasploit_tool import MetasploitTool
-from models.exploit_result import ExploitResult
 
 
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
 
-def make_mock_client(session_id=1, payloads=None):
+def make_mock_client(session_id=1, payloads=None, modules=None):
     """Fake MsfRpcClient."""
     client = MagicMock()
+
+    known_modules = set(modules or [
+        "exploit/unix/ftp/vsftpd_234_backdoor",
+        "exploit/multi/handler",
+        "exploit/multi/samba/usermap_script",
+        "exploit/slow/module",
+        "exploit/test",
+        "exploit/foo",
+    ])
 
     exploit_mod = MagicMock()
     exploit_mod.targetpayloads.return_value = payloads or ["cmd/unix/interact"]
     exploit_mod.execute.return_value = {"job_id": 1, "session_id": session_id}
-    client.modules.use.return_value = exploit_mod
+    client._exploit_mod = exploit_mod
 
-    client.modules.search.return_value = [
-        {"name": "exploit/unix/ftp/vsftpd_234_backdoor", "rank": "excellent"}
-    ]
+    def _use(kind, name):
+        if kind == "exploit":
+            return exploit_mod
+        payload_mod = MagicMock()
+        payload_mod.name = name
+        return payload_mod
+
+    def _search(query):
+        if isinstance(query, str) and query.startswith("fullname:"):
+            mod = query.split("fullname:", 1)[1].strip()
+            return [{"fullname": mod}] if mod in known_modules else []
+        return [{"fullname": mod, "name": mod, "rank": "excellent"} for mod in sorted(known_modules)]
+
+    client.modules.use.side_effect = _use
+    client.modules.search.side_effect = _search
     client.sessions.list = {1: {"type": "shell", "tunnel_peer": "192.168.1.1:21"}}
     return client
 
@@ -89,7 +110,7 @@ class TestRunExploit:
             "target_port": 21,
         })
 
-        exploit_mod = client.modules.use.return_value
+        exploit_mod = client._exploit_mod
         assert exploit_mod.__setitem__.call_args_list[0][0] == ("RHOSTS", "10.0.0.5")
         assert exploit_mod.__setitem__.call_args_list[1][0] == ("RPORT", 21)
 
@@ -106,14 +127,14 @@ class TestRunExploit:
             "options": {"LHOST": "10.0.0.100"},
         })
 
-        exploit_mod = client.modules.use.return_value
+        exploit_mod = client._exploit_mod
         set_calls = {c[0][0]: c[0][1] for c in exploit_mod.__setitem__.call_args_list}
         assert set_calls.get("LHOST") == "10.0.0.100"
 
     @pytest.mark.asyncio
     async def test_no_session_returns_failure(self):
         client = make_mock_client(session_id=None)
-        client.modules.use.return_value.execute.return_value = {"job_id": 1, "session_id": None}
+        client._exploit_mod.execute.return_value = {"job_id": 1, "session_id": None}
         tool = make_tool(client)
 
         result = await tool.execute({
@@ -140,6 +161,120 @@ class TestRunExploit:
 
         assert result["success"] is True
         assert result["output"]["payload"] == "cmd/unix/interact"
+
+    @pytest.mark.asyncio
+    async def test_module_alias_is_canonicalized_before_run(self):
+        client = make_mock_client(modules=["exploit/multi/samba/usermap_script"])
+        tool = make_tool(client)
+
+        result = await tool.execute({
+            "action": "run",
+            "module": "exploit/unix/smb/usermap_script",
+            "target_ip": "192.168.1.10",
+            "target_port": 139,
+        })
+
+        assert result["success"] is True
+        assert result["output"]["module"] == "exploit/multi/samba/usermap_script"
+        exploit_calls = [c for c in client.modules.use.call_args_list if c[0][0] == "exploit"]
+        assert exploit_calls
+        assert exploit_calls[0][0][1] == "exploit/multi/samba/usermap_script"
+
+    @pytest.mark.asyncio
+    async def test_unknown_module_fails_fast(self):
+        client = make_mock_client(modules=["exploit/unix/ftp/vsftpd_234_backdoor"])
+        tool = make_tool(client)
+
+        result = await tool.execute({
+            "action": "run",
+            "module": "exploit/does/not_exist",
+            "target_ip": "10.0.0.5",
+            "target_port": 445,
+        })
+
+        assert result["success"] is False
+        assert "not found/unsupported" in result["error"]
+        assert result["output"]["reason"] == "module_not_found"
+
+    @pytest.mark.asyncio
+    async def test_session_polling_used_when_session_id_missing(self):
+        client = make_mock_client(session_id=None)
+        client._exploit_mod.execute.return_value = {"job_id": 77, "session_id": None}
+        tool = make_tool(client)
+
+        poll_meta = {
+            "attempts": 3,
+            "timeout_seconds": 15.0,
+            "interval_seconds": 0.5,
+            "matched": True,
+            "reason": "session_matched",
+        }
+        with patch.object(tool, "_poll_for_session", return_value=(7, poll_meta)) as poll_mock:
+            result = await tool.execute({
+                "action": "run",
+                "module": "exploit/unix/ftp/vsftpd_234_backdoor",
+                "target_ip": "192.168.1.10",
+                "target_port": 21,
+            })
+
+        assert result["success"] is True
+        assert result["output"]["session_id"] == 7
+        assert result["output"]["session_polling"]["attempts"] == 3
+        poll_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_invalid_payload_falls_back_to_compatible_candidate(self):
+        client = make_mock_client(
+            session_id=5,
+            payloads=["cmd/unix/interact", "cmd/unix/bind_perl"],
+        )
+        original_use = client.modules.use.side_effect
+
+        def _use(kind, name):
+            if kind == "payload" and name == "bad/payload":
+                raise RuntimeError("Invalid payload")
+            return original_use(kind, name)
+
+        client.modules.use.side_effect = _use
+        tool = make_tool(client)
+
+        result = await tool.execute({
+            "action": "run",
+            "module": "exploit/unix/ftp/vsftpd_234_backdoor",
+            "target_ip": "192.168.1.10",
+            "target_port": 21,
+            "payload": "bad/payload",
+        })
+
+        assert result["success"] is True
+        assert result["output"]["payload"] != "bad/payload"
+        assert any(
+            a.get("payload") == "bad/payload" and a.get("error")
+            for a in result["output"]["payload_attempts"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_post_commands_are_included_in_rpc_run_output(self):
+        client = make_mock_client(session_id=9)
+        tool = make_tool(client)
+
+        with patch.object(
+            tool,
+            "_run_post_commands_rpc",
+            return_value=("$ whoami\nroot\n\n$ id\nuid=0(root)", []),
+        ) as post_mock:
+            result = await tool.execute({
+                "action": "run",
+                "module": "exploit/unix/ftp/vsftpd_234_backdoor",
+                "target_ip": "192.168.1.10",
+                "target_port": 21,
+                "post_commands": ["whoami", "id"],
+            })
+
+        assert result["success"] is True
+        assert "post_command_output" in result["output"]
+        assert "uid=0(root)" in result["output"]["post_command_output"]
+        post_mock.assert_called_once()
 
 
 # ------------------------------------------------------------------
@@ -200,6 +335,37 @@ class TestTimeout:
 
         assert result["success"] is False
         assert "timed out" in result["error"].lower() or result["error"] is not None
+
+
+class TestMsfconsoleCancellation:
+    @pytest.mark.asyncio
+    async def test_cancelled_run_terminates_subprocess(self):
+        class FakeProc:
+            def __init__(self):
+                self.terminated = False
+                self.killed = False
+
+            async def communicate(self):
+                raise asyncio.CancelledError()
+
+            async def wait(self):
+                return 0
+
+            def terminate(self):
+                self.terminated = True
+
+            def kill(self):
+                self.killed = True
+
+        proc = FakeProc()
+        tool = MetasploitTool()
+        with patch(
+            "tools.metasploit_tool.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await tool._run_msfconsole(["search vsftpd"], timeout=5)
+        assert proc.terminated is True
 
 
 # ------------------------------------------------------------------
