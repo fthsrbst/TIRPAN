@@ -94,7 +94,13 @@ class SoulLoader:
 
     @staticmethod
     def _load_embedded(name: str) -> str:
-        """Load a soul from the embedded _embedded.py module (AV-resistant fallback)."""
+        """Load a soul from the embedded _embedded.py module.
+
+        Note:
+        This uses base85 + zlib payloads for resilience when .md files are
+        quarantined/removed by endpoint security. The pattern can look
+        obfuscated to AV heuristics; keep this behavior documented.
+        """
         try:
             import base64
             import importlib

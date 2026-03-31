@@ -575,7 +575,7 @@ class ShellSessionTool(BaseTool):
             msf_tool = _tr.get_tool("metasploit_run")
             if msf_tool:
                 client = await msf_tool._get_client()
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, lambda: client.sessions.session(msf_id).stop())
             return {"success": True, "output": {"closed": sk}, "error": None}
         except Exception as exc:

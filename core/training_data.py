@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _TRAINING_DIR = Path("data/training")
+_SYSTEM_PROMPT_INDEX = _TRAINING_DIR / "_system_prompts.jsonl"
+_SEEN_SYSTEM_HASHES: set[str] = set()
 
 # Tools whose success is truly meaningful (exclude housekeeping meta-tools
 # that always succeed and carry no signal).
@@ -131,6 +134,28 @@ class TrainingDataCollector:
 
     def __init__(self) -> None:
         _TRAINING_DIR.mkdir(parents=True, exist_ok=True)
+        self._load_seen_hashes()
+
+    @staticmethod
+    def _load_seen_hashes() -> None:
+        """Warm in-memory hash cache from persisted system prompt index."""
+        if not _SYSTEM_PROMPT_INDEX.exists():
+            return
+        try:
+            with open(_SYSTEM_PROMPT_INDEX, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    h = str(row.get("hash", "")).strip()
+                    if h:
+                        _SEEN_SYSTEM_HASHES.add(h)
+        except OSError:
+            return
 
     def record(
         self,
@@ -172,6 +197,17 @@ class TrainingDataCollector:
         # Build the training message list: system + conversation + assistant turn.
         # Strip any trailing assistant messages (the LLM output is added by us).
         training_messages = [m for m in messages if m.get("role") != "assistant"]
+        system_prompt_blob = "\n".join(
+            str(m.get("content", "")) for m in training_messages if m.get("role") == "system"
+        )
+        system_prompt_ref = ""
+        if system_prompt_blob:
+            system_prompt_ref = hashlib.sha256(
+                system_prompt_blob.encode("utf-8", errors="ignore")
+            ).hexdigest()
+            for msg in training_messages:
+                if msg.get("role") == "system":
+                    msg["content"] = f"[SYSTEM_PROMPT_REF:{system_prompt_ref}]"
         # Also remove the last user message if it's just the initial "Mission target" stub
         # (it adds no signal — the system prompt already contains the mission context).
         training_messages.append({"role": "assistant", "content": assistant_content})
@@ -186,6 +222,7 @@ class TrainingDataCollector:
                 "result_status": "ok" if result.get("success") else "error",
                 "agent_type":    agent_type,
                 "timestamp":     datetime.now(timezone.utc).isoformat(),
+                "system_prompt_ref": system_prompt_ref,
             },
         }
 
@@ -196,6 +233,14 @@ class TrainingDataCollector:
 
         out_path = _TRAINING_DIR / f"{session_id}.jsonl"
         try:
+            if system_prompt_ref and system_prompt_ref not in _SEEN_SYSTEM_HASHES:
+                with open(_SYSTEM_PROMPT_INDEX, "a", encoding="utf-8") as sfh:
+                    sfh.write(json.dumps({
+                        "hash": system_prompt_ref,
+                        "content": system_prompt_blob,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }, ensure_ascii=False) + "\n")
+                _SEEN_SYSTEM_HASHES.add(system_prompt_ref)
             with open(out_path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
         except OSError as exc:

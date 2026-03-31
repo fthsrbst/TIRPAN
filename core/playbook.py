@@ -245,9 +245,8 @@ class Playbook:
                 continue
             results.append(e)
 
-        # Sort: successes first, then by timestamp desc
+        # Sort deterministically: successes first, then by timestamp.
         results.sort(key=lambda e: (0 if e.succeeded else 1, e.timestamp), reverse=False)
-        results.sort(key=lambda e: e.succeeded, reverse=True)
         return results[-limit:]
 
     def find_for_services(self, service_strings: list[str]) -> list[PlaybookEntry]:

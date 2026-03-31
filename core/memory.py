@@ -17,10 +17,33 @@ MessageRole = Literal["system", "user", "assistant", "tool_result"]
 
 # Rough token estimation: 1 token ≈ 4 characters
 _CHARS_PER_TOKEN = 4
+_ENCODER = None
 
 # Default limits
 DEFAULT_MAX_MESSAGES = 50
 DEFAULT_MAX_TOKENS = 4096
+
+
+def estimate_tokens(text: str) -> int:
+    global _ENCODER
+
+    if text is None:
+        return 1
+
+    if _ENCODER is None:
+        try:
+            import tiktoken  # type: ignore
+            _ENCODER = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            _ENCODER = False
+
+    if _ENCODER:
+        try:
+            return max(1, len(_ENCODER.encode(text)))
+        except Exception:
+            pass
+
+    return max(1, len(text) // _CHARS_PER_TOKEN)
 
 
 class Message:
@@ -35,7 +58,7 @@ class Message:
 
     @property
     def estimated_tokens(self) -> int:
-        return max(1, len(self.content) // _CHARS_PER_TOKEN)
+        return estimate_tokens(self.content)
 
     def to_dict(self) -> dict:
         return {"role": self.role, "content": self.content, "pinned": self.pinned}

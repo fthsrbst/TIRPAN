@@ -12,6 +12,7 @@ import os
 import re
 import socket
 import tempfile
+import threading
 import time
 
 from config import settings
@@ -31,6 +32,7 @@ _CMD_TIMEOUT = 30  # seconds for session command execution
 _LPORT_POOL_START = 4400
 _LPORT_POOL_END = 4500
 _lport_counter = itertools.cycle(range(_LPORT_POOL_START, _LPORT_POOL_END))
+_lport_lock = threading.Lock()
 
 # Patterns that indicate a session was opened in msfconsole output
 _SESSION_PATTERNS = [
@@ -221,7 +223,18 @@ class MetasploitTool(BaseTool):
         if action == "sessions":
             return await self._sessions_via_msfconsole()
         if action == "session_exec":
-            return await self._session_exec_via_msfconsole(params)
+            if settings.msf.persistent_console:
+                return await self._session_exec_via_msfconsole(params)
+            sid = params.get("session_id")
+            return {
+                "success": False,
+                "output": None,
+                "error": (
+                    f"Cannot execute on session {sid}: msfrpcd is unavailable and one-shot "
+                    "msfconsole fallback cannot persist sessions across calls. "
+                    "Use post_commands in the original run action or enable msfrpcd."
+                ),
+            }
 
         return {"success": False, "output": None, "error": "Unknown action"}
 
@@ -236,7 +249,7 @@ class MetasploitTool(BaseTool):
         payload: str = params.get("payload", "")
         extra_opts: dict = params.get("options", {})
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         start = time.monotonic()
 
         try:
@@ -340,7 +353,7 @@ class MetasploitTool(BaseTool):
             )
 
     async def _search_modules(self, client, query: str) -> dict:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             modules = await loop.run_in_executor(
                 None, lambda: client.modules.search(query)
@@ -354,7 +367,7 @@ class MetasploitTool(BaseTool):
             return {"success": False, "output": None, "error": str(exc)}
 
     async def _list_sessions(self, client) -> dict:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             sessions = await loop.run_in_executor(
                 None, lambda: dict(client.sessions.list)
@@ -371,7 +384,7 @@ class MetasploitTool(BaseTool):
         """Execute a command on an existing MSF session via RPC."""
         session_id = int(params["session_id"])
         command = params["command"].strip()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             result = await asyncio.wait_for(
                 loop.run_in_executor(
@@ -1068,6 +1081,16 @@ class MetasploitTool(BaseTool):
             '    print_good("[TIRPAN_CMD_START:#{idx}] #{cmd}")',
             '    begin',
             '      out = s.shell_command_token(cmd, 15)',
+            '      if (out.nil? || out.to_s.strip.empty?) && s.respond_to?(:write) && s.respond_to?(:read)',
+            '        begin',
+            '          s.write(cmd + "\\n")',
+            '          sleep(1)',
+            '          out = s.read',
+            '          print_good("[TIRPAN-DEBUG] fallback read for cmd #{idx}")',
+            '        rescue => e2',
+            '          print_error("[TIRPAN_CMD_FALLBACK_ERR:#{idx}] #{e2.class}: #{e2.message}")',
+            '        end',
+            '      end',
             '      out_str = (out || "").strip',
             '      print_good("[TIRPAN-DEBUG] cmd #{idx} raw output length=#{out_str.length}")',
             '      out_str.each_line { |line| print_good("[TIRPAN_CMD_OUT:#{idx}] #{line.chomp}") }',
@@ -1084,6 +1107,30 @@ class MetasploitTool(BaseTool):
         erb_block = "\n".join(lines)
         logger.debug("[TIRPAN-DEBUG] ERB block to embed in RC:\n%s", erb_block)
         return erb_block
+
+    @staticmethod
+    def _is_port_free(port: int) -> bool:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("0.0.0.0", port))
+            return True
+        except OSError:
+            return False
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    def _allocate_lport(self) -> int:
+        span = max(1, _LPORT_POOL_END - _LPORT_POOL_START)
+        with _lport_lock:
+            for _ in range(span):
+                port = next(_lport_counter)
+                if self._is_port_free(port):
+                    return port
+        raise RuntimeError("No free LPORT available in pool")
 
     def _build_rc_commands(
         self,
@@ -1122,8 +1169,8 @@ class MetasploitTool(BaseTool):
         )
         auto_lport: int | None = None
         if is_reverse and "LPORT" not in extra_opts:
-            auto_lport = next(_lport_counter)
-            logger.debug("Auto-allocated LPORT=%d for %s", auto_lport, module_path)
+            auto_lport = self._allocate_lport()
+            logger.debug("Auto-allocated free LPORT=%d for %s", auto_lport, module_path)
 
         commands = [
             "unsetg PAYLOAD",
@@ -1249,7 +1296,7 @@ class MetasploitTool(BaseTool):
         if self._client is not None:
             return self._client
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._client = await loop.run_in_executor(None, self._connect)
         return self._client
 

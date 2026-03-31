@@ -232,21 +232,22 @@ class BrainAgent(BaseAgent):
             except Exception as exc:
                 self._log.error("Meta-tool '%s' raised: %s", tool_name, exc)
                 dbg.tool_fail(self.agent_id, tool_name, str(exc))
-                result = {"status": "error", "error": str(exc)}
+                result = {"success": False, "output": None, "error": str(exc)}
             _dur = (_time.monotonic() - _t0) * 1000
 
-            success = result.get("status") not in ("error",)
+            success = self._meta_success(result)
+            err = self._meta_error(result)
             if success:
                 dbg.tool_ok(self.agent_id, tool_name, result, _dur)
             else:
-                dbg.tool_fail(self.agent_id, tool_name, result.get("error", ""), _dur)
+                dbg.tool_fail(self.agent_id, tool_name, err, _dur)
             self.emit_event("tool_result", {
                 "tool": tool_name,
                 "success": success,
                 "output": result,
-                "error": result.get("error"),
+                "error": err,
             })
-            final = {"success": success, "output": result, "error": result.get("error")}
+            final = {"success": success, "output": result, "error": err}
             # Capture for training data (reflect() will write it)
             self._last_action = action_dict
             self._last_result = final
@@ -257,6 +258,21 @@ class BrainAgent(BaseAgent):
         self._last_action = action_dict
         self._last_result = result
         return result
+
+    @staticmethod
+    def _meta_success(result: dict) -> bool:
+        """Normalize legacy meta-tool status dicts into success/error contract."""
+        if not isinstance(result, dict):
+            return False
+        if "success" in result:
+            return bool(result.get("success"))
+        return result.get("status") not in ("error", "failed")
+
+    @staticmethod
+    def _meta_error(result: dict) -> str | None:
+        if not isinstance(result, dict):
+            return "invalid meta-tool result"
+        return result.get("error")
 
     # ── Meta-tool dispatch ────────────────────────────────────────────────────
 
@@ -271,14 +287,14 @@ class BrainAgent(BaseAgent):
         if tool_name == "kill_agent":
             return self._kill_agent(params)
         if tool_name == "update_context":
-            return {"status": "queued", "params": params}
+            return {"success": True, "status": "queued", "params": params, "error": None}
         if tool_name == "ask_operator":
             return await self._ask_operator(params)
         if tool_name == "set_phase":
-            return {"status": "ok", "phase": params.get("phase")}
+            return {"success": True, "status": "ok", "phase": params.get("phase"), "error": None}
         if tool_name == "mission_done":
-            return {"status": "done", "action": "done"}
-        return {"status": "error", "error": f"Unknown meta-tool: {tool_name}"}
+            return {"success": True, "status": "done", "action": "done", "error": None}
+        return {"success": False, "status": "error", "output": None, "error": f"Unknown meta-tool: {tool_name}"}
 
     # ── spawn_agent ──────────────────────────────────────────────────────────
 
@@ -295,10 +311,11 @@ class BrainAgent(BaseAgent):
         agent_type = params.get("agent_type", "")
         target = params.get("target", "")
         task_type = params.get("task_type", "")
-        options = params.get("options", {})
+        options = dict(params.get("options", {}) or {})
 
         if agent_type not in _AGENT_REGISTRY:
             return {
+                "success": False,
                 "status": "error",
                 "error": f"Unknown agent_type '{agent_type}'. "
                          f"Available: {list(_AGENT_REGISTRY.keys())}",
@@ -317,6 +334,7 @@ class BrainAgent(BaseAgent):
                 task_obj = self._child_tasks.get(aid)
                 if task_obj and not task_obj.done():
                     return {
+                        "success": True,
                         "status": "already_running",
                         "agent_id": aid,
                         "agent_type": agent_type,
@@ -339,20 +357,18 @@ class BrainAgent(BaseAgent):
                 obj_str = "; ".join(self.ctx.objectives)
                 if obj_str not in task_type:
                     task_type = f"{task_type} | objectives: {obj_str}" if task_type else f"post_exploitation | objectives: {obj_str}"
-            # Auto-inject the latest active shell_key for the target if not already specified
+            requested_key = options.get("shell_key")
+            if requested_key:
+                requested_shell = self._active_shells.get(requested_key)
+                if not requested_shell or not await self._verify_shell_alive(requested_shell):
+                    if requested_shell:
+                        self._mark_shell_closed(requested_key, "dead before post_exploit")
+                    options.pop("shell_key", None)
+
+            # Auto-inject a verified live shell when missing.
             if "shell_key" not in options and self._active_shells:
-                # Prefer a shell on the exact target, otherwise take any active one
-                target_shell = next(
-                    (v for v in self._active_shells.values()
-                     if v.get("host_ip") == target and v.get("status") == "active"),
-                    None,
-                ) or next(
-                    (v for v in self._active_shells.values()
-                     if v.get("status") == "active"),
-                    None,
-                )
+                target_shell = await self._pick_live_shell_for_target(target)
                 if target_shell:
-                    options = dict(options)
                     options["shell_key"] = target_shell["shell_key"]
 
         # Build constructor kwargs for the child agent
@@ -384,7 +400,7 @@ class BrainAgent(BaseAgent):
             mod = importlib.import_module(module_path)
             AgentClass = getattr(mod, class_name)
         except (ImportError, AttributeError) as exc:
-            return {"status": "error", "error": f"Failed to import {agent_type}: {exc}"}
+            return {"success": False, "status": "error", "output": None, "error": f"Failed to import {agent_type}: {exc}"}
 
         agent = AgentClass(**child_kwargs)
 
@@ -410,6 +426,7 @@ class BrainAgent(BaseAgent):
         logger.info("BrainAgent: spawned %s (id=%s) for %s", agent_type, agent_id, target)
 
         return {
+            "success": True,
             "status": "spawned",
             "agent_id": agent_id,
             "agent_type": agent_type,
@@ -429,7 +446,7 @@ class BrainAgent(BaseAgent):
         """
         agents_list = params.get("agents", [])
         if not agents_list:
-            return {"status": "error", "error": "spawn_agents_batch requires 'agents' list"}
+            return {"success": False, "status": "error", "output": None, "error": "spawn_agents_batch requires 'agents' list"}
 
         spawned = []
         skipped = []
@@ -462,6 +479,7 @@ class BrainAgent(BaseAgent):
                  f"spawn_agents_batch: spawned={len(spawned)} skipped={len(skipped)} errors={len(errors)}")
 
         return {
+            "success": True,
             "status": "ok",
             "spawned": spawned,
             "skipped": skipped,
@@ -551,7 +569,7 @@ class BrainAgent(BaseAgent):
 
         if not agent_ids:
             dbg.warn(self.agent_id, "wait_for_agents called but no agents to wait for")
-            return {"status": "ok", "completed": [], "timed_out": [], "hint": "No agents to wait for."}
+            return {"success": True, "status": "ok", "completed": [], "timed_out": [], "hint": "No agents to wait for.", "error": None}
 
         dbg.wait_start(self.agent_id, agent_ids, timeout)
         done_results: dict[str, AgentMessage | None] = {}
@@ -573,14 +591,14 @@ class BrainAgent(BaseAgent):
                 while not self._pause_event.is_set():
                     if self._safety.kill_switch_triggered:
                         wait_task.cancel()
-                        return {"status": "error", "error": "Kill switch triggered"}
+                        return {"success": False, "status": "error", "output": None, "error": "Kill switch triggered"}
                     await asyncio.sleep(0.3)
                 logger.info("BrainAgent: resumed, continuing wait_for_agents")
 
             # Check kill switch
             if self._safety.kill_switch_triggered:
                 wait_task.cancel()
-                return {"status": "error", "error": "Kill switch triggered"}
+                return {"success": False, "status": "error", "output": None, "error": "Kill switch triggered"}
 
             try:
                 await asyncio.wait_for(asyncio.shield(wait_task), timeout=0.5)
@@ -592,6 +610,7 @@ class BrainAgent(BaseAgent):
         dbg.wait_done(self.agent_id, completed, timed_out)
 
         return {
+            "success": True,
             "status": "ok",
             "completed": completed,
             "timed_out": timed_out,
@@ -599,6 +618,7 @@ class BrainAgent(BaseAgent):
                 aid: (r.payload if r else None)
                 for aid, r in done_results.items()
             },
+            "error": None,
         }
 
     # ── kill_agent ───────────────────────────────────────────────────────────
@@ -610,8 +630,8 @@ class BrainAgent(BaseAgent):
             task.cancel()
             self._child_tasks.pop(agent_id, None)
             self.emit_event("agent_killed", {"agent_id": agent_id})
-            return {"status": "killed", "agent_id": agent_id}
-        return {"status": "not_found", "agent_id": agent_id}
+            return {"success": True, "status": "killed", "agent_id": agent_id, "error": None}
+        return {"success": False, "status": "not_found", "agent_id": agent_id, "error": f"Agent not found: {agent_id}"}
 
     def _handle_spawn_result(self, result: dict) -> None:
         # result from observe() has structure {"success": ..., "output": {"status": "spawned", ...}}
@@ -721,8 +741,8 @@ class BrainAgent(BaseAgent):
         # Brain waits for OPERATOR_REPLY on its own queue
         msg = await self.bus.receive(self.agent_id, timeout=timeout)
         if msg and msg.msg_type == MessageType.OPERATOR_REPLY:
-            return {"status": "answered", "answer": msg.payload.get("answer", "")}
-        return {"status": "timeout", "answer": ""}
+            return {"success": True, "status": "answered", "answer": msg.payload.get("answer", ""), "error": None}
+        return {"success": True, "status": "timeout", "answer": "", "error": None}
 
     # ── Pause / Resume propagation to child agents ─────────────────────────────
 
@@ -759,7 +779,7 @@ class BrainAgent(BaseAgent):
             self._add_finding(msg.payload)
             # Track shell sessions and broadcast to UI
             if finding_type in ("session", "session_opened", "shell_opened"):
-                self._register_shell(msg.payload)
+                await self._register_shell(msg.payload)
             # Objective match check — emit confirmation card to operator
             self._check_objective_match(msg.payload)
         elif msg.msg_type in (MessageType.AGENT_DONE, MessageType.AGENT_ERROR):
@@ -820,7 +840,44 @@ class BrainAgent(BaseAgent):
 
     # ── Shell session tracking ────────────────────────────────────────────────
 
-    def _register_shell(self, finding: dict) -> None:
+    async def _is_msf_session_alive(self, session_id: int) -> bool:
+        """Verify an MSF session ID is still alive in the backend."""
+        try:
+            from web.app_state import tool_registry as _tr
+            msf_tool = _tr.get("metasploit_run")
+        except Exception:
+            msf_tool = None
+
+        if msf_tool is None:
+            return False
+
+        try:
+            result = await msf_tool.execute({"action": "sessions"})
+        except Exception:
+            return False
+
+        if not result.get("success"):
+            return False
+
+        output = result.get("output") or {}
+        sessions = output.get("sessions") or {}
+        return str(session_id) in {str(k) for k in sessions.keys()}
+
+    async def _verify_shell_alive(self, shell: dict) -> bool:
+        if shell.get("status") != "active":
+            return False
+
+        msf_sid = shell.get("msf_session_id")
+        if msf_sid is None:
+            return True
+
+        try:
+            sid = int(msf_sid)
+        except (TypeError, ValueError):
+            return False
+        return await self._is_msf_session_alive(sid)
+
+    async def _register_shell(self, finding: dict) -> None:
         """Called when a child agent reports a shell/session opened."""
         import uuid as _uuid
         data = finding.get("data", finding)
@@ -835,6 +892,10 @@ class BrainAgent(BaseAgent):
 
         # Use msf-{id} as the canonical key so shell_io events from base_agent match
         if msf_sid is not None:
+            alive = await self._is_msf_session_alive(msf_sid)
+            if not alive:
+                dbg.warn(self.agent_id, f"MSF session {msf_sid} is not alive; shell not registered")
+                return
             shell_key = f"msf-{msf_sid}"
         else:
             shell_key = data.get("shell_key") or f"shell-{_uuid.uuid4().hex[:8]}"
@@ -874,13 +935,29 @@ class BrainAgent(BaseAgent):
             dbg.info(self.agent_id, f"Shell closed: {shell_key} ({reason})")
         self._active_shells.pop(shell_key, None)
 
+    async def _pick_live_shell_for_target(self, target: str) -> dict | None:
+        preferred = [
+            shell for shell in self._active_shells.values()
+            if shell.get("host_ip") == target and shell.get("status") == "active"
+        ]
+        fallback = [
+            shell for shell in self._active_shells.values()
+            if shell.get("status") == "active"
+        ]
+
+        for shell in preferred + fallback:
+            if await self._verify_shell_alive(shell):
+                return shell
+            self._mark_shell_closed(shell.get("shell_key", ""), "dead before post_exploit")
+        return None
+
     async def exec_on_shell(self, shell_key: str, command: str) -> dict:
         """Execute a command on an active shell session (called by the UI)."""
         shell = self._active_shells.get(shell_key)
         if not shell:
-            return {"status": "error", "error": f"Unknown shell: {shell_key}"}
+            return {"success": False, "output": None, "error": f"Unknown shell: {shell_key}"}
         if shell["status"] != "active":
-            return {"status": "error", "error": f"Shell {shell_key} is {shell['status']}"}
+            return {"success": False, "output": None, "error": f"Shell {shell_key} is {shell['status']}"}
 
         # Broadcast the command to UI first so it appears immediately
         self.emit_event("shell_io", {
@@ -891,16 +968,16 @@ class BrainAgent(BaseAgent):
 
         msf_sid = shell.get("msf_session_id")
         if msf_sid is None:
-            return {"status": "error", "error": "No MSF session ID — cannot exec"}
+            return {"success": False, "output": None, "error": "No MSF session ID; cannot exec"}
 
         try:
             from web.app_state import tool_registry as _tr
-            msf_tool = _tr.get_tool("metasploit_run")
+            msf_tool = _tr.get("metasploit_run")
         except Exception:
             msf_tool = None
 
         if msf_tool is None:
-            return {"status": "error", "error": "MetasploitTool not available"}
+            return {"success": False, "output": None, "error": "MetasploitTool not available"}
 
         result = await msf_tool.execute({
             "action": "session_exec",
@@ -908,15 +985,19 @@ class BrainAgent(BaseAgent):
             "command": command,
             "timeout": 30,
         })
-        output = result.get("output") or result.get("error", "")
+        output_payload = result.get("output")
+        if isinstance(output_payload, dict):
+            output = output_payload.get("result") or output_payload.get("output") or ""
+        else:
+            output = output_payload or ""
 
         # Detect closed/lost session
         err_str = str(result.get("error") or "").lower()
-        if result.get("status") != "success" and any(
+        if not result.get("success") and any(
             kw in err_str for kw in ("not found", "closed", "disconnected", "no session", "dead")
         ):
             self._mark_shell_closed(shell_key, reason=err_str[:80])
-            return {"status": "error", "error": f"Shell closed: {err_str}"}
+            return {"success": False, "output": None, "error": f"Shell closed: {err_str}"}
 
         # Broadcast output to UI
         self.emit_event("shell_io", {
@@ -925,8 +1006,9 @@ class BrainAgent(BaseAgent):
             "data": output,
         })
 
-        return {"status": "success" if result.get("status") == "success" else "error",
-                "output": output}
+        if not result.get("success"):
+            return {"success": False, "output": None, "error": str(result.get("error") or "exec failed")}
+        return {"success": True, "output": str(output), "error": None}
 
     def list_shells(self) -> list[dict]:
         """Return all tracked shell sessions."""
