@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 
 import aiosqlite
-
+from database.sqlite_conn import connect as connect_db
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -97,10 +97,8 @@ async def init_db(db_path: Path | None = None) -> None:
     Accepts an optional db_path for testing with in-memory or temp DBs.
     """
     path = db_path or DB_PATH
-    async with aiosqlite.connect(path) as db:
-        # Enable WAL mode and busy timeout to avoid "database is locked" on startup
-        await db.execute("PRAGMA journal_mode=WAL")
-        await db.execute("PRAGMA busy_timeout=5000")
+    async with connect_db(path) as db:
+        # Connection pragmas are applied centrally in database.sqlite_conn.connect().
         # Always ensure v1 base tables exist first
         await db.executescript(_SCHEMA_V1)
         await db.commit()
@@ -376,7 +374,7 @@ async def init_db(db_path: Path | None = None) -> None:
 async def create_conversation(title: str = "New Chat") -> dict:
     now = time.time()
     cid = str(uuid.uuid4())
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute(
             "INSERT INTO conversations(id, title, created_at, updated_at) VALUES(?,?,?,?)",
             (cid, title, now, now),
@@ -386,7 +384,7 @@ async def create_conversation(title: str = "New Chat") -> dict:
 
 
 async def list_conversations() -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC"
@@ -396,7 +394,7 @@ async def list_conversations() -> list[dict]:
 
 
 async def get_conversation(cid: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, title, created_at, updated_at FROM conversations WHERE id=?", (cid,)
@@ -406,7 +404,7 @@ async def get_conversation(cid: str) -> dict | None:
 
 
 async def update_conversation_title(cid: str, title: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute(
             "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
             (title, time.time(), cid),
@@ -416,7 +414,7 @@ async def update_conversation_title(cid: str, title: str) -> bool:
 
 
 async def delete_conversation(cid: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute("DELETE FROM conversations WHERE id=?", (cid,))
         await db.commit()
         return db.total_changes > 0
@@ -433,7 +431,7 @@ async def add_message(
 ) -> dict:
     now = time.time()
     mid = str(uuid.uuid4())
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute(
             """INSERT INTO messages(id, conversation_id, role, content, tokens_in, tokens_out, created_at)
                VALUES(?,?,?,?,?,?,?)""",
@@ -456,7 +454,7 @@ async def add_message(
 
 
 async def get_messages(conversation_id: str) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             """SELECT id, conversation_id, role, content, tokens_in, tokens_out, created_at
@@ -470,17 +468,16 @@ async def get_messages(conversation_id: str) -> list[dict]:
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 async def get_setting(key: str, default=None):
-    async with aiosqlite.connect(DB_PATH) as db, db.execute(
-        "SELECT value FROM app_settings WHERE key=?", (key,)
-    ) as cur:
-        row = await cur.fetchone()
+    async with connect_db(DB_PATH) as db:
+        async with db.execute("SELECT value FROM app_settings WHERE key=?", (key,)) as cur:
+            row = await cur.fetchone()
     if row is None:
         return default
     return json.loads(row[0])
 
 
 async def set_setting(key: str, value) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute(
             "INSERT INTO app_settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, json.dumps(value)),
@@ -489,7 +486,7 @@ async def set_setting(key: str, value) -> None:
 
 
 async def get_all_settings() -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT key, value FROM app_settings") as cur:
             rows = await cur.fetchall()
@@ -501,7 +498,7 @@ async def get_all_settings() -> dict:
 async def create_credential(name: str, cred_type: str, host_pattern: str, data_enc: str) -> dict:
     now = time.time()
     cid = str(uuid.uuid4())
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute(
             "INSERT INTO credentials(id, name, cred_type, host_pattern, data_enc, created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
             (cid, name, cred_type, host_pattern, data_enc, now, now),
@@ -511,7 +508,7 @@ async def create_credential(name: str, cred_type: str, host_pattern: str, data_e
 
 
 async def list_credentials() -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, name, cred_type, host_pattern, created_at, updated_at FROM credentials ORDER BY created_at DESC"
@@ -521,7 +518,7 @@ async def list_credentials() -> list[dict]:
 
 
 async def get_credential(cid: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM credentials WHERE id=?", (cid,)) as cur:
             row = await cur.fetchone()
@@ -529,7 +526,7 @@ async def get_credential(cid: str) -> dict | None:
 
 
 async def delete_credential(cid: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute("DELETE FROM credentials WHERE id=?", (cid,))
         await db.commit()
         return db.total_changes > 0
@@ -540,7 +537,7 @@ async def delete_credential(cid: str) -> bool:
 async def create_scan_profile(name: str, description: str, config_json: str) -> dict:
     now = time.time()
     pid = str(uuid.uuid4())
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute(
             "INSERT INTO scan_profiles(id, name, description, config_json, created_at, updated_at) VALUES(?,?,?,?,?,?)",
             (pid, name, description, config_json, now, now),
@@ -550,7 +547,7 @@ async def create_scan_profile(name: str, description: str, config_json: str) -> 
 
 
 async def list_scan_profiles() -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT id, name, description, config_json, created_at, updated_at FROM scan_profiles ORDER BY name ASC"
@@ -560,7 +557,7 @@ async def list_scan_profiles() -> list[dict]:
 
 
 async def get_scan_profile(pid: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM scan_profiles WHERE id=?", (pid,)) as cur:
             row = await cur.fetchone()
@@ -568,7 +565,7 @@ async def get_scan_profile(pid: str) -> dict | None:
 
 
 async def delete_scan_profile(pid: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute("DELETE FROM scan_profiles WHERE id=?", (pid,))
         await db.commit()
         return db.total_changes > 0
@@ -576,7 +573,7 @@ async def delete_scan_profile(pid: str) -> bool:
 
 async def upsert_scan_profile(name: str, description: str, config_json: str) -> dict:
     """Create or update a profile by name."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT id FROM scan_profiles WHERE name=?", (name,)) as cur:
             row = await cur.fetchone()
@@ -597,7 +594,7 @@ async def upsert_scan_profile(name: str, description: str, config_json: str) -> 
 async def add_never_scan(value: str, reason: str = "") -> dict:
     now = time.time()
     nid = str(uuid.uuid4())
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO never_scan(id, value, reason, created_at) VALUES(?,?,?,?)",
             (nid, value, reason, now),
@@ -607,7 +604,7 @@ async def add_never_scan(value: str, reason: str = "") -> dict:
 
 
 async def list_never_scan() -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT id, value, reason, created_at FROM never_scan ORDER BY created_at DESC") as cur:
             rows = await cur.fetchall()
@@ -615,7 +612,7 @@ async def list_never_scan() -> list[dict]:
 
 
 async def delete_never_scan(nid: str) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db(DB_PATH) as db:
         await db.execute("DELETE FROM never_scan WHERE id=?", (nid,))
         await db.commit()
         return db.total_changes > 0

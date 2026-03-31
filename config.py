@@ -75,6 +75,7 @@ class MetasploitConfig(BaseSettings):
     # Auto-start msfrpcd at server startup for persistent session support
     auto_start_msfrpcd: bool = Field(default=True, alias="MSF_AUTO_START_RPCD")
     msfrpcd_path: str = Field(default="", alias="MSF_RPCD_PATH")
+    persistent_console: bool = Field(default=False, alias="MSF_PERSISTENT_CONSOLE")
 
 
 class ServerConfig(BaseSettings):
@@ -82,6 +83,10 @@ class ServerConfig(BaseSettings):
     host: str = Field(default="127.0.0.1", alias="SERVER_HOST")
     port: int = Field(default=8000, alias="SERVER_PORT")
     reload: bool = Field(default=True, alias="SERVER_RELOAD")
+    allowed_origins: str = Field(
+        default="http://localhost:8000,http://127.0.0.1:8000",
+        alias="SERVER_ALLOWED_ORIGINS",
+    )
 
 
 # ── V2: Speed Profiles ────────────────────────────────────────────────────────
@@ -154,6 +159,8 @@ class AppConfig(BaseSettings):
 
     # LoRA training data collection — write per-session JSONL to data/training/
     collect_training_data: bool = Field(default=True, alias="COLLECT_TRAINING_DATA")
+    ws_buffer_ttl_seconds: int = Field(default=300, alias="WS_BUFFER_TTL_SECONDS")
+    cred_encryption_key: str = Field(default="", alias="CRED_ENCRYPTION_KEY")
 
     def model_post_init(self, __context):
         self.data_dir.mkdir(exist_ok=True)

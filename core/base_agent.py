@@ -822,6 +822,15 @@ class BaseAgent(ABC):
             return {"success": False, "output": None, "error": msg}
 
         # ── Safety check ──────────────────────────────────────────────────
+        # Resolve tool before safety so we can pass tool category.
+        try:
+            tool = self._registry.get(tool_name)
+        except ToolNotFoundError:
+            msg = f"Unknown tool requested: '{tool_name}'"
+            self.emit_event("error", {"error": msg})
+            return {"success": False, "output": None, "error": msg}
+
+        tool_category = getattr(tool.metadata, "category", "")
         raw_target = str(params.get("target") or params.get("target_ip") or "")
         # CIDR ranges are valid nmap targets but not single IPs — skip per-IP check
         target_ip_for_safety = raw_target if "/" not in raw_target else ""
@@ -833,6 +842,7 @@ class BaseAgent(ABC):
             exploit_module=str(params.get("module") or ""),
             exploit_category=str(params.get("category") or ""),
             cvss_score=float(params.get("cvss_score") or 0.0),
+            extra={"tool_category": tool_category},
         )
         ok, reason = self._safety.validate_action(agent_action)
         if not ok:
@@ -849,14 +859,6 @@ class BaseAgent(ABC):
                 "output": None,
                 "error": f"Safety rule blocked this action: {reason}",
             }
-
-        # ── Tool lookup ───────────────────────────────────────────────────
-        try:
-            tool = self._registry.get(tool_name)
-        except ToolNotFoundError:
-            msg = f"Unknown tool requested: '{tool_name}'"
-            self.emit_event("error", {"error": msg})
-            return {"success": False, "output": None, "error": msg}
 
         # ── Execute ───────────────────────────────────────────────────────
         self.emit_event("tool_call", {"tool": tool_name, "params": params})

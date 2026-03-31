@@ -11,7 +11,6 @@ import asyncio
 import logging
 import os
 import shutil
-from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
@@ -19,11 +18,32 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
+from core.registry_builder import build_tool_registry
 from web.routes import router
 from web.websocket_handler import handle_websocket
 from database.db import init_db
 
 _logger = logging.getLogger(__name__)
+
+
+def _resolve_cors_origins() -> list[str]:
+    raw = (settings.server.allowed_origins or "").strip()
+    if not raw:
+        return ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+    if raw == "*":
+        unsafe_env = os.getenv("SERVER_UNSAFE_CORS_WILDCARD", "").strip().lower()
+        unsafe = unsafe_env in {"1", "true", "yes", "on"}
+        if settings.server.reload or unsafe:
+            return ["*"]
+        _logger.warning(
+            "SERVER_ALLOWED_ORIGINS='*' ignored in non-dev mode. "
+            "Use explicit origins or set SERVER_UNSAFE_CORS_WILDCARD=true."
+        )
+        return ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    return origins or ["http://localhost:8000", "http://127.0.0.1:8000"]
 
 
 async def _start_msfrpcd() -> "asyncio.subprocess.Process | None":
@@ -33,6 +53,7 @@ async def _start_msfrpcd() -> "asyncio.subprocess.Process | None":
     or couldn't be started.
     """
     if not settings.msf.auto_start_msfrpcd:
+        _logger.info("msfrpcd auto-start is disabled by configuration")
         return None
 
     # Check if msfrpcd is already listening
@@ -125,6 +146,10 @@ async def lifespan(app: FastAPI):
     # Start msfrpcd for persistent session support (non-blocking — exploits fall back to
     # msfconsole subprocess if RPC isn't ready yet)
     _msfrpcd_proc = await _start_msfrpcd()
+    if _msfrpcd_proc is None:
+        _logger.info("msfrpcd startup: using existing daemon or fallback mode")
+    else:
+        _logger.info("msfrpcd startup: managed process enabled (pid=%s)", _msfrpcd_proc.pid)
 
     # sudo password is only relevant on Linux/macOS
     from core.platform_utils import IS_WINDOWS
@@ -143,51 +168,18 @@ async def lifespan(app: FastAPI):
     # to "running" (e.g. server reloaded immediately after a mission was launched).
     from database.repositories import SessionRepository
     _repo = SessionRepository()
-    _orphans = await _repo.list_all()
+    try:
+        _orphans = await _repo.list_all()
+    except Exception as exc:
+        _logger.warning("Startup orphan-session cleanup skipped (DB unavailable/locked): %s", exc)
+        _orphans = []
     for _s in _orphans:
         if _s.get("status") in ("running", "idle"):
             await _repo.update_status(_s["id"], "error", "Server restarted — session interrupted")
 
-    # Bootstrap tool registry
-    from web.app_state import tool_registry
-    from tools.nmap_tool import NmapTool
-    from tools.searchsploit_tool import SearchSploitTool
-    from tools.metasploit_tool import MetasploitTool
-    from tools.ssh_tool import SSHTool
-    from tools.shell_session_tool import ShellSessionTool
-
-    tool_registry.register(NmapTool())
-    tool_registry.register(SearchSploitTool())
-    tool_registry.register(MetasploitTool())
-    tool_registry.register(SSHTool())
-    tool_registry.register(ShellSessionTool())
-
-    # V2 tools — registered if available; graceful degradation if binary missing
-    from tools.masscan_tool import MasscanTool
-    from tools.nuclei_tool import NucleiTool
-    from tools.ffuf_tool import FfufTool
-    from tools.whatweb_tool import WhatWebTool
-    from tools.nikto_tool import NiktoTool
-    from tools.theharvester_tool import TheHarvesterTool
-    from tools.subfinder_tool import SubfinderTool
-    from tools.whois_tool import WhoisTool
-    from tools.dns_tool import DnsTool
-    from tools.crackmapexec_tool import CrackMapExecTool
-    from tools.impacket_tool import ImpacketTool
-    from tools.report_finding_tool import ReportFindingTool
-    from tools.generate_report_tool import GenerateReportTool
-    from tools.rsh_tool import RshTool
-    from tools.distcc_tool import DistccTool
-    from tools.webdav_tool import WebDavTool
-    from tools.smb_enum_tool import SmbEnumTool
-    from tools.telnet_tool import TelnetTool
-
-    for _tool in (MasscanTool(), NucleiTool(), FfufTool(), WhatWebTool(),
-                  NiktoTool(), TheHarvesterTool(), SubfinderTool(),
-                  WhoisTool(), DnsTool(), CrackMapExecTool(), ImpacketTool(),
-                  ReportFindingTool(), GenerateReportTool(),
-                  RshTool(), DistccTool(), WebDavTool(), SmbEnumTool(), TelnetTool()):
-        tool_registry.register(_tool)
+    # Bootstrap shared tool registry
+    from web import app_state
+    app_state.tool_registry = build_tool_registry(include_extended=True, load_plugins=True)
 
     # Import specialized agents so they self-register into BrainAgent registry
     import core.agents.scanner_agent      # noqa: F401
@@ -197,9 +189,6 @@ async def lifespan(app: FastAPI):
     import core.agents.osint_agent        # noqa: F401
     import core.agents.lateral_agent      # noqa: F401
     import core.agents.reporting_agent    # noqa: F401
-
-    tool_registry.load_plugins(Path("plugins/"))
-
     yield
 
     # ── Shutdown: stop msfrpcd if we launched it ──────────────────────────────
@@ -229,7 +218,7 @@ def create_app() -> FastAPI:
 
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_resolve_cors_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
     )

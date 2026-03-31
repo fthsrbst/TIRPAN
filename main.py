@@ -32,12 +32,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from config import SafetyConfig, settings
+from core.registry_builder import build_tool_registry
 from core.tool_registry import ToolRegistry
-from tools.metasploit_tool import MetasploitTool
-from tools.nmap_tool import NmapTool
-from tools.searchsploit_tool import SearchSploitTool
-from tools.ssh_tool import SSHTool
-from tools.shell_session_tool import ShellSessionTool
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -56,14 +52,7 @@ ASCII_BANNER = r"""
 # ── Tool Registry ──────────────────────────────────────────────────────────────
 
 def build_registry() -> ToolRegistry:
-    registry = ToolRegistry()
-    registry.register(NmapTool())
-    registry.register(SearchSploitTool())
-    registry.register(MetasploitTool())
-    registry.register(SSHTool())
-    registry.register(ShellSessionTool())
-    registry.load_plugins(Path("plugins/"))
-    return registry
+    return build_tool_registry(include_extended=True, load_plugins=True, plugins_dir=Path("plugins/"))
 
 
 # ── Rich Banner ────────────────────────────────────────────────────────────────
@@ -258,7 +247,7 @@ async def run_pentest(args: argparse.Namespace, registry: ToolRegistry) -> int:
     )
 
     # Graceful Ctrl+C handling
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
 
     def _sigint_handler(*_):

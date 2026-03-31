@@ -15,6 +15,10 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from config import SafetyConfig, settings
+from core.session_orchestration import (
+    run_agent_task as _run_agent_task_service,
+    run_v2_agent_task as _run_v2_agent_task_service,
+)
 from core.secure_store import async_get_secret, async_set_secret, get_secret
 from database import db as database
 from database.repositories import (
@@ -458,41 +462,33 @@ async def save_nmap_config(body: dict):
 
 def _cred_fernet():
     """Return a Fernet instance keyed by the credential encryption key."""
+    from cryptography.fernet import Fernet
+    from core.secure_store import get_secret
+
+    key = (settings.cred_encryption_key or "").strip()
+    if not key:
+        key = (get_secret("cred_encryption_key") or "").strip()
+
+    if not key:
+        raise RuntimeError(
+            "Credential encryption key is missing. Set CRED_ENCRYPTION_KEY "
+            "or configure 'cred_encryption_key' in secure store."
+        )
+
     try:
-        from cryptography.fernet import Fernet
-        from core.secure_store import get_secret, set_secret
-        key = get_secret("cred_encryption_key")
-        if not key:
-            key = Fernet.generate_key().decode()
-            set_secret("cred_encryption_key", key)
-            # File fallback for environments without a keyring daemon
-            fallback = settings.data_dir / ".credkey"
-            try:
-                fallback.write_text(key)
-                fallback.chmod(0o600)
-            except Exception:
-                pass
         return Fernet(key.encode() if isinstance(key, str) else key)
-    except ImportError:
-        return None
+    except Exception as exc:
+        raise RuntimeError(f"Invalid credential encryption key: {exc}") from exc
 
 
 def encrypt_cred_data(data: str) -> str:
     f = _cred_fernet()
-    if f is None:
-        return data  # cryptography not installed — store plain (warn at startup)
     return f.encrypt(data.encode()).decode()
 
 
 def decrypt_cred_data(data: str) -> str:
     f = _cred_fernet()
-    if f is None:
-        return data
-    try:
-        return f.decrypt(data.encode()).decode()
-    except Exception:
-        return data  # already plaintext (old entry before encryption was added)
-
+    return f.decrypt(data.encode()).decode()
 
 # ── Credentials API ────────────────────────────────────────────────────────────
 
@@ -513,7 +509,10 @@ async def list_credentials():
 @router.post("/credentials")
 async def create_credential(body: CredentialCreate):
     import json
-    encrypted = encrypt_cred_data(json.dumps(body.data))
+    try:
+        encrypted = encrypt_cred_data(json.dumps(body.data))
+    except Exception as exc:
+        raise HTTPException(503, f"Credential encryption unavailable: {exc}") from exc
     row = await database.create_credential(
         name=body.name,
         cred_type=body.cred_type,
@@ -535,8 +534,8 @@ async def get_credential(cid: str):
         for key in ("password", "private_key", "hash_value", "auth_password", "priv_password"):
             if key in row["data"] and row["data"][key]:
                 row["data"][key] = "••••••••"
-    except Exception:
-        row["data"] = {}
+    except Exception as exc:
+        raise HTTPException(503, f"Credential decryption unavailable: {exc}") from exc
     row.pop("data_enc", None)
     return row
 
@@ -722,126 +721,23 @@ class StartSessionRequest(BaseModel):
 
 async def _run_v2_agent_task(
     session_id: str,
-    agent,           # BrainAgent
-    mission_ctx,     # MissionContext
+    agent,
+    mission_ctx,
     session_repo: SessionRepository,
     audit_repo: AuditLogRepository,
 ) -> None:
-    """Background task for V2 BrainAgent sessions."""
-    from web import session_manager
-    import json as _json_v2
-
-    try:
-        await session_repo.update_status(session_id, "running")
-        await audit_repo.log("SESSION_START", session_id=session_id,
-                             details={"mode": "v2_auto"})
-
-        result = await agent.run()
-
-        # Persist final MissionContext snapshot
-        try:
-            ctx_dict = mission_ctx.to_dict()
-            await _mission_ctx_repo.save_context(session_id, ctx_dict)
-        except Exception:
-            pass
-
-        # ── Persist findings to report repositories (V2 sessions) ────────
-        # The report generator reads from ScanResult/Vuln/ExploitResult DBs.
-        # V2 agents accumulate findings only in MissionContext — flush them now.
-        try:
-            for host_ip, host_info in mission_ctx.hosts.items():
-                ports = [
-                    {
-                        "number": p.number, "protocol": p.protocol,
-                        "state": p.state, "service": p.service, "version": p.version,
-                    }
-                    for p in host_info.ports
-                ]
-                if ports:
-                    await _scan_repo.save(
-                        session_id=session_id,
-                        target=host_ip,
-                        scan_type="service",
-                        hosts=[{
-                            "ip": host_ip,
-                            "hostname": host_info.hostname,
-                            "os": host_info.os_type,
-                            "os_accuracy": 0,
-                            "state": "up",
-                            "ports": ports,
-                        }],
-                        duration_seconds=0.0,
-                    )
-        except Exception as _e:
-            logger.warning("V2 scan flush failed: %s", _e)
-
-        try:
-            for vuln in mission_ctx.vulnerabilities:
-                await _vuln_repo.save(session_id=session_id, vuln={
-                    "title": vuln.title,
-                    "service": vuln.service,
-                    "service_version": vuln.version,
-                    "cvss_score": vuln.cvss,
-                    "cve_id": getattr(vuln, "cve_id", ""),
-                    "exploit_path": getattr(vuln, "exploit_path", ""),
-                    "exploit_type": getattr(vuln, "exploit_type", ""),
-                    "platform": getattr(vuln, "platform", ""),
-                    "description": getattr(vuln, "description", ""),
-                })
-        except Exception as _e:
-            logger.warning("V2 vuln flush failed: %s", _e)
-
-        try:
-            for sess in mission_ctx.active_sessions:
-                await _exploit_repo.save(session_id=session_id, result={
-                    "host_ip": sess.host_ip,
-                    "port": 0,
-                    "module": getattr(sess, "module", ""),
-                    "payload": "",
-                    "success": True,
-                    "session_opened": 1,
-                    "output": f"{sess.session_type} session opened as {sess.username or 'user'}",
-                    "error": "",
-                    "poc_output": "",
-                    "source_ip": "",
-                })
-        except Exception as _e:
-            logger.warning("V2 exploit flush failed: %s", _e)
-
-        await session_repo.update_status(session_id, "done")
-        await session_manager.broadcast(session_id, {
-            "type": "session_done",
-            "session_id": session_id,
-            "v2": True,
-            "hosts": len(mission_ctx.hosts),
-            "vulnerabilities": len(mission_ctx.vulnerabilities),
-            "sessions": len(mission_ctx.active_sessions),
-            "credentials": len(mission_ctx.credentials),
-            "loot": len(mission_ctx.loot),
-            "findings": result.to_dict() if result else {},
-        })
-
-    except asyncio.CancelledError:
-        await session_repo.update_status(session_id, "stopped", "Emergency stop")
-        await session_manager.broadcast(session_id, {
-            "type": "session_event",
-            "session_id": session_id,
-            "event": "kill_switch",
-            "data": {},
-        })
-
-    except Exception as exc:
-        logger.error("V2 agent task failed for session %s: %s", session_id, exc)
-        await session_repo.update_status(session_id, "error", str(exc))
-        await session_manager.broadcast(session_id, {
-            "type": "session_error",
-            "session_id": session_id,
-            "error": str(exc),
-        })
-
-    finally:
-        session_manager.cleanup(session_id)
-        import core.debug_logger as _dbg; _dbg.unregister_session(session_id)
+    """Compatibility wrapper that delegates V2 orchestration to core service."""
+    await _run_v2_agent_task_service(
+        session_id=session_id,
+        agent=agent,
+        mission_ctx=mission_ctx,
+        session_repo=session_repo,
+        audit_repo=audit_repo,
+        scan_repo=_scan_repo,
+        vuln_repo=_vuln_repo,
+        exploit_repo=_exploit_repo,
+        mission_ctx_repo=_mission_ctx_repo,
+    )
 
 
 async def _run_agent_task(
@@ -850,100 +746,13 @@ async def _run_agent_task(
     session_repo: SessionRepository,
     audit_repo: AuditLogRepository,
 ) -> None:
-    """Background task: run the PentestAgent, update DB, broadcast events."""
-    from web import session_manager
-
-    try:
-        await session_repo.update_status(session_id, "running")
-        await audit_repo.log("SESSION_START", session_id=session_id)
-
-        ctx = await agent.run()
-
-        await session_repo.update_status(session_id, "done")
-        await session_repo.update_stats(
-            session_id,
-            hosts_found=len(ctx.discovered_hosts),
-            ports_found=ctx.total_ports,
-            vulns_found=ctx.total_vulns,
-            exploits_run=ctx.total_exploits,
-        )
-        await audit_repo.log(
-            "SESSION_END",
-            session_id=session_id,
-            details={
-                "hosts": len(ctx.discovered_hosts),
-                "ports": ctx.total_ports,
-                "vulns": ctx.total_vulns,
-                "exploits": ctx.total_exploits,
-                "iterations": ctx.iteration,
-            },
-        )
-        await session_manager.broadcast(session_id, {
-            "type": "session_done",
-            "session_id": session_id,
-            "hosts": len(ctx.discovered_hosts),
-            "ports": ctx.total_ports,
-            "vulns": ctx.total_vulns,
-            "exploits": ctx.total_exploits,
-        })
-
-    except asyncio.CancelledError:
-        # Task was cancelled by the kill switch — preserve all findings, just mark stopped
-        logger.warning("Agent task cancelled (emergency stop) for session %s", session_id)
-        # Save whatever stats were collected before the kill
-        try:
-            _ctx = agent._ctx
-            await session_repo.update_stats(
-                session_id,
-                hosts_found=len(_ctx.discovered_hosts),
-                ports_found=_ctx.total_ports,
-                vulns_found=_ctx.total_vulns,
-                exploits_run=_ctx.total_exploits,
-            )
-        except Exception:
-            pass
-        await session_repo.update_status(session_id, "stopped", "Emergency stop triggered by user")
-        await audit_repo.log(
-            "KILL_SWITCH",
-            session_id=session_id,
-            details={"reason": "Emergency stop — task cancelled"},
-        )
-        await session_manager.broadcast(session_id, {
-            "type": "session_event",
-            "session_id": session_id,
-            "event": "kill_switch",
-            "data": {},
-        })
-
-    except Exception as exc:
-        logger.error("Agent task failed for session %s: %s", session_id, exc)
-        # Save whatever stats were collected before the error
-        try:
-            _ctx = agent._ctx
-            await session_repo.update_stats(
-                session_id,
-                hosts_found=len(_ctx.discovered_hosts),
-                ports_found=_ctx.total_ports,
-                vulns_found=_ctx.total_vulns,
-                exploits_run=_ctx.total_exploits,
-            )
-        except Exception:
-            pass
-        await session_repo.update_status(session_id, "error", str(exc))
-        await audit_repo.log(
-            "SESSION_ERROR",
-            session_id=session_id,
-            details={"error": str(exc)},
-        )
-        await session_manager.broadcast(session_id, {
-            "type": "session_error",
-            "session_id": session_id,
-            "error": str(exc),
-        })
-
-    finally:
-        session_manager.cleanup(session_id)
-
+    """Compatibility wrapper that delegates V1 orchestration to core service."""
+    await _run_agent_task_service(
+        session_id=session_id,
+        agent=agent,
+        session_repo=session_repo,
+        audit_repo=audit_repo,
+    )
 
 @router.post("/sessions")
 async def start_session(body: StartSessionRequest, background_tasks: BackgroundTasks):
@@ -1837,7 +1646,7 @@ async def send_shell_command(shell_key: str, body: ShellSendRequest):
         raise HTTPException(404, f"Shell {shell_key} not found in any active session")
 
     result = await agent.exec_on_shell(shell_key, body.command)
-    if result.get("status") == "error":
+    if not result.get("success"):
         raise HTTPException(500, result.get("error", "exec failed"))
     return {"ok": True, "output": result.get("output", "")}
 
@@ -1959,3 +1768,4 @@ async def get_training_stats():
         total += stats["total"]
 
     return {"sessions": sessions, "total_records": total}
+

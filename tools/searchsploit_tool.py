@@ -181,7 +181,7 @@ class SearchSploitTool(BaseTool):
         """Run searchsploit -j <query> and return the JSON output."""
         cmd = ["searchsploit", "--json", query]
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await asyncio.wait_for(
             loop.run_in_executor(None, lambda: subprocess.run(
                 cmd,
