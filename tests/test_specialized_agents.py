@@ -313,14 +313,14 @@ class TestExploitAgent:
     def test_get_available_tools(self):
         agent = self._make_agent()
         tools = agent.get_available_tools()
-        assert "searchsploit" in tools
+        assert "searchsploit_search" in tools
         assert "metasploit_run" in tools
         assert "report_finding" in tools
 
     def test_process_msf_session_opened(self):
-        """session_id in MSF result → session finding."""
+        """session_id in MSF result -> session finding."""
         agent = self._make_agent()
-        result = {"session_id": 1, "status": "success", "output": "meterpreter >"}
+        result = {"success": True, "output": {"session_id": 1, "output": "meterpreter >"}, "error": None}
         action = {"parameters": {"module": "exploit/multi/handler", "rhosts": "10.0.0.1"}}
         run(agent.process_result("metasploit_run", result, action))
         assert len(agent._findings) == 1
@@ -329,18 +329,20 @@ class TestExploitAgent:
         assert f["host_ip"] == "10.0.0.1"
         assert f["msf_session_id"] == 1
 
-    def test_process_msf_session_bool(self):
-        """session_opened=True (bool) in MSF result → session finding."""
+    def test_process_msf_success_without_session_id(self):
+        """success=True with no session_id should not create a session finding."""
         agent = self._make_agent()
-        result = {"session_opened": True, "status": "success"}
+        result = {"success": True, "output": {"session_id": None}, "error": None}
         action = {"parameters": {"module": "exploit/linux/local/foo", "rhosts": "10.0.0.1"}}
         run(agent.process_result("metasploit_run", result, action))
-        assert agent._findings[0]["type"] == "session"
+        assert agent._findings[0]["type"] == "exploit_attempt"
+        assert agent._findings[0]["success"] is False
+        assert agent._findings[0]["tool_success"] is True
 
     def test_process_msf_failed(self):
-        """No session → exploit_attempt finding with success=False."""
+        """No session -> exploit_attempt finding with success=False."""
         agent = self._make_agent()
-        result = {"status": "error", "error": "No session created"}
+        result = {"success": False, "output": {}, "error": "No session created"}
         action = {"parameters": {"module": "exploit/foo", "rhosts": "10.0.0.1"}}
         run(agent.process_result("metasploit_run", result, action))
         assert agent._findings[0]["type"] == "exploit_attempt"
@@ -350,7 +352,6 @@ class TestExploitAgent:
         import core.agents.exploit_agent  # noqa
         from core.brain_agent import _AGENT_REGISTRY
         assert "exploit" in _AGENT_REGISTRY
-
 
 # ── PostExploitAgent ──────────────────────────────────────────────────────────
 
