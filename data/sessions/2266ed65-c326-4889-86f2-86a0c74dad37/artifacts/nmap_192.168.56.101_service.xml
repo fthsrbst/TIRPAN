@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.98 scan initiated Tue Mar 31 15:46:30 2026 as: /usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 161,69,123,5353 192.168.56.101 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 161,69,123,5353 192.168.56.101" start="1774961190" startstr="Tue Mar 31 15:46:30 2026" version="7.98" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="4" services="69,123,161,5353"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1774961190" endtime="1774961190"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.56.101" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="69"><state state="closed" reason="reset" reason_ttl="63"/><service name="tftp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="123"><state state="closed" reason="reset" reason_ttl="63"/><service name="ntp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="161"><state state="closed" reason="reset" reason_ttl="63"/><service name="snmp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="5353"><state state="closed" reason="reset" reason_ttl="63"/><service name="mdns" method="table" conf="3"/></port>
+</ports>
+<times srtt="798" rttvar="2175" to="50000"/>
+</host>
+<runstats><finished time="1774961190" timestr="Tue Mar 31 15:46:30 2026" summary="Nmap done at Tue Mar 31 15:46:30 2026; 1 IP address (1 host up) scanned in 0.75 seconds" elapsed="0.75" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>
