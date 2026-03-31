@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 # DoS / destructive keywords
 _DOS_KEYWORDS = frozenset({"dos", "ddos", "flood", "denial", "amplification"})
 _DESTRUCTIVE_KEYWORDS = frozenset({"format", "wipe", "destroy", "ransomware", "encrypt_disk"})
+_EXPLOIT_TOOLS = frozenset({
+    "metasploit_run",
+    "rsh_run",
+    "distcc_run",
+    "crackmapexec_run",
+    "impacket_run",
+    "shell_exec",
+    "webdav_run",
+    "telnet_run",
+    "ssh_connect",
+})
 
 
 @dataclass
@@ -222,9 +233,10 @@ class SafetyGuard:
     # ------------------------------------------------------------------
 
     def _rule5_exploit_allowed(self, action: AgentAction) -> tuple[bool, str]:
-        exploit_tools = {"metasploit_run"}
-        if action.tool_name in exploit_tools and not self.config.allow_exploit:
-            return False, "Exploit blocked — scan-only mode is active"
+        tool_category = str(action.extra.get("tool_category", "")).strip().lower()
+        is_exploit = action.tool_name in _EXPLOIT_TOOLS or tool_category == "exploit-exec"
+        if is_exploit and not self.config.allow_exploit:
+            return False, f"Exploit blocked in scan-only mode: {action.tool_name}"
         return True, ""
 
     # ------------------------------------------------------------------

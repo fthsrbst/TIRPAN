@@ -21,9 +21,8 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import aiosqlite
-
 from database.db import DB_PATH
+from database.sqlite_conn import connect as connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +50,7 @@ async def _connect(db_path: Path | str):
     we wrap aiosqlite.connect() in a proper asynccontextmanager instead of
     setting it on the unconnected object.
     """
-    async with aiosqlite.connect(db_path) as db:
-        db.row_factory = aiosqlite.Row
+    async with connect_db(db_path, row_factory=True) as db:
         yield db
 
 

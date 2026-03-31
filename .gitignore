@@ -13,6 +13,7 @@ env/
 # Database
 *.db
 *.sqlite
+data/.credkey
 
 # Reports output
 reports/
