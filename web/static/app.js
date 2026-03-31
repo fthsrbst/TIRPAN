@@ -3044,7 +3044,10 @@ async function killMission() {
             try {
                 const res = await fetch(`/api/v1/sessions/${activeMissionId}/kill`, { method: 'POST' });
                 const data = await res.json();
-                if (data.ok) {
+                if (!data.ok) {
+                    throw new Error(data.message || 'Kill request failed');
+                }
+                if (data.killed === true) {
                     setAgentStatus('error', 'emergency stop');
                     updateMissionStatusHeader('stopped', activeMissionId);
                     stopMissionPoll();
@@ -3054,6 +3057,10 @@ async function killMission() {
                     syncInputMode();
                     showToast('Emergency stop sent');
                     appendConsoleLine('[KILL_SWITCH] Emergency stop triggered by user', 'text-danger');
+                } else {
+                    const msg = data.message || 'Session already stopped or not found';
+                    showToast(msg);
+                    appendConsoleLine(`[KILL_SWITCH] ${msg}`, 'text-yellow-400');
                 }
             } catch (err) {
                 showToast('Kill failed: ' + err.message, true);

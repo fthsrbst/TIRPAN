@@ -6,6 +6,7 @@ Fallback: runs msfconsole subprocess when RPC is unavailable.
 """
 
 import asyncio
+import contextlib
 import itertools
 import logging
 import os
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 EXPLOIT_TIMEOUT = 90   # seconds for RPC
 MSF_CONSOLE_TIMEOUT = 120  # seconds for msfconsole subprocess (slower to start)
 _CMD_TIMEOUT = 30  # seconds for session command execution
+_RPC_SESSION_POLL_TIMEOUT = 15.0
+_RPC_SESSION_POLL_INTERVAL = 0.5
 
 # ── LPORT auto-allocator ──────────────────────────────────────────────────────
 # When multiple exploit agents run concurrently, they must not share LPORT 4444.
@@ -146,6 +149,9 @@ class MetasploitTool(BaseTool):
     _MODULE_ALIASES: dict[str, str] = {
         "exploit/linux/samba/usermap_script":  "exploit/multi/samba/usermap_script",
         "exploit/unix/samba/usermap_script":   "exploit/multi/samba/usermap_script",
+        "exploit/unix/smb/usermap_script":     "exploit/multi/samba/usermap_script",
+        "exploit/linux_x86/samba/trans2open":  "exploit/linux/samba/trans2open",
+        "exploit/linux/samba/nttrans":         "exploit/multi/samba/nttrans",
         "exploit/linux/samba/is_known_pipename": "exploit/linux/samba/is_known_pipename",
     }
 
@@ -188,6 +194,248 @@ class MetasploitTool(BaseTool):
             p["options"] = normalized_opts
         return p
 
+    @staticmethod
+    def _extract_module_name(item) -> str:
+        if isinstance(item, str):
+            return item.strip()
+        if isinstance(item, dict):
+            for key in ("fullname", "name", "path"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""
+
+    async def _rpc_module_exists(self, client, module_path: str) -> bool:
+        module_path = (module_path or "").strip()
+        if not module_path:
+            return False
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: client.modules.search(f"fullname:{module_path}")
+            )
+        except Exception as exc:
+            logger.warning("[MSF-RPC] module search failed for '%s': %s", module_path, exc)
+            return False
+
+        modules: list = []
+        if isinstance(result, list):
+            modules = result
+        elif isinstance(result, dict):
+            if isinstance(result.get("modules"), list):
+                modules = result["modules"]
+            elif isinstance(result.get("results"), list):
+                modules = result["results"]
+        elif isinstance(result, bool):
+            # Some clients may return a bool for empty search results.
+            return False
+
+        for item in modules:
+            name = self._extract_module_name(item)
+            if name == module_path:
+                return True
+        return False
+
+    async def _resolve_module_path_rpc(self, client, module_path: str) -> tuple[str, str | None]:
+        canonical = self._MODULE_ALIASES.get(module_path, module_path)
+        if await self._rpc_module_exists(client, canonical):
+            if canonical != module_path:
+                logger.info("[MSF-RPC] canonicalized module '%s' -> '%s'", module_path, canonical)
+            return canonical, None
+        return "", (
+            f"Metasploit module not found/unsupported: '{module_path}' "
+            f"(canonical: '{canonical}')"
+        )
+
+    @staticmethod
+    def _emit_msf_event(event: str, **fields) -> None:
+        details = " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
+        if details:
+            logger.info("[MSF-EVENT] event=%s %s", event, details)
+        else:
+            logger.info("[MSF-EVENT] event=%s", event)
+
+    @staticmethod
+    def _coerce_session_id(raw) -> int | None:
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _is_payload_incompatible_text(text: str) -> bool:
+        lowered = (text or "").lower()
+        return (
+            "invalid payload" in lowered
+            or "not a compatible payload" in lowered
+            or "is not compatible with this exploit" in lowered
+            or "no compatible payloads" in lowered
+        )
+
+    @classmethod
+    def _order_payload_candidates(
+        cls,
+        requested_payload: str,
+        compatible_payloads: list[str],
+    ) -> list[str]:
+        seen: set[str] = set()
+        ordered: list[str] = []
+
+        def add(name: str) -> None:
+            name = (name or "").strip()
+            if not name or name in seen:
+                return
+            seen.add(name)
+            ordered.append(name)
+
+        add(requested_payload)
+
+        pref_keywords = ("interact", "bind", "shell")
+        for kw in pref_keywords:
+            for payload in compatible_payloads:
+                if kw in payload.lower():
+                    add(payload)
+        for payload in compatible_payloads:
+            add(payload)
+
+        for payload in cls._PAYLOAD_FALLBACKS:
+            add(payload)
+        return ordered
+
+    @staticmethod
+    def _collect_session_ids(sessions: dict) -> set[int]:
+        out: set[int] = set()
+        for sid in sessions.keys():
+            try:
+                out.add(int(sid))
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    @staticmethod
+    def _session_matches_target(info: dict, target_ip: str) -> bool:
+        if not isinstance(info, dict):
+            return False
+        keys = (
+            "target_host",
+            "session_host",
+            "tunnel_peer",
+            "peer_host",
+            "host",
+            "target",
+            "via_target",
+        )
+        for key in keys:
+            value = info.get(key)
+            if isinstance(value, str) and target_ip in value:
+                return True
+        return False
+
+    @staticmethod
+    def _session_matches_module(info: dict, module_path: str) -> bool:
+        if not isinstance(info, dict):
+            return False
+        via_exploit = info.get("via_exploit")
+        if isinstance(via_exploit, str) and module_path in via_exploit:
+            return True
+        module_leaf = module_path.split("/")[-1]
+        if module_leaf and isinstance(via_exploit, str) and module_leaf in via_exploit:
+            return True
+        return False
+
+    def _poll_for_session(
+        self,
+        client,
+        target_ip: str,
+        module_path: str,
+        baseline_session_ids: set[int],
+    ) -> tuple[int | None, dict]:
+        start = time.monotonic()
+        attempts = 0
+        timeout = _RPC_SESSION_POLL_TIMEOUT
+        interval = _RPC_SESSION_POLL_INTERVAL
+        self._emit_msf_event(
+            "rpc_session_poll_start",
+            target_ip=target_ip,
+            module=module_path,
+            timeout=timeout,
+            interval=interval,
+        )
+
+        while (time.monotonic() - start) < timeout:
+            attempts += 1
+            try:
+                sessions = dict(client.sessions.list or {})
+            except Exception as exc:
+                self._emit_msf_event("rpc_session_poll_error", attempt=attempts, error=str(exc))
+                time.sleep(interval)
+                continue
+
+            candidates: list[tuple[int, int]] = []  # (score, session_id)
+            for sid_raw, info in sessions.items():
+                sid = self._coerce_session_id(sid_raw)
+                if sid is None or sid in baseline_session_ids:
+                    continue
+                score = 0
+                if self._session_matches_target(info, target_ip):
+                    score += 2
+                if self._session_matches_module(info, module_path):
+                    score += 1
+                candidates.append((score, sid))
+
+            if candidates:
+                candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                score, chosen_sid = candidates[0]
+                if score > 0 or len(candidates) == 1:
+                    meta = {
+                        "attempts": attempts,
+                        "timeout_seconds": timeout,
+                        "interval_seconds": interval,
+                        "matched": True,
+                        "score": score,
+                        "reason": "session_matched",
+                    }
+                    self._emit_msf_event(
+                        "rpc_session_poll_match",
+                        attempts=attempts,
+                        session_id=chosen_sid,
+                        score=score,
+                    )
+                    return chosen_sid, meta
+
+            time.sleep(interval)
+
+        meta = {
+            "attempts": attempts,
+            "timeout_seconds": timeout,
+            "interval_seconds": interval,
+            "matched": False,
+            "reason": "timeout",
+        }
+        self._emit_msf_event("rpc_session_poll_timeout", attempts=attempts)
+        return None, meta
+
+    def _run_post_commands_rpc(self, client, session_id: int, commands: list[str]) -> tuple[str, list[str]]:
+        blocks: list[str] = []
+        errors: list[str] = []
+        for idx, cmd in enumerate(commands):
+            cmd = (cmd or "").strip()
+            if not cmd:
+                continue
+            result = self._blocking_session_exec(client, session_id, cmd)
+            if result.get("success"):
+                output = (result.get("output") or {}).get("result", "")
+                blocks.append(f"$ {cmd}\n{output}".rstrip())
+            else:
+                err = result.get("error") or "unknown error"
+                errors.append(f"{cmd}: {err}")
+                blocks.append(f"$ {cmd}\n[error] {err}")
+                self._emit_msf_event("rpc_post_command_failed", index=idx, command=cmd, error=err)
+        combined = "\n\n".join(blocks).strip()
+        return combined, errors
+
     async def execute(self, params: dict) -> dict:
         params = self._normalize_params(params)
         ok, msg = await self.validate(params)
@@ -199,6 +447,7 @@ class MetasploitTool(BaseTool):
         # ── Try RPC first ─────────────────────────────────────────────
         try:
             client = await self._get_client()
+            self._emit_msf_event("rpc_available", action=action)
             if action == "search":
                 return await self._search_modules(client, params.get("query", ""))
             if action == "sessions":
@@ -213,6 +462,7 @@ class MetasploitTool(BaseTool):
         except Exception as exc:
             rpc_err = str(exc)
             logger.warning("Metasploit RPC unavailable (%s) — falling back to msfconsole", rpc_err)
+            self._emit_msf_event("rpc_unavailable_fallback", action=action, reason=rpc_err)
             self._client = None  # reset so next call re-tries RPC
 
         # ── msfconsole fallback ───────────────────────────────────────
@@ -243,21 +493,46 @@ class MetasploitTool(BaseTool):
     # ------------------------------------------------------------------
 
     async def _run_exploit(self, client, params: dict) -> dict:
-        module_path: str = params["module"]
+        requested_module: str = params["module"]
         target_ip: str = params["target_ip"]
         target_port: int = int(params["target_port"])
         payload: str = params.get("payload", "")
         extra_opts: dict = params.get("options", {})
+        post_commands: list[str] = params.get("post_commands") or []
 
         loop = asyncio.get_running_loop()
         start = time.monotonic()
+        module_path, module_err = await self._resolve_module_path_rpc(client, requested_module)
+        if module_err:
+            self._emit_msf_event("rpc_module_not_found", module=requested_module)
+            return {
+                "success": False,
+                "output": {
+                    "module": requested_module,
+                    "canonical_module": self._MODULE_ALIASES.get(requested_module, requested_module),
+                    "reason": "module_not_found",
+                },
+                "error": module_err,
+            }
+        if module_path != requested_module:
+            self._emit_msf_event(
+                "rpc_module_canonicalized",
+                requested=requested_module,
+                canonical=module_path,
+            )
 
         try:
-            result: ExploitResult = await asyncio.wait_for(
+            run_data: dict = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
                     lambda: self._blocking_run(
-                        client, module_path, target_ip, target_port, payload, extra_opts
+                        client,
+                        module_path,
+                        target_ip,
+                        target_port,
+                        payload,
+                        extra_opts,
+                        post_commands,
                     ),
                 ),
                 timeout=EXPLOIT_TIMEOUT,
@@ -271,10 +546,38 @@ class MetasploitTool(BaseTool):
         except Exception as exc:
             return {"success": False, "output": None, "error": str(exc)}
 
+        result: ExploitResult = run_data["result"]
         result.duration_seconds = time.monotonic() - start
+        output = result.model_dump()
+        if requested_module != module_path:
+            output["module_alias_resolved_from"] = requested_module
+        if run_data.get("session_polling") is not None:
+            output["session_polling"] = run_data["session_polling"]
+        if run_data.get("payload_attempts"):
+            output["payload_attempts"] = run_data["payload_attempts"]
+        post_output = run_data.get("post_command_output")
+        if post_output:
+            output["post_command_output"] = post_output[:3000]
+        if run_data.get("post_command_errors"):
+            output["post_command_errors"] = run_data["post_command_errors"]
+
+        if result.success:
+            self._emit_msf_event(
+                "rpc_exploit_success",
+                module=module_path,
+                target_ip=target_ip,
+                session_id=result.session_id,
+            )
+        else:
+            self._emit_msf_event(
+                "rpc_exploit_failed",
+                module=module_path,
+                target_ip=target_ip,
+                reason=result.error,
+            )
         return {
             "success": result.success,
-            "output": result.model_dump(),
+            "output": output,
             "error": result.error,
         }
 
@@ -286,8 +589,16 @@ class MetasploitTool(BaseTool):
         target_port: int,
         payload: str,
         extra_opts: dict,
-    ) -> ExploitResult:
-        """Synchronous Metasploit exploit — runs in executor."""
+        post_commands: list[str] | None = None,
+    ) -> dict:
+        """Synchronous Metasploit exploit run for the RPC path."""
+        post_commands = post_commands or []
+        run_meta: dict = {
+            "session_polling": None,
+            "payload_attempts": [],
+            "post_command_output": None,
+            "post_command_errors": [],
+        }
         try:
             exploit = client.modules.use("exploit", module_path)
             exploit["RHOSTS"] = target_ip
@@ -296,61 +607,163 @@ class MetasploitTool(BaseTool):
             for key, val in extra_opts.items():
                 exploit[key] = val
 
-            if payload:
-                if "reverse" in payload.lower() or "meterpreter" in payload.lower():
-                    lhost = self._get_lhost(target_ip)
-                    if lhost:
-                        exploit["LHOST"] = lhost
-                p = client.modules.use("payload", payload)
-            else:
-                # Auto-select: pick the best compatible payload from the module.
-                # Prefer non-reverse payloads (no LHOST needed).
-                payloads = exploit.targetpayloads()
-                if not payloads:
-                    return ExploitResult(
-                        success=False,
-                        module=module_path,
-                        target_ip=target_ip,
-                        target_port=target_port,
-                        error="No compatible payload found",
+            try:
+                baseline_sessions = dict(client.sessions.list or {})
+            except Exception:
+                baseline_sessions = {}
+            baseline_ids = self._collect_session_ids(baseline_sessions)
+
+            compatible_payloads = []
+            try:
+                raw_payloads = exploit.targetpayloads() or []
+                compatible_payloads = [
+                    name.strip() for name in raw_payloads if isinstance(name, str) and name.strip()
+                ]
+            except Exception:
+                compatible_payloads = []
+
+            payload_candidates = self._order_payload_candidates(payload, compatible_payloads)
+            if not payload_candidates:
+                run_meta["result"] = ExploitResult(
+                    success=False,
+                    module=module_path,
+                    target_ip=target_ip,
+                    target_port=target_port,
+                    error="No compatible payload found",
+                )
+                return run_meta
+
+            selected_payload = ""
+            selected_session_id: int | None = None
+            last_output = {}
+            last_error = ""
+
+            for idx, candidate in enumerate(payload_candidates, start=1):
+                try:
+                    payload_obj = client.modules.use("payload", candidate)
+                except Exception as exc:
+                    err_text = str(exc)
+                    run_meta["payload_attempts"].append(
+                        {"attempt": idx, "payload": candidate, "error": err_text}
                     )
-                # Prefer interact > bind > reverse (least network requirements first)
-                chosen = payloads[0]
-                for pname in payloads:
-                    if "interact" in pname:
-                        chosen = pname
-                        break
-                    if "bind" in pname and "reverse" not in chosen:
-                        chosen = pname
-                p = client.modules.use("payload", chosen)
-                payload = chosen
+                    last_error = err_text
+                    self._emit_msf_event(
+                        "rpc_payload_candidate_rejected",
+                        attempt=idx,
+                        payload=candidate,
+                        reason="payload_load_failed",
+                    )
+                    continue
 
-                if "reverse" in payload.lower() or "meterpreter" in payload.lower():
+                if "reverse" in candidate.lower() or "meterpreter" in candidate.lower():
                     lhost = self._get_lhost(target_ip)
                     if lhost:
                         exploit["LHOST"] = lhost
 
-            output = exploit.execute(payload=p)
-            session_id = output.get("session_id")
+                try:
+                    output = exploit.execute(payload=payload_obj)
+                except Exception as exc:
+                    err_text = str(exc)
+                    run_meta["payload_attempts"].append(
+                        {"attempt": idx, "payload": candidate, "error": err_text}
+                    )
+                    last_error = err_text
+                    if self._is_payload_incompatible_text(err_text):
+                        self._emit_msf_event(
+                            "rpc_payload_fallback",
+                            attempt=idx,
+                            payload=candidate,
+                            reason="incompatible_payload",
+                        )
+                    else:
+                        self._emit_msf_event(
+                            "rpc_payload_candidate_rejected",
+                            attempt=idx,
+                            payload=candidate,
+                            reason="execute_exception",
+                        )
+                    continue
 
-            return ExploitResult(
-                success=session_id is not None,
+                output_dict = output if isinstance(output, dict) else {"raw": str(output)}
+                last_output = output_dict
+                session_id = self._coerce_session_id(output_dict.get("session_id"))
+                poll_meta = None
+                if session_id is None:
+                    session_id, poll_meta = self._poll_for_session(
+                        client,
+                        target_ip,
+                        module_path,
+                        baseline_ids,
+                    )
+                    run_meta["session_polling"] = poll_meta
+
+                run_meta["payload_attempts"].append(
+                    {
+                        "attempt": idx,
+                        "payload": candidate,
+                        "job_id": output_dict.get("job_id"),
+                        "session_id": session_id,
+                        "polled": poll_meta is not None,
+                    }
+                )
+
+                if session_id is not None:
+                    selected_payload = candidate
+                    selected_session_id = session_id
+                    break
+
+                exec_text = str(output_dict)
+                if self._is_payload_incompatible_text(exec_text):
+                    last_error = "Invalid/incompatible payload"
+                    self._emit_msf_event(
+                        "rpc_payload_fallback",
+                        attempt=idx,
+                        payload=candidate,
+                        reason="incompatible_payload_output",
+                    )
+                    continue
+                last_error = "Session could not be opened"
+
+            if selected_session_id is None:
+                run_meta["result"] = ExploitResult(
+                    success=False,
+                    module=module_path,
+                    target_ip=target_ip,
+                    target_port=target_port,
+                    payload=selected_payload or payload,
+                    session_id=None,
+                    output=str(last_output),
+                    error=last_error or "Session could not be opened",
+                )
+                return run_meta
+
+            if post_commands:
+                post_output, post_errors = self._run_post_commands_rpc(
+                    client, selected_session_id, post_commands
+                )
+                run_meta["post_command_output"] = post_output
+                run_meta["post_command_errors"] = post_errors
+
+            run_meta["result"] = ExploitResult(
+                success=True,
                 module=module_path,
                 target_ip=target_ip,
                 target_port=target_port,
-                payload=payload,
-                session_id=session_id,
-                output=str(output),
-                error=None if session_id else "Session could not be opened",
+                payload=selected_payload,
+                session_id=selected_session_id,
+                output=str(last_output),
+                error=None,
             )
+            return run_meta
         except Exception as exc:
-            return ExploitResult(
+            run_meta["result"] = ExploitResult(
                 success=False,
                 module=module_path,
                 target_ip=target_ip,
                 target_port=target_port,
                 error=str(exc),
             )
+            return run_meta
 
     async def _search_modules(self, client, query: str) -> dict:
         loop = asyncio.get_running_loop()
@@ -514,6 +927,18 @@ class MetasploitTool(BaseTool):
                 logger.debug("[TIRPAN-DEBUG] msfconsole FULL output (%d chars):\n%s", len(output), output)
                 logger.info("msfconsole output (%d chars):\n%s", len(output), output[:4000])
                 return output
+            except asyncio.CancelledError:
+                self._emit_msf_event("msfconsole_cancelled", timeout=timeout)
+                with contextlib.suppress(ProcessLookupError):
+                    proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    with contextlib.suppress(ProcessLookupError):
+                        proc.kill()
+                    with contextlib.suppress(Exception):
+                        await proc.wait()
+                raise
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.communicate()
