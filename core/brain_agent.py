@@ -39,7 +39,9 @@ Integration:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
+import inspect
 import json
 import logging
 import uuid
@@ -111,6 +113,7 @@ class BrainAgent(BaseAgent):
         "set_phase",
         "mission_done",
     ]
+    _MAX_ACTIVE_SHELLS_PER_HOST = 4
 
     _soul = SoulLoader()
 
@@ -145,9 +148,13 @@ class BrainAgent(BaseAgent):
         self._operator_futures: dict[str, asyncio.Future] = {}
         # Set to True when mission_done meta-tool is called
         self._mission_done: bool = False
+        self._objective_confirmed: bool = False
+        self._objective_confirm_msg: str = ""
+        self._dispatch_blocked_reason: str = ""
 
         # Active shell sessions: shell_key → {host_ip, session_type, msf_session_id, module}
         self._active_shells: dict[str, dict] = {}
+        self._shell_dedup_keys: set[str] = set()
 
         # Training data capture — store per-iteration context for reflect()
         self._last_messages: list[dict] = []
@@ -198,6 +205,71 @@ class BrainAgent(BaseAgent):
                 })
         elif tool_name == "mission_done":
             self._mission_done = True
+
+    @staticmethod
+    def _is_objective_confirm_message(message: str) -> bool:
+        text = (message or "").strip().lower()
+        if not text:
+            return False
+        if "operator confirmed" in text and ("objective" in text or "mission" in text):
+            return True
+        if "mission objective has been achieved" in text:
+            return True
+        if "mission objective achieved" in text:
+            return True
+        if "this is it" in text and "objective" in text:
+            return True
+        return False
+
+    def _cancel_all_children(self, reason: str) -> int:
+        """Cancel all running child agents immediately."""
+        cancelled = 0
+        for aid, task in list(self._child_tasks.items()):
+            if task.done():
+                continue
+            task.cancel()
+            cancelled += 1
+            self.emit_event("agent_killed", {"agent_id": aid, "reason": reason})
+        if cancelled:
+            self.emit_event("stop_propagation", {
+                "reason": reason,
+                "cancelled_child_agents": cancelled,
+            })
+        return cancelled
+
+    def inject_message(self, message: str) -> None:
+        """Handle operator messages with hard objective confirmation semantics."""
+        super().inject_message(message)
+        if not self._is_objective_confirm_message(message):
+            return
+
+        self._objective_confirmed = True
+        self._objective_confirm_msg = (message or "")[:500]
+        self._dispatch_blocked_reason = "objective_confirmed"
+        cancelled = self._cancel_all_children("objective_confirmed")
+        self._mission_done = True
+        self.memory.add_user(
+            "[SYSTEM] Operator confirmed the objective is achieved. "
+            "Do not dispatch any more agents. End mission now."
+        )
+        self.emit_event("objective_transition", {
+            "state": "confirmed",
+            "reason": "operator_confirmation",
+            "cancelled_child_agents": cancelled,
+        })
+        self.emit_event("dispatch_blocked", {
+            "reason": self._dispatch_blocked_reason,
+        })
+        logger.info(
+            "BrainAgent objective confirmed by operator; cancelled child_agents=%d",
+            cancelled,
+        )
+
+    def kill(self) -> dict:
+        """Emergency stop for Brain + running child agents."""
+        super().kill()
+        cancelled = self._cancel_all_children("emergency_stop")
+        return {"children_cancelled": cancelled}
 
     # ── act() override — intercepts meta-tools before ToolRegistry ───────────
 
@@ -274,6 +346,10 @@ class BrainAgent(BaseAgent):
             return "invalid meta-tool result"
         return result.get("error")
 
+    def _kill_switch_is_set(self) -> bool:
+        raw = getattr(self._safety, "kill_switch_triggered", False)
+        return raw if isinstance(raw, bool) else False
+
     # ── Meta-tool dispatch ────────────────────────────────────────────────────
 
     async def _execute_tool(self, tool_name: str, params: dict) -> dict:
@@ -312,6 +388,21 @@ class BrainAgent(BaseAgent):
         target = params.get("target", "")
         task_type = params.get("task_type", "")
         options = dict(params.get("options", {}) or {})
+
+        if self._dispatch_blocked_reason:
+            reason = self._dispatch_blocked_reason
+            self.emit_event("dispatch_blocked", {
+                "reason": reason,
+                "agent_type": agent_type,
+                "target": target,
+            })
+            return {
+                "success": False,
+                "status": "blocked",
+                "output": None,
+                "error": f"Agent dispatch blocked: {reason}",
+                "reason": reason,
+            }
 
         if agent_type not in _AGENT_REGISTRY:
             return {
@@ -388,9 +479,6 @@ class BrainAgent(BaseAgent):
             "target":             target,
             "task_type":          task_type,
         }
-        # Pass options as a single dict — do NOT spread into constructor kwargs
-        # (options keys like scan_type, ports etc. are not BaseAgent constructor params)
-        child_kwargs["options"] = options
         # Override with any agent-specific kwargs from registry
         child_kwargs.update(self._agent_ctor_kwargs.get(agent_type, {}))
 
@@ -401,6 +489,14 @@ class BrainAgent(BaseAgent):
             AgentClass = getattr(mod, class_name)
         except (ImportError, AttributeError) as exc:
             return {"success": False, "status": "error", "output": None, "error": f"Failed to import {agent_type}: {exc}"}
+
+        # Pass options only to agents that explicitly accept it.
+        try:
+            init_params = inspect.signature(AgentClass.__init__).parameters
+        except Exception:
+            init_params = {}
+        if "options" in init_params:
+            child_kwargs["options"] = options
 
         agent = AgentClass(**child_kwargs)
 
@@ -444,6 +540,17 @@ class BrainAgent(BaseAgent):
 
         Returns summary of all spawn results.
         """
+        if self._dispatch_blocked_reason:
+            reason = self._dispatch_blocked_reason
+            self.emit_event("dispatch_blocked", {"reason": reason, "batch": True})
+            return {
+                "success": False,
+                "status": "blocked",
+                "output": None,
+                "error": f"Agent dispatch blocked: {reason}",
+                "reason": reason,
+            }
+
         agents_list = params.get("agents", [])
         if not agents_list:
             return {"success": False, "status": "error", "output": None, "error": "spawn_agents_batch requires 'agents' list"}
@@ -585,18 +692,36 @@ class BrainAgent(BaseAgent):
 
         # Poll loop: check pause state every 0.5s while waiting
         while not wait_task.done():
+            if self._dispatch_blocked_reason == "objective_confirmed":
+                wait_task.cancel()
+                with contextlib.suppress(Exception):
+                    await wait_task
+                done_now = [aid for aid, r in done_results.items() if r is not None]
+                return {
+                    "success": True,
+                    "status": "aborted",
+                    "completed": done_now,
+                    "timed_out": [],
+                    "results": {
+                        aid: (r.payload if r else None)
+                        for aid, r in done_results.items()
+                    },
+                    "reason": "objective_confirmed",
+                    "error": None,
+                }
+
             # If Brain is paused, wait for resume before continuing
             if not self._pause_event.is_set():
                 logger.info("BrainAgent: paused during wait_for_agents")
                 while not self._pause_event.is_set():
-                    if self._safety.kill_switch_triggered:
+                    if self._kill_switch_is_set():
                         wait_task.cancel()
                         return {"success": False, "status": "error", "output": None, "error": "Kill switch triggered"}
                     await asyncio.sleep(0.3)
                 logger.info("BrainAgent: resumed, continuing wait_for_agents")
 
             # Check kill switch
-            if self._safety.kill_switch_triggered:
+            if self._kill_switch_is_set():
                 wait_task.cancel()
                 return {"success": False, "status": "error", "output": None, "error": "Kill switch triggered"}
 
@@ -902,6 +1027,37 @@ class BrainAgent(BaseAgent):
         host_ip = data.get("host_ip", self.ctx.target)
         session_type = data.get("session_type", "shell")
         module = data.get("module", "")
+        dedup_key = f"{host_ip}|{msf_sid if msf_sid is not None else shell_key}|{module}"
+
+        existing = self._active_shells.get(shell_key)
+        if existing and existing.get("status") == "active":
+            self.emit_event("shell_duplicate_ignored", {
+                "shell_key": shell_key,
+                "host_ip": host_ip,
+                "reason": "already_active",
+            })
+            return
+
+        if dedup_key in self._shell_dedup_keys:
+            self.emit_event("shell_duplicate_ignored", {
+                "shell_key": shell_key,
+                "host_ip": host_ip,
+                "reason": "duplicate_finding",
+            })
+            return
+
+        active_for_host = [
+            shell for shell in self._active_shells.values()
+            if shell.get("host_ip") == host_ip and shell.get("status") == "active"
+        ]
+        if len(active_for_host) >= self._MAX_ACTIVE_SHELLS_PER_HOST:
+            self.emit_event("shell_duplicate_ignored", {
+                "shell_key": shell_key,
+                "host_ip": host_ip,
+                "reason": "host_shell_limit",
+                "limit": self._MAX_ACTIVE_SHELLS_PER_HOST,
+            })
+            return
 
         self._active_shells[shell_key] = {
             "shell_key": shell_key,
@@ -909,8 +1065,10 @@ class BrainAgent(BaseAgent):
             "session_type": session_type,
             "msf_session_id": msf_sid,
             "module": module,
+            "dedup_key": dedup_key,
             "status": "active",
         }
+        self._shell_dedup_keys.add(dedup_key)
 
         # Broadcast to UI so the Shell Panel shows the new shell
         self.emit_event("shell_open", {
@@ -926,6 +1084,9 @@ class BrainAgent(BaseAgent):
         """Mark a shell as closed and broadcast to UI."""
         shell = self._active_shells.get(shell_key)
         if shell and shell["status"] == "active":
+            dedup_key = shell.get("dedup_key")
+            if dedup_key:
+                self._shell_dedup_keys.discard(dedup_key)
             shell["status"] = "closed"
             self.emit_event("shell_closed", {
                 "shell_key": shell_key,
@@ -1142,10 +1303,11 @@ class BrainAgent(BaseAgent):
 
     async def on_run_end(self, final_state=None) -> None:
         """Cancel all running child agents on Brain exit."""
-        for agent_id, task in list(self._child_tasks.items()):
-            if not task.done():
-                task.cancel()
-                logger.info("BrainAgent: cancelled child %s on run_end", agent_id)
+        self._cancel_all_children("brain_run_end")
+        pending = [task for task in self._child_tasks.values() if not task.done()]
+        if pending:
+            with contextlib.suppress(Exception):
+                await asyncio.wait(pending, timeout=2.0)
         self._child_tasks.clear()
         self._child_agents.clear()
         self._active_agents.clear()
