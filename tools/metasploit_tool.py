@@ -248,6 +248,41 @@ class MetasploitTool(BaseTool):
         )
 
     @staticmethod
+    def _is_valid_module_path(module_path: str) -> bool:
+        return bool(re.match(r"^(exploit|auxiliary|post|payload|encoder|nop)/[a-z0-9_./-]+$", module_path or ""))
+
+    async def _resolve_module_path_msfconsole(self, module_path: str) -> tuple[str, str | None]:
+        """Resolve aliases and fail-fast validate module availability in msfconsole mode."""
+        requested = (module_path or "").strip()
+        canonical = self._MODULE_ALIASES.get(requested, requested)
+
+        if not self._is_valid_module_path(canonical):
+            return "", (
+                f"Metasploit module not found/unsupported: '{requested}' "
+                f"(canonical: '{canonical}')"
+            )
+
+        output = await self._run_msfconsole([f"search {canonical}"], timeout=45)
+        found_paths: set[str] = set()
+        for line in output.splitlines():
+            m = re.match(r"^\s*\d+\s+(\S+/\S+)\s+", line.strip())
+            if m:
+                found_paths.add(m.group(1).strip())
+        if canonical in found_paths:
+            if canonical != requested:
+                self._emit_msf_event(
+                    "msfconsole_module_canonicalized",
+                    requested=requested,
+                    canonical=canonical,
+                )
+            return canonical, None
+
+        return "", (
+            f"Metasploit module not found/unsupported: '{requested}' "
+            f"(canonical: '{canonical}')"
+        )
+
+    @staticmethod
     def _emit_msf_event(event: str, **fields) -> None:
         details = " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
         if details:
@@ -344,6 +379,18 @@ class MetasploitTool(BaseTool):
         if module_leaf and isinstance(via_exploit, str) and module_leaf in via_exploit:
             return True
         return False
+
+    @staticmethod
+    def _available_option_names(exploit) -> set[str]:
+        try:
+            opts = getattr(exploit, "options", {}) or {}
+        except Exception:
+            opts = {}
+        if isinstance(opts, dict):
+            return {str(k).upper() for k in opts.keys()}
+        if isinstance(opts, list):
+            return {str(k).upper() for k in opts}
+        return set()
 
     def _poll_for_session(
         self,
@@ -600,12 +647,31 @@ class MetasploitTool(BaseTool):
             "post_command_errors": [],
         }
         try:
-            exploit = client.modules.use("exploit", module_path)
-            exploit["RHOSTS"] = target_ip
-            exploit["RPORT"] = target_port
+            base_exploit = client.modules.use("exploit", module_path)
+            available_options = self._available_option_names(base_exploit)
+            is_native_mod = self._is_native_shell_module(module_path)
+            enforce_option_whitelist = bool(available_options)
 
+            filtered_opts: dict[str, object] = {}
             for key, val in extra_opts.items():
-                exploit[key] = val
+                key_u = str(key).upper()
+                if is_native_mod and key_u in {"LHOST", "LPORT"}:
+                    self._emit_msf_event(
+                        "rpc_option_skipped",
+                        module=module_path,
+                        option=key_u,
+                        reason="native_module_profile",
+                    )
+                    continue
+                if not enforce_option_whitelist or key_u in available_options:
+                    filtered_opts[key_u] = val
+                else:
+                    self._emit_msf_event(
+                        "rpc_option_skipped",
+                        module=module_path,
+                        option=key_u,
+                        reason="unsupported_option",
+                    )
 
             try:
                 baseline_sessions = dict(client.sessions.list or {})
@@ -615,7 +681,7 @@ class MetasploitTool(BaseTool):
 
             compatible_payloads = []
             try:
-                raw_payloads = exploit.targetpayloads() or []
+                raw_payloads = base_exploit.targetpayloads() or []
                 compatible_payloads = [
                     name.strip() for name in raw_payloads if isinstance(name, str) and name.strip()
                 ]
@@ -655,10 +721,44 @@ class MetasploitTool(BaseTool):
                     )
                     continue
 
-                if "reverse" in candidate.lower() or "meterpreter" in candidate.lower():
+                try:
+                    exploit = client.modules.use("exploit", module_path)
+                    exploit["RHOSTS"] = target_ip
+                    exploit["RPORT"] = target_port
+                    for key, val in filtered_opts.items():
+                        exploit[key] = val
+                except Exception as exc:
+                    err_text = str(exc)
+                    run_meta["payload_attempts"].append(
+                        {"attempt": idx, "payload": candidate, "error": err_text}
+                    )
+                    last_error = err_text
+                    self._emit_msf_event(
+                        "rpc_payload_candidate_rejected",
+                        attempt=idx,
+                        payload=candidate,
+                        reason="exploit_init_failed",
+                    )
+                    continue
+
+                is_reverse_candidate = ("reverse" in candidate.lower() or "meterpreter" in candidate.lower())
+                if not is_native_mod and is_reverse_candidate:
                     lhost = self._get_lhost(target_ip)
-                    if lhost:
+                    if lhost and (not enforce_option_whitelist or "LHOST" in available_options):
                         exploit["LHOST"] = lhost
+                    elif lhost and enforce_option_whitelist and "LHOST" not in available_options:
+                        self._emit_msf_event(
+                            "rpc_option_skipped",
+                            module=module_path,
+                            option="LHOST",
+                            reason="unsupported_option",
+                        )
+
+                    if (not enforce_option_whitelist or "LPORT" in available_options) and "LPORT" not in filtered_opts:
+                        try:
+                            exploit["LPORT"] = self._allocate_lport()
+                        except Exception:
+                            pass
 
                 try:
                     output = exploit.execute(payload=payload_obj)
@@ -825,9 +925,41 @@ class MetasploitTool(BaseTool):
                 }
 
             shell = client.sessions.session(str(session_id))
-            shell.write(command + "\n")
-            time.sleep(2)  # give the command time to execute
-            output = shell.read()
+            output = ""
+            exec_errors: list[str] = []
+
+            if hasattr(shell, "shell_command_token"):
+                try:
+                    token_out = shell.shell_command_token(command, 15)
+                    if token_out:
+                        output = str(token_out)
+                except Exception as exc:
+                    exec_errors.append(f"shell_command_token: {exc}")
+
+            if not output and hasattr(shell, "run_with_output"):
+                try:
+                    run_out = shell.run_with_output(command)
+                    if run_out:
+                        output = str(run_out)
+                except Exception as exc:
+                    exec_errors.append(f"run_with_output: {exc}")
+
+            if not output and hasattr(shell, "write") and hasattr(shell, "read"):
+                try:
+                    shell.write(command + "\n")
+                    time.sleep(2)  # give the command time to execute
+                    read_out = shell.read()
+                    if read_out:
+                        output = str(read_out)
+                except Exception as exc:
+                    exec_errors.append(f"write/read: {exc}")
+
+            if not output and exec_errors:
+                return {
+                    "success": False,
+                    "output": None,
+                    "error": "; ".join(exec_errors)[:500],
+                }
 
             return {
                 "success": True,
@@ -1156,11 +1288,23 @@ class MetasploitTool(BaseTool):
           in WSL/NAT/VM environments).  Only set LHOST for explicit reverse
           payloads.
         """
-        module_path: str = params["module"]
+        requested_module: str = params["module"]
         target_ip: str = params["target_ip"]
         target_port: int = int(params["target_port"])
         payload: str = params.get("payload", "")
         extra_opts: dict = params.get("options", {})
+        module_path, module_err = await self._resolve_module_path_msfconsole(requested_module)
+        if module_err:
+            self._emit_msf_event("msfconsole_module_not_found", module=requested_module)
+            return {
+                "success": False,
+                "output": {
+                    "module": requested_module,
+                    "canonical_module": self._MODULE_ALIASES.get(requested_module, requested_module),
+                    "reason": "module_not_found",
+                },
+                "error": module_err,
+            }
 
         is_native = self._is_native_shell_module(module_path)
         effective_payload = payload or self._default_payload(module_path)
@@ -1279,6 +1423,8 @@ class MetasploitTool(BaseTool):
             duration_seconds=duration,
         )
         result_dict = result.model_dump()
+        if requested_module != module_path:
+            result_dict["module_alias_resolved_from"] = requested_module
         if post_output is not None:
             result_dict["post_command_output"] = post_output[:3000]
         return {
@@ -1575,9 +1721,10 @@ class MetasploitTool(BaseTool):
         the configured value AND the default, so the module picks its own
         compatible payload (e.g. cmd/unix/interact for vsftpd_234_backdoor).
 
-        LHOST is always set as a safety net: if the module's default payload
-        requires LHOST (e.g. because the global config forced a reverse payload),
-        the run will fail with an OptionValidateError without it.
+        LHOST/LPORT are set only for reverse payloads and only for modules that
+        are not native-shell backdoor style exploits (vsftpd/usermap/distcc).
+        Native-shell modules often do not expose LHOST/LPORT and error with:
+        "Invalid option 'LHOST'."
 
         POST_COMMANDS: When provided, appended as an ERB Ruby block that uses
         framework.sessions API after `run -z`. This is the ONLY safe approach:
@@ -1593,7 +1740,8 @@ class MetasploitTool(BaseTool):
             kw in payload.lower() for kw in ("reverse", "meterpreter")
         )
         auto_lport: int | None = None
-        if is_reverse and "LPORT" not in extra_opts:
+        is_native = self._is_native_shell_module(module_path)
+        if is_reverse and not is_native and "LPORT" not in extra_opts:
             auto_lport = self._allocate_lport()
             logger.debug("Auto-allocated free LPORT=%d for %s", auto_lport, module_path)
 
@@ -1613,8 +1761,8 @@ class MetasploitTool(BaseTool):
             logger.debug("Setting explicit payload: %s", payload)
             commands.append(f"set PAYLOAD {payload}")
 
-        # Always set LHOST for reverse/meterpreter payloads.
-        if lhost:
+        # Set LHOST only for reverse payloads on non-native modules.
+        if is_reverse and not is_native and lhost:
             logger.debug("Setting LHOST=%s for %s", lhost, target_ip)
             commands.append(f"set LHOST {lhost}")
 

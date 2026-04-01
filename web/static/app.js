@@ -3055,8 +3055,13 @@ async function killMission() {
                     hidePauseMissionBtn();
                     missionPaused = false;
                     syncInputMode();
+                    const killedMs = Number(data.killed_in_ms || 0);
+                    const childCancelled = Number(data.child_agents_cancelled || 0);
                     showToast('Emergency stop sent');
-                    appendConsoleLine('[KILL_SWITCH] Emergency stop triggered by user', 'text-danger');
+                    appendConsoleLine(
+                        `[KILL_SWITCH] Emergency stop triggered by user${killedMs > 0 ? ` (${killedMs}ms)` : ''}${childCancelled > 0 ? ` · child_agents=${childCancelled}` : ''}`,
+                        'text-danger'
+                    );
                 } else {
                     const msg = data.message || 'Session already stopped or not found';
                     showToast(msg);

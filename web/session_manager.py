@@ -13,8 +13,12 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from config import settings
@@ -42,6 +46,42 @@ _buffer_expires_at: Dict[str, float] = {}
 _cleanup_handles: Dict[str, asyncio.TimerHandle] = {}
 
 _BUFFER_MAX = 500
+_AGENT_LOG_SKIP_EVENTS = frozenset({"llm_token"})
+
+
+def _session_agents_dir(session_id: str) -> Path:
+    d = Path("data/sessions") / session_id / "agents"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _safe_agent_filename(agent_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", agent_id or "system").strip("._")
+    if not safe:
+        safe = "system"
+    return f"{safe}.md"
+
+
+def _append_agent_log(session_id: str, event_type: str, data: dict) -> None:
+    if event_type in _AGENT_LOG_SKIP_EVENTS:
+        return
+    payload = data if isinstance(data, dict) else {"value": data}
+    agent_id = str(payload.get("agent_id") or "system")
+    agent_type = str(payload.get("agent_type") or "system")
+    ts = datetime.now(timezone.utc).isoformat()
+    path = _session_agents_dir(session_id) / _safe_agent_filename(agent_id)
+
+    try:
+        is_new = not path.exists()
+        with path.open("a", encoding="utf-8") as f:
+            if is_new:
+                f.write(f"# Agent Log\n\n- `session_id`: `{session_id}`\n- `agent_id`: `{agent_id}`\n- `agent_type`: `{agent_type}`\n\n")
+            f.write(f"## {ts} `{event_type}`\n")
+            f.write("```json\n")
+            f.write(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+            f.write("\n```\n\n")
+    except Exception as exc:
+        logger.debug("Agent log append failed for session %s agent %s: %s", session_id, agent_id, exc)
 
 
 # ── Registration ───────────────────────────────────────────────────────────────
@@ -106,16 +146,56 @@ def _schedule_cleanup(session_id: str) -> None:
 
 def kill(session_id: str) -> bool:
     """Trigger emergency stop on the running agent. Returns True if found."""
+    return bool(kill_with_details(session_id).get("killed"))
+
+
+def kill_with_details(session_id: str) -> dict:
+    """Trigger emergency stop and return deterministic stop metadata."""
+    started = time.perf_counter()
     guard = _guards.get(session_id)
     task = _tasks.get(session_id)
+    agent = _agents.get(session_id)
+
+    if not guard and (task is None or task.done()) and agent is None:
+        return {
+            "killed": False,
+            "message": "Session not running or already stopped",
+            "killed_in_ms": 0,
+            "task_cancelled": False,
+            "child_agents_cancelled": 0,
+        }
+
+    child_agents_cancelled = 0
+    if agent is not None:
+        try:
+            agent_result = agent.kill()
+            if isinstance(agent_result, dict):
+                child_agents_cancelled = int(agent_result.get("children_cancelled", 0) or 0)
+        except Exception as exc:
+            logger.debug("Agent kill() raised for session %s: %s", session_id, exc)
+
     if guard:
         guard.emergency_stop()
-        # Cancel the asyncio task immediately so long-running tool calls stop fast
-        if task and not task.done():
-            task.cancel()
-        logger.warning("Kill switch triggered for session %s", session_id)
-        return True
-    return False
+
+    task_cancelled = False
+    if task and not task.done():
+        task.cancel()
+        task_cancelled = True
+
+    killed_in_ms = int((time.perf_counter() - started) * 1000)
+    logger.warning(
+        "Kill switch triggered for session %s (task_cancelled=%s child_agents_cancelled=%d killed_in_ms=%d)",
+        session_id,
+        task_cancelled,
+        child_agents_cancelled,
+        killed_in_ms,
+    )
+    return {
+        "killed": True,
+        "killed_in_ms": killed_in_ms,
+        "task_cancelled": task_cancelled,
+        "child_agents_cancelled": child_agents_cancelled,
+    }
 
 
 # ── Status ─────────────────────────────────────────────────────────────────────
@@ -243,6 +323,7 @@ def make_progress_callback(session_id: str) -> Callable[[str, dict], None]:
             "event": event_type,
             "data": data,
         }
+        _append_agent_log(session_id, event_type, data)
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():

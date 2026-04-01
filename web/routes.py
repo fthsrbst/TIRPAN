@@ -1137,19 +1137,33 @@ async def kill_session(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    killed = session_manager.kill(sid)
-    if killed:
+    kill_details = session_manager.kill_with_details(sid)
+    if kill_details.get("killed"):
         # Status will be updated to "stopped" via CancelledError handler in _run_agent_task
         # but we pre-set it here in case the task was already done
         await _session_repo.update_status(sid, "stopped", "Emergency stop triggered by user")
         await _audit_repo.log(
             "KILL_SWITCH",
             session_id=sid,
-            details={"reason": "Emergency stop triggered by user"},
+            details={
+                "reason": "Emergency stop triggered by user",
+                "killed_in_ms": kill_details.get("killed_in_ms", 0),
+                "child_agents_cancelled": kill_details.get("child_agents_cancelled", 0),
+            },
         )
-        return {"ok": True, "killed": True}
+        return {
+            "ok": True,
+            "killed": True,
+            "killed_in_ms": kill_details.get("killed_in_ms", 0),
+            "child_agents_cancelled": kill_details.get("child_agents_cancelled", 0),
+            "task_cancelled": kill_details.get("task_cancelled", False),
+        }
 
-    return {"ok": True, "killed": False, "message": "Session not running or already stopped"}
+    return {
+        "ok": True,
+        "killed": False,
+        "message": kill_details.get("message", "Session not running or already stopped"),
+    }
 
 
 @router.delete("/sessions/{sid}")
