@@ -1,0 +1,38 @@
+[
+  {
+    "filename": "nmap_192.168.56.101_full.xml",
+    "tool": "nmap",
+    "size_bytes": 21546,
+    "created_at": "2026-04-01T19:50:27.357714+00:00"
+  },
+  {
+    "filename": "nmap_192.168.56.101_service.xml",
+    "tool": "nmap",
+    "size_bytes": 3859,
+    "created_at": "2026-04-01T19:51:32.331588+00:00"
+  },
+  {
+    "filename": "nikto_http___192.168.56.101_8180.txt",
+    "tool": "nikto",
+    "size_bytes": 2977,
+    "created_at": "2026-04-01T19:53:46.919860+00:00"
+  },
+  {
+    "filename": "ffuf_http___192.168.56.101_8180.json",
+    "tool": "ffuf",
+    "size_bytes": 6712,
+    "created_at": "2026-04-01T19:54:06.715686+00:00"
+  },
+  {
+    "filename": "nikto_http___192.168.56.101_8180_.txt",
+    "tool": "nikto",
+    "size_bytes": 2170,
+    "created_at": "2026-04-01T19:56:27.906438+00:00"
+  },
+  {
+    "filename": "nikto_http___192.168.56.101_.txt",
+    "tool": "nikto",
+    "size_bytes": 4317,
+    "created_at": "2026-04-01T19:56:27.973655+00:00"
+  }
+]
