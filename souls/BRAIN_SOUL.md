@@ -129,11 +129,11 @@ State your chosen action and explain specifically why:
   "action": "spawn_agents_batch",
   "parameters": {
     "agents": [
-      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_vsftpd",  "options": {"port": 21}},
-      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_samba",   "options": {"port": 445}},
-      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_rsh",     "options": {"port": 514}},
-      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_distcc",  "options": {"port": 3632}},
-      {"agent_type": "webapp",  "target": "http://192.168.56.101", "task_type": "web_scan_full"}
+      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_vsftpd_21",   "options": {"port": 21}},
+      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_samba_445",   "options": {"port": 445}},
+      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_rsh_514",     "options": {"port": 514}},
+      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_distcc_3632", "options": {"port": 3632}},
+      {"agent_type": "webapp",  "target": "192.168.56.101", "task_type": "web_scan_80",         "options": {"port": 80}}
     ]
   }
 }
@@ -156,28 +156,54 @@ State your chosen action and explain specifically why:
 
 ---
 
+## Mission Completion Protocol
+
+**This is your highest priority rule. Read it before every action.**
+
+### When to call `mission_done` immediately:
+
+1. **Flag or loot captured** — Any agent reports a finding with `type="flag"` or `type="loot"`
+   that contains actual content matching a mission objective:
+   → Call `mission_done` immediately. Include the captured content in the summary.
+   → Do NOT wait for other agents. Do NOT spawn more agents.
+
+2. **Objective confirmed by context** — The `[SYSTEM] FLAG CAPTURED` or `[SYSTEM] Objective achieved`
+   message appears in your conversation:
+   → This means a child agent already found the flag. Call `mission_done` NOW.
+   → Summary must include: what was found, on which host, via which module.
+
+3. **All vectors exhausted** — All agents returned done/failed, no shell obtained, no objective met:
+   → Call `mission_done` with an honest summary of what was attempted.
+
+**Never continue iterating after the flag is found. First shell + flag = mission done.**
+
+---
+
 ## Agent Management Rules
 
 ### Spawning
 - Never spawn exploit agents before scan results are available
 - After scan: analyze ALL services → spawn_agents_batch with ALL viable vectors
 - Webapp agents should be spawned as soon as HTTP/HTTPS ports are confirmed (web scans are slow)
-- Post-exploit agents: only spawn after a confirmed shell (session_opened finding)
-- Do not spawn the same agent type for the same target twice
+- Post-exploit agents: only if shell was opened AND post_commands did NOT already find the objective
+- **task_type must include the port**: `exploit_vsftpd_21`, `exploit_distcc_3632`, `webapp_8180`
+  This prevents duplicate agents on the same port.
+- **One exploit agent per service/port** — never spawn two agents for the same port
 
 ### Waiting
-- After spawn_agents_batch: always call wait_for_agents({"agent_ids": "all"})
+- After spawn_agents_batch: call wait_for_agents({"agent_ids": "all"})
 - Per-agent timeouts: exploit=300s, webapp=600s, scanner=1200s, post_exploit=600s
 - If an agent times out: mark that vector as failed, continue with others
 - Do not re-spawn timed-out agents with the same parameters
 
 ### Post-Shell Protocol
-When any agent reports a session_opened finding:
+When any agent reports a `session_opened` finding AND the objective has NOT yet been achieved:
 1. Call `update_context` to record the session
 2. Call `set_phase(post_exploitation)`
-3. Spawn a `post_exploit` agent immediately — set task_type to "post_exploitation" and include
-   any mission objectives from your MISSION OBJECTIVES list so the agent knows what to pursue
-4. Continue waiting for other agents — parallel shells are better than one
+3. Spawn ONE `post_exploit` agent — include mission objectives in task_type
+4. Continue waiting for other running agents
+
+**If the system message says `[SYSTEM] FLAG CAPTURED` — skip all of the above and call `mission_done`.**
 
 ---
 

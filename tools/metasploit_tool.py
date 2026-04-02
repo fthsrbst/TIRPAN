@@ -626,6 +626,7 @@ class MetasploitTool(BaseTool):
             "success": result.success,
             "output": output,
             "error": result.error,
+            "post_output": post_output[:3000] if post_output else None,
         }
 
     def _blocking_run(
@@ -1431,6 +1432,7 @@ class MetasploitTool(BaseTool):
             "success": result.success,
             "output": result_dict,
             "error": result.error,
+            "post_output": post_output[:3000] if post_output is not None else None,
         }
 
     @staticmethod
