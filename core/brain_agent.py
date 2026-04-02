@@ -53,6 +53,7 @@ from core.soul_loader import SoulLoader
 from core.playbook import get_playbook
 from core.training_data import get_collector as _get_training_collector
 import core.debug_logger as dbg
+from core.session_tracer import get_tracer as _get_tracer
 from core.mission_context import (
     AgentStatus,
     AttackEdge,
@@ -142,6 +143,8 @@ class BrainAgent(BaseAgent):
         self._active_agent_task_types: dict[str, str] = {}
         # Track target per agent for dedup: agent_id → target
         self._active_agent_targets: dict[str, str] = {}
+        # Track spawn options per agent for port-based dedup: agent_id → options dict
+        self._active_agent_options: dict[str, dict] = {}
         # Track child agent instances for pause/resume propagation: agent_id → BaseAgent
         self._child_agents: dict[str, BaseAgent] = {}
         # Cache of pending operator questions: correlation_id → Future
@@ -297,6 +300,8 @@ class BrainAgent(BaseAgent):
             self.emit_event("tool_call", {"tool": tool_name, "params": params})
             dbg.brain_iter(self.agent_id, self._iteration, self._active_agents)
             dbg.tool_call(self.agent_id, tool_name, params)
+            _tracer = _get_tracer(self.session_id)
+            _tracer.log_tool_call(self.agent_id, self.agent_type, self._iteration, tool_name, params)
             import time as _time
             _t0 = _time.monotonic()
             try:
@@ -313,6 +318,8 @@ class BrainAgent(BaseAgent):
                 dbg.tool_ok(self.agent_id, tool_name, result, _dur)
             else:
                 dbg.tool_fail(self.agent_id, tool_name, err, _dur)
+            _tracer.log_tool_result(self.agent_id, self.agent_type, self._iteration, tool_name,
+                                    {"success": success, "output": result, "error": err}, _dur)
             self.emit_event("tool_result", {
                 "tool": tool_name,
                 "success": success,
@@ -363,7 +370,7 @@ class BrainAgent(BaseAgent):
         if tool_name == "kill_agent":
             return self._kill_agent(params)
         if tool_name == "update_context":
-            return {"success": True, "status": "queued", "params": params, "error": None}
+            return {"success": True, "status": "ok", "params": params, "error": None}
         if tool_name == "ask_operator":
             return await self._ask_operator(params)
         if tool_name == "set_phase":
@@ -412,16 +419,16 @@ class BrainAgent(BaseAgent):
                          f"Available: {list(_AGENT_REGISTRY.keys())}",
             }
 
-        # ── Dedup guard: prevent identical (agent_type, target, task_type) ──────
-        # Agents with the same type but different task_type OR different target
-        # are allowed to run concurrently.  Only block exact duplicates.
-        # Examples of ALLOWED concurrent pairs:
-        #   exploit/192.168.56.101/exploit_vsftpd + exploit/192.168.56.101/exploit_samba
-        #   webapp/http://host:80/web_scan + webapp/http://host:8180/web_scan
+        # ── Dedup guard: prevent identical (agent_type, target, task_type, port) ──
+        # Different task_type OR different target OR different port → allowed concurrently.
+        # Same type + same task_type + same target + same port → block as duplicate.
+        new_port = (options or {}).get("port")
         for aid, atype in self._active_agents.items():
             atask = self._active_agent_task_types.get(aid, "")
             atgt  = self._active_agent_targets.get(aid, "")
-            if atype == agent_type and atask == task_type and atgt == target:
+            aport = self._active_agent_options.get(aid, {}).get("port")
+            if (atype == agent_type and atask == task_type
+                    and atgt == target and aport == new_port):
                 task_obj = self._child_tasks.get(aid)
                 if task_obj and not task_obj.done():
                     return {
@@ -433,10 +440,36 @@ class BrainAgent(BaseAgent):
                         "target": target,
                         "hint": (
                             f"A {agent_type}/{task_type} agent ({aid}) is already running "
-                            f"for target {target}. "
+                            f"for target {target} port {aport}. "
                             f"Use wait_for_agents({{\"agent_ids\": [\"{aid}\"]}}) to wait for it."
                         ),
                     }
+
+        # ── Exploit guard: don't spawn another exploit agent if we already have
+        #    an active shell on this target — one shell is enough.
+        if agent_type == "exploit":
+            existing_shells = [
+                s for s in self._active_shells.values()
+                if s.get("host_ip") == target and s.get("status") == "active"
+            ]
+            if existing_shells:
+                self.emit_event("exploit_spawn_skipped", {
+                    "target": target,
+                    "task_type": task_type,
+                    "reason": "active_shell_exists",
+                    "shell_key": existing_shells[0].get("shell_key"),
+                })
+                return {
+                    "success": True,
+                    "status": "skipped",
+                    "agent_type": agent_type,
+                    "target": target,
+                    "hint": (
+                        f"Active shell already exists on {target} "
+                        f"({existing_shells[0].get('shell_key')}). "
+                        "No new exploit needed — use post_exploit agent instead."
+                    ),
+                }
 
         agent_id = f"{agent_type}-{uuid.uuid4().hex[:8]}"
         self.bus.register_agent(agent_id)
@@ -462,6 +495,18 @@ class BrainAgent(BaseAgent):
                 if target_shell:
                     options["shell_key"] = target_shell["shell_key"]
 
+        # Per-agent-type memory budgets — exploit/post_exploit need larger context
+        # to track multiple tool results; webapp/scanner are lighter workloads.
+        _AGENT_MEMORY = {
+            "exploit":      {"memory_max_tokens": 32768, "memory_max_messages": 40},
+            "post_exploit": {"memory_max_tokens": 32768, "memory_max_messages": 40},
+            "scanner":      {"memory_max_tokens": 16384, "memory_max_messages": 30},
+            "webapp":       {"memory_max_tokens": 16384, "memory_max_messages": 30},
+            "lateral":      {"memory_max_tokens": 32768, "memory_max_messages": 40},
+            "reporting":    {"memory_max_tokens": 32768, "memory_max_messages": 40},
+        }
+        mem_defaults = _AGENT_MEMORY.get(agent_type, {"memory_max_tokens": 16384, "memory_max_messages": 30})
+
         # Build constructor kwargs for the child agent
         child_kwargs = {
             "agent_type":         agent_type,
@@ -478,6 +523,7 @@ class BrainAgent(BaseAgent):
             "mission_context":    self.ctx,
             "target":             target,
             "task_type":          task_type,
+            **mem_defaults,
         }
         # Override with any agent-specific kwargs from registry
         child_kwargs.update(self._agent_ctor_kwargs.get(agent_type, {}))
@@ -521,7 +567,7 @@ class BrainAgent(BaseAgent):
         dbg.agent_spawn(self.agent_id, agent_id, agent_type, target)
         logger.info("BrainAgent: spawned %s (id=%s) for %s", agent_type, agent_id, target)
 
-        return {
+        spawn_result = {
             "success": True,
             "status": "spawned",
             "agent_id": agent_id,
@@ -529,6 +575,12 @@ class BrainAgent(BaseAgent):
             "task_type": task_type,
             "target": target,
         }
+        # Register in dedup tracking immediately (not waiting for process_result)
+        self._active_agents[agent_id] = agent_type
+        self._active_agent_task_types[agent_id] = task_type
+        self._active_agent_targets[agent_id] = target
+        self._active_agent_options[agent_id] = options or {}
+        return spawn_result
 
     async def _spawn_agents_batch(self, params: dict) -> dict:
         """
@@ -758,7 +810,7 @@ class BrainAgent(BaseAgent):
             return {"success": True, "status": "killed", "agent_id": agent_id, "error": None}
         return {"success": False, "status": "not_found", "agent_id": agent_id, "error": f"Agent not found: {agent_id}"}
 
-    def _handle_spawn_result(self, result: dict) -> None:
+    def _handle_spawn_result(self, result: dict, options: dict | None = None) -> None:
         # result from observe() has structure {"success": ..., "output": {"status": "spawned", ...}}
         # Unwrap to get the actual spawn result
         inner = result.get("output", result) if isinstance(result.get("output"), dict) else result
@@ -770,6 +822,7 @@ class BrainAgent(BaseAgent):
             self._active_agents[aid] = atype
             self._active_agent_task_types[aid] = atask
             self._active_agent_targets[aid] = atgt
+            self._active_agent_options[aid] = options or {}
             self._add_finding({
                 "type": "agent_spawned",
                 "agent_id": aid,
@@ -905,8 +958,80 @@ class BrainAgent(BaseAgent):
             # Track shell sessions and broadcast to UI
             if finding_type in ("session", "session_opened", "shell_opened"):
                 await self._register_shell(msg.payload)
-            # Objective match check — emit confirmation card to operator
-            self._check_objective_match(msg.payload)
+                # Cancel other exploit agents for the same target — one shell is enough.
+                # Exploit agents running reverse/bind handlers will otherwise hang until timeout.
+                if not self._mission_done:
+                    host_ip_for_cancel = (
+                        msg.payload.get("host_ip")
+                        or (msg.payload.get("data", {}).get("host_ip", "")
+                            if isinstance(msg.payload.get("data"), dict) else "")
+                    )
+                    for aid, task in list(self._child_tasks.items()):
+                        if task.done():
+                            continue
+                        atype = self._active_agents.get(aid, "")
+                        atgt  = self._active_agent_targets.get(aid, "")
+                        if atype == "exploit" and atgt == host_ip_for_cancel:
+                            task.cancel()
+                            self.emit_event("agent_killed", {
+                                "agent_id": aid,
+                                "reason": "shell_already_opened",
+                            })
+
+                # Reactively spawn a post_exploit agent if mission is still in progress.
+                # This runs even while Brain is blocked in wait_for_agents, so the shell
+                # doesn't sit idle waiting for the whole batch to finish.
+                if not self._mission_done and self.ctx.allow_post_exploitation:
+                    host_ip = (
+                        msg.payload.get("host_ip")
+                        or msg.payload.get("data", {}).get("host_ip", "")
+                        if isinstance(msg.payload.get("data"), dict)
+                        else msg.payload.get("host_ip", "")
+                    )
+                    # Only spawn if no post_exploit agent is already active for this target
+                    already_running = any(
+                        atype == "post_exploit" and tgt == host_ip
+                        for atype, tgt in zip(
+                            self._active_agents.values(),
+                            self._active_agent_targets.values(),
+                        )
+                    )
+                    if not already_running and host_ip:
+                        shell_key = msg.payload.get("shell_key") or msg.payload.get("data", {}).get("shell_key", "") if isinstance(msg.payload.get("data"), dict) else ""
+                        obj_str = "; ".join(self.ctx.objectives) if self.ctx.objectives else ""
+                        task = f"post_exploitation | objectives: {obj_str}" if obj_str else "post_exploitation"
+                        opts: dict = {}
+                        if shell_key:
+                            opts["shell_key"] = shell_key
+                        await self._spawn_agent({
+                            "agent_type": "post_exploit",
+                            "target": host_ip,
+                            "task_type": task,
+                            "options": opts,
+                        })
+
+            # Auto-stop: flag finding → mission achieved, cancel all children immediately
+            if finding_type == "flag" and not self._mission_done:
+                content = (
+                    msg.payload.get("content")
+                    or msg.payload.get("data", {}).get("content", "")
+                    if isinstance(msg.payload.get("data"), dict)
+                    else msg.payload.get("content", "")
+                )
+                self._mission_done = True
+                self._cancel_all_children("flag_found")
+                self.memory.add_user(
+                    f"[SYSTEM] FLAG CAPTURED by agent {msg.sender_id}: {str(content)[:300]}. "
+                    "Objective achieved. Call mission_done immediately with the flag content in the summary."
+                )
+                self.emit_event("objective_achieved", {
+                    "content": str(content)[:300],
+                    "agent_id": msg.sender_id,
+                })
+                dbg.info(self.agent_id, f"Auto-stop: flag found by {msg.sender_id}")
+            else:
+                # General objective match check — emit confirmation card + auto-stop if matched
+                self._check_objective_match(msg.payload)
         elif msg.msg_type in (MessageType.AGENT_DONE, MessageType.AGENT_ERROR):
             aid = msg.payload.get("agent_id", "")
             status = msg.payload.get("status", "?")
@@ -914,6 +1039,7 @@ class BrainAgent(BaseAgent):
             self._active_agents.pop(aid, None)
             self._active_agent_task_types.pop(aid, None)
             self._active_agent_targets.pop(aid, None)
+            self._active_agent_options.pop(aid, None)
             self._child_agents.pop(aid, None)
             # Save successful techniques to the persistent playbook
             if status in ("success", "partial"):
@@ -1175,30 +1301,34 @@ class BrainAgent(BaseAgent):
         """Return all tracked shell sessions."""
         return list(self._active_shells.values())
 
-    def _check_objective_match(self, finding: dict) -> None:
-        """If a finding looks like it satisfies an objective, emit a confirmation card.
+    def _check_objective_match(self, finding: dict) -> bool:
+        """If a finding satisfies an objective, emit confirmation and auto-stop.
 
-        Shell openings are infrastructure — they should NOT trigger the card.
-        Only concrete results (file content, loot, flags, credentials) should.
+        Shell openings are infrastructure — skip them.
+        Concrete results (file content, loot, flags, credentials) trigger auto-stop.
+
+        Returns True if an objective match was found (and mission was stopped).
         """
         if not self.ctx.objectives:
-            return
+            return False
         data = finding.get("data", finding)
+        if not isinstance(data, dict):
+            data = {}
         finding_type = finding.get("type", finding.get("finding_type", ""))
 
-        # Skip shell/session openings — they are steps toward the objective, not the objective itself
+        # Skip shell/session openings — steps toward the objective, not the objective itself
         if finding_type in ("session", "session_opened", "shell_opened"):
-            return
+            return False
 
         # Build a short summary of what was found
         summary = ""
         if finding_type in ("loot", "flag", "credential", "credential_found"):
-            summary = str(data.get("content") or data.get("value") or data.get("data") or data)[:200]
+            summary = str(data.get("content") or data.get("value") or data.get("data") or finding)[:300]
         elif finding_type == "file_found":
-            summary = f"File found: {data.get('path','?')} — {str(data.get('content',''))[:120]}"
+            summary = f"File: {data.get('path','?')} — {str(data.get('content',''))[:200]}"
 
         if not summary:
-            return
+            return False
 
         # Check if any objective keyword appears in the finding
         summary_lower = summary.lower()
@@ -1206,7 +1336,6 @@ class BrainAgent(BaseAgent):
                  "check", "scan", "fetch", "locate", "grab", "inside", "open", "view"}
         for obj in self.ctx.objectives:
             obj_lower = obj.lower()
-            # Extract meaningful keywords — skip action verbs and short words
             keywords = [w for w in obj_lower.split() if len(w) > 3 and w not in _STOP]
             if keywords and any(kw in summary_lower for kw in keywords):
                 self.emit_event("finding_confirm", {
@@ -1215,7 +1344,17 @@ class BrainAgent(BaseAgent):
                     "objective": obj,
                     "timeout_seconds": 30,
                 })
-                break
+                # Auto-stop: objective achieved
+                if not self._mission_done:
+                    self._mission_done = True
+                    self._cancel_all_children("objective_achieved")
+                    self.memory.add_user(
+                        f"[SYSTEM] Objective '{obj}' achieved: {summary[:200]}. "
+                        "Call mission_done immediately."
+                    )
+                    dbg.info(self.agent_id, f"Objective matched: {obj!r}")
+                return True
+        return False
 
     def _record_playbook_entries(self, payload: dict) -> None:
         """
@@ -1233,22 +1372,30 @@ class BrainAgent(BaseAgent):
             if ftype in ("session_opened", "shell_opened", "session"):
                 data = finding.get("data", finding)
                 module = data.get("module", "")
-                service = data.get("service", agent_type)
+                # Derive service from module path (e.g. exploit/unix/ftp/vsftpd_234_backdoor → vsftpd)
+                # Fall back to explicit service field, then skip generic agent_type labels
+                service = data.get("service", "")
+                if not service and module:
+                    last_part = module.split("/")[-1]  # e.g. "vsftpd_234_backdoor"
+                    service = last_part.split("_")[0]  # e.g. "vsftpd"
+                if not service:
+                    service = ""  # don't store meaningless "exploit" label
                 version = data.get("version", "")
-                pb.record(
-                    service=service,
-                    version=version,
-                    technique=module or data.get("technique", ""),
-                    result="shell",
-                    cve=data.get("cve", ""),
-                    module=module,
-                    payload=data.get("payload", ""),
-                    options=data.get("options", {}),
-                    notes=data.get("notes", data.get("shell_output", "")[:120]),
-                    session_id=self.session_id,
-                )
-                dbg.info(self.agent_id,
-                         f"Playbook saved: shell via {module or service} {version}")
+                if service or module:  # skip entries with no useful info
+                    pb.record(
+                        service=service,
+                        version=version,
+                        technique=module or data.get("technique", ""),
+                        result="shell",
+                        cve=data.get("cve", ""),
+                        module=module,
+                        payload=data.get("payload", ""),
+                        options=data.get("options", {}),
+                        notes=data.get("notes", data.get("shell_output", "")[:120]),
+                        session_id=self.session_id,
+                    )
+                    dbg.info(self.agent_id,
+                             f"Playbook saved: shell via {module or service} {version}")
 
             # Credential harvested
             elif ftype in ("credential_found", "credential"):

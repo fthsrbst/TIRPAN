@@ -20,6 +20,8 @@ from core.brain_agent import _register_agent_type
 
 logger = logging.getLogger(__name__)
 
+_MAX_SCAN_CALLS = 5  # max tool calls (excluding report_finding / done)
+
 _TOOLS_DESC = """\
 Available tools:
   whatweb_scan(url)                          — identify web tech stack, CMS, frameworks
@@ -31,14 +33,22 @@ Available tools:
 IMPORTANT: All tools require a full URL (not just an IP). Build it as:
   http://<TARGET>:<port>/  or  https://<TARGET>/
 
+STRICT LIMITS — MANDATORY:
+  - Each scan tool may be called AT MOST ONCE per unique URL. Never repeat a tool on the same URL.
+  - Total scan tool calls (whatweb/nikto/nuclei/ffuf): maximum {max_calls}.
+  - If a tool returns an error or empty results, do NOT retry — move to the next tool.
+  - After {max_calls} scan calls, go directly to report_finding and done.
+
 Workflow:
   1. whatweb_scan(url="http://TARGET/") → identify technology stack
   2. nikto_scan(url="http://TARGET/", timeout=300) → quick vulnerability check
   3. nuclei_scan(url="http://TARGET/", severity="medium,high,critical") → CVE check
   4. If interesting paths found → ffuf_scan(url="http://TARGET/") for directory enum
-  5. report_finding(finding_type="vulnerability", data={...}) for each finding
-  6. {"thought": "...", "action": "done", "parameters": {"findings_summary": "..."}}
-"""
+  5. report_finding(finding_type="vulnerability", data={{...}}) for each finding
+  6. {{"thought": "...", "action": "done", "parameters": {{"findings_summary": "..."}}}}
+""".format(max_calls=_MAX_SCAN_CALLS)
+
+_SCAN_TOOLS = frozenset(["whatweb_scan", "nikto_scan", "nuclei_scan", "ffuf_scan"])
 
 
 class WebAppAgent(BaseSpecializedAgent):
@@ -49,6 +59,18 @@ class WebAppAgent(BaseSpecializedAgent):
             if self._registry and self._registry.has(tool_name):
                 tools.append(tool_name)
         return tools
+
+    def _count_scan_calls(self) -> int:
+        """Count how many scan tool calls have been made so far (from memory)."""
+        count = 0
+        for msg in self.memory._messages:
+            if msg.role == "assistant":
+                content = msg.content or ""
+                for tool in _SCAN_TOOLS:
+                    if f'"{tool}"' in content or f"'{tool}'" in content:
+                        count += 1
+                        break
+        return count
 
     def build_messages(self) -> list[dict]:
         port = self.options.get("port", 80) if self.options else 80
@@ -65,7 +87,25 @@ class WebAppAgent(BaseSpecializedAgent):
         )
         tools_desc += f"\nYour target URL is: {base_url}\n"
         system = self._base_system("WebAppAgent", tools_desc)
-        return [{"role": "system", "content": system}] + self._build_memory_messages()
+
+        msgs = [{"role": "system", "content": system}]
+
+        # Runtime guard: inject stop message if scan call limit reached
+        scan_calls = self._count_scan_calls()
+        if scan_calls >= _MAX_SCAN_CALLS:
+            msgs.extend(self._build_memory_messages())
+            msgs.append({
+                "role": "user",
+                "content": (
+                    f"[SYSTEM] You have reached the maximum of {_MAX_SCAN_CALLS} scan tool calls. "
+                    "You MUST now call report_finding for any findings, then call done immediately. "
+                    "Do NOT call any more scan tools."
+                ),
+            })
+        else:
+            msgs.extend(self._build_memory_messages())
+
+        return msgs
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
         if tool_name == "report_finding":
@@ -99,7 +139,6 @@ class WebAppAgent(BaseSpecializedAgent):
             }
             self._add_finding(finding)
             await self.publish_finding(finding)
-
 
 
 _register_agent_type("webapp", "core.agents.webapp_agent", "WebAppAgent")
