@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 EXPLOIT_TIMEOUT = 90   # seconds for RPC
 MSF_CONSOLE_TIMEOUT = 120  # seconds for msfconsole subprocess (slower to start)
 _CMD_TIMEOUT = 30  # seconds for session command execution
-_RPC_SESSION_POLL_TIMEOUT = 15.0
+_RPC_SESSION_POLL_TIMEOUT = 30.0
 _RPC_SESSION_POLL_INTERVAL = 0.5
 
 # ── LPORT auto-allocator ──────────────────────────────────────────────────────
@@ -138,6 +138,15 @@ class MetasploitTool(BaseTool):
             for field in ("module", "target_ip", "target_port"):
                 if not params.get(field):
                     return False, f"'{field}' is required for action='run'"
+            module = params.get("module", "")
+            if module.startswith("auxiliary/") or module.startswith("post/"):
+                mod_type = "auxiliary" if module.startswith("auxiliary/") else "post"
+                return False, (
+                    f"Module '{module}' is a {mod_type}/ module — "
+                    "metasploit_run only supports exploit/ modules. "
+                    "For r-services (512/513/514) use rsh_exec tool directly. "
+                    "For SSH credential testing use ssh_tool."
+                )
         if action == "session_exec":
             if params.get("session_id") is None:
                 return False, "'session_id' is required for action='session_exec'"
@@ -501,6 +510,19 @@ class MetasploitTool(BaseTool):
                 return await self._list_sessions(client)
             if action == "session_exec":
                 return await self._session_exec_rpc(client, params)
+            # Native-shell modules (vsftpd, samba usermap_script, distcc) require
+            # msfconsole-specific logic: stale-port cleanup, bind-payload iteration,
+            # "Backdoor has been spawned" detection. The RPC path lacks all of this
+            # and always hits the 90s timeout. Force msfconsole even when RPC is up.
+            module = params.get("module", "")
+            canonical = self._MODULE_ALIASES.get(module, module)
+            if self._is_native_shell_module(canonical):
+                self._emit_msf_event(
+                    "native_shell_msfconsole_forced",
+                    module=canonical,
+                    reason="native_shell_modules_require_msfconsole_logic",
+                )
+                return await self._run_via_msfconsole(params)
             try:
                 return await self._run_exploit(client, params)
             except TimeoutError:

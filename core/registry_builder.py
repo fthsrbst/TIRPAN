@@ -15,6 +15,7 @@ from tools.searchsploit_tool import SearchSploitTool
 from tools.metasploit_tool import MetasploitTool
 from tools.ssh_tool import SSHTool
 from tools.shell_session_tool import ShellSessionTool
+from tools.local_exec_tool import LocalExecTool
 
 
 def build_tool_registry(
@@ -43,6 +44,7 @@ def build_tool_registry(
     registry.register(MetasploitTool())
     registry.register(SSHTool())
     registry.register(ShellSessionTool())
+    registry.register(LocalExecTool())
 
     if include_extended:
         from tools.masscan_tool import MasscanTool
