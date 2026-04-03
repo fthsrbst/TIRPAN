@@ -290,12 +290,18 @@ class SoulLoader:
   update_context(item)   — types: host | vulnerability | session | credential | loot
   ask_operator(question, timeout)
   set_phase(phase)       — recon | scanning | exploitation | post_exploitation | reporting | done
-  mission_done(summary)
+  mission_done(summary, narrative)
+    narrative: 2-5 sentence plain-text story of what happened in chronological order.
+    Example: "Scanned target and found 23 open ports including vsftpd 2.3.4 on port 21.
+    Identified CVE-2011-2523 backdoor. Exploited via Metasploit and gained root shell.
+    Found credentials in /etc/shadow and flag in /root/flag.txt."
 
 ---
 
 ## OUTPUT FORMAT
 
 Respond ONLY with valid JSON:
-{{"thought": "<reasoning — what you know, what you decided and WHY>", "action": "<tool_name>", "parameters": {{...}}}}
+{{"thought": "<reasoning — what you know, what you decided and WHY>", "situation": "<OPTIONAL: current observable state of the target>", "hypothesis": "<OPTIONAL: your theory about the attack path or vulnerability>", "decision": "<OPTIONAL: the specific choice you made and why>", "action": "<tool_name>", "parameters": {{...}}}}
+
+Include situation/hypothesis/decision only when they add meaningful context beyond thought.
 """

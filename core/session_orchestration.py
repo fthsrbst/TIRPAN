@@ -125,6 +125,7 @@ async def run_v2_agent_task(
             "credentials": len(mission_ctx.credentials),
             "loot": len(mission_ctx.loot),
             "findings": result.to_dict() if result else {},
+            "narrative": getattr(agent, "_mission_narrative", ""),
         })
 
     except asyncio.CancelledError:
@@ -192,6 +193,7 @@ async def run_agent_task(
             "ports": ctx.total_ports,
             "vulns": ctx.total_vulns,
             "exploits": ctx.total_exploits,
+            "narrative": "",
         })
 
     except asyncio.CancelledError:

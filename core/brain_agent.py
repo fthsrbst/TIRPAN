@@ -151,6 +151,7 @@ class BrainAgent(BaseAgent):
         self._operator_futures: dict[str, asyncio.Future] = {}
         # Set to True when mission_done meta-tool is called
         self._mission_done: bool = False
+        self._mission_narrative: str = ""
         self._objective_confirmed: bool = False
         self._objective_confirm_msg: str = ""
         self._dispatch_blocked_reason: str = ""
@@ -208,6 +209,12 @@ class BrainAgent(BaseAgent):
                 })
         elif tool_name == "mission_done":
             self._mission_done = True
+            params = action_dict.get("parameters", {})
+            self._mission_narrative = (
+                params.get("narrative", "")
+                or params.get("summary", "")
+                or action_dict.get("thought", "")
+            )
 
     @staticmethod
     def _is_objective_confirm_message(message: str) -> bool:
