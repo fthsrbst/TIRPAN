@@ -57,7 +57,9 @@
       "Bash(grep -E \"\\\\.py$|static|handlers\")",
       "Bash(sqlite3 \"//wsl.localhost/kali-linux/home/fatih/TIRPAN/data/tirpan.db\" \".schema pentest_sessions\")",
       "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/souls/**)",
-      "Bash(touch \"//wsl.localhost/kali-linux/home/fatih/TIRPAN/souls/__init__.py\")"
+      "Bash(touch \"//wsl.localhost/kali-linux/home/fatih/TIRPAN/souls/__init__.py\")",
+      "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/data/sessions/f1efa0d3-*/**)",
+      "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/data/**)"
     ]
   }
 }

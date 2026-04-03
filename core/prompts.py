@@ -214,10 +214,15 @@ Respond with a single valid JSON object only. No prose, no markdown, no comments
 
 {
   "thought": "<your internal reasoning about the current situation>",
+  "situation": "<OPTIONAL: one sentence — current observable state of the target (open ports, services, shells, findings so far)>",
+  "hypothesis": "<OPTIONAL: one sentence — your theory about what vulnerability or attack path exists and why it should work>",
+  "decision": "<OPTIONAL: one sentence — the specific choice you made and why (e.g. 'Exploiting vsftpd first because it has highest reliability')>",
   "action": "<tool_name OR generate_report>",
   "parameters": { ... },
   "reasoning": "<one sentence: why this action, why now>"
 }
+
+Include situation/hypothesis/decision only when they add meaningful context beyond thought.
 
 Available action values: nmap_scan, searchsploit_search, metasploit_run, ssh_exec, shell_exec, generate_report, parallel_tools
 

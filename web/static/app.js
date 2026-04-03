@@ -873,6 +873,7 @@ async function loadConversationsFromAPI() {
             projectId: mappings[c.id] || null,
             createdAt: c.created_at * 1000,
         }));
+        _initialDataLoaded = true;
     } catch {
         conversations = [];
     }
@@ -1261,6 +1262,7 @@ let wsReady = false;
 let currentAssistantEl = null;  // streaming message bubble
 let currentAssistantText = '';   // accumulated text for the current stream
 let isStreaming = false;
+let _initialDataLoaded = false;
 
 function updateSendBtn() {
     const btn = document.getElementById('chat-view-send-btn');
@@ -1286,6 +1288,14 @@ function wsConnect() {
         // Re-sync server context after connect/reconnect
         if (activeConvId) {
             ws.send(JSON.stringify({ type: 'load_conversation', conversation_id: activeConvId }));
+        }
+        // If the server wasn't ready when the page first loaded, the initial
+        // HTTP fetches may have failed. Reload them on first successful WS connect.
+        if (!_initialDataLoaded) {
+            _initialDataLoaded = true;
+            initConversations();
+            loadPersistedSettings();
+            loadSessionsForSelects();
         }
     };
 
@@ -2766,6 +2776,7 @@ function handleSessionDone(msg) {
         flags:    counts.flags    || [],
         findings: counts.findings || [],
         objective_result: counts.objective_result || counts.objective || '',
+        narrative: counts.narrative || '',
     });
     agOnDone(counts);
     appendConsoleLine('[SESSION] Agent finished — report available in the Report tab', 'text-primary');
@@ -4783,7 +4794,8 @@ function _toolCallSummary(tool, params) {
 
 function _resultSummary(output) {
     if (!output) return '';
-    return output.trim().split('\n').filter(l => l.trim()).slice(0, 2).join(' · ').slice(0, 140);
+    const s = typeof output === 'string' ? output : JSON.stringify(output);
+    return s.trim().split('\n').filter(l => l.trim()).slice(0, 2).join(' · ').slice(0, 140);
 }
 
 function _closeToolBatch() { _toolBatch = null; }
@@ -4982,7 +4994,8 @@ function _resolveToolBatchItem(data) {
     const pending = _toolBatch.pendingQueue.shift();
     const uid     = pending.uid;
     const success = data.success !== false;
-    const output  = data.output || data.error || '';
+    const rawOutput = data.output || data.error || '';
+    const output = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2);
     const summary = _resultSummary(output);
 
     const statusEl = document.getElementById(`tbstatus-${uid}`);
@@ -4996,7 +5009,7 @@ function _resolveToolBatchItem(data) {
     const resultDetailEl = document.getElementById(`tbresult-detail-${uid}`);
     if (resultDetailEl && output) {
         const cl = success ? 'text-primary/70' : 'text-danger/70';
-        resultDetailEl.innerHTML = `<pre class="${cl} text-[10px] whitespace-pre-wrap break-all leading-relaxed max-h-40 overflow-y-auto border-t border-border-color/20 pt-1.5">${_esc(output.trim().slice(0, 800))}</pre>`;
+        resultDetailEl.innerHTML = `<pre class="${cl} text-[10px] whitespace-pre-wrap break-all leading-relaxed max-h-40 overflow-y-auto border-t border-border-color/20 pt-1.5">${_esc(output.slice(0, 800))}</pre>`;
         resultDetailEl.classList.remove('hidden');
         // Recalculate heights if sections are open
         const item = resultDetailEl.closest('.tool-batch-item');
@@ -5246,17 +5259,44 @@ function finalizeAgentStreamCard() {
 
 function renderMissionReasoning(data) {
     _missionIteration++;
-    const iter      = _missionIteration;
-    const thought   = _esc(data.thought   || '');
-    const reasoning = _esc(data.reasoning || '');
-    const action    = _esc(data.action    || '');
-    // Short preview shown in collapsed header (first ~70 chars of thought)
-    const preview   = thought ? thought.slice(0, 72) + (thought.length > 72 ? '…' : '') : '';
+    const iter       = _missionIteration;
+    const thought    = _esc(data.thought    || '');
+    const reasoning  = _esc(data.reasoning  || '');
+    const action     = _esc(data.action     || '');
+    const situation  = _esc(data.situation  || '');
+    const hypothesis = _esc(data.hypothesis || '');
+    const decision   = _esc(data.decision   || '');
 
-    const bodyHtml = [
+    const hasStructured = situation || hypothesis || decision;
+
+    // Structured rows (shown when LLM provides explicit fields)
+    const structuredHtml = hasStructured ? [
+        situation  ? `<div class="flex gap-2 mb-1.5 items-start">
+            <span class="shrink-0 text-cyan-400 font-bold text-[10px] uppercase tracking-widest w-[80px]">Situation</span>
+            <span class="text-slate-300/85 text-[11px] leading-relaxed whitespace-pre-wrap">${situation}</span>
+        </div>` : '',
+        hypothesis ? `<div class="flex gap-2 mb-1.5 items-start">
+            <span class="shrink-0 text-amber-400 font-bold text-[10px] uppercase tracking-widest w-[80px]">Hypothesis</span>
+            <span class="text-slate-300/85 text-[11px] leading-relaxed whitespace-pre-wrap">${hypothesis}</span>
+        </div>` : '',
+        decision   ? `<div class="flex gap-2 mb-1.5 items-start">
+            <span class="shrink-0 text-emerald-400 font-bold text-[10px] uppercase tracking-widest w-[80px]">Decision</span>
+            <span class="text-slate-300/85 text-[11px] leading-relaxed whitespace-pre-wrap">${decision}</span>
+        </div>` : '',
+    ].filter(Boolean).join('') : '';
+
+    // Fallback: plain thought/reasoning when structured fields absent
+    const fallbackHtml = !hasStructured ? [
         thought   ? `<p class="text-slate-300/80 text-[12px] italic leading-relaxed whitespace-pre-wrap mb-2">${thought}</p>` : '',
         reasoning ? `<p class="text-secondary-text/70 text-[11px] italic leading-relaxed whitespace-pre-wrap mb-2">${reasoning}</p>` : '',
-        action    ? `<p class="text-primary text-[11px] font-bold mt-1 not-italic">→ &nbsp;${action}</p>` : '',
+    ].filter(Boolean).join('') : '';
+
+    const bodyHtml = [
+        structuredHtml || fallbackHtml,
+        action ? `<div class="flex gap-2 items-center mt-2 pt-1.5 border-t border-yellow-500/10">
+            <span class="text-yellow-400/60 text-[10px] uppercase tracking-widest shrink-0">→</span>
+            <span class="text-primary text-[11px] font-bold">${action}</span>
+        </div>` : '',
     ].filter(Boolean).join('');
 
     const thinkOpen = _feedFilterAutoExpand('thinking');
@@ -5313,7 +5353,8 @@ function renderMissionToolCall(data) {
 function renderMissionToolResult(data) {
     const tool    = _esc(data.tool || '');
     const success = data.success !== false;
-    const output  = _esc(data.output || data.error || '');
+    const rawOutput = data.output || data.error || '';
+    const output  = _esc(typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2));
     const borderHex2  = success ? '#ccff00' : '#ef4444';
     const borderRgba2 = success ? 'rgba(204,255,0,0.3)' : 'rgba(239,68,68,0.35)';
     const color   = success ? 'text-primary' : 'text-danger';
@@ -5432,6 +5473,13 @@ function renderMissionDone(data) {
         findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
             <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Objective Result</div>
             <div class="text-secondary-text text-[11px] italic leading-relaxed whitespace-pre-wrap">${_parseMd(_esc(objective))}</div>
+        </div>`;
+    }
+    const narrative = data.narrative || '';
+    if (narrative) {
+        findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
+            <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Attack Narrative</div>
+            <div class="text-secondary-text text-[11px] leading-relaxed whitespace-pre-wrap">${_esc(narrative)}</div>
         </div>`;
     }
     appendMissionCard(`
@@ -5800,7 +5848,10 @@ async function switchToSession(sessionId) {
                 if (evData && evData.events && evData.events.length > 0) {
                     renderMissionStart(session.target, session.mode);
                     agOnMissionStart({ target: session.target, mode: session.mode });
-                    evData.events.forEach(ev => replaySessionEvent(ev.event_type, ev.data));
+                    evData.events.forEach(ev => {
+                        try { replaySessionEvent(ev.event_type, ev.data); }
+                        catch (e) { console.warn('[replay] skipped event:', ev.event_type, e); }
+                    });
                     // Always render graph after full replay and fit view
                     setTimeout(function(){ _agRender(); setTimeout(agZoomFit, 100); }, 150);
                 } else {
@@ -5858,11 +5909,20 @@ function replaySessionEvent(event, data) {
             agOnParallelDone(data);
             break;
         case 'phase_change':
+        case 'phase_changed':
         case 'observation':
         case 'discovery':
             updatePhaseFromEvent(data);
             break;
+        case 'agent_start':
+            _closeToolBatch();
+            agOnThinking({ action: data.agent_type || 'agent', thought: '' });
+            break;
+        case 'finding':
+            updatePhaseFromEvent(data);
+            break;
         case 'done':
+        case 'agent_done':
             setPhaseActive(5);
             break;
         default:

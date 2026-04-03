@@ -753,9 +753,12 @@ class BaseAgent(ABC):
                 })
 
             self.emit_event("reasoning", {
-                "thought": action_dict.get("thought", ""),
-                "action": action_dict.get("action", ""),
-                "reasoning": action_dict.get("reasoning", ""),
+                "thought":    action_dict.get("thought", ""),
+                "action":     action_dict.get("action", ""),
+                "reasoning":  action_dict.get("reasoning", ""),
+                "situation":  action_dict.get("situation", ""),
+                "hypothesis": action_dict.get("hypothesis", ""),
+                "decision":   action_dict.get("decision", ""),
             })
             _tracer.log_reasoning(self.agent_id, self.agent_type, self._iteration, action_dict)
             # Debug: show thought + action for every agent
