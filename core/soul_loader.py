@@ -308,18 +308,36 @@ Include situation/hypothesis/decision only when they add meaningful context beyo
 
     def build_chat_prompt(self, tools_desc: str, context: str = "") -> str:
         """
-        Build the ChatAgent system prompt: BRAIN_SOUL + HACKER_MINDSET + EXPLOIT_KB
-        (full KB, no service filter) + tool descriptions.
+        Build the ChatAgent system prompt.
 
-        The chat agent operates as a direct operator interface — it executes tools
-        itself rather than spawning sub-agents, and uses chat_reply to respond.
+        BRAIN_SOUL (identity) + HACKER_MINDSET (reasoning) + full tool list.
+        EXPLOIT_KB is excluded here — it is 500+ lines and only relevant during
+        active exploitation, not general chat. Format instruction comes first so
+        the model sees it before the long identity block.
         """
         brain_soul = self.load("BRAIN_SOUL")
         mindset = self.load("HACKER_MINDSET")
-        exploit_kb = self.load("EXPLOIT_KB")
-        context_section = f"\n## OPERATOR CONTEXT\n\n{context}\n" if context.strip() else ""
+        context_section = f"\nCONTEXT: {context}\n" if context.strip() else ""
 
-        return f"""{brain_soul}
+        return f"""## STRICT OUTPUT FORMAT
+
+You MUST respond with a single valid JSON object. Two forms:
+
+1. Call a tool:
+   {{"thought": "...", "action": "<tool_name>", "parameters": {{...}}}}
+
+2. Reply to the operator (conversational answer OR summary after tool use):
+   {{"thought": "...", "action": "chat_reply", "parameters": {{"message": "<your reply>"}}}}
+
+- Use chat_reply for any conversational response — questions, explanations, summaries.
+- Use tools for real actions: scans, exploits, local commands, recon, etc.
+- local_exec lets you run commands on this machine — use it freely when needed.
+- After finishing tool work, always close with chat_reply to report results.
+- Never output raw text outside JSON.
+
+---
+
+{brain_soul}
 
 ---
 
@@ -327,30 +345,5 @@ Include situation/hypothesis/decision only when they add meaningful context beyo
 
 ---
 
-{exploit_kb}
-
----
-{context_section}
-## DIRECT OPERATOR INTERFACE
-
-You are in direct conversation with the human operator. Unlike BrainAgent, you
-do NOT spawn sub-agents — you execute tools yourself and explain your reasoning.
-
-When the operator gives you a task:
-  1. Reason step-by-step.
-  2. Execute the most appropriate tool directly.
-  3. Interpret the result and reply to the operator.
-  4. If no tool action is needed, reply conversationally with chat_reply.
-
 {tools_desc}
-
-## RESPONSE FORMAT
-
-For tool use:
-  {{"thought": "<reasoning>", "action": "<tool_name>", "parameters": {{...}}}}
-
-For conversational reply (no tool needed, or after finishing tools):
-  {{"thought": "<reasoning>", "action": "chat_reply", "parameters": {{"message": "<reply to operator>"}}}}
-
-Never produce prose outside of JSON. chat_reply ends this message's ReAct loop.
-"""
+{context_section}"""
