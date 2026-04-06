@@ -154,6 +154,7 @@ class BaseAgent(ABC):
         safety: SafetyGuard | None = None,
         llm: LLMRouter | None = None,
         progress_callback: ProgressCallback | None = None,
+        approval_callback: ApprovalCallback | None = None,
         agent_id: str | None = None,
         max_iterations: int = _DEFAULT_MAX_ITERATIONS,
         memory_max_messages: int = 50,
@@ -179,6 +180,7 @@ class BaseAgent(ABC):
         self._llm: LLMRouter = llm or llm_router
         self._max_iterations: int = max_iterations
         self._progress_cb: ProgressCallback | None = progress_callback
+        self._approval_cb: ApprovalCallback | None = approval_callback
         self._audit_repo = audit_repo
 
         self._iteration: int = 0
@@ -869,6 +871,22 @@ class BaseAgent(ABC):
                 "output": None,
                 "error": f"Safety rule blocked this action: {reason}",
             }
+
+        # ── Operator approval gate (opt-in — only when callback is set) ──
+        if self._approval_cb is not None:
+            approved = await self._approval_cb({
+                "tool": tool_name,
+                "params": params,
+                "agent_id": self.agent_id,
+            })
+            if not approved:
+                self._log.info("Operator denied tool call: %s", tool_name)
+                self.emit_event("approval_denied", {"tool": tool_name, "params": params})
+                self.memory.add_user(
+                    f"[OPERATOR] Denied execution of '{tool_name}'. "
+                    "Acknowledge this and adjust your plan or reply with chat_reply."
+                )
+                return {"success": False, "output": None, "error": "Operator denied this action."}
 
         # ── Execute ───────────────────────────────────────────────────────
         self.emit_event("tool_call", {"tool": tool_name, "params": params})
