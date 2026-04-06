@@ -360,12 +360,55 @@ def _make_chat_progress_callback(
     return callback
 
 
+def _make_approval_callback(
+    websocket: WebSocket,
+    loop: asyncio.AbstractEventLoop,
+    pending_approvals: dict,
+):
+    """
+    Return an async approval_callback for ChatAgent.
+
+    When the agent wants to run a tool:
+      1. Sends {"type": "approval_request", "approval_id": ..., "tool": ..., "params": ...}
+      2. Suspends until the operator sends {"type": "approval_response", "approval_id": ..., "approved": true/false}
+      3. Returns True (approved) or False (denied)
+
+    Times out after 120s and defaults to denied.
+    """
+    async def callback(action: dict) -> bool:
+        approval_id = str(uuid.uuid4())[:8]
+        fut: asyncio.Future = loop.create_future()
+        pending_approvals[approval_id] = fut
+
+        await websocket.send_json({
+            "type": "approval_request",
+            "approval_id": approval_id,
+            "tool": action.get("tool", ""),
+            "params": action.get("params", {}),
+        })
+
+        try:
+            return await asyncio.wait_for(asyncio.shield(fut), timeout=120.0)
+        except asyncio.TimeoutError:
+            pending_approvals.pop(approval_id, None)
+            await websocket.send_json({
+                "type": "status",
+                "content": "⏱ Approval timed out — action denied.",
+            })
+            return False
+        finally:
+            pending_approvals.pop(approval_id, None)
+
+    return callback
+
+
 async def _run_chat_agent(
     websocket: WebSocket,
     user_message: str,
     agent,
     conversation_id: str | None,
     msg_id: str,
+    pending_approvals: dict,
 ) -> str:
     """
     Run ChatAgent for one user message.
@@ -381,6 +424,7 @@ async def _run_chat_agent(
 
     loop = asyncio.get_event_loop()
     agent._progress_cb = _make_chat_progress_callback(websocket, loop, msg_id)
+    agent._approval_cb = _make_approval_callback(websocket, loop, pending_approvals)
 
     result = await agent.run()
 
@@ -429,6 +473,9 @@ async def handle_websocket(websocket: WebSocket) -> None:
     # ChatAgent instance — created lazily on first agent-mode message,
     # reset on new_conversation
     _chat_agent = None
+
+    # Pending approval futures: approval_id → asyncio.Future[bool]
+    _pending_approvals: dict = {}
 
     # Session subscriptions — list of session IDs this WS is watching
     watched_sessions: list[str] = []
@@ -516,17 +563,31 @@ async def handle_websocket(websocket: WebSocket) -> None:
                             _chat_agent.memory.add_assistant(entry["content"])
 
                 assistant_text = await _run_chat_agent(
-                    websocket, content, _chat_agent, conversation_id, msg_id
+                    websocket, content, _chat_agent, conversation_id, msg_id,
+                    _pending_approvals,
                 )
 
                 chat_history.append({"role": "user", "content": content})
                 if assistant_text:
                     chat_history.append({"role": "assistant", "content": assistant_text})
 
+            elif msg_type == "approval_response":
+                # Operator approved or denied a pending tool execution
+                approval_id = msg.get("approval_id", "")
+                approved = bool(msg.get("approved", False))
+                fut = _pending_approvals.get(approval_id)
+                if fut and not fut.done():
+                    fut.set_result(approved)
+
             elif msg_type == "new_conversation":
                 conversation_id = None
                 chat_history = []
                 _chat_agent = None  # reset agent so next session starts fresh
+                # Cancel any pending approvals
+                for fut in _pending_approvals.values():
+                    if not fut.done():
+                        fut.set_result(False)
+                _pending_approvals.clear()
                 await websocket.send_json({"type": "conversation_reset"})
 
             elif msg_type == "subscribe_session":
