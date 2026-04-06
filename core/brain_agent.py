@@ -426,6 +426,23 @@ class BrainAgent(BaseAgent):
                          f"Available: {list(_AGENT_REGISTRY.keys())}",
             }
 
+        # ── Port sanity check: catch truncated/wrong port numbers early ──
+        _port_val = (options or {}).get("port")
+        if _port_val is not None:
+            try:
+                _port_int = int(_port_val)
+                if not (1 <= _port_int <= 65535):
+                    logger.warning(
+                        "Suspicious port value %r for agent %s/%s — "
+                        "port must be 1-65535. Check spawn parameters.",
+                        _port_val, agent_type, task_type,
+                    )
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Non-integer port value %r for agent %s/%s",
+                    _port_val, agent_type, task_type,
+                )
+
         # ── Dedup guard: prevent identical (agent_type, target, task_type, port) ──
         # Different task_type OR different target OR different port → allowed concurrently.
         # Same type + same task_type + same target + same port → block as duplicate.
@@ -968,11 +985,8 @@ class BrainAgent(BaseAgent):
                 # Cancel other exploit agents for the same target — one shell is enough.
                 # Exploit agents running reverse/bind handlers will otherwise hang until timeout.
                 if not self._mission_done:
-                    host_ip_for_cancel = (
-                        msg.payload.get("host_ip")
-                        or (msg.payload.get("data", {}).get("host_ip", "")
-                            if isinstance(msg.payload.get("data"), dict) else "")
-                    )
+                    _pd = msg.payload.get("data") if isinstance(msg.payload.get("data"), dict) else {}
+                    host_ip_for_cancel = msg.payload.get("host_ip") or _pd.get("host_ip", "")
                     for aid, task in list(self._child_tasks.items()):
                         if task.done():
                             continue
@@ -989,12 +1003,8 @@ class BrainAgent(BaseAgent):
                 # This runs even while Brain is blocked in wait_for_agents, so the shell
                 # doesn't sit idle waiting for the whole batch to finish.
                 if not self._mission_done and self.ctx.allow_post_exploitation:
-                    host_ip = (
-                        msg.payload.get("host_ip")
-                        or msg.payload.get("data", {}).get("host_ip", "")
-                        if isinstance(msg.payload.get("data"), dict)
-                        else msg.payload.get("host_ip", "")
-                    )
+                    _nested = msg.payload.get("data") if isinstance(msg.payload.get("data"), dict) else {}
+                    host_ip = msg.payload.get("host_ip") or _nested.get("host_ip", "")
                     # Only spawn if no post_exploit agent is already active for this target
                     already_running = any(
                         atype == "post_exploit" and tgt == host_ip
@@ -1004,7 +1014,7 @@ class BrainAgent(BaseAgent):
                         )
                     )
                     if not already_running and host_ip:
-                        shell_key = msg.payload.get("shell_key") or msg.payload.get("data", {}).get("shell_key", "") if isinstance(msg.payload.get("data"), dict) else ""
+                        shell_key = msg.payload.get("shell_key") or _nested.get("shell_key", "")
                         obj_str = "; ".join(self.ctx.objectives) if self.ctx.objectives else ""
                         task = f"post_exploitation | objectives: {obj_str}" if obj_str else "post_exploitation"
                         opts: dict = {}
