@@ -59,7 +59,14 @@
       "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/souls/**)",
       "Bash(touch \"//wsl.localhost/kali-linux/home/fatih/TIRPAN/souls/__init__.py\")",
       "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/data/sessions/f1efa0d3-*/**)",
-      "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/data/**)"
+      "Read(///wsl.localhost/kali-linux/home/fatih/TIRPAN/data/**)",
+      "Bash(wc -l /home/fatih-root/TIRPAN/souls/*.md)",
+      "Bash(python -c \"import core.soul_loader; print\\('soul_loader OK'\\)\")",
+      "Bash(python -c \"import core.chat_agent; print\\('chat_agent OK'\\)\")",
+      "Bash(python -c \"import web.websocket_handler; print\\('websocket_handler OK'\\)\")",
+      "Bash(python -m py_compile core/soul_loader.py)",
+      "Bash(python -m py_compile core/chat_agent.py)",
+      "Bash(python -m py_compile web/websocket_handler.py)"
     ]
   }
 }

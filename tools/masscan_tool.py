@@ -80,11 +80,11 @@ class MasscanTool(BaseTool):
                 hosts[ip] = {"ip": ip, "ports": []}
             for p in entry.get("ports", []):
                 hosts[ip]["ports"].append({
+                    "number":  p.get("port", 0),
                     "port":    p.get("port", 0),
-                    "portid":  p.get("port", 0),
                     "state":   p.get("status", "open"),
                     "service": p.get("service", {}).get("name", ""),
-                    "name":    p.get("service", {}).get("name", ""),
+                    "version": "",
                 })
         return {"success": True, "output": {"hosts": list(hosts.values()), "total": len(hosts)}}
 
