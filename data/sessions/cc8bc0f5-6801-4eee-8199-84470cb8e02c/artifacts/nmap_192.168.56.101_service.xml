@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Sun Apr  5 21:35:30 2026 as: /usr/lib/nmap/nmap -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -p 1-65535 -&#45;script default -&#45;script-timeout 30s 192.168.56.101 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -p 1-65535 -&#45;script default -&#45;script-timeout 30s 192.168.56.101" start="1775414130" startstr="Sun Apr  5 21:35:30 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="65535" services="1-65535"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1775414130" endtime="1775414340"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.56.101" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="closed" count="64700">
+<extrareasons reason="reset" count="64700" proto="tcp" ports="1-20,24,26-49,51-52,54-71,73-79,81-82,85-100,102-110,112-132,134-135,137-138,140-228,230-260,262-293,295-376,378-380,382-432,434-444,446,448-511,515-531,533-548,550-551,553-595,597-608,610-674,676-678,680-749,751-808,810-831,833-844,846-933,935-960,962-1043,1045-1077,1079-1098,1100-1112,1114-1207,1209-1267,1269-1317,1319-1397,1399-1485,1487-1495,1497-1523,1525-1543,1545-1656,1658-1727,1729-1841,1843-1978,1980-2048,2050-2073,2075-2120,2122-2248,2250-2491,2493-2519,2521-2572,2574-2597,2599-2620,2622-2631,2633-2675,2677-2776,2778-2930,2932-2994,2996-3102,3104-3238,3240-3244,3246-3305,3307-3321,3323-3339,3341-3401,3403-3425,3427-3429,3431-3433,3435-3441,3443-3445,3447-3605,3607-3631,3633-3666,3668-3676,3678-3746,3748-3778,3780-3821,3823-3969,3971-4053,4055-4162,4164-4177,4179-4361,4363-4543,4545-4552,4554-4589,4591-4640,4642-4764,4766-4786,4788-4825,4827-4883,4885-4920,4922-5005,5007-5086,5088-5254,5256-5260,5262-5431,5433-5519,5521-5680,5682-5722,5724-5752,5754-5831,5833-5899,5901-5919,5921-5952,5954-5982,5984-5999,6001-6013,6015-6037,6039-6107,6109-6121,6123-6125,6127-6207,6209-6223,6225-6273,6275-6303,6305-6439,6441-6595,6597-6617,6619-6651,6653-6666,6668-6696,6698-6706,6708-6762,6764-6846,6848-6945,6947-7165,7167-7389,7391-7419,7421-7432,7434-7484,7486-7489,7491-7544,7546-7731,7733-7917,7919-7976,7978-7993,7995-8008,8010-8064,8066-8179,8181-8206,8209-8498,8500-8541,8543-8605,8607,8609-8620,8622-8680,8682-8786,8788-8795,8797-8854,8856-8894,8896-8954,8956-8958,8960-8971,8973-9164,9166-9301,9303-9410,9412-9426,9428-9470,9472-9620,9622-9625,9627-9726,9728-9791,9793-9984,9986-10063,10065-10358,10360-10382,10384-10402,10404-10462,10464-10466,10468-10691,10693-10709,10711-10772,10774-10789,10791-10821,10823-10954,10956-10980,10982-11104,11106-11118,11120-11154,11156-11222,11224-11282,11284-11295,11297-11335,11337-11722,11724-11961,11963-12061,12063-12092,12094-12098,12100-12330,12332-12343,12345-12351,12353-12413,12415-12421,12423-12458,12460-12477,12479-12497,12499-12596,12598-12857,12859-12899,12901-12975,12977-12982,12984-13042,13044-13133,13135-13235,13237-13367,13369-13378,13380-13583,13585-13674,13676-13726,13728-13745,13747-13827,13829-13880,13882-14050,14052,14054-14066,14068-14145,14147-14346,14348-14368,14370-14434,14436-14528,14530-14532,14534-14621,14623-14669,14671-14904,14906-14951,14953-15022,15024-15054,15056-15076,15078-15183,15185-15255,15257-15318,15320-15349,15351-15425,15427-15634,15636-15642,15644-15763,15765-15833,15835-16044,16046-16059,16061-16087,16089-16133,16135-16191,16193-16208,16210-16230,16232-16316,16318-16459,16461-16529,16531-16553,16555-16650,16652-16776,16778-16863,16865-16897,16899-17018,17020-17058,17060-17110,17112-17280,17282-17378,17380-17395,17397-17409,17411-17434,17436-17440,17442-17539,17541-17542,17544-17812,17814-17879,17881-17967,17969-18104,18106-18171,18173-18340,18342-18755,18757-18769,18771-18778,18780-18800,18802-18814,18816-18893,18895-18943,18945-19090,19092-19258,19260-19268,19270-19292,19294-19513,19515-19604,19606-19717,19719-19746,19748-19750,19752-19774,19776,19778-19898,19900-19986,19989-20013,20015-20028,20030-20088,20090-20277,20279,20281-20305,20307-20332,20334-20418,20420-20651,20653-20769,20771-20797,20799-20842,20844-21001,21003-21196,21198-21217,21219-21349,21351-21417,21419-21446,21448-21469,21471-21709,21711-21788,21790-21791,21793-21932,21934-22036,22038-22069,22071-22417,22419-22433,22435-22447,22449-22514,22516-22633,22635-22828,22830-22988,22990-23191,23193-23329,23331-23369,23371-23417,23419-23471,23473-23484,23486-23546,23548-23590,23592-23649,23651-23740,23742-23847,23849-23891,23893-23899,23901-24008,24010-24040,24042-24109,24111-24209,24211-24303,24305-24311,24313-24365,24367-24428,24430-24586,24588-24834,24836-24837,24839-24982,24984-25290,25292-25474,25476-25500,25502-25643,25645-25671,25673-25862,25864-25889,25891-25920,25922-26052,26054-26077,26079-26305,26307-26330,26332-26342,26344-26622,26624-26742,26744-26894,26896-26975,26977-27014,27016-27033,27035-27250,27252-27326,27328-27331,27333-27377,27379-27541,27543-27764,27766-27811,27813-27831,27833-27878,27880-27913,27915-28036,28038-28082,28084-28256,28258-28292,28294-28313,28315-28446,28448-28613,28615-28785,28787-28844,28846-28905,28907-29018,29020-29242,29244-29407,29409-29698,29700-29803,29805-29980,29982-30016,30018-30055,30057-30178,30180-30233,30235-30265,30267-30274,30276-30428,30430-30586,30588-30661,30663-30767,30769-30770,30772-30835,30837-30847,30849-30912,30914-30973,30975-31100,31102-31257,31259-31313,31315-31333,31335-31393,31395-31603,31605-31667,31669-31736,31738-31750,31752-31833,31835-32069,32071-32144,32146-32181,32183-32286,32288-32383,32385-32495,32497-32511,32513-32555,32557-32580,32582-32712,32714-32808,32810-32845,32847-32852,32854-32858,32860-33008,33010-33068,33070-33110,33112-33150,33152-33275,33277-33290,33292-33368,33370-33390,33392-33534,33536-33595,33597-33665,33667-33753,33755-33861,33863-34003,34005-34011,34013-34157,34159-34405,34407-34440,34442-34445,34447-34573,34575-34772,34774-34854,34856-34886,34888-34984,34986-35147,35149-35168,35170-35242,35244-35279,35281-35368,35370-35388,35390-35702,35704-35902,35904-35947,35949-36002,36004-36022,36025-36059,36061-36129,36131-36163,36165-36366,36368-36391,36393-36416,36418-36450,36452-36474,36476-36615,36617-36660,36662-36684,36686-36791,36793-37075,37077-37094,37096-37109,37111-37236,37238-37262,37264-37364,37366-37569,37571-37576,37578-37639,37641-37652,37654-37857,37859-37882,37884-38222,38224-38437,38439-38463,38465-38474,38476-38536,38538-38590,38592-38683,38685-38847,38849-38880,38882-38890,38892-39276,39278-39412,39414-39480,39482-39510,39512-39526,39528-39836,39838,39840-39858,39860-39984,39986-40060,40062-40169,40171-40263,40265-40284,40286-40314,40316-40404,40406-40455,40457-40515,40517-40651,40653-40876,40878-40892,40894-40943,40945-40981,40983-41000,41002-41047,41049-41149,41151-41161,41163-41239,41241-41329,41331-41395,41397-41636,41638-41683,41685-41716,41718-41744,41746-41751,41753-41803,41805-41889,41891-42058,42060-42150,42152-42156,42158-42218,42220-42223,42225-42226,42228-42314,42316-42423,42425-42489,42491-42545,42547-42637,42639-42649,42651-42700,42702-42706,42708-42759,42761-42838,42840-43027,43029-43160,43162-43176,43178-43198,43200-43313,43315-43333,43335-43436,43438-43442,43444-43469,43471-43606,43608-43639,43641-43646,43648-43691,43693-43800,43802-43873,43875-43879,43881-43976,43978-43982,43984-44052,44054-44056,44058-44120,44122-44136,44138-44154,44156-44197,44199-44319,44321-44718,44720-44900,44902-44906,44908-44964,44966-44980,44982-45064,45066-45080,45082-45120,45122-45264,45266-45287,45289-45447,45449-45626,45628-45681,45683-45852,45854-45952,45954-46007,46009-46011,46013-46230,46232-46346,46348-46408,46410-46472,46474-46563,46565-46807,46809-46974,46976-47164,47166-47233,47235-47266,47268-47350,47352-47439,47441-47548,47550-47621,47623-47639,47641-47654,47656-47672,47674-47772,47774-47943,47945-48040,48042-48140,48142-48263,48265-48272,48274,48276-48421,48423-48579,48581,48583-48609,48611-48681,48683-48744,48746-49124,49126-49219,49221-49245,49247-49251,49253-49312,49314-49446,49448-49466,49468,49470-49491,49493-49591,49593-49662,49664-49779,49781-49792,49794-50025,50027-50053,50055-50295,50297-50627,50629-50662,50664-50730,50732-50775,50777-50947,50949-50973,50975-50995,50997-51024,51026-51094,51096-51099,51101-51105,51107-51219,51221-51227,51229-51278,51280-51578,51580-52084,52086-52167,52169-52170,52172-52304,52306-52356,52358,52360-52399,52401-52553,52555-52712,52714-52815,52817-52880,52882-52907,52911-53042,53044-53058,53060-53116,53118-53203,53205-53256,53258-53274,53276-53358,53360-53387,53389-53708,53710-53927,53929-53993,53995-54144,54146-54179,54181-54342,54344-54424,54426-54576,54578-54595,54597-54627,54629-54734,54736-54812,54814-54868,54870-55060,55062-55080,55082-55097,55099-55268,55270-55297,55299-55306,55308-55347,55349-55477,55479-55522,55524-56076,56078-56115,56117-56244,56246-56313,56315-56339,56341-56414,56416-56490,56492-56530,56532-56539,56541-56565,56567-56572,56574-56618,56620-56725,56727-56813,56815-56847,56849-56937,56939-57052,57054-57101,57103-57238,57240-57329,57331-57333,57335-57381,57383-57384,57386-57458,57460-57524,57526-57614,57616-57636,57638-57720,57722-57731,57733-57777,57779-57806,57808-57820,57822-57928,57930-57977,57979-58063,58065-58067,58069-58100,58102-58177,58179-58205,58207-58284,58286-58361,58363-58381,58383-58415,58417-59015,59017-59241,59243-59250,59252-59315,59317-59491,59493-59570,59572-59636,59638-59707,59709-59910,59912-59916,59918-59932,59934-59945,59947-60056,60058-60090,60092-60153,60155-60167,60169-60188,60190,60192-60272,60274-60275,60277-60561,60563-60682,60684-60849,60851-60871,60873-60928,60930-60986,60988-61049,61051-61064,61066-61106,61108-61188,61190-61216,61218-61311,61313-61380,61382-61399,61401-61672,61674-61699,61701-61713,61715-61718,61720-61790,61792-61793,61795-61835,61837-61974,61976-62057,62059-62071,62073-62178,62180-62188,62190-62363,62365-62389,62391-62415,62417-62491,62493-62534,62536-62545,62547-62728,62730-62855,62857-62917,62919-63208,63210-63278,63280-63307,63309-63389,63391-63475,63477-63557,63559-63592,63594-63643,63645-63789,63791-63824,63826-63882,63884-63919,63921-64047,64049-64330,64332-64378,64380-64449,64451-64510,64512-64552,64554-64578,64580-64640,64642-64866,64868-64967,64969-65007,65009-65145,65147-65398,65400-65535"/>
+</extraports>
+<extraports state="filtered" count="805">
+<extrareasons reason="no-response" count="805" proto="tcp" ports="50,72,83-84,101,133,136,229,261,294,377,381,433,447,532,549,552,596,609,675,679,750,809,832,845,934,961,1044,1078,1113,1208,1268,1318,1398,1486,1496,1544,1657,1728,1842,1979,2074,2249,2492,2520,2573,2598,2621,2632,2676,2777,2931,2995,3103,3239,3245,3322,3340,3402,3426,3430,3434,3442,3446,3606,3667,3677,3747,3779,3822,3970,4054,4163,4178,4362,4544,4553,4590,4641,4765,4787,4826,4884,4921,5006,5087,5255,5261,5520,5681,5723,5753,5832,5920,5953,5983,6014,6038,6108,6122,6126,6208,6224,6274,6304,6440,6596,6618,6652,6707,6763,6847,6946,7166,7390,7420,7433,7485,7490,7545,7732,7918,7977,7994,8065,8207-8208,8499,8542,8606,8608,8621,8681,8796,8855,8895,8955,8959,8972,9165,9302,9411,9427,9471,9621,9626,9727,9792,9985,10064,10359,10383,10403,10463,10467,10692,10710,10773,10790,10822,10955,10981,11105,11119,11155,11223,11283,11296,11336,11723,11962,12062,12093,12099,12331,12344,12352,12414,12422,12459,12478,12498,12597,12858,12900,12976,12983,13043,13134,13236,13368,13379,13584,13675,13727,13746,13828,13881,14051,14053,14067,14146,14347,14369,14435,14529,14533,14622,14670,14905,14952,15023,15055,15077,15184,15256,15319,15350,15426,15635,15643,15764,15834,16045,16060,16088,16134,16192,16209,16231,16317,16460,16530,16554,16651,16777,16864,16898,17019,17059,17111,17281,17379,17396,17410,17435,17441,17540,17543,17813,17880,17968,18105,18172,18341,18756,18770,18779,18801,18815,18894,18944,19091,19259,19269,19293,19514,19605,19718,19747,19751,19775,19777,19899,19987-19988,20014,20029,20089,20278,20280,20306,20333,20419,20652,20770,20798,20843,21002,21197,21218,21350,21418,21447,21470,21710,21789,21792,21933,22037,22070,22418,22434,22448,22515,22634,22829,22989,23192,23330,23370,23418,23472,23485,23547,23591,23650,23741,23848,23892,23900,24009,24041,24110,24210,24304,24312,24366,24429,24587,24835,24838,24983,25291,25475,25501,25644,25672,25863,25890,25921,26053,26078,26306,26331,26343,26623,26743,26895,26976,27015,27034,27251,27327,27332,27378,27542,27765,27812,27832,27879,27914,28037,28083,28257,28293,28314,28447,28614,28786,28845,28906,29019,29243,29408,29699,29804,29981,30017,30056,30179,30234,30266,30275,30429,30587,30662,30768,30771,30836,30848,30913,30974,31101,31258,31314,31334,31394,31604,31668,31737,31751,31834,32070,32145,32182,32287,32384,32496,32512,32556,32581,32713,32809,32846,32853,32859,33009,33069,33111,33151,33276,33291,33369,33391,33535,33596,33666,33754,33862,34004,34012,34158,34406,34441,34446,34574,34773,34855,34887,34985,35148,35169,35243,35280,35369,35389,35703,35903,35948,36003,36023-36024,36060,36130,36164,36367,36392,36417,36451,36475,36616,36661,36685,36792,37076,37095,37110,37237,37263,37365,37570,37577,37640,37653,37858,37883,38223,38438,38464,38475,38537,38591,38684,38848,38881,38891,39277,39413,39481,39511,39527,39837,39839,39859,39985,40061,40170,40264,40285,40315,40405,40456,40516,40652,40877,40893,40944,40982,41001,41048,41150,41162,41240,41330,41396,41637,41684,41717,41745,41752,41804,41890,42059,42151,42157,42219,42224,42227,42315,42424,42490,42546,42638,42650,42701,42707,42760,42839,43028,43161,43177,43199,43314,43334,43437,43443,43470,43607,43640,43647,43692,43801,43874,43880,43977,43983,44053,44057,44121,44137,44155,44198,44719,44901,44907,44965,44981,45065,45081,45121,45265,45288,45448,45627,45682,45853,45953,46008,46012,46231,46347,46409,46473,46564,46808,46975,47165,47234,47267,47351,47440,47549,47622,47640,47655,47673,47773,47944,48041,48141,48264,48273,48275,48422,48580,48582,48610,48682,48745,49125,49220,49246,49252,49313,49447,49467,49469,49492,49592,49663,49780,49793,50026,50054,50296,50628,50663,50731,50776,50948,50974,50996,51025,51095,51100,51106,51220,51228,51279,51579,52085,52168,52171,52305,52357,52359,52400,52554,52713,52816,52881,52908-52910,53043,53059,53117,53204,53257,53275,53359,53388,53709,53928,53994,54145,54180,54343,54425,54577,54596,54628,54735,54813,54869,55061,55081,55098,55269,55298,55307,55348,55478,55523,56077,56116,56245,56314,56340,56415,56491,56531,56540,56566,56573,56619,56726,56848,56938,57053,57102,57239,57330,57334,57382,57385,57459,57525,57615,57637,57721,57732,57778,57807,57821,57929,57978,58064,58068,58101,58178,58206,58285,58362,58382,58416,59016,59242,59251,59316,59492,59571,59637,59911,59917,59933,59946,60057,60091,60154,60168,60189,60273,60276,60562,60683,60850,60872,60929,60987,61050,61065,61107,61189,61217,61312,61381,61400,61673,61700,61714,61719,61791,61794,61836,61975,62058,62072,62179,62189,62364,62390,62416,62492,62535,62546,62729,62856,62918,63209,63279,63308,63390,63476,63558,63593,63644,63790,63825,63883,63920,64048,64331,64379,64450,64511,64553,64579,64641,64867,64968,65008,65146,65399"/>
+</extraports>
+<port protocol="tcp" portid="21"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ftp" product="vsftpd" version="2.3.4" ostype="Unix" method="probed" conf="10"><cpe>cpe:/a:vsftpd:vsftpd:2.3.4</cpe></service><script id="ftp-syst" output="&#xa;  STAT: &#xa;FTP server status:&#xa;     Connected to 192.168.56.1&#xa;     Logged in as ftp&#xa;     TYPE: ASCII&#xa;     No session bandwidth limit&#xa;     Session timeout in seconds is 300&#xa;     Control connection is plain text&#xa;     Data connections will be plain text&#xa;     vsFTPd 2.3.4 - secure, fast, stable&#xa;End of status"><elem key="STAT">&#xa;FTP server status:&#xa;     Connected to 192.168.56.1&#xa;     Logged in as ftp&#xa;     TYPE: ASCII&#xa;     No session bandwidth limit&#xa;     Session timeout in seconds is 300&#xa;     Control connection is plain text&#xa;     Data connections will be plain text&#xa;     vsFTPd 2.3.4 - secure, fast, stable&#xa;End of status</elem>
+</script><script id="ftp-anon" output="Anonymous FTP login allowed (FTP code 230)"/></port>
+<port protocol="tcp" portid="22"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ssh" product="OpenSSH" version="4.7p1 Debian 8ubuntu1" extrainfo="protocol 2.0" ostype="Linux" method="probed" conf="10"><cpe>cpe:/a:openbsd:openssh:4.7p1</cpe><cpe>cpe:/o:linux:linux_kernel</cpe></service><script id="ssh-hostkey" output="&#xa;  1024 60:0f:cf:e1:c0:5f:6a:74:d6:90:24:fa:c4:d5:6c:cd (DSA)&#xa;  2048 56:56:24:0f:21:1d:de:a7:2b:ae:61:b1:24:3d:e8:f3 (RSA)"><table>
+<elem key="bits">1024</elem>
+<elem key="fingerprint">600fcfe1c05f6a74d69024fac4d56ccd</elem>
+<elem key="key">AAAAB3NzaC1kc3MAAACBALz4hsc8a2Srq4nlW960qV8xwBG0JC+jI7fWxm5METIJH4tKr/xUTwsTYEYnaZLzcOiy21D3ZvOwYb6AA3765zdgCd2Tgand7F0YD5UtXG7b7fbz99chReivL0SIWEG/E96Ai+pqYMP2WD5KaOJwSIXSUajnU5oWmY5x85sBw+XDAAAAFQDFkMpmdFQTF+oRqaoSNVU7Z+hjSwAAAIBCQxNKzi1TyP+QJIFa3M0oLqCVWI0We/ARtXrzpBOJ/dt0hTJXCeYisKqcdwdtyIn8OUCOyrIjqNuA2QW217oQ6wXpbFh+5AQm8Hl3b6C6o8lX3Ptw+Y4dp0lzfWHwZ/jzHwtuaDQaok7u1f971lEazeJLqfiWrAzoklqSWyDQJAAAAIA1lAD3xWYkeIeHv/R3P9i+XaoI7imFkMuYXCDTq843YU6Td+0mWpllCqAWUV/CQamGgQLtYy5S0ueoks01MoKdOMMhKVwqdr08nvCBdNKjIEd3gH6oBk/YRnjzxlEAYBsvCmM4a0jmhz0oNiRWlc/F+bkUeFKrBx/D2fdfZmhrGg==</elem>
+<elem key="type">ssh-dss</elem>
+</table>
+<table>
+<elem key="bits">2048</elem>
+<elem key="fingerprint">5656240f211ddea72bae61b1243de8f3</elem>
+<elem key="key">AAAAB3NzaC1yc2EAAAABIwAAAQEAstqnuFMBOZvO3WTEjP4TUdjgWkIVNdTq6kboEDjteOfc65TlI7sRvQBwqAhQjeeyyIk8T55gMDkOD0akSlSXvLDcmcdYfxeIF0ZSuT+nkRhij7XSSA/Oc5QSk3sJ/SInfb78e3anbRHpmkJcVgETJ5WhKObUNf1AKZW++4Xlc63M4KI5cjvMMIPEVOyR3AKmI78Fo3HJjYucg87JjLeC66I7+dlEYX6zT8i1XYwa/L1vZ3qSJISGVu8kRPikMv/cNSvki4j+qDYyZ2E5497W87+Ed46/8P42LNGoOV8OcX/ro6pAcbEPUdUEfkJrqi2YXbhvwIJ0gFMb6wfe5cnQew==</elem>
+<elem key="type">ssh-rsa</elem>
+</table>
+</script></port>
+<port protocol="tcp" portid="23"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="telnet" product="Linux telnetd" ostype="Linux" method="probed" conf="10"><cpe>cpe:/o:linux:linux_kernel</cpe></service></port>
+<port protocol="tcp" portid="25"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="smtp" product="Postfix smtpd" hostname=" metasploitable.localdomain" method="probed" conf="10"><cpe>cpe:/a:postfix:postfix</cpe></service><script id="sslv2" output="&#xa;  SSLv2 supported&#xa;  ciphers: &#xa;    SSL2_RC2_128_CBC_WITH_MD5&#xa;    SSL2_RC2_128_CBC_EXPORT40_WITH_MD5&#xa;    SSL2_DES_192_EDE3_CBC_WITH_MD5&#xa;    SSL2_RC4_128_EXPORT40_WITH_MD5&#xa;    SSL2_DES_64_CBC_WITH_MD5&#xa;    SSL2_RC4_128_WITH_MD5"><elem>SSLv2 supported</elem>
+<table key="ciphers">
+<elem>SSL2_RC2_128_CBC_WITH_MD5</elem>
+<elem>SSL2_RC2_128_CBC_EXPORT40_WITH_MD5</elem>
+<elem>SSL2_DES_192_EDE3_CBC_WITH_MD5</elem>
+<elem>SSL2_RC4_128_EXPORT40_WITH_MD5</elem>
+<elem>SSL2_DES_64_CBC_WITH_MD5</elem>
+<elem>SSL2_RC4_128_WITH_MD5</elem>
+</table>
+</script><script id="smtp-commands" output="metasploitable.localdomain, PIPELINING, SIZE 10240000, VRFY, ETRN, STARTTLS, ENHANCEDSTATUSCODES, 8BITMIME, DSN"/><script id="ssl-date" output="2026-04-05T18:34:29+00:00; -4m30s from scanner time."><elem key="delta">-270.0</elem>
+<elem key="date">2026-04-05T18:34:29+00:00</elem>
+</script><script id="ssl-cert" output="Subject: commonName=ubuntu804-base.localdomain/organizationName=OCOSA/stateOrProvinceName=There is no such thing outside US/countryName=XX&#xa;Not valid before: 2010-03-17T14:07:45&#xa;Not valid after:  2010-04-16T14:07:45"><table key="subject">
+<elem key="commonName">ubuntu804-base.localdomain</elem>
+<elem key="countryName">XX</elem>
+<elem key="emailAddress">root@ubuntu804-base.localdomain</elem>
+<elem key="localityName">Everywhere</elem>
+<elem key="organizationName">OCOSA</elem>
+<elem key="organizationalUnitName">Office for Complication of Otherwise Simple Affairs</elem>
+<elem key="stateOrProvinceName">There is no such thing outside US</elem>
+</table>
+<table key="issuer">
+<elem key="commonName">ubuntu804-base.localdomain</elem>
+<elem key="countryName">XX</elem>
+<elem key="emailAddress">root@ubuntu804-base.localdomain</elem>
+<elem key="localityName">Everywhere</elem>
+<elem key="organizationName">OCOSA</elem>
+<elem key="organizationalUnitName">Office for Complication of Otherwise Simple Affairs</elem>
+<elem key="stateOrProvinceName">There is no such thing outside US</elem>
+</table>
+<table key="pubkey">
+<elem key="type">rsa</elem>
+<elem key="bits">1024</elem>
+<elem key="modulus">D6B41336339A95717B1BDE7C8375DA71B13CA97FFEAD641B77E94FAEBECAD4F8CBEFAEBB43792473FF3CE59E3B6DFCC8B1ACFA4C4D5E9B4C99540BD7A84A50BAA9DE1D1FF4E46B02A3F46B45CD4CAF8D8962338F65BB36619FC42C73C14E2EA0A8144E98704661BBD1B931DF8C99EE756B793C40A0AE9700909DDC990D33A4B5</elem>
+<elem key="exponent">65537</elem>
+</table>
+<elem key="sig_algo">sha1WithRSAEncryption</elem>
+<table key="validity">
+<elem key="notBefore">2010-03-17T14:07:45</elem>
+<elem key="notAfter">2010-04-16T14:07:45</elem>
+</table>
+<elem key="md5">dcd9ad906c8f2f7374af383b25408828</elem>
+<elem key="sha1">ed093088706603bfd5dc237399b498da2d4d31c6</elem>
+<elem key="pem">-&#45;&#45;&#45;&#45;BEGIN CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;MIIDWzCCAsQCCQD6+TpMf7a5zDANBgkqhkiG9w0BAQUFADCB8TELMAkGA1UEBhMC&#xa;WFgxKjAoBgNVBAgTIVRoZXJlIGlzIG5vIHN1Y2ggdGhpbmcgb3V0c2lkZSBVUzET&#xa;MBEGA1UEBxMKRXZlcnl3aGVyZTEOMAwGA1UEChMFT0NPU0ExPDA6BgNVBAsTM09m&#xa;ZmljZSBmb3IgQ29tcGxpY2F0aW9uIG9mIE90aGVyd2lzZSBTaW1wbGUgQWZmYWly&#xa;czEjMCEGA1UEAxMadWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4xLjAsBgkqhkiG&#xa;9w0BCQEWH3Jvb3RAdWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4wHhcNMTAwMzE3&#xa;MTQwNzQ1WhcNMTAwNDE2MTQwNzQ1WjCB8TELMAkGA1UEBhMCWFgxKjAoBgNVBAgT&#xa;IVRoZXJlIGlzIG5vIHN1Y2ggdGhpbmcgb3V0c2lkZSBVUzETMBEGA1UEBxMKRXZl&#xa;cnl3aGVyZTEOMAwGA1UEChMFT0NPU0ExPDA6BgNVBAsTM09mZmljZSBmb3IgQ29t&#xa;cGxpY2F0aW9uIG9mIE90aGVyd2lzZSBTaW1wbGUgQWZmYWlyczEjMCEGA1UEAxMa&#xa;dWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4xLjAsBgkqhkiG9w0BCQEWH3Jvb3RA&#xa;dWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4wgZ8wDQYJKoZIhvcNAQEBBQADgY0A&#xa;MIGJAoGBANa0EzYzmpVxexvefIN12nGxPKl//q1kG3fpT66+ytT4y++uu0N5JHP/&#xa;POWeO238yLGs+kxNXptMmVQL16hKULqp3h0f9ORrAqP0a0XNTK+NiWIzj2W7NmGf&#xa;xCxzwU4uoKgUTphwRmG70bkx34yZ7nVreTxAoK6XAJCd3JkNM6S1AgMBAAEwDQYJ&#xa;KoZIhvcNAQEFBQADgYEAkqS0uBRVYyVRSgvDKiLPOvgXagzPZqqnZS9Ibc3jPlyf&#xa;d2zURFQfHoRPjtSN3awtiAkhqNpWLKkFPEloNRl1DNpTI4iIGS10JsEiZe4RaINq&#xa;U0qcJ8ugtOmNKQyyPBhcZ8xTph4w0Komex6uQLkpAWwuvKIZlHwVbo0wOPbKLnU=&#xa;-&#45;&#45;&#45;&#45;END CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;</elem>
+</script></port>
+<port protocol="tcp" portid="53"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="domain" product="ISC BIND" version="9.4.2" method="probed" conf="10"><cpe>cpe:/a:isc:bind:9.4.2</cpe></service><script id="dns-nsid" output="&#xa;  bind.version: 9.4.2"><elem key="bind.version">9.4.2</elem>
+</script></port>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="http" product="Apache httpd" version="2.2.8" extrainfo="(Ubuntu) DAV/2" method="probed" conf="10"><cpe>cpe:/a:apache:http_server:2.2.8</cpe></service><script id="http-server-header" output="Apache/2.2.8 (Ubuntu) DAV/2"><elem>Apache/2.2.8 (Ubuntu) DAV/2</elem>
+</script><script id="http-title" output="Metasploitable2 - Linux"><elem key="title">Metasploitable2 - Linux</elem>
+</script></port>
+<port protocol="tcp" portid="111"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="rpcbind" version="2" extrainfo="RPC #100000" method="probed" conf="10"/><script id="rpcinfo" output="&#xa;  program version    port/proto  service&#xa;  100000  2            111/tcp   rpcbind&#xa;  100000  2            111/udp   rpcbind&#xa;  100003  2,3,4       2049/tcp   nfs&#xa;  100003  2,3,4       2049/udp   nfs&#xa;  100005  1,2,3      56814/tcp   mountd&#xa;  100005  1,2,3      60102/udp   mountd&#xa;  100021  1,3,4      44526/udp   nlockmgr&#xa;  100021  1,3,4      59708/tcp   nlockmgr&#xa;  100024  1          44320/tcp   status&#xa;  100024  1          54251/udp   status&#xa;"><table key="100003">
+<table key="tcp">
+<elem key="port">2049</elem>
+<table key="version">
+<elem>2</elem>
+<elem>3</elem>
+<elem>4</elem>
+</table>
+</table>
+<table key="udp">
+<elem key="port">2049</elem>
+<table key="version">
+<elem>2</elem>
+<elem>3</elem>
+<elem>4</elem>
+</table>
+</table>
+</table>
+<table key="100000">
+<table key="tcp">
+<elem key="port">111</elem>
+<table key="version">
+<elem>2</elem>
+</table>
+</table>
+<table key="udp">
+<elem key="port">111</elem>
+<table key="version">
+<elem>2</elem>
+</table>
+</table>
+</table>
+<table key="100021">
+<table key="tcp">
+<elem key="port">59708</elem>
+<table key="version">
+<elem>1</elem>
+<elem>3</elem>
+<elem>4</elem>
+</table>
+</table>
+<table key="udp">
+<elem key="port">44526</elem>
+<table key="version">
+<elem>1</elem>
+<elem>3</elem>
+<elem>4</elem>
+</table>
+</table>
+</table>
+<table key="100024">
+<table key="tcp">
+<elem key="port">44320</elem>
+<table key="version">
+<elem>1</elem>
+</table>
+</table>
+<table key="udp">
+<elem key="port">54251</elem>
+<table key="version">
+<elem>1</elem>
+</table>
+</table>
+</table>
+<table key="100005">
+<table key="tcp">
+<elem key="port">56814</elem>
+<table key="version">
+<elem>1</elem>
+<elem>2</elem>
+<elem>3</elem>
+</table>
+</table>
+<table key="udp">
+<elem key="port">60102</elem>
+<table key="version">
+<elem>1</elem>
+<elem>2</elem>
+<elem>3</elem>
+</table>
+</table>
+</table>
+</script></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="netbios-ssn" product="Samba smbd" version="3.X - 4.X" extrainfo="workgroup: WORKGROUP" method="probed" conf="10"><cpe>cpe:/a:samba:samba</cpe></service></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="netbios-ssn" product="Samba smbd" version="3.0.20-Debian" extrainfo="workgroup: WORKGROUP" method="probed" conf="10"><cpe>cpe:/a:samba:samba</cpe></service></port>
+<port protocol="tcp" portid="512"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="exec" product="netkit-rsh rexecd" ostype="Linux" method="probed" conf="10"><cpe>cpe:/a:netkit:netkit</cpe><cpe>cpe:/o:linux:linux_kernel</cpe></service></port>
+<port protocol="tcp" portid="513"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="login" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="514"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="shell" product="Netkit rshd" method="probed" conf="10"><cpe>cpe:/a:netkit:netkit_rsh</cpe></service></port>
+<port protocol="tcp" portid="1099"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="java-rmi" product="GNU Classpath grmiregistry" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="1524"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="bindshell" product="Metasploitable root shell" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="2049"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="nfs" version="2-4" extrainfo="RPC #100003" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="2121"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ccproxy-ftp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="3306"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="mysql" product="MySQL" version="5.0.51a-3ubuntu5" method="probed" conf="10"><cpe>cpe:/a:mysql:mysql:5.0.51a-3ubuntu5</cpe></service><script id="mysql-info" output="&#xa;  Protocol: 10&#xa;  Version: 5.0.51a-3ubuntu5&#xa;  Thread ID: 8&#xa;  Capabilities flags: 43564&#xa;  Some Capabilities: SupportsCompression, ConnectWithDatabase, Support41Auth, SwitchToSSLAfterHandshake, SupportsTransactions, Speaks41ProtocolNew, LongColumnFlag&#xa;  Status: Autocommit&#xa;  Salt: +BM:{~&apos;BVi0P$a?SbvJL"><elem key="Protocol">10</elem>
+<elem key="Version">5.0.51a-3ubuntu5</elem>
+<elem key="Thread ID">8</elem>
+<elem key="Capabilities flags">43564</elem>
+<table key="Some Capabilities">
+<elem>SupportsCompression</elem>
+<elem>ConnectWithDatabase</elem>
+<elem>Support41Auth</elem>
+<elem>SwitchToSSLAfterHandshake</elem>
+<elem>SupportsTransactions</elem>
+<elem>Speaks41ProtocolNew</elem>
+<elem>LongColumnFlag</elem>
+</table>
+<elem key="Status">Autocommit</elem>
+<elem key="Salt">+BM:{~&apos;BVi0P$a?SbvJL</elem>
+</script></port>
+<port protocol="tcp" portid="3632"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="distccd" product="distccd" version="v1" extrainfo="(GNU) 4.2.4 (Ubuntu 4.2.4-1ubuntu4)" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="5432"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="postgresql" product="PostgreSQL DB" version="8.3.0 - 8.3.7" method="probed" conf="10"><cpe>cpe:/a:postgresql:postgresql:8.3</cpe></service><script id="ssl-date" output="2026-04-05T18:34:29+00:00; -4m31s from scanner time."><elem key="delta">-271.0</elem>
+<elem key="date">2026-04-05T18:34:29+00:00</elem>
+</script><script id="ssl-cert" output="Subject: commonName=ubuntu804-base.localdomain/organizationName=OCOSA/stateOrProvinceName=There is no such thing outside US/countryName=XX&#xa;Not valid before: 2010-03-17T14:07:45&#xa;Not valid after:  2010-04-16T14:07:45"><table key="subject">
+<elem key="commonName">ubuntu804-base.localdomain</elem>
+<elem key="countryName">XX</elem>
+<elem key="emailAddress">root@ubuntu804-base.localdomain</elem>
+<elem key="localityName">Everywhere</elem>
+<elem key="organizationName">OCOSA</elem>
+<elem key="organizationalUnitName">Office for Complication of Otherwise Simple Affairs</elem>
+<elem key="stateOrProvinceName">There is no such thing outside US</elem>
+</table>
+<table key="issuer">
+<elem key="commonName">ubuntu804-base.localdomain</elem>
+<elem key="countryName">XX</elem>
+<elem key="emailAddress">root@ubuntu804-base.localdomain</elem>
+<elem key="localityName">Everywhere</elem>
+<elem key="organizationName">OCOSA</elem>
+<elem key="organizationalUnitName">Office for Complication of Otherwise Simple Affairs</elem>
+<elem key="stateOrProvinceName">There is no such thing outside US</elem>
+</table>
+<table key="pubkey">
+<elem key="type">rsa</elem>
+<elem key="bits">1024</elem>
+<elem key="modulus">D6B41336339A95717B1BDE7C8375DA71B13CA97FFEAD641B77E94FAEBECAD4F8CBEFAEBB43792473FF3CE59E3B6DFCC8B1ACFA4C4D5E9B4C99540BD7A84A50BAA9DE1D1FF4E46B02A3F46B45CD4CAF8D8962338F65BB36619FC42C73C14E2EA0A8144E98704661BBD1B931DF8C99EE756B793C40A0AE9700909DDC990D33A4B5</elem>
+<elem key="exponent">65537</elem>
+</table>
+<elem key="sig_algo">sha1WithRSAEncryption</elem>
+<table key="validity">
+<elem key="notBefore">2010-03-17T14:07:45</elem>
+<elem key="notAfter">2010-04-16T14:07:45</elem>
+</table>
+<elem key="md5">dcd9ad906c8f2f7374af383b25408828</elem>
+<elem key="sha1">ed093088706603bfd5dc237399b498da2d4d31c6</elem>
+<elem key="pem">-&#45;&#45;&#45;&#45;BEGIN CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;MIIDWzCCAsQCCQD6+TpMf7a5zDANBgkqhkiG9w0BAQUFADCB8TELMAkGA1UEBhMC&#xa;WFgxKjAoBgNVBAgTIVRoZXJlIGlzIG5vIHN1Y2ggdGhpbmcgb3V0c2lkZSBVUzET&#xa;MBEGA1UEBxMKRXZlcnl3aGVyZTEOMAwGA1UEChMFT0NPU0ExPDA6BgNVBAsTM09m&#xa;ZmljZSBmb3IgQ29tcGxpY2F0aW9uIG9mIE90aGVyd2lzZSBTaW1wbGUgQWZmYWly&#xa;czEjMCEGA1UEAxMadWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4xLjAsBgkqhkiG&#xa;9w0BCQEWH3Jvb3RAdWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4wHhcNMTAwMzE3&#xa;MTQwNzQ1WhcNMTAwNDE2MTQwNzQ1WjCB8TELMAkGA1UEBhMCWFgxKjAoBgNVBAgT&#xa;IVRoZXJlIGlzIG5vIHN1Y2ggdGhpbmcgb3V0c2lkZSBVUzETMBEGA1UEBxMKRXZl&#xa;cnl3aGVyZTEOMAwGA1UEChMFT0NPU0ExPDA6BgNVBAsTM09mZmljZSBmb3IgQ29t&#xa;cGxpY2F0aW9uIG9mIE90aGVyd2lzZSBTaW1wbGUgQWZmYWlyczEjMCEGA1UEAxMa&#xa;dWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4xLjAsBgkqhkiG9w0BCQEWH3Jvb3RA&#xa;dWJ1bnR1ODA0LWJhc2UubG9jYWxkb21haW4wgZ8wDQYJKoZIhvcNAQEBBQADgY0A&#xa;MIGJAoGBANa0EzYzmpVxexvefIN12nGxPKl//q1kG3fpT66+ytT4y++uu0N5JHP/&#xa;POWeO238yLGs+kxNXptMmVQL16hKULqp3h0f9ORrAqP0a0XNTK+NiWIzj2W7NmGf&#xa;xCxzwU4uoKgUTphwRmG70bkx34yZ7nVreTxAoK6XAJCd3JkNM6S1AgMBAAEwDQYJ&#xa;KoZIhvcNAQEFBQADgYEAkqS0uBRVYyVRSgvDKiLPOvgXagzPZqqnZS9Ibc3jPlyf&#xa;d2zURFQfHoRPjtSN3awtiAkhqNpWLKkFPEloNRl1DNpTI4iIGS10JsEiZe4RaINq&#xa;U0qcJ8ugtOmNKQyyPBhcZ8xTph4w0Komex6uQLkpAWwuvKIZlHwVbo0wOPbKLnU=&#xa;-&#45;&#45;&#45;&#45;END CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;</elem>
+</script></port>
+<port protocol="tcp" portid="5900"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="vnc" product="VNC" extrainfo="protocol 3.3" method="probed" conf="10"/><script id="vnc-info" output="&#xa;  Protocol version: 3.3&#xa;  Security types: &#xa;    VNC Authentication (2)"><elem key="Protocol version">3.3</elem>
+<table key="Security types">
+<table>
+<elem key="type">2</elem>
+<elem key="name">VNC Authentication</elem>
+</table>
+</table>
+</script></port>
+<port protocol="tcp" portid="6000"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="X11" extrainfo="access denied" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="6667"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="irc" product="UnrealIRCd" hostname="irc.Metasploitable.LAN" method="probed" conf="10"><cpe>cpe:/a:unrealircd:unrealircd</cpe></service></port>
+<port protocol="tcp" portid="6697"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="irc" product="UnrealIRCd" hostname="irc.Metasploitable.LAN" method="probed" conf="10"><cpe>cpe:/a:unrealircd:unrealircd</cpe></service></port>
+<port protocol="tcp" portid="8009"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ajp13" product="Apache Jserv" extrainfo="Protocol v1.3" method="probed" conf="10"/><script id="ajp-methods" output="Failed to get a valid response for the OPTION request"/></port>
+<port protocol="tcp" portid="8180"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="http" product="Apache Tomcat/Coyote JSP engine" version="1.1" method="probed" conf="10"><cpe>cpe:/a:apache:coyote_http_connector:1.1</cpe></service><script id="http-favicon" output="Apache Tomcat"/><script id="http-title" output="Apache Tomcat/5.5"><elem key="title">Apache Tomcat/5.5</elem>
+</script><script id="http-server-header" output="Apache-Coyote/1.1"><elem>Apache-Coyote/1.1</elem>
+</script></port>
+<port protocol="tcp" portid="8787"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="drb" product="Ruby DRb RMI" extrainfo="Ruby 1.8; path /usr/lib/ruby/1.8/drb" method="probed" conf="10"><cpe>cpe:/a:ruby-lang:ruby:1.8</cpe></service></port>
+<port protocol="tcp" portid="44320"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="status" version="1" extrainfo="RPC #100024" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="56814"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="mountd" version="1-3" extrainfo="RPC #100005" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="59708"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="nlockmgr" version="1-4" extrainfo="RPC #100021" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="60191"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="java-rmi" product="GNU Classpath grmiregistry" method="probed" conf="10"/></port>
+</ports>
+<hostscript><script id="smb-security-mode" output="&#xa;  account_used: guest&#xa;  authentication_level: user&#xa;  challenge_response: supported&#xa;  message_signing: disabled (dangerous, but default)"><elem key="account_used">guest</elem>
+<elem key="authentication_level">user</elem>
+<elem key="challenge_response">supported</elem>
+<elem key="message_signing">disabled</elem>
+</script><script id="smb2-time" output="Protocol negotiation failed (SMB2)"/><script id="nbstat" output="NetBIOS name: METASPLOITABLE, NetBIOS user: &lt;unknown&gt;, NetBIOS MAC: &lt;unknown&gt; (unknown)"/><script id="clock-skew" output="mean: 55m32s, deviation: 2h00m02s, median: -4m30s"><elem key="median">-270</elem>
+<elem key="mean">3332</elem>
+<elem key="stddev">7202</elem>
+<elem key="count">4</elem>
+</script><script id="smb-os-discovery" output="&#xa;  OS: Unix (Samba 3.0.20-Debian)&#xa;  Computer name: metasploitable&#xa;  NetBIOS computer name: &#xa;  Domain name: localdomain&#xa;  FQDN: metasploitable.localdomain&#xa;  System time: 2026-04-05T14:34:21-04:00&#xa;"><elem key="os">Unix</elem>
+<elem key="lanmanager">Samba 3.0.20-Debian</elem>
+<elem key="server"></elem>
+<elem key="date">2026-04-05T14:34:21-04:00</elem>
+<elem key="fqdn">metasploitable.localdomain</elem>
+<elem key="domain_dns">localdomain</elem>
+<elem key="workgroup">WORKGROUP\x00</elem>
+</script></hostscript><times srtt="1053208" rttvar="904" to="300000"/>
+</host>
+<runstats><finished time="1775414340" timestr="Sun Apr  5 21:39:00 2026" summary="Nmap done at Sun Apr  5 21:39:00 2026; 1 IP address (1 host up) scanned in 210.11 seconds" elapsed="210.11" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>
