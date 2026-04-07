@@ -5,7 +5,7 @@ Connects to Telnet (port 23) and attempts authentication with
 a list of default credentials. Also performs banner grabbing.
 
 Telnet is still found on:
-- Legacy Linux servers (Metasploitable2, old routers)
+- Legacy Linux servers (old routers, unpatched servers)
 - Industrial control systems and embedded devices
 - Network equipment (Cisco, Juniper with default configs)
 

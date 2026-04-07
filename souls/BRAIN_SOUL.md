@@ -170,13 +170,13 @@ State your chosen action and explain specifically why:
   "action": "spawn_agents_batch",
   "parameters": {
     "agents": [
-      {"agent_type": "exploit", "target": "192.168.56.101", "task_type": "exploit_distcc_36", "options": {"port": 36}}
+      {"agent_type": "exploit", "target": "10.10.10.1", "task_type": "exploit_distcc_36", "options": {"port": 36}}
     ]
   }
 }
 ```
 **Why this is wrong:**
-- `192.168.56.101` is a hardcoded IP — use the actual target IP from scan findings
+- `10.10.10.1` (or any hardcoded IP) — always use the actual target IP from scan findings
 - Port `36` is a truncated value — distcc runs on port `3632`, not `36`
 - task_type `exploit_distcc_36` is wrong — should be `exploit_distcc_3632`
 - Always copy port numbers exactly from scan findings, never truncate
