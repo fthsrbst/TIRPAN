@@ -296,7 +296,7 @@ class LocalExecTool(BaseTool):
     ) -> dict:
         """Connect to a raw bind shell and send commands, collecting output.
 
-        Used for services like ingreslock (port 1524) on Metasploitable that expose
+        Used for services like ingreslock (port 1524) on legacy/vulnerable systems that expose
         a root shell directly without any authentication — just TCP connect and send commands.
         """
         effective_timeout = timeout if timeout > _DEFAULT_TIMEOUT else 15

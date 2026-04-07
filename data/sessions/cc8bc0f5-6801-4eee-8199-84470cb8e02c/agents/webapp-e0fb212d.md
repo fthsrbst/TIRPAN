@@ -9,7 +9,7 @@
 {
   "agent_id": "webapp-e0fb212d",
   "agent_type": "webapp",
-  "target": "http://192.168.56.101"
+  "target": "http://<TARGET_IP>"
 }
 ```
 
@@ -84,7 +84,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>/\"}",
   "level": "debug",
   "ts": "+683.836s"
 }
@@ -97,7 +97,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101/"
+    "url": "http://<TARGET_IP>/"
   }
 }
 ```
@@ -108,7 +108,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>/\"}",
   "level": "debug",
   "ts": "+683.836s"
 }
@@ -188,7 +188,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "nikto_scan  params={\"url\": \"http://192.168.56.101/\", \"timeout\": 300}",
+  "msg": "nikto_scan  params={\"url\": \"http://<TARGET_IP>/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+686.416s"
 }
@@ -201,7 +201,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "params": {
-    "url": "http://192.168.56.101/",
+    "url": "http://<TARGET_IP>/",
     "timeout": 300
   }
 }
@@ -213,7 +213,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "nikto_scan  {\"url\": \"http://192.168.56.101/\", \"timeout\": 300}",
+  "msg": "nikto_scan  {\"url\": \"http://<TARGET_IP>/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+686.416s"
 }
@@ -293,7 +293,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "nuclei_scan  params={\"url\": \"http://192.168.56.101/\", \"templates\": \"technologies\", \"severity\": \"medium,high,critical\"}",
+  "msg": "nuclei_scan  params={\"url\": \"http://<TARGET_IP>/\", \"templates\": \"technologies\", \"severity\": \"medium,high,critical\"}",
   "level": "debug",
   "ts": "+689.030s"
 }
@@ -306,7 +306,7 @@
   "agent_type": "webapp",
   "tool": "nuclei_scan",
   "params": {
-    "url": "http://192.168.56.101/",
+    "url": "http://<TARGET_IP>/",
     "templates": "technologies",
     "severity": "medium,high,critical"
   }
@@ -319,7 +319,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "nuclei_scan  {\"url\": \"http://192.168.56.101/\", \"templates\": \"technologies\", \"severity\": \"medium,high,critical\"}",
+  "msg": "nuclei_scan  {\"url\": \"http://<TARGET_IP>/\", \"templates\": \"technologies\", \"severity\": \"medium,high,critical\"}",
   "level": "debug",
   "ts": "+689.030s"
 }
@@ -399,7 +399,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "ffuf_scan  params={\"url\": \"http://192.168.56.101/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"txt,html,php,asp,aspx,jsp\"}",
+  "msg": "ffuf_scan  params={\"url\": \"http://<TARGET_IP>/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"txt,html,php,asp,aspx,jsp\"}",
   "level": "debug",
   "ts": "+691.526s"
 }
@@ -412,7 +412,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "params": {
-    "url": "http://192.168.56.101/",
+    "url": "http://<TARGET_IP>/",
     "wordlist": "/usr/share/wordlists/dirb/common.txt",
     "extensions": "txt,html,php,asp,aspx,jsp"
   }
@@ -425,7 +425,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-e0fb212d",
   "short_id": "weba-e0fb",
-  "msg": "ffuf_scan  {\"url\": \"http://192.168.56.101/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"txt,html,php,asp,aspx,jsp\"}",
+  "msg": "ffuf_scan  {\"url\": \"http://<TARGET_IP>/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"txt,html,php,asp,aspx,jsp\"}",
   "level": "debug",
   "ts": "+691.526s"
 }

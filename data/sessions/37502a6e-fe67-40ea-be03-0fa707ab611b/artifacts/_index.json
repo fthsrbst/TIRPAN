@@ -1,12 +1,12 @@
 [
   {
-    "filename": "nmap_192.168.56.101_service.xml",
+    "filename": "nmap_<TARGET_IP>_service.xml",
     "tool": "nmap",
     "size_bytes": 5232,
     "created_at": "2026-03-30T07:24:47.955881+00:00"
   },
   {
-    "filename": "ffuf_http___192.168.56.101_80.json",
+    "filename": "ffuf_http___<TARGET_IP>_80.json",
     "tool": "ffuf",
     "size_bytes": 6712,
     "created_at": "2026-03-30T07:30:45.695003+00:00"

@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nmaprun>
 <?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
-<!-- Nmap 7.98 scan initiated Mon Mar 30 23:03:40 2026 as: /usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 1-1024 192.168.56.101 -->
-<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 1-1024 192.168.56.101" start="1774901020" startstr="Mon Mar 30 23:03:40 2026" version="7.98" xmloutputversion="1.05">
+<!-- Nmap 7.98 scan initiated Mon Mar 30 23:03:40 2026 as: /usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 1-1024 <TARGET_IP> -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 1-1024 <TARGET_IP>" start="1774901020" startstr="Mon Mar 30 23:03:40 2026" version="7.98" xmloutputversion="1.05">
 <scaninfo type="syn" protocol="tcp" numservices="1024" services="1-1024"/>
 <verbose level="0"/>
 <debugging level="0"/>
 <host starttime="1774901021" endtime="1774901032"><status state="up" reason="user-set" reason_ttl="0"/>
-<address addr="192.168.56.101" addrtype="ipv4"/>
+<address addr="<TARGET_IP>" addrtype="ipv4"/>
 <hostnames>
 </hostnames>
 <ports><extraports state="closed" count="1012">

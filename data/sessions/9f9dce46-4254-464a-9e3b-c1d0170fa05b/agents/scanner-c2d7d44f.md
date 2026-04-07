@@ -9,7 +9,7 @@
 {
   "agent_id": "scanner-c2d7d44f",
   "agent_type": "scanner",
-  "target": "192.168.56.101"
+  "target": "<TARGET_IP>"
 }
 ```
 
@@ -57,7 +57,7 @@
 {
   "agent_id": "scanner-c2d7d44f",
   "agent_type": "scanner",
-  "thought": "Starting with a service scan on 192.168.56.101 to discover open TCP ports and enumerate services. This scan will skip ping and focus on identifying running services and their versions.",
+  "thought": "Starting with a service scan on <TARGET_IP> to discover open TCP ports and enumerate services. This scan will skip ping and focus on identifying running services and their versions.",
   "action": "nmap_scan",
   "reasoning": "",
   "situation": "",
@@ -72,7 +72,7 @@
   "prefix": "THINK",
   "agent_id": "scanner-c2d7d44f",
   "short_id": "scan-c2d7",
-  "msg": "Starting with a service scan on 192.168.56.101 to discover open TCP ports and enumerate services. This scan will skip ping and focus on identifying running services and their versions.",
+  "msg": "Starting with a service scan on <TARGET_IP> to discover open TCP ports and enumerate services. This scan will skip ping and focus on identifying running services and their versions.",
   "level": "debug",
   "ts": "+ 57.173s"
 }
@@ -84,7 +84,7 @@
   "prefix": "ACTION",
   "agent_id": "scanner-c2d7d44f",
   "short_id": "scan-c2d7",
-  "msg": "nmap_scan  params={\"target\": \"192.168.56.101\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
+  "msg": "nmap_scan  params={\"target\": \"<TARGET_IP>\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
   "level": "debug",
   "ts": "+ 57.173s"
 }
@@ -97,7 +97,7 @@
   "agent_type": "scanner",
   "tool": "nmap_scan",
   "params": {
-    "target": "192.168.56.101",
+    "target": "<TARGET_IP>",
     "scan_type": "service",
     "port_range": "1-10000",
     "scripts": "default",
@@ -112,7 +112,7 @@
   "prefix": "TOOL→",
   "agent_id": "scanner-c2d7d44f",
   "short_id": "scan-c2d7",
-  "msg": "nmap_scan  {\"target\": \"192.168.56.101\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
+  "msg": "nmap_scan  {\"target\": \"<TARGET_IP>\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
   "level": "debug",
   "ts": "+ 57.174s"
 }

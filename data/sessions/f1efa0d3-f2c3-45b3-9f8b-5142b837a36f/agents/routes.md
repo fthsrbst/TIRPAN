@@ -10,7 +10,7 @@
   "prefix": "INFO",
   "agent_id": "routes",
   "short_id": "routes",
-  "msg": "V2 session started | target=192.168.56.101 session=f1efa0d3",
+  "msg": "V2 session started | target=<TARGET_IP> session=f1efa0d3",
   "level": "info",
   "ts": "+133.443s"
 }

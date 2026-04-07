@@ -9,7 +9,7 @@
 {
   "agent_id": "webapp-65348f7b",
   "agent_type": "webapp",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -57,7 +57,7 @@
 {
   "agent_id": "webapp-65348f7b",
   "agent_type": "webapp",
-  "thought": "Starting the web scan by first identifying the technology stack of the target web application at http://192.168.56.101:8180 using whatweb_scan.",
+  "thought": "Starting the web scan by first identifying the technology stack of the target web application at http://<TARGET_IP>:8180 using whatweb_scan.",
   "action": "whatweb_scan",
   "reasoning": "",
   "situation": "",
@@ -72,7 +72,7 @@
   "prefix": "THINK",
   "agent_id": "webapp-65348f7b",
   "short_id": "weba-6534",
-  "msg": "Starting the web scan by first identifying the technology stack of the target web application at http://192.168.56.101:8180 using whatweb_scan.",
+  "msg": "Starting the web scan by first identifying the technology stack of the target web application at http://<TARGET_IP>:8180 using whatweb_scan.",
   "level": "debug",
   "ts": "+684.365s"
 }
@@ -84,7 +84,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-65348f7b",
   "short_id": "weba-6534",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180\"}",
   "level": "debug",
   "ts": "+684.365s"
 }
@@ -97,7 +97,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180"
+    "url": "http://<TARGET_IP>:8180"
   }
 }
 ```
@@ -108,7 +108,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-65348f7b",
   "short_id": "weba-6534",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180\"}",
   "level": "debug",
   "ts": "+684.365s"
 }

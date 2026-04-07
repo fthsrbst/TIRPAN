@@ -4,7 +4,7 @@ V2 — WebAppAgent
 Web application scanning and enumeration.
 Brain spawns this when HTTP/HTTPS ports are found on a host.
 
-Tools: whatweb → nikto → nuclei → ffuf (directory brute-force)
+Tools: whatweb → nikto → nuclei → ffuf → sqlmap / wpscan / commix / arjun (conditional)
 
 Findings reported:
   - vulnerability (type="vulnerability")
@@ -20,42 +20,61 @@ from core.brain_agent import _register_agent_type
 
 logger = logging.getLogger(__name__)
 
-_MAX_SCAN_CALLS = 5  # max tool calls (excluding report_finding / done)
+_MAX_SCAN_CALLS = 10  # increased for new tools
 
 _TOOLS_DESC = """\
 Available tools:
-  whatweb_scan(url)                          — identify web tech stack, CMS, frameworks
-  nikto_scan(url, timeout)                   — web vulnerability scanner
-  nuclei_scan(url, templates, severity)      — fast CVE/misconfiguration scanner
-  ffuf_scan(url, wordlist, extensions)       — directory and file brute-force
-  report_finding(finding_type, data)         — report vulnerability or webapp_info
+  whatweb_scan(url)                                    — identify web tech stack, CMS, frameworks
+  nikto_scan(url, timeout)                             — web vulnerability scanner
+  nuclei_scan(url, templates, severity)                — fast CVE/misconfiguration scanner
+  ffuf_scan(url, wordlist, extensions)                 — directory and file brute-force
+  gobuster_scan(url, mode, wordlist, extensions)       — dir/dns/vhost brute-force
+  arjun_scan(url, method)                              — discover hidden HTTP parameters
+  sqlmap_scan(url, action, data, cookie)               — SQL injection testing and exploitation
+  wpscan_scan(url, action, enumerate)                  — WordPress vulnerability scanner
+  commix_scan(url, action, data)                       — OS command injection testing
+  report_finding(finding_type, data)                   — report vulnerability or webapp_info
 
 IMPORTANT: All tools require a full URL (not just an IP). Build it as:
   http://<TARGET>:<port>/  or  https://<TARGET>/
 
 STRICT LIMITS — MANDATORY:
-  - Each scan tool may be called AT MOST ONCE per unique URL. Never repeat a tool on the same URL.
-  - Total scan tool calls (whatweb/nikto/nuclei/ffuf): maximum {max_calls}.
+  - Each scan tool may be called AT MOST ONCE per unique URL/parameter. Never repeat.
+  - Total scan tool calls: maximum {max_calls}.
   - If a tool returns an error or empty results, do NOT retry — move to the next tool.
   - After {max_calls} scan calls, go directly to report_finding and done.
 
 Workflow:
-  1. whatweb_scan(url="http://TARGET/") → identify technology stack
-  2. nikto_scan(url="http://TARGET/", timeout=300) → quick vulnerability check
-  3. nuclei_scan(url="http://TARGET/", severity="medium,high,critical") → CVE check
-  4. If interesting paths found → ffuf_scan(url="http://TARGET/") for directory enum
-  5. report_finding(finding_type="vulnerability", data={{...}}) for each finding
-  6. {{"thought": "...", "action": "done", "parameters": {{"findings_summary": "..."}}}}
+  1. whatweb_scan(url) → identify technology stack, CMS, frameworks
+  2. nikto_scan(url) → quick vulnerability check
+  3. nuclei_scan(url, severity="medium,high,critical") → CVE check
+  4. ffuf_scan(url) → directory/file brute-force for hidden paths
+  CONDITIONAL (based on findings):
+  5a. If WordPress detected → wpscan_scan(url, action="scan", enumerate="vp,vt,u")
+  5b. If parameters or forms found → arjun_scan(url) → then sqlmap_scan(url, action="detect")
+  5c. If OS command-like parameters → commix_scan(url, action="detect")
+  5d. If subdomain/vhost context → gobuster_scan(url, mode="vhost") or mode="dns"
+  6. report_finding(finding_type="vulnerability", data={{...}}) for each finding
+  7. {{"thought": "...", "action": "done", "parameters": {{"findings_summary": "..."}}}}
+
+SQLMap action="detect" is safe (read-only). Use action="enumerate_dbs" or "dump_table" only
+if SQLi is confirmed AND allow_exploitation permission is set.
 """.format(max_calls=_MAX_SCAN_CALLS)
 
-_SCAN_TOOLS = frozenset(["whatweb_scan", "nikto_scan", "nuclei_scan", "ffuf_scan"])
+_SCAN_TOOLS = frozenset([
+    "whatweb_scan", "nikto_scan", "nuclei_scan", "ffuf_scan",
+    "gobuster_scan", "arjun_scan", "sqlmap_scan", "wpscan_scan", "commix_scan",
+])
 
 
 class WebAppAgent(BaseSpecializedAgent):
 
     def get_available_tools(self) -> list[str]:
         tools = ["report_finding"]
-        for tool_name in ("whatweb_scan", "nikto_scan", "nuclei_scan", "ffuf_scan"):
+        for tool_name in (
+            "whatweb_scan", "nikto_scan", "nuclei_scan", "ffuf_scan",
+            "gobuster_scan", "arjun_scan", "sqlmap_scan", "wpscan_scan", "commix_scan",
+        ):
             if self._registry and self._registry.has(tool_name):
                 tools.append(tool_name)
         return tools
@@ -136,6 +155,64 @@ class WebAppAgent(BaseSpecializedAgent):
                 "host_ip": self.target,
                 "tech": data.get("plugins", {}),
                 "url": action_dict.get("parameters", action_dict).get("url", self.target),
+            }
+            self._add_finding(finding)
+            await self.publish_finding(finding)
+
+        # SQLMap: report confirmed injection as a vulnerability
+        if tool_name == "sqlmap_scan" and data.get("injectable"):
+            finding = {
+                "type": "vulnerability",
+                "host_ip": self.target,
+                "title": f"SQL Injection — {data.get('parameter', 'unknown parameter')}",
+                "description": (
+                    f"SQLi confirmed via {data.get('technique', 'unknown technique')}. "
+                    f"DBMS: {data.get('dbms', 'unknown')}. "
+                    f"URL: {data.get('url', '')}"
+                ),
+                "cvss": 9.8,
+                "source_tool": "sqlmap_scan",
+            }
+            self._add_finding(finding)
+            await self.publish_finding(finding)
+
+        # WPScan: report WordPress vulnerabilities
+        if tool_name == "wpscan_scan":
+            for vuln in data.get("vulnerabilities", []):
+                finding = {
+                    "type": "vulnerability",
+                    "host_ip": self.target,
+                    "title": vuln.get("title", "[wpscan] WordPress vulnerability"),
+                    "cve_id": vuln.get("cve", ""),
+                    "cvss": 7.5,
+                    "source_tool": "wpscan_scan",
+                }
+                self._add_finding(finding)
+                await self.publish_finding(finding)
+            for cred in data.get("credentials_found", []):
+                finding = {
+                    "type": "credential",
+                    "host_ip": self.target,
+                    "service": "wordpress",
+                    "username": cred.get("username"),
+                    "password": cred.get("password"),
+                    "source_tool": "wpscan_scan",
+                }
+                self._add_finding(finding)
+                await self.publish_finding(finding)
+
+        # Commix: report command injection as critical
+        if tool_name == "commix_scan" and data.get("injectable"):
+            finding = {
+                "type": "vulnerability",
+                "host_ip": self.target,
+                "title": f"OS Command Injection — {data.get('parameter', 'unknown parameter')}",
+                "description": (
+                    f"Command injection confirmed via {data.get('technique', 'unknown')}. "
+                    f"URL: {data.get('url', '')}"
+                ),
+                "cvss": 9.8,
+                "source_tool": "commix_scan",
             }
             self._add_finding(finding)
             await self.publish_finding(finding)

@@ -65,6 +65,15 @@ def build_tool_registry(
         from tools.webdav_tool import WebDavTool
         from tools.smb_enum_tool import SmbEnumTool
         from tools.telnet_tool import TelnetTool
+        # Web pentest & brute-force tools
+        from tools.hydra_tool import HydraTool
+        from tools.sqlmap_tool import SqlmapTool
+        from tools.wpscan_tool import WPScanTool
+        from tools.hashcat_tool import HashcatTool
+        from tools.commix_tool import CommixTool
+        from tools.john_tool import JohnTool
+        from tools.gobuster_tool import GobusterTool
+        from tools.arjun_tool import ArjunTool
 
         for tool in (
             MasscanTool(),
@@ -85,6 +94,14 @@ def build_tool_registry(
             WebDavTool(),
             SmbEnumTool(),
             TelnetTool(),
+            HydraTool(),
+            SqlmapTool(),
+            WPScanTool(),
+            HashcatTool(),
+            CommixTool(),
+            JohnTool(),
+            GobusterTool(),
+            ArjunTool(),
         ):
             registry.register(tool)
 

@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nmaprun>
 <?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
-<!-- Nmap 7.98 scan initiated Tue Mar 31 16:28:49 2026 as: /usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -O -p 1-10000 192.168.56.101 -->
-<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -O -p 1-10000 192.168.56.101" start="1774963729" startstr="Tue Mar 31 16:28:49 2026" version="7.98" xmloutputversion="1.05">
+<!-- Nmap 7.98 scan initiated Tue Mar 31 16:28:49 2026 as: /usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -O -p 1-10000 <TARGET_IP> -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -O -p 1-10000 <TARGET_IP>" start="1774963729" startstr="Tue Mar 31 16:28:49 2026" version="7.98" xmloutputversion="1.05">
 <scaninfo type="syn" protocol="tcp" numservices="10000" services="1-10000"/>
 <verbose level="0"/>
 <debugging level="0"/>
 <host starttime="1774963730" endtime="1774963750"><status state="up" reason="user-set" reason_ttl="0"/>
-<address addr="192.168.56.101" addrtype="ipv4"/>
+<address addr="<TARGET_IP>" addrtype="ipv4"/>
 <hostnames>
 </hostnames>
 <ports><extraports state="closed" count="9828">
@@ -29,7 +29,7 @@
 <port protocol="tcp" portid="513"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="login" product="OpenBSD or Solaris rlogind" method="probed" conf="10"/></port>
 <port protocol="tcp" portid="514"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="shell" product="Netkit rshd" method="probed" conf="10"><cpe>cpe:/a:netkit:netkit_rsh</cpe></service></port>
 <port protocol="tcp" portid="1099"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="java-rmi" product="GNU Classpath grmiregistry" method="probed" conf="10"/></port>
-<port protocol="tcp" portid="1524"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="bindshell" product="Metasploitable root shell" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="1524"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="bindshell" product="legacy-vulnerable-vm root shell" method="probed" conf="10"/></port>
 <port protocol="tcp" portid="2049"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="nfs" version="2-4" extrainfo="RPC #100003" method="probed" conf="10"/></port>
 <port protocol="tcp" portid="2121"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ftp" product="ProFTPD" version="1.3.1" ostype="Unix" method="probed" conf="10"><cpe>cpe:/a:proftpd:proftpd:1.3.1</cpe></service></port>
 <port protocol="tcp" portid="3306"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="mysql" product="MySQL" version="5.0.51a-3ubuntu5" method="probed" conf="10"><cpe>cpe:/a:mysql:mysql:5.0.51a-3ubuntu5</cpe></service></port>
@@ -37,8 +37,8 @@
 <port protocol="tcp" portid="5432"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="postgresql" product="PostgreSQL DB" version="8.3.0 - 8.3.7" method="probed" conf="10"><cpe>cpe:/a:postgresql:postgresql:8.3</cpe></service></port>
 <port protocol="tcp" portid="5900"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="vnc" product="VNC" extrainfo="protocol 3.3" method="probed" conf="10"/></port>
 <port protocol="tcp" portid="6000"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="X11" extrainfo="access denied" method="probed" conf="10"/></port>
-<port protocol="tcp" portid="6667"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="irc" product="UnrealIRCd" hostname="irc.Metasploitable.LAN" method="probed" conf="10"><cpe>cpe:/a:unrealircd:unrealircd</cpe></service></port>
-<port protocol="tcp" portid="6697"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="irc" product="UnrealIRCd" hostname="irc.Metasploitable.LAN" method="probed" conf="10"><cpe>cpe:/a:unrealircd:unrealircd</cpe></service></port>
+<port protocol="tcp" portid="6667"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="irc" product="UnrealIRCd" hostname="irc.legacy-vulnerable-vm.LAN" method="probed" conf="10"><cpe>cpe:/a:unrealircd:unrealircd</cpe></service></port>
+<port protocol="tcp" portid="6697"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="irc" product="UnrealIRCd" hostname="irc.legacy-vulnerable-vm.LAN" method="probed" conf="10"><cpe>cpe:/a:unrealircd:unrealircd</cpe></service></port>
 <port protocol="tcp" portid="8009"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ajp13" product="Apache Jserv" extrainfo="Protocol v1.3" method="probed" conf="10"/></port>
 <port protocol="tcp" portid="8180"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="http" product="Apache Tomcat/Coyote JSP engine" version="1.1" method="probed" conf="10"><cpe>cpe:/a:apache:coyote_http_connector:1.1</cpe></service></port>
 <port protocol="tcp" portid="8787"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="drb" product="Ruby DRb RMI" extrainfo="Ruby 1.8; path /usr/lib/ruby/1.8/drb" method="probed" conf="10"><cpe>cpe:/a:ruby-lang:ruby:1.8</cpe></service></port>

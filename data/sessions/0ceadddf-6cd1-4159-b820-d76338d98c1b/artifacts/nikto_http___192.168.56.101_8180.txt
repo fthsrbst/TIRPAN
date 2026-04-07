@@ -1,8 +1,8 @@
 - Nikto v2.6.0
 ---------------------------------------------------------------------------
 + Your Nikto installation is out of date.
-+ Target IP:          192.168.56.101
-+ Target Hostname:    192.168.56.101
++ Target IP:          <TARGET_IP>
++ Target Hostname:    <TARGET_IP>
 + Target Port:        8180
 + Platform:           Unknown
 + Start Time:         2026-03-31 14:55:36 (GMT3)

@@ -9,7 +9,7 @@
 {
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
-  "target": "192.168.56.101"
+  "target": "<TARGET_IP>"
 }
 ```
 
@@ -57,7 +57,7 @@
 {
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
-  "thought": "Starting TCP port scan on 192.168.56.101 for ports 1-10000. I'll use a service scan to discover open ports, services, and versions.",
+  "thought": "Starting TCP port scan on <TARGET_IP> for ports 1-10000. I'll use a service scan to discover open ports, services, and versions.",
   "action": "nmap_scan",
   "reasoning": "",
   "situation": "",
@@ -72,7 +72,7 @@
   "prefix": "THINK",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "Starting TCP port scan on 192.168.56.101 for ports 1-10000. I'll use a service scan to discover open ports, services, and versions.",
+  "msg": "Starting TCP port scan on <TARGET_IP> for ports 1-10000. I'll use a service scan to discover open ports, services, and versions.",
   "level": "debug",
   "ts": "+102.322s"
 }
@@ -84,7 +84,7 @@
   "prefix": "ACTION",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "nmap_scan  params={\"target\": \"192.168.56.101\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
+  "msg": "nmap_scan  params={\"target\": \"<TARGET_IP>\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
   "level": "debug",
   "ts": "+102.322s"
 }
@@ -97,7 +97,7 @@
   "agent_type": "scanner",
   "tool": "nmap_scan",
   "params": {
-    "target": "192.168.56.101",
+    "target": "<TARGET_IP>",
     "scan_type": "service",
     "port_range": "1-10000",
     "scripts": "default",
@@ -112,7 +112,7 @@
   "prefix": "TOOL→",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "nmap_scan  {\"target\": \"192.168.56.101\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
+  "msg": "nmap_scan  {\"target\": \"<TARGET_IP>\", \"scan_type\": \"service\", \"port_range\": \"1-10000\", \"scripts\": \"default\", \"excluded_ports\": \"\"}",
   "level": "debug",
   "ts": "+102.323s"
 }
@@ -124,7 +124,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "nmap_scan (174989ms)  {\"target\": \"192.168.56.101\", \"scan_type\": \"service\", \"hosts\": [{\"ip\": \"192.168.56.101\", \"hostname\": \"\", \"os\": \"\", \"os_accuracy\": 0, \"state\": \"up\", \"ports\": [{\"number\": 21, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ftp\", \"version\": \"vsftpd 2.3.4…(26558 more)",
+  "msg": "nmap_scan (174989ms)  {\"target\": \"<TARGET_IP>\", \"scan_type\": \"service\", \"hosts\": [{\"ip\": \"<TARGET_IP>\", \"hostname\": \"\", \"os\": \"\", \"os_accuracy\": 0, \"state\": \"up\", \"ports\": [{\"number\": 21, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ftp\", \"version\": \"vsftpd 2.3.4…(26558 more)",
   "level": "debug",
   "ts": "+277.329s"
 }
@@ -137,7 +137,7 @@
   "agent_type": "scanner",
   "tool": "nmap_scan",
   "success": true,
-  "output": "{\"target\": \"192.168.56.101\", \"scan_type\": \"service\", \"hosts\": [{\"ip\": \"192.168.56.101\", \"hostname\": \"\", \"os\": \"\", \"os_accuracy\": 0, \"state\": \"up\", \"ports\": [{\"number\": 21, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ftp\", \"version\": \"vsftpd 2.3.4\", \"banner\": \"\"}, {\"number\": 22, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ssh\", \"version\": \"OpenSSH 4.7p1 Debian 8ubuntu1\", \"banner\": \"\"}, {\"number\": 23, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"telnet\", \"version\": \"Linux telnetd\", \"banner\": \"\"}, {\"number\": 25, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"smtp\", \"version\": \"Postfix smtpd\", \"banner\": \"\"}, {\"number\": 53, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"domain\", \"version\": \"ISC BIND 9.4.2\", \"banner\": \"\"}, {\"number\": 80, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"http\", \"version\": \"Apache httpd 2.2.8\", \"banner\": \"\"}, {\"number\": 111, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"rpcbind\", \"version\": \"2\", \"banner\": \"\"}, {\"number\": 139, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"netbios-ssn\", \"version\": \"Samba smbd 3.X - 4.X\", \"banner\": \"\"}, {\"number\": 445, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"netbios-ssn\", \"version\": \"Samba smbd 3.0.20-Debian\", \"banner\": \"\"}, {\"number\": 512, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"exec\", \"version\": \"netkit-rsh rexecd\", \"banner\": \"\"}, {\"number\": 513, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"login\", \"version\": \"\", \"banner\": \"\"}, {\"number\": 514, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"shell\", \"version\": \"Netkit rshd\", \"banner\": \"\"}, {\"number\": 1099, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"java-rmi\", \"version\": \"GNU Classpath grmiregistry\", \"banner\": \"\"}, {\"number\": 1524, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"bindshell\", \"version\": \"Metasploitable root shell\", \"banner\": \"\"}, {\"number\": 2049, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"nfs\", \"version\": \"2-4\", \"banner\": \"\"}, {\"number\": 2121, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ccproxy-ftp\", \"version\": \"\", \"banner\": \"\"}, {\"number\": 3306, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"mysql\", \"version\": \"MySQL 5.0.51a-3ubuntu5\", \"banner\": \"\"}, {\"number\": 3632, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"distccd\", \"version\": \"distccd v1\", \"banner\": \"\"}, {\"number\": 5432, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"postgresql\", \"version\": \"PostgreSQL DB 8.3.0 - 8.3.7\", \"banner\": \"\"}, {\"number\": 5900, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"vnc\", \"version\": \"VNC\", \"banner\": \"\"}, {\"number\": 6000, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"X11\", \"version\": \"\", \"banner\": \"\"}, {\"number\": 6667, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"irc\", \"version\": \"UnrealIRCd\", \"banner\": \"\"}, {\"number\": 6697, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"irc\", \"version\": \"UnrealIRCd\", \"banner\": \"\"}, {\"number\": 8009, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ajp13\", \"version\": \"Apache Jserv\", \"banner\": \"\"}, {\"number\": 8180, \"protocol\": \"tcp\", \"state\": \"open\n... [truncated]",
+  "output": "{\"target\": \"<TARGET_IP>\", \"scan_type\": \"service\", \"hosts\": [{\"ip\": \"<TARGET_IP>\", \"hostname\": \"\", \"os\": \"\", \"os_accuracy\": 0, \"state\": \"up\", \"ports\": [{\"number\": 21, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ftp\", \"version\": \"vsftpd 2.3.4\", \"banner\": \"\"}, {\"number\": 22, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ssh\", \"version\": \"OpenSSH 4.7p1 Debian 8ubuntu1\", \"banner\": \"\"}, {\"number\": 23, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"telnet\", \"version\": \"Linux telnetd\", \"banner\": \"\"}, {\"number\": 25, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"smtp\", \"version\": \"Postfix smtpd\", \"banner\": \"\"}, {\"number\": 53, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"domain\", \"version\": \"ISC BIND 9.4.2\", \"banner\": \"\"}, {\"number\": 80, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"http\", \"version\": \"Apache httpd 2.2.8\", \"banner\": \"\"}, {\"number\": 111, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"rpcbind\", \"version\": \"2\", \"banner\": \"\"}, {\"number\": 139, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"netbios-ssn\", \"version\": \"Samba smbd 3.X - 4.X\", \"banner\": \"\"}, {\"number\": 445, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"netbios-ssn\", \"version\": \"Samba smbd 3.0.20-Debian\", \"banner\": \"\"}, {\"number\": 512, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"exec\", \"version\": \"netkit-rsh rexecd\", \"banner\": \"\"}, {\"number\": 513, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"login\", \"version\": \"\", \"banner\": \"\"}, {\"number\": 514, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"shell\", \"version\": \"Netkit rshd\", \"banner\": \"\"}, {\"number\": 1099, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"java-rmi\", \"version\": \"GNU Classpath grmiregistry\", \"banner\": \"\"}, {\"number\": 1524, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"bindshell\", \"version\": \"legacy-vulnerable-vm root shell\", \"banner\": \"\"}, {\"number\": 2049, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"nfs\", \"version\": \"2-4\", \"banner\": \"\"}, {\"number\": 2121, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ccproxy-ftp\", \"version\": \"\", \"banner\": \"\"}, {\"number\": 3306, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"mysql\", \"version\": \"MySQL 5.0.51a-3ubuntu5\", \"banner\": \"\"}, {\"number\": 3632, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"distccd\", \"version\": \"distccd v1\", \"banner\": \"\"}, {\"number\": 5432, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"postgresql\", \"version\": \"PostgreSQL DB 8.3.0 - 8.3.7\", \"banner\": \"\"}, {\"number\": 5900, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"vnc\", \"version\": \"VNC\", \"banner\": \"\"}, {\"number\": 6000, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"X11\", \"version\": \"\", \"banner\": \"\"}, {\"number\": 6667, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"irc\", \"version\": \"UnrealIRCd\", \"banner\": \"\"}, {\"number\": 6697, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"irc\", \"version\": \"UnrealIRCd\", \"banner\": \"\"}, {\"number\": 8009, \"protocol\": \"tcp\", \"state\": \"open\", \"service\": \"ajp13\", \"version\": \"Apache Jserv\", \"banner\": \"\"}, {\"number\": 8180, \"protocol\": \"tcp\", \"state\": \"open\n... [truncated]",
   "error": null
 }
 ```
@@ -148,7 +148,7 @@
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
   "type": "host",
-  "ip": "192.168.56.101",
+  "ip": "<TARGET_IP>",
   "hostname": "",
   "os_type": "",
   "ports": [
@@ -233,7 +233,7 @@
     {
       "number": 1524,
       "service": "bindshell",
-      "version": "Metasploitable root shell",
+      "version": "legacy-vulnerable-vm root shell",
       "state": "open"
     },
     {
@@ -318,7 +318,7 @@
   "prefix": "FINDING",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "host  {'type': 'host', 'ip': '192.168.56.101', 'hostname': '', 'os_type': '', 'ports': [{'number': 21, 'service': 'ftp', 'version': 'vsftpd 2.3.4', 'state': 'open'}, {'number': 22, 'service': 'ssh', 'versio",
+  "msg": "host  {'type': 'host', 'ip': '<TARGET_IP>', 'hostname': '', 'os_type': '', 'ports': [{'number': 21, 'service': 'ftp', 'version': 'vsftpd 2.3.4', 'state': 'open'}, {'number': 22, 'service': 'ssh', 'versio",
   "level": "debug",
   "ts": "+277.347s"
 }
@@ -330,7 +330,7 @@
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
   "type": "host",
-  "ip": "192.168.56.101",
+  "ip": "<TARGET_IP>",
   "hostname": "",
   "os_type": "",
   "ports": [
@@ -415,7 +415,7 @@
     {
       "number": 1524,
       "service": "bindshell",
-      "version": "Metasploitable root shell",
+      "version": "legacy-vulnerable-vm root shell",
       "state": "open"
     },
     {
@@ -491,7 +491,7 @@
       "state": "open"
     }
   ],
-  "target": "192.168.56.101"
+  "target": "<TARGET_IP>"
 }
 ```
 
@@ -518,7 +518,7 @@
 {
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
-  "thought": "This is a Metasploitable 2 machine with numerous vulnerable services. I can see many critical vulnerabilities including: vsftpd 2.3.4 (backdoor), bindshell on port 1524 (direct root shell), UnrealIRCd (backdoor), distccd, old Samba, etc. I need to find flag.txt. I'll report the findings first, then try to access the system through a vulnerable service. Since I don't have direct shell access tools, I should report all the vulnerabilities found.",
+  "thought": "This is a legacy-vulnerable-vm 2 machine with numerous vulnerable services. I can see many critical vulnerabilities including: vsftpd 2.3.4 (backdoor), bindshell on port 1524 (direct root shell), UnrealIRCd (backdoor), distccd, old Samba, etc. I need to find flag.txt. I'll report the findings first, then try to access the system through a vulnerable service. Since I don't have direct shell access tools, I should report all the vulnerabilities found.",
   "action": "report_finding",
   "reasoning": "",
   "situation": "",
@@ -533,7 +533,7 @@
   "prefix": "THINK",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "This is a Metasploitable 2 machine with numerous vulnerable services. I can see many critical vulnerabilities including: vsftpd 2.3.4 (backdoor), bindshell on port 1524 (direct root shell), UnrealIRCd (backdoor), distccd, old Samba, etc. I need to find flag.txt. I'll report the findings first, then …(147 more)",
+  "msg": "This is a legacy-vulnerable-vm 2 machine with numerous vulnerable services. I can see many critical vulnerabilities including: vsftpd 2.3.4 (backdoor), bindshell on port 1524 (direct root shell), UnrealIRCd (backdoor), distccd, old Samba, etc. I need to find flag.txt. I'll report the findings first, then …(147 more)",
   "level": "debug",
   "ts": "+287.265s"
 }
@@ -545,7 +545,7 @@
   "prefix": "ACTION",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "report_finding  params={\"finding_type\": \"open_ports\", \"data\": \"Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(11…(306 more)",
+  "msg": "report_finding  params={\"finding_type\": \"open_ports\", \"data\": \"Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(11…(306 more)",
   "level": "debug",
   "ts": "+287.265s"
 }
@@ -559,7 +559,7 @@
   "tool": "report_finding",
   "params": {
     "finding_type": "open_ports",
-    "data": "Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor."
+    "data": "Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor."
   }
 }
 ```
@@ -570,7 +570,7 @@
   "prefix": "TOOL→",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "report_finding  {\"finding_type\": \"open_ports\", \"data\": \"Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1…(256 more)",
+  "msg": "report_finding  {\"finding_type\": \"open_ports\", \"data\": \"Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1…(256 more)",
   "level": "debug",
   "ts": "+287.266s"
 }
@@ -582,7 +582,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "report_finding (0ms)  {\"finding_type\": \"open_ports\", \"data\": {\"note\": \"Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(330…(216 more)",
+  "msg": "report_finding (0ms)  {\"finding_type\": \"open_ports\", \"data\": {\"note\": \"Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(330…(216 more)",
   "level": "debug",
   "ts": "+287.339s"
 }
@@ -595,7 +595,7 @@
   "agent_type": "scanner",
   "tool": "report_finding",
   "success": true,
-  "output": "{\"finding_type\": \"open_ports\", \"data\": {\"note\": \"Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor.\"}}",
+  "output": "{\"finding_type\": \"open_ports\", \"data\": {\"note\": \"Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor.\"}}",
   "error": null
 }
 ```
@@ -606,7 +606,7 @@
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
   "type": "open_ports",
-  "note": "Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor."
+  "note": "Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor."
 }
 ```
 
@@ -616,7 +616,7 @@
   "prefix": "FINDING",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "open_ports  {'type': 'open_ports', 'note': 'Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NF",
+  "msg": "open_ports  {'type': 'open_ports', 'note': 'Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NF",
   "level": "debug",
   "ts": "+287.385s"
 }
@@ -628,8 +628,8 @@
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
   "type": "open_ports",
-  "note": "Target 192.168.56.101 has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor.",
-  "target": "192.168.56.101"
+  "note": "Target <TARGET_IP> has 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111), NetBIOS(139/445), rsh(512/513/514), Java RMI(1099), NFS(2049), ccproxy(2121), MySQL(3306), distccd(3632), PostgreSQL(5432), VNC(5900), X11(6000), IRC(6667/6697), AJP13(8009), Tomcat(8180), DRb(8787). Critical: Port 1524 has bindshell (root shell), vsftpd 2.3.4 is vulnerable, UnrealIRCd has backdoor.",
+  "target": "<TARGET_IP>"
 }
 ```
 
@@ -656,7 +656,7 @@
 {
   "agent_id": "scanner-f7ec5c5d",
   "agent_type": "scanner",
-  "thought": "I've completed the TCP port scan (1-10000) on 192.168.56.101 and found 25 open ports with multiple critical vulnerabilities (typical Metasploitable 2). The scan task is complete. However, I don't have exploitation tools available in my toolset to actually access the system and find flag.txt. The vulnerabilities found include: bindshell on port 15224 (direct root shell), vsftpd 2.3.4 backdoor, UnrealIRCd backdoor, and distccd vulnerability. To find flag.txt, one would need to exploit these vulnerabilities to gain shell access.",
+  "thought": "I've completed the TCP port scan (1-10000) on <TARGET_IP> and found 25 open ports with multiple critical vulnerabilities (typical legacy-vulnerable-vm 2). The scan task is complete. However, I don't have exploitation tools available in my toolset to actually access the system and find flag.txt. The vulnerabilities found include: bindshell on port 15224 (direct root shell), vsftpd 2.3.4 backdoor, UnrealIRCd backdoor, and distccd vulnerability. To find flag.txt, one would need to exploit these vulnerabilities to gain shell access.",
   "action": "done",
   "reasoning": "",
   "situation": "",
@@ -671,7 +671,7 @@
   "prefix": "THINK",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "I've completed the TCP port scan (1-10000) on 192.168.56.101 and found 25 open ports with multiple critical vulnerabilities (typical Metasploitable 2). The scan task is complete. However, I don't have exploitation tools available in my toolset to actually access the system and find flag.txt. The vul…(231 more)",
+  "msg": "I've completed the TCP port scan (1-10000) on <TARGET_IP> and found 25 open ports with multiple critical vulnerabilities (typical legacy-vulnerable-vm 2). The scan task is complete. However, I don't have exploitation tools available in my toolset to actually access the system and find flag.txt. The vul…(231 more)",
   "level": "debug",
   "ts": "+362.462s"
 }
@@ -683,7 +683,7 @@
   "prefix": "ACTION",
   "agent_id": "scanner-f7ec5c5d",
   "short_id": "scan-f7ec",
-  "msg": "done  params={\"findings_summary\": \"TCP scan complete on 192.168.56.101. Found 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111…(475 more)",
+  "msg": "done  params={\"findings_summary\": \"TCP scan complete on <TARGET_IP>. Found 25 open ports: FTP(21), SSH(22), Telnet(23), SMTP(25), DNS(53), HTTP(80), rpcbind(111…(475 more)",
   "level": "debug",
   "ts": "+362.462s"
 }

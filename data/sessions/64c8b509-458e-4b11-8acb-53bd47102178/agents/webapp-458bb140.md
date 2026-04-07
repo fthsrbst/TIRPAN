@@ -9,7 +9,7 @@
 {
   "agent_id": "webapp-458bb140",
   "agent_type": "webapp",
-  "target": "http://192.168.56.101"
+  "target": "http://<TARGET_IP>"
 }
 ```
 
@@ -57,7 +57,7 @@
 {
   "agent_id": "webapp-458bb140",
   "agent_type": "webapp",
-  "thought": "Starting web_scan_full on target 192.168.56.101. First, I'll identify the web technology stack using whatweb_scan to understand what we're working with.",
+  "thought": "Starting web_scan_full on target <TARGET_IP>. First, I'll identify the web technology stack using whatweb_scan to understand what we're working with.",
   "action": "whatweb_scan",
   "reasoning": ""
 }
@@ -69,7 +69,7 @@
   "prefix": "THINK",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "Starting web_scan_full on target 192.168.56.101. First, I'll identify the web technology stack using whatweb_scan to understand what we're working with.",
+  "msg": "Starting web_scan_full on target <TARGET_IP>. First, I'll identify the web technology stack using whatweb_scan to understand what we're working with.",
   "level": "debug",
   "ts": "+405.356s"
 }
@@ -81,7 +81,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>/\"}",
   "level": "debug",
   "ts": "+405.356s"
 }
@@ -94,7 +94,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101/"
+    "url": "http://<TARGET_IP>/"
   }
 }
 ```
@@ -105,7 +105,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>/\"}",
   "level": "debug",
   "ts": "+405.357s"
 }
@@ -117,7 +117,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "whatweb_scan (4352ms)  {\"url\": \"http://192.168.56.101/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"192.168.56.10…(750 more)",
+  "msg": "whatweb_scan (4352ms)  {\"url\": \"http://<TARGET_IP>/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"192.168.56.10…(750 more)",
   "level": "debug",
   "ts": "+409.738s"
 }
@@ -130,7 +130,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"PHP\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}, \"Title\": {\"string\": [\"Metasploitable2 - Linux\"]}, \"WebDAV\": {\"version\": [\"2\"]}, \"X-Powered-By\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {\"version\": [\"2.2.8\"]}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"PHP\", \"detail\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Metasploitable2 - Linux\"]}}, {\"name\": \"WebDAV\", \"detail\": {\"version\": [\"2\"]}}, {\"name\": \"X-Powered-By\", \"detail\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"PHP\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}, \"Title\": {\"string\": [\"legacy-vulnerable-vm - Linux\"]}, \"WebDAV\": {\"version\": [\"2\"]}, \"X-Powered-By\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {\"version\": [\"2.2.8\"]}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"PHP\", \"detail\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"legacy-vulnerable-vm - Linux\"]}}, {\"name\": \"WebDAV\", \"detail\": {\"version\": [\"2\"]}}, {\"name\": \"X-Powered-By\", \"detail\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}]}",
   "error": null
 }
 ```
@@ -141,7 +141,7 @@
   "agent_id": "webapp-458bb140",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101",
+  "host_ip": "http://<TARGET_IP>",
   "tech": {
     "Apache": {
       "version": [
@@ -166,7 +166,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "PHP": {
@@ -176,7 +176,7 @@
     },
     "Title": {
       "string": [
-        "Metasploitable2 - Linux"
+        "legacy-vulnerable-vm - Linux"
       ]
     },
     "WebDAV": {
@@ -190,7 +190,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101/"
+  "url": "http://<TARGET_IP>/"
 }
 ```
 
@@ -200,7 +200,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101', 'tech': {'Apache': {'version': ['2.2.8']}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'os': ['Ubuntu Linux'], 'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>', 'tech': {'Apache': {'version': ['2.2.8']}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'os': ['Ubuntu Linux'], 'st",
   "level": "debug",
   "ts": "+409.856s"
 }
@@ -212,7 +212,7 @@
   "agent_id": "webapp-458bb140",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101",
+  "host_ip": "http://<TARGET_IP>",
   "tech": {
     "Apache": {
       "version": [
@@ -237,7 +237,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "PHP": {
@@ -247,7 +247,7 @@
     },
     "Title": {
       "string": [
-        "Metasploitable2 - Linux"
+        "legacy-vulnerable-vm - Linux"
       ]
     },
     "WebDAV": {
@@ -261,8 +261,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101/",
-  "target": "http://192.168.56.101"
+  "url": "http://<TARGET_IP>/",
+  "target": "http://<TARGET_IP>"
 }
 ```
 
@@ -289,7 +289,7 @@
 {
   "agent_id": "webapp-458bb140",
   "agent_type": "webapp",
-  "thought": "Target identified as Metasploitable2 with Apache 2.2.8, PHP 5.2.4, and WebDAV. This is a known vulnerable system. Now running nikto_scan for vulnerability check and nuclei_scan for CVE detection in parallel.",
+  "thought": "Target identified as legacy-vulnerable-vm with Apache 2.2.8, PHP 5.2.4, and WebDAV. This is a known vulnerable system. Now running nikto_scan for vulnerability check and nuclei_scan for CVE detection in parallel.",
   "action": "nikto_scan",
   "reasoning": ""
 }
@@ -301,7 +301,7 @@
   "prefix": "THINK",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "Target identified as Metasploitable2 with Apache 2.2.8, PHP 5.2.4, and WebDAV. This is a known vulnerable system. Now running nikto_scan for vulnerability check and nuclei_scan for CVE detection in parallel.",
+  "msg": "Target identified as legacy-vulnerable-vm with Apache 2.2.8, PHP 5.2.4, and WebDAV. This is a known vulnerable system. Now running nikto_scan for vulnerability check and nuclei_scan for CVE detection in parallel.",
   "level": "debug",
   "ts": "+427.311s"
 }
@@ -313,7 +313,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "nikto_scan  params={\"url\": \"http://192.168.56.101/\", \"timeout\": 300}",
+  "msg": "nikto_scan  params={\"url\": \"http://<TARGET_IP>/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+427.311s"
 }
@@ -326,7 +326,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "params": {
-    "url": "http://192.168.56.101/",
+    "url": "http://<TARGET_IP>/",
     "timeout": 300
   }
 }
@@ -338,7 +338,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "nikto_scan  {\"url\": \"http://192.168.56.101/\", \"timeout\": 300}",
+  "msg": "nikto_scan  {\"url\": \"http://<TARGET_IP>/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+427.312s"
 }
@@ -350,7 +350,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-458bb140",
   "short_id": "weba-458b",
-  "msg": "nikto_scan (199098ms)  {\"url\": \"http://192.168.56.101/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"Platform: …(13956 more)",
+  "msg": "nikto_scan (199098ms)  {\"url\": \"http://<TARGET_IP>/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"Platform: …(13956 more)",
   "level": "debug",
   "ts": "+626.429s"
 }
@@ -363,7 +363,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"Platform:           Unknown\", \"description\": \"Platform:           Unknown\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"Server: Apache/2.2.8 (Ubuntu) DAV/2\", \"description\": \"Server: Apache/2.2.8 (Ubuntu) DAV/2\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[999986] /: Retrieved x-powered-by header: PHP/5.2.4-2ubuntu5.10.\", \"description\": \"[999986] /: Retrieved x-powered-by header: PHP/5.2.4-2ubuntu5.10.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[750500] /icons/: Directory indexing found.\", \"description\": \"[750500] /icons/: Directory indexing found.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"description\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[999100] /index: Uncommon header(s) 'tcn' found, with contents: list.\", \"description\": \"[999100] /index: Uncommon header(s) 'tcn' found, with contents: list.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[999965] /index: Apache mod_negotiation is enabled with MultiViews, which allows attackers to easily brute force file na\", \"description\": \"[999965] /index: Apache mod_negotiation is enabled with MultiViews, which allows attackers to easily brute force file names. The following alternatives for 'index' were found: index.php. See: http://www.wisec.it/sectou.php?id=4698ebdc59d15,https://exchange.xforce.ibmcloud.com/vulnerabilities/8275\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[600050] Apache/2.2.8 appears to be outdated (current is at least 2.4.66).\", \"description\": \"[600050] Apache/2.2.8 appears to be outdated (current is at least 2.4.66).\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[600625] PHP/5.2.4-2ubuntu5.10 appears to be outdated (current is at least 8.5.1).\", \"description\": \"[600625] PHP/5.2.4-2ubuntu5.10 appears to be outdated (current is at least 8.5.1).\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web\", \"description\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: referr\n... [truncated]",
+  "output": "{\"url\": \"http://<TARGET_IP>/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"Platform:           Unknown\", \"description\": \"Platform:           Unknown\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"Server: Apache/2.2.8 (Ubuntu) DAV/2\", \"description\": \"Server: Apache/2.2.8 (Ubuntu) DAV/2\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[999986] /: Retrieved x-powered-by header: PHP/5.2.4-2ubuntu5.10.\", \"description\": \"[999986] /: Retrieved x-powered-by header: PHP/5.2.4-2ubuntu5.10.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[750500] /icons/: Directory indexing found.\", \"description\": \"[750500] /icons/: Directory indexing found.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"description\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[999100] /index: Uncommon header(s) 'tcn' found, with contents: list.\", \"description\": \"[999100] /index: Uncommon header(s) 'tcn' found, with contents: list.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[999965] /index: Apache mod_negotiation is enabled with MultiViews, which allows attackers to easily brute force file na\", \"description\": \"[999965] /index: Apache mod_negotiation is enabled with MultiViews, which allows attackers to easily brute force file names. The following alternatives for 'index' were found: index.php. See: http://www.wisec.it/sectou.php?id=4698ebdc59d15,https://exchange.xforce.ibmcloud.com/vulnerabilities/8275\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[600050] Apache/2.2.8 appears to be outdated (current is at least 2.4.66).\", \"description\": \"[600050] Apache/2.2.8 appears to be outdated (current is at least 2.4.66).\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[600625] PHP/5.2.4-2ubuntu5.10 appears to be outdated (current is at least 8.5.1).\", \"description\": \"[600625] PHP/5.2.4-2ubuntu5.10 appears to be outdated (current is at least 8.5.1).\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web\", \"description\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: referr\n... [truncated]",
   "error": null
 }
 ```

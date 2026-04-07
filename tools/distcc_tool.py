@@ -6,7 +6,7 @@ arbitrary commands passed as part of a compilation job.
 
 The daemon (port 3632) accepts COMPILE jobs. By crafting a job that contains
 shell commands instead of actual C code, we get arbitrary command execution
-as the user running distccd (typically 'daemon' on Metasploitable2).
+as the user running distccd (typically 'daemon' on vulnerable systems).
 
 From daemon → root: check sudo -l, SUID binaries, or kernel exploits.
 """
@@ -52,7 +52,7 @@ class DistccTool(BaseTool):
                 "Exploits CVE-2004-2687 in distccd (port 3632). "
                 "The distcc distributed compiler daemon executes arbitrary OS commands "
                 "passed as compilation arguments. No authentication required. "
-                "Affected: distcc 2.x on Metasploitable2 and other legacy systems. "
+                "Affected: distcc 2.x on legacy and unpatched systems. "
                 "Actions:\n"
                 "  check  — test if target is vulnerable (runs 'id' command)\n"
                 "  exec   — execute an arbitrary command as the daemon user"

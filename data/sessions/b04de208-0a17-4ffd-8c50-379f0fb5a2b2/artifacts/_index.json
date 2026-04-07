@@ -1,12 +1,12 @@
 [
   {
-    "filename": "nmap_192.168.56.101_full.xml",
+    "filename": "nmap_<TARGET_IP>_full.xml",
     "tool": "nmap",
     "size_bytes": 20003,
     "created_at": "2026-03-29T20:46:32.209525+00:00"
   },
   {
-    "filename": "ffuf_http___192.168.56.101_FUZZ.json",
+    "filename": "ffuf_http___<TARGET_IP>_FUZZ.json",
     "tool": "ffuf",
     "size_bytes": 6712,
     "created_at": "2026-03-29T20:53:34.934393+00:00"
@@ -18,7 +18,7 @@
     "created_at": "2026-03-29T21:00:10.185221+00:00"
   },
   {
-    "filename": "ffuf_http___192.168.56.101.json",
+    "filename": "ffuf_http___<TARGET_IP>.json",
     "tool": "ffuf",
     "size_bytes": 6712,
     "created_at": "2026-03-29T21:07:07.862595+00:00"

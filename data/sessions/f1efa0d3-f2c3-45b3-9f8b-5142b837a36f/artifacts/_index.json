@@ -1,6 +1,6 @@
 [
   {
-    "filename": "nmap_192.168.56.101_service.xml",
+    "filename": "nmap_<TARGET_IP>_service.xml",
     "tool": "nmap",
     "size_bytes": 8184,
     "created_at": "2026-04-03T11:47:35.454620+00:00"

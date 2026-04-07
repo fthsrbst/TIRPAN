@@ -9,7 +9,7 @@
 {
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -57,7 +57,7 @@
 {
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
-  "thought": "I need to start with identifying the web technology stack. The target is http://192.168.56.101:8180. Let me use whatweb_scan first to understand what technologies are being used.",
+  "thought": "I need to start with identifying the web technology stack. The target is http://<TARGET_IP>:8180. Let me use whatweb_scan first to understand what technologies are being used.",
   "action": "whatweb_scan",
   "reasoning": ""
 }
@@ -69,7 +69,7 @@
   "prefix": "THINK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "I need to start with identifying the web technology stack. The target is http://192.168.56.101:8180. Let me use whatweb_scan first to understand what technologies are being used.",
+  "msg": "I need to start with identifying the web technology stack. The target is http://<TARGET_IP>:8180. Let me use whatweb_scan first to understand what technologies are being used.",
   "level": "debug",
   "ts": "+405.225s"
 }
@@ -81,7 +81,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180\"}",
   "level": "debug",
   "ts": "+405.225s"
 }
@@ -94,7 +94,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180"
+    "url": "http://<TARGET_IP>:8180"
   }
 }
 ```
@@ -105,7 +105,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180\"}",
   "level": "debug",
   "ts": "+405.225s"
 }
@@ -117,7 +117,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (4502ms)  {\"url\": \"http://192.168.56.101:8180\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"Email\": {\"string\": [\"dev@tomcat.apache.org\", \"users@tomcat.apache.org\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {…(582 more)",
+  "msg": "whatweb_scan (4502ms)  {\"url\": \"http://<TARGET_IP>:8180\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"Email\": {\"string\": [\"dev@tomcat.apache.org\", \"users@tomcat.apache.org\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {…(582 more)",
   "level": "debug",
   "ts": "+409.787s"
 }
@@ -130,7 +130,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"Email\": {\"string\": [\"dev@tomcat.apache.org\", \"users@tomcat.apache.org\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"PoweredBy\": {\"string\": [\"Tomcat\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"Email\", \"detail\": {\"string\": [\"dev@tomcat.apache.org\", \"users@tomcat.apache.org\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"PoweredBy\", \"detail\": {\"string\": [\"Tomcat\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"Email\": {\"string\": [\"dev@tomcat.apache.org\", \"users@tomcat.apache.org\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"PoweredBy\": {\"string\": [\"Tomcat\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"Email\", \"detail\": {\"string\": [\"dev@tomcat.apache.org\", \"users@tomcat.apache.org\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"PoweredBy\", \"detail\": {\"string\": [\"Tomcat\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5\"]}}]}",
   "error": null
 }
 ```
@@ -141,7 +141,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -165,7 +165,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "PoweredBy": {
@@ -179,7 +179,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -189,7 +189,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'Email': {'string': ['dev@tomcat.apache.org', 'users@tomc",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'Email': {'string': ['dev@tomcat.apache.org', 'users@tomc",
   "level": "debug",
   "ts": "+409.884s"
 }
@@ -201,7 +201,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -225,7 +225,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "PoweredBy": {
@@ -239,8 +239,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -291,7 +291,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nikto_scan  params={\"url\": \"http://192.168.56.101:8180\", \"timeout\": 300}",
+  "msg": "nikto_scan  params={\"url\": \"http://<TARGET_IP>:8180\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+425.017s"
 }
@@ -304,7 +304,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "params": {
-    "url": "http://192.168.56.101:8180",
+    "url": "http://<TARGET_IP>:8180",
     "timeout": 300
   }
 }
@@ -316,7 +316,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nikto_scan  {\"url\": \"http://192.168.56.101:8180\", \"timeout\": 300}",
+  "msg": "nikto_scan  {\"url\": \"http://<TARGET_IP>:8180\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+425.019s"
 }
@@ -328,7 +328,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nikto_scan (40273ms)  {\"url\": \"http://192.168.56.101:8180\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"Pl…(9988 more)",
+  "msg": "nikto_scan (40273ms)  {\"url\": \"http://<TARGET_IP>:8180\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"Pl…(9988 more)",
   "level": "debug",
   "ts": "+465.375s"
 }
@@ -341,7 +341,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"Platform:           Unknown\", \"description\": \"Platform:           Unknown\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"Server: Apache-Coyote/1.1\", \"description\": \"Server: Apache-Coyote/1.1\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"description\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community\", \"description\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web\", \"description\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT\", \"description\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We\", \"description\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/\", \"description\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H\", \"description\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en\n... [truncated]",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"Platform:           Unknown\", \"description\": \"Platform:           Unknown\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"Server: Apache-Coyote/1.1\", \"description\": \"Server: Apache-Coyote/1.1\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"description\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community\", \"description\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web\", \"description\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT\", \"description\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We\", \"description\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/\", \"description\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H\", \"description\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en\n... [truncated]",
   "error": null
 }
 ```
@@ -352,7 +352,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Your Nikto installation is out of date.",
   "description": "Your Nikto installation is out of date.",
   "cve_id": "",
@@ -367,7 +367,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': 'Your Nikto installation is out of date.', 'description': 'Your Nikto installation is out of date.', 'cve_id': '', 'cvss': 0",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': 'Your Nikto installation is out of date.', 'description': 'Your Nikto installation is out of date.', 'cve_id': '', 'cvss': 0",
   "level": "debug",
   "ts": "+465.389s"
 }
@@ -379,13 +379,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Your Nikto installation is out of date.",
   "description": "Your Nikto installation is out of date.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -395,7 +395,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Platform:           Unknown",
   "description": "Platform:           Unknown",
   "cve_id": "",
@@ -410,7 +410,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': 'Platform:           Unknown', 'description': 'Platform:           Unknown', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikt",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': 'Platform:           Unknown', 'description': 'Platform:           Unknown', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikt",
   "level": "debug",
   "ts": "+465.389s"
 }
@@ -422,13 +422,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Platform:           Unknown",
   "description": "Platform:           Unknown",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -438,7 +438,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Server: Apache-Coyote/1.1",
   "description": "Server: Apache-Coyote/1.1",
   "cve_id": "",
@@ -453,7 +453,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': 'Server: Apache-Coyote/1.1', 'description': 'Server: Apache-Coyote/1.1', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikto_sc",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': 'Server: Apache-Coyote/1.1', 'description': 'Server: Apache-Coyote/1.1', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikto_sc",
   "level": "debug",
   "ts": "+465.389s"
 }
@@ -465,13 +465,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Server: Apache-Coyote/1.1",
   "description": "Server: Apache-Coyote/1.1",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -481,7 +481,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "description": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "cve_id": "",
@@ -496,7 +496,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", 'description': \"No CGI Direc",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", 'description': \"No CGI Direc",
   "level": "debug",
   "ts": "+465.390s"
 }
@@ -508,13 +508,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "description": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -524,7 +524,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community",
   "description": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon",
   "cve_id": "",
@@ -539,7 +539,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community', ",
   "level": "debug",
   "ts": "+465.390s"
 }
@@ -551,13 +551,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community",
   "description": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -567,7 +567,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web",
   "description": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options",
   "cve_id": "",
@@ -582,7 +582,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web', ",
   "level": "debug",
   "ts": "+465.391s"
 }
@@ -594,13 +594,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web",
   "description": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -610,7 +610,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy",
   "cve_id": "",
@@ -625,7 +625,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
   "level": "debug",
   "ts": "+465.391s"
 }
@@ -637,13 +637,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -653,7 +653,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We",
   "description": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP",
   "cve_id": "",
@@ -668,7 +668,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We', ",
   "level": "debug",
   "ts": "+465.392s"
 }
@@ -680,13 +680,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We",
   "description": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -696,7 +696,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/",
   "description": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security",
   "cve_id": "",
@@ -711,7 +711,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/', ",
   "level": "debug",
   "ts": "+465.392s"
 }
@@ -723,13 +723,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/",
   "description": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -739,7 +739,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H",
   "description": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy",
   "cve_id": "",
@@ -754,7 +754,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H', ",
   "level": "debug",
   "ts": "+465.393s"
 }
@@ -766,13 +766,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H",
   "description": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -782,7 +782,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "description": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "cve_id": "",
@@ -797,7 +797,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.', 'description': '[",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.', 'description': '[",
   "level": "debug",
   "ts": "+465.393s"
 }
@@ -809,13 +809,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "description": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -825,7 +825,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[000356] /: Appears to be a default Apache Tomcat install.",
   "description": "[000356] /: Appears to be a default Apache Tomcat install.",
   "cve_id": "",
@@ -840,7 +840,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[000356] /: Appears to be a default Apache Tomcat install.', 'description': '[000356] /: Appears to be a default Apache Tom",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[000356] /: Appears to be a default Apache Tomcat install.', 'description': '[000356] /: Appears to be a default Apache Tom",
   "level": "debug",
   "ts": "+465.393s"
 }
@@ -852,13 +852,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[000356] /: Appears to be a default Apache Tomcat install.",
   "description": "[000356] /: Appears to be a default Apache Tomcat install.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -868,7 +868,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies",
   "cve_id": "",
@@ -883,7 +883,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
   "level": "debug",
   "ts": "+465.394s"
 }
@@ -895,13 +895,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -911,7 +911,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "description": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "cve_id": "",
@@ -926,7 +926,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552', 'description': '[002785] /tomca",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552', 'description': '[002785] /tomca",
   "level": "debug",
   "ts": "+465.394s"
 }
@@ -938,13 +938,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "description": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -954,7 +954,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "description": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "cve_id": "",
@@ -969,7 +969,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[003489] /webdav/index.html: WebDAV support is enabled.', 'description': '[003489] /webdav/index.html: WebDAV support is en",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[003489] /webdav/index.html: WebDAV support is enabled.', 'description': '[003489] /webdav/index.html: WebDAV support is en",
   "level": "debug",
   "ts": "+465.395s"
 }
@@ -981,13 +981,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "description": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -997,7 +997,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "description": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "cve_id": "",
@@ -1012,7 +1012,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552', 'description': '[003502] /jsp-examples/: Ap",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552', 'description': '[003502] /jsp-examples/: Ap",
   "level": "debug",
   "ts": "+465.396s"
 }
@@ -1024,13 +1024,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "description": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1040,7 +1040,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "description": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "cve_id": "",
@@ -1055,7 +1055,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[006437] /servlets-examples/: Tomcat servlets examples are visible.', 'description': '[006437] /servlets-examples/: Tomcat ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[006437] /servlets-examples/: Tomcat servlets examples are visible.', 'description': '[006437] /servlets-examples/: Tomcat ",
   "level": "debug",
   "ts": "+465.397s"
 }
@@ -1067,13 +1067,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "description": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1083,7 +1083,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom",
   "description": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tomcat. See: CWE-16",
   "cve_id": "",
@@ -1098,7 +1098,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': \"[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom\", ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': \"[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom\", ",
   "level": "debug",
   "ts": "+465.398s"
 }
@@ -1110,13 +1110,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom",
   "description": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tomcat. See: CWE-16",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1126,7 +1126,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[007017] /admin/login.jsp: Tomcat Server Administration interface found.",
   "description": "[007017] /admin/login.jsp: Tomcat Server Administration interface found.",
   "cve_id": "",
@@ -1141,7 +1141,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[007017] /admin/login.jsp: Tomcat Server Administration interface found.', 'description': '[007017] /admin/login.jsp: Tomca",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[007017] /admin/login.jsp: Tomcat Server Administration interface found.', 'description': '[007017] /admin/login.jsp: Tomca",
   "level": "debug",
   "ts": "+465.398s"
 }
@@ -1153,13 +1153,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[007017] /admin/login.jsp: Tomcat Server Administration interface found.",
   "description": "[007017] /admin/login.jsp: Tomcat Server Administration interface found.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1169,7 +1169,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[007342] /: X-Frame-Options header is deprecated and was replaced with the Content-Security-Policy HTTP header with the ",
   "description": "[007342] /: X-Frame-Options header is deprecated and was replaced with the Content-Security-Policy HTTP header with the frame-ancestors directive. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options",
   "cve_id": "",
@@ -1184,7 +1184,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[007342] /: X-Frame-Options header is deprecated and was replaced with the Content-Security-Policy HTTP header with the ', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[007342] /: X-Frame-Options header is deprecated and was replaced with the Content-Security-Policy HTTP header with the ', ",
   "level": "debug",
   "ts": "+465.398s"
 }
@@ -1196,13 +1196,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[007342] /: X-Frame-Options header is deprecated and was replaced with the Content-Security-Policy HTTP header with the ",
   "description": "[007342] /: X-Frame-Options header is deprecated and was replaced with the Content-Security-Policy HTTP header with the frame-ancestors directive. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1212,7 +1212,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[007352] /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the s",
   "description": "[007352] /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the site in a different fashion to the MIME type. See: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/",
   "cve_id": "",
@@ -1227,7 +1227,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[007352] /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the s', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[007352] /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the s', ",
   "level": "debug",
   "ts": "+465.399s"
 }
@@ -1239,13 +1239,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[007352] /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the s",
   "description": "[007352] /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the site in a different fashion to the MIME type. See: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1255,7 +1255,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "8346 requests: 0 errors and 17 items reported on the remote host",
   "description": "8346 requests: 0 errors and 17 items reported on the remote host",
   "cve_id": "",
@@ -1270,7 +1270,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '8346 requests: 0 errors and 17 items reported on the remote host', 'description': '8346 requests: 0 errors and 17 items rep",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '8346 requests: 0 errors and 17 items reported on the remote host', 'description': '8346 requests: 0 errors and 17 items rep",
   "level": "debug",
   "ts": "+465.399s"
 }
@@ -1282,13 +1282,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "8346 requests: 0 errors and 17 items reported on the remote host",
   "description": "8346 requests: 0 errors and 17 items reported on the remote host",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1298,7 +1298,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "End Time:           2026-04-01 22:53:46 (GMT3) (38 seconds)",
   "description": "End Time:           2026-04-01 22:53:46 (GMT3) (38 seconds)",
   "cve_id": "",
@@ -1313,7 +1313,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': 'End Time:           2026-04-01 22:53:46 (GMT3) (38 seconds)', 'description': 'End Time:           2026-04-01 22:53:46 (GMT3",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': 'End Time:           2026-04-01 22:53:46 (GMT3) (38 seconds)', 'description': 'End Time:           2026-04-01 22:53:46 (GMT3",
   "level": "debug",
   "ts": "+465.400s"
 }
@@ -1325,13 +1325,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "End Time:           2026-04-01 22:53:46 (GMT3) (38 seconds)",
   "description": "End Time:           2026-04-01 22:53:46 (GMT3) (38 seconds)",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1341,7 +1341,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "1 host(s) tested",
   "description": "1 host(s) tested",
   "cve_id": "",
@@ -1356,7 +1356,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '1 host(s) tested', 'description': '1 host(s) tested', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikto_scan', 'agent_id': '",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '1 host(s) tested', 'description': '1 host(s) tested', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikto_scan', 'agent_id': '",
   "level": "debug",
   "ts": "+465.401s"
 }
@@ -1368,13 +1368,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "1 host(s) tested",
   "description": "1 host(s) tested",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -1425,7 +1425,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nuclei_scan  params={\"url\": \"http://192.168.56.101:8180\", \"severity\": \"medium,high,critical\"}",
+  "msg": "nuclei_scan  params={\"url\": \"http://<TARGET_IP>:8180\", \"severity\": \"medium,high,critical\"}",
   "level": "debug",
   "ts": "+469.899s"
 }
@@ -1438,7 +1438,7 @@
   "agent_type": "webapp",
   "tool": "nuclei_scan",
   "params": {
-    "url": "http://192.168.56.101:8180",
+    "url": "http://<TARGET_IP>:8180",
     "severity": "medium,high,critical"
   }
 }
@@ -1450,7 +1450,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nuclei_scan  {\"url\": \"http://192.168.56.101:8180\", \"severity\": \"medium,high,critical\"}",
+  "msg": "nuclei_scan  {\"url\": \"http://<TARGET_IP>:8180\", \"severity\": \"medium,high,critical\"}",
   "level": "debug",
   "ts": "+469.900s"
 }
@@ -1462,7 +1462,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nuclei_scan (482ms)  {\"findings\": [], \"total\": 0, \"url\": \"http://192.168.56.101:8180\"}",
+  "msg": "nuclei_scan (482ms)  {\"findings\": [], \"total\": 0, \"url\": \"http://<TARGET_IP>:8180\"}",
   "level": "debug",
   "ts": "+470.435s"
 }
@@ -1475,7 +1475,7 @@
   "agent_type": "webapp",
   "tool": "nuclei_scan",
   "success": true,
-  "output": "{\"findings\": [], \"total\": 0, \"url\": \"http://192.168.56.101:8180\"}",
+  "output": "{\"findings\": [], \"total\": 0, \"url\": \"http://<TARGET_IP>:8180\"}",
   "error": null
 }
 ```
@@ -1527,7 +1527,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  params={\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  params={\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+475.010s"
 }
@@ -1540,7 +1540,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/",
+    "url": "http://<TARGET_IP>:8180/",
     "wordlist": "/usr/share/wordlists/dirb/common.txt",
     "extensions": ""
   }
@@ -1553,7 +1553,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  {\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  {\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/common.txt\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+475.011s"
 }
@@ -1565,7 +1565,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan (70ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 1}}",
+  "msg": "ffuf_scan (70ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 1}}",
   "level": "debug",
   "ts": "+475.180s"
 }
@@ -1578,7 +1578,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "success": true,
-  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 1}}",
+  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 1}}",
   "error": null
 }
 ```
@@ -1630,7 +1630,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  params={\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  params={\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+479.040s"
 }
@@ -1643,7 +1643,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/",
+    "url": "http://<TARGET_IP>:8180/",
     "wordlist": "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
     "extensions": ""
   }
@@ -1656,7 +1656,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  {\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  {\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+479.040s"
 }
@@ -1668,7 +1668,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan (23ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 2}}",
+  "msg": "ffuf_scan (23ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 2}}",
   "level": "debug",
   "ts": "+479.090s"
 }
@@ -1681,7 +1681,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "success": true,
-  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 2}}",
+  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 2}}",
   "error": null
 }
 ```
@@ -1733,7 +1733,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  params={\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"manager,admin,examples,docs,host-manager,ROOT\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  params={\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"manager,admin,examples,docs,host-manager,ROOT\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+482.150s"
 }
@@ -1746,7 +1746,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/",
+    "url": "http://<TARGET_IP>:8180/",
     "wordlist": "manager,admin,examples,docs,host-manager,ROOT",
     "extensions": ""
   }
@@ -1759,7 +1759,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  {\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"manager,admin,examples,docs,host-manager,ROOT\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  {\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"manager,admin,examples,docs,host-manager,ROOT\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+482.151s"
 }
@@ -1771,7 +1771,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan (47ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 3}}",
+  "msg": "ffuf_scan (47ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 3}}",
   "level": "debug",
   "ts": "+482.360s"
 }
@@ -1784,7 +1784,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "success": true,
-  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 3}}",
+  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": false, \"empty_streak\": 3}}",
   "error": null
 }
 ```
@@ -1836,7 +1836,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  params={\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"flag.txt, FLAG.TXT, Flag.txt, .flag, flag, root, index.html, test, webshell, shell\", \"extensions\":…(4 more)",
+  "msg": "ffuf_scan  params={\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"flag.txt, FLAG.TXT, Flag.txt, .flag, flag, root, index.html, test, webshell, shell\", \"extensions\":…(4 more)",
   "level": "debug",
   "ts": "+485.118s"
 }
@@ -1849,7 +1849,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/",
+    "url": "http://<TARGET_IP>:8180/",
     "wordlist": "flag.txt, FLAG.TXT, Flag.txt, .flag, flag, root, index.html, test, webshell, shell",
     "extensions": ""
   }
@@ -1862,7 +1862,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  {\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"flag.txt, FLAG.TXT, Flag.txt, .flag, flag, root, index.html, test, webshell, shell\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  {\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"flag.txt, FLAG.TXT, Flag.txt, .flag, flag, root, index.html, test, webshell, shell\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+485.118s"
 }
@@ -1874,7 +1874,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan (22ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": true, \"empty_streak\": 4, \"cooldown_seconds\": 180}}",
+  "msg": "ffuf_scan (22ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": true, \"empty_streak\": 4, \"cooldown_seconds\": 180}}",
   "level": "debug",
   "ts": "+485.171s"
 }
@@ -1887,7 +1887,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "success": true,
-  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"circuit_breaker\": {\"activated\": true, \"empty_streak\": 4, \"cooldown_seconds\": 180}}",
+  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"circuit_breaker\": {\"activated\": true, \"empty_streak\": 4, \"cooldown_seconds\": 180}}",
   "error": null
 }
 ```
@@ -1939,7 +1939,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/admin/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/admin/\"}",
   "level": "debug",
   "ts": "+487.496s"
 }
@@ -1952,7 +1952,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/admin/"
+    "url": "http://<TARGET_IP>:8180/admin/"
   }
 }
 ```
@@ -1963,7 +1963,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/admin/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/admin/\"}",
   "level": "debug",
   "ts": "+487.496s"
 }
@@ -1975,7 +1975,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3698ms)  {\"url\": \"http://192.168.56.101:8180/admin/\", \"plugins\": {\"Apache\": {}, \"Cookies\": {\"string\": [\"JSESSIONID\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}…(705 more)",
+  "msg": "whatweb_scan (3698ms)  {\"url\": \"http://<TARGET_IP>:8180/admin/\", \"plugins\": {\"Apache\": {}, \"Cookies\": {\"string\": [\"JSESSIONID\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}…(705 more)",
   "level": "debug",
   "ts": "+491.242s"
 }
@@ -1988,7 +1988,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/admin/\", \"plugins\": {\"Apache\": {}, \"Cookies\": {\"string\": [\"JSESSIONID\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Java\": {}, \"PasswordField\": {\"string\": [\"j_password\"]}, \"Script\": {\"string\": [\"text/javascript\"]}, \"Title\": {\"string\": [\"Tomcat Server Administration\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Cookies\", \"detail\": {\"string\": [\"JSESSIONID\"]}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Java\", \"detail\": {}}, {\"name\": \"PasswordField\", \"detail\": {\"string\": [\"j_password\"]}}, {\"name\": \"Script\", \"detail\": {\"string\": [\"text/javascript\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Tomcat Server Administration\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/admin/\", \"plugins\": {\"Apache\": {}, \"Cookies\": {\"string\": [\"JSESSIONID\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Java\": {}, \"PasswordField\": {\"string\": [\"j_password\"]}, \"Script\": {\"string\": [\"text/javascript\"]}, \"Title\": {\"string\": [\"Tomcat Server Administration\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Cookies\", \"detail\": {\"string\": [\"JSESSIONID\"]}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Java\", \"detail\": {}}, {\"name\": \"PasswordField\", \"detail\": {\"string\": [\"j_password\"]}}, {\"name\": \"Script\", \"detail\": {\"string\": [\"text/javascript\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Tomcat Server Administration\"]}}]}",
   "error": null
 }
 ```
@@ -1999,7 +1999,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Cookies": {
@@ -2022,7 +2022,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Java": {},
@@ -2042,7 +2042,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/admin/"
+  "url": "http://<TARGET_IP>:8180/admin/"
 }
 ```
 
@@ -2052,7 +2052,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache': {}, 'Cookies': {'string': ['JSESSIONID']}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache': {}, 'Cookies': {'string': ['JSESSIONID']}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+491.259s"
 }
@@ -2064,7 +2064,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Cookies": {
@@ -2087,7 +2087,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Java": {},
@@ -2107,8 +2107,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/admin/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/admin/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -2159,7 +2159,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/manager/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/manager/\"}",
   "level": "debug",
   "ts": "+493.882s"
 }
@@ -2172,7 +2172,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/manager/"
+    "url": "http://<TARGET_IP>:8180/manager/"
   }
 }
 ```
@@ -2183,7 +2183,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/manager/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/manager/\"}",
   "level": "debug",
   "ts": "+493.883s"
 }
@@ -2195,7 +2195,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (4198ms)  {\"url\": \"http://192.168.56.101:8180/manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"…(455 more)",
+  "msg": "whatweb_scan (4198ms)  {\"url\": \"http://<TARGET_IP>:8180/manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"…(455 more)",
   "level": "debug",
   "ts": "+498.170s"
 }
@@ -2208,7 +2208,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -2219,7 +2219,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2242,7 +2242,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -2251,7 +2251,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/manager/"
+  "url": "http://<TARGET_IP>:8180/manager/"
 }
 ```
 
@@ -2261,7 +2261,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+498.206s"
 }
@@ -2273,7 +2273,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2296,7 +2296,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -2305,8 +2305,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/manager/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/manager/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -2357,7 +2357,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/flag.txt\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/flag.txt\"}",
   "level": "debug",
   "ts": "+500.275s"
 }
@@ -2370,7 +2370,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/flag.txt"
+    "url": "http://<TARGET_IP>:8180/flag.txt"
   }
 }
 ```
@@ -2381,7 +2381,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/flag.txt\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/flag.txt\"}",
   "level": "debug",
   "ts": "+500.276s"
 }
@@ -2393,7 +2393,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3964ms)  {\"url\": \"http://192.168.56.101:8180/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"…(455 more)",
+  "msg": "whatweb_scan (3964ms)  {\"url\": \"http://<TARGET_IP>:8180/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"…(455 more)",
   "level": "debug",
   "ts": "+504.298s"
 }
@@ -2406,7 +2406,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -2417,7 +2417,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2440,7 +2440,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -2449,7 +2449,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/flag.txt"
+  "url": "http://<TARGET_IP>:8180/flag.txt"
 }
 ```
 
@@ -2459,7 +2459,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+504.316s"
 }
@@ -2471,7 +2471,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2494,7 +2494,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -2503,8 +2503,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/flag.txt",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/flag.txt",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -2555,7 +2555,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/examples/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/examples/\"}",
   "level": "debug",
   "ts": "+506.636s"
 }
@@ -2568,7 +2568,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/examples/"
+    "url": "http://<TARGET_IP>:8180/examples/"
   }
 }
 ```
@@ -2579,7 +2579,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/examples/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/examples/\"}",
   "level": "debug",
   "ts": "+506.637s"
 }
@@ -2591,7 +2591,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3129ms)  {\"url\": \"http://192.168.56.101:8180/examples/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101…(456 more)",
+  "msg": "whatweb_scan (3129ms)  {\"url\": \"http://<TARGET_IP>:8180/examples/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>…(456 more)",
   "level": "debug",
   "ts": "+509.804s"
 }
@@ -2604,7 +2604,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/examples/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/examples/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -2615,7 +2615,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2638,7 +2638,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -2647,7 +2647,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/examples/"
+  "url": "http://<TARGET_IP>:8180/examples/"
 }
 ```
 
@@ -2657,7 +2657,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+509.851s"
 }
@@ -2669,7 +2669,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2692,7 +2692,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -2701,8 +2701,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/examples/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/examples/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -2753,7 +2753,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nuclei_scan  params={\"url\": \"http://192.168.56.101:8180/\", \"severity\": \"low,medium,high,critical\"}",
+  "msg": "nuclei_scan  params={\"url\": \"http://<TARGET_IP>:8180/\", \"severity\": \"low,medium,high,critical\"}",
   "level": "debug",
   "ts": "+512.448s"
 }
@@ -2766,7 +2766,7 @@
   "agent_type": "webapp",
   "tool": "nuclei_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/",
+    "url": "http://<TARGET_IP>:8180/",
     "severity": "low,medium,high,critical"
   }
 }
@@ -2778,7 +2778,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nuclei_scan  {\"url\": \"http://192.168.56.101:8180/\", \"severity\": \"low,medium,high,critical\"}",
+  "msg": "nuclei_scan  {\"url\": \"http://<TARGET_IP>:8180/\", \"severity\": \"low,medium,high,critical\"}",
   "level": "debug",
   "ts": "+512.448s"
 }
@@ -2790,7 +2790,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nuclei_scan (263ms)  {\"findings\": [], \"total\": 0, \"url\": \"http://192.168.56.101:8180/\"}",
+  "msg": "nuclei_scan (263ms)  {\"findings\": [], \"total\": 0, \"url\": \"http://<TARGET_IP>:8180/\"}",
   "level": "debug",
   "ts": "+512.753s"
 }
@@ -2803,7 +2803,7 @@
   "agent_type": "webapp",
   "tool": "nuclei_scan",
   "success": true,
-  "output": "{\"findings\": [], \"total\": 0, \"url\": \"http://192.168.56.101:8180/\"}",
+  "output": "{\"findings\": [], \"total\": 0, \"url\": \"http://<TARGET_IP>:8180/\"}",
   "error": null
 }
 ```
@@ -2855,7 +2855,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/docs/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/docs/\"}",
   "level": "debug",
   "ts": "+515.290s"
 }
@@ -2868,7 +2868,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/docs/"
+    "url": "http://<TARGET_IP>:8180/docs/"
   }
 }
 ```
@@ -2879,7 +2879,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/docs/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/docs/\"}",
   "level": "debug",
   "ts": "+515.291s"
 }
@@ -2891,7 +2891,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3352ms)  {\"url\": \"http://192.168.56.101:8180/docs/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]},…(452 more)",
+  "msg": "whatweb_scan (3352ms)  {\"url\": \"http://<TARGET_IP>:8180/docs/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]},…(452 more)",
   "level": "debug",
   "ts": "+518.696s"
 }
@@ -2904,7 +2904,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/docs/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/docs/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -2915,7 +2915,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2938,7 +2938,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -2947,7 +2947,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/docs/"
+  "url": "http://<TARGET_IP>:8180/docs/"
 }
 ```
 
@@ -2957,7 +2957,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+518.865s"
 }
@@ -2969,7 +2969,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -2992,7 +2992,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -3001,8 +3001,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/docs/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/docs/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -3053,7 +3053,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/host-manager/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/host-manager/\"}",
   "level": "debug",
   "ts": "+521.443s"
 }
@@ -3066,7 +3066,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/host-manager/"
+    "url": "http://<TARGET_IP>:8180/host-manager/"
   }
 }
 ```
@@ -3077,7 +3077,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/host-manager/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/host-manager/\"}",
   "level": "debug",
   "ts": "+521.444s"
 }
@@ -3089,7 +3089,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (4274ms)  {\"url\": \"http://192.168.56.101:8180/host-manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56…(460 more)",
+  "msg": "whatweb_scan (4274ms)  {\"url\": \"http://<TARGET_IP>:8180/host-manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56…(460 more)",
   "level": "debug",
   "ts": "+525.797s"
 }
@@ -3102,7 +3102,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/host-manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/host-manager/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -3113,7 +3113,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -3136,7 +3136,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -3145,7 +3145,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/host-manager/"
+  "url": "http://<TARGET_IP>:8180/host-manager/"
 }
 ```
 
@@ -3155,7 +3155,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+525.830s"
 }
@@ -3167,7 +3167,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -3190,7 +3190,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -3199,8 +3199,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/host-manager/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/host-manager/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -3251,7 +3251,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/server-status\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/server-status\"}",
   "level": "debug",
   "ts": "+528.120s"
 }
@@ -3264,7 +3264,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/server-status"
+    "url": "http://<TARGET_IP>:8180/server-status"
   }
 }
 ```
@@ -3275,7 +3275,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/server-status\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/server-status\"}",
   "level": "debug",
   "ts": "+528.121s"
 }
@@ -3287,7 +3287,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3047ms)  {\"url\": \"http://192.168.56.101:8180/server-status\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56…(460 more)",
+  "msg": "whatweb_scan (3047ms)  {\"url\": \"http://<TARGET_IP>:8180/server-status\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56…(460 more)",
   "level": "debug",
   "ts": "+531.250s"
 }
@@ -3300,7 +3300,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/server-status\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/server-status\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -3311,7 +3311,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -3334,7 +3334,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -3343,7 +3343,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/server-status"
+  "url": "http://<TARGET_IP>:8180/server-status"
 }
 ```
 
@@ -3353,7 +3353,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+531.284s"
 }
@@ -3365,7 +3365,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -3388,7 +3388,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -3397,8 +3397,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/server-status",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/server-status",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -3449,7 +3449,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/jsp-examples/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/jsp-examples/\"}",
   "level": "debug",
   "ts": "+534.100s"
 }
@@ -3462,7 +3462,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/jsp-examples/"
+    "url": "http://<TARGET_IP>:8180/jsp-examples/"
   }
 }
 ```
@@ -3473,7 +3473,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/jsp-examples/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/jsp-examples/\"}",
   "level": "debug",
   "ts": "+534.101s"
 }
@@ -3485,7 +3485,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3815ms)  {\"url\": \"http://192.168.56.101:8180/jsp-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Meta-Author\": {\"string\": [\"An…(610 more)",
+  "msg": "whatweb_scan (3815ms)  {\"url\": \"http://<TARGET_IP>:8180/jsp-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Meta-Author\": {\"string\": [\"An…(610 more)",
   "level": "debug",
   "ts": "+537.981s"
 }
@@ -3498,7 +3498,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/jsp-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Meta-Author\": {\"string\": [\"Anil K. Vijendran\"]}, \"MetaGenerator\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}, \"Title\": {\"string\": [\"JSP Examples\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Meta-Author\", \"detail\": {\"string\": [\"Anil K. Vijendran\"]}}, {\"name\": \"MetaGenerator\", \"detail\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"JSP Examples\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/jsp-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Meta-Author\": {\"string\": [\"Anil K. Vijendran\"]}, \"MetaGenerator\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}, \"Title\": {\"string\": [\"JSP Examples\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Meta-Author\", \"detail\": {\"string\": [\"Anil K. Vijendran\"]}}, {\"name\": \"MetaGenerator\", \"detail\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"JSP Examples\"]}}]}",
   "error": null
 }
 ```
@@ -3509,7 +3509,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -3527,7 +3527,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Meta-Author": {
@@ -3546,7 +3546,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/jsp-examples/"
+  "url": "http://<TARGET_IP>:8180/jsp-examples/"
 }
 ```
 
@@ -3556,7 +3556,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'string': ['Apache-Coyote/1.1']}, 'IP': {'",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'string': ['Apache-Coyote/1.1']}, 'IP': {'",
   "level": "debug",
   "ts": "+538.020s"
 }
@@ -3568,7 +3568,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -3586,7 +3586,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Meta-Author": {
@@ -3605,8 +3605,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/jsp-examples/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/jsp-examples/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -3657,7 +3657,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/servlets-examples/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/servlets-examples/\"}",
   "level": "debug",
   "ts": "+539.535s"
 }
@@ -3670,7 +3670,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/servlets-examples/"
+    "url": "http://<TARGET_IP>:8180/servlets-examples/"
   }
 }
 ```
@@ -3681,7 +3681,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/servlets-examples/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/servlets-examples/\"}",
   "level": "debug",
   "ts": "+539.536s"
 }
@@ -3693,7 +3693,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3960ms)  {\"url\": \"http://192.168.56.101:8180/servlets-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Meta-Author\": {\"string\":…(623 more)",
+  "msg": "whatweb_scan (3960ms)  {\"url\": \"http://<TARGET_IP>:8180/servlets-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Meta-Author\": {\"string\":…(623 more)",
   "level": "debug",
   "ts": "+543.546s"
 }
@@ -3706,7 +3706,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/servlets-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Meta-Author\": {\"string\": [\"Anil K. Vijendran\"]}, \"MetaGenerator\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}, \"Title\": {\"string\": [\"Servlet Examples\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Meta-Author\", \"detail\": {\"string\": [\"Anil K. Vijendran\"]}}, {\"name\": \"MetaGenerator\", \"detail\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Servlet Examples\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/servlets-examples/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Meta-Author\": {\"string\": [\"Anil K. Vijendran\"]}, \"MetaGenerator\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}, \"Title\": {\"string\": [\"Servlet Examples\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Meta-Author\", \"detail\": {\"string\": [\"Anil K. Vijendran\"]}}, {\"name\": \"MetaGenerator\", \"detail\": {\"string\": [\"Mozilla/4.61 [en] (WinNT; I) [Netscape]\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Servlet Examples\"]}}]}",
   "error": null
 }
 ```
@@ -3717,7 +3717,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -3735,7 +3735,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Meta-Author": {
@@ -3754,7 +3754,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/servlets-examples/"
+  "url": "http://<TARGET_IP>:8180/servlets-examples/"
 }
 ```
 
@@ -3764,7 +3764,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'string': ['Apache-Coyote/1.1']}, 'IP': {'",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'string': ['Apache-Coyote/1.1']}, 'IP': {'",
   "level": "debug",
   "ts": "+543.560s"
 }
@@ -3776,7 +3776,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -3794,7 +3794,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Meta-Author": {
@@ -3813,8 +3813,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/servlets-examples/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/servlets-examples/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -3865,7 +3865,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/webdav/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/webdav/\"}",
   "level": "debug",
   "ts": "+545.643s"
 }
@@ -3878,7 +3878,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/webdav/"
+    "url": "http://<TARGET_IP>:8180/webdav/"
   }
 }
 ```
@@ -3889,7 +3889,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/webdav/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/webdav/\"}",
   "level": "debug",
   "ts": "+545.643s"
 }
@@ -3901,7 +3901,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3842ms)  {\"url\": \"http://192.168.56.101:8180/webdav/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Directory List…(338 more)",
+  "msg": "whatweb_scan (3842ms)  {\"url\": \"http://<TARGET_IP>:8180/webdav/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Directory List…(338 more)",
   "level": "debug",
   "ts": "+549.524s"
 }
@@ -3914,7 +3914,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/webdav/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Directory Listing For /\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Directory Listing For /\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/webdav/\", \"plugins\": {\"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Directory Listing For /\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Directory Listing For /\"]}}]}",
   "error": null
 }
 ```
@@ -3925,7 +3925,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -3943,7 +3943,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -3952,7 +3952,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/webdav/"
+  "url": "http://<TARGET_IP>:8180/webdav/"
 }
 ```
 
@@ -3962,7 +3962,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'string': ['Apache-Coyote/1.1']}, 'IP': {'",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'string': ['Apache-Coyote/1.1']}, 'IP': {'",
   "level": "debug",
   "ts": "+549.558s"
 }
@@ -3974,7 +3974,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache": {},
     "Country": {
@@ -3992,7 +3992,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4001,8 +4001,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/webdav/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/webdav/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -4053,7 +4053,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/webdav/flag.txt\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/webdav/flag.txt\"}",
   "level": "debug",
   "ts": "+551.443s"
 }
@@ -4066,7 +4066,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/webdav/flag.txt"
+    "url": "http://<TARGET_IP>:8180/webdav/flag.txt"
   }
 }
 ```
@@ -4077,7 +4077,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/webdav/flag.txt\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/webdav/flag.txt\"}",
   "level": "debug",
   "ts": "+551.443s"
 }
@@ -4089,7 +4089,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3216ms)  {\"url\": \"http://192.168.56.101:8180/webdav/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.…(462 more)",
+  "msg": "whatweb_scan (3216ms)  {\"url\": \"http://<TARGET_IP>:8180/webdav/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.…(462 more)",
   "level": "debug",
   "ts": "+554.692s"
 }
@@ -4102,7 +4102,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/webdav/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/webdav/flag.txt\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -4113,7 +4113,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4136,7 +4136,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4145,7 +4145,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/webdav/flag.txt"
+  "url": "http://<TARGET_IP>:8180/webdav/flag.txt"
 }
 ```
 
@@ -4155,7 +4155,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+554.717s"
 }
@@ -4167,7 +4167,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4190,7 +4190,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4199,8 +4199,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/webdav/flag.txt",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/webdav/flag.txt",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -4251,7 +4251,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/WEB-INF/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/WEB-INF/\"}",
   "level": "debug",
   "ts": "+556.713s"
 }
@@ -4264,7 +4264,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/WEB-INF/"
+    "url": "http://<TARGET_IP>:8180/WEB-INF/"
   }
 }
 ```
@@ -4275,7 +4275,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/WEB-INF/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/WEB-INF/\"}",
   "level": "debug",
   "ts": "+556.714s"
 }
@@ -4287,7 +4287,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3393ms)  {\"url\": \"http://192.168.56.101:8180/WEB-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"…(455 more)",
+  "msg": "whatweb_scan (3393ms)  {\"url\": \"http://<TARGET_IP>:8180/WEB-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"…(455 more)",
   "level": "debug",
   "ts": "+560.142s"
 }
@@ -4300,7 +4300,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/WEB-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/WEB-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -4311,7 +4311,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4334,7 +4334,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4343,7 +4343,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/WEB-INF/"
+  "url": "http://<TARGET_IP>:8180/WEB-INF/"
 }
 ```
 
@@ -4353,7 +4353,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+560.162s"
 }
@@ -4365,7 +4365,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4388,7 +4388,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4397,8 +4397,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/WEB-INF/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/WEB-INF/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -4449,7 +4449,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  params={\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/big.txt\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  params={\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/big.txt\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+561.940s"
 }
@@ -4462,7 +4462,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/",
+    "url": "http://<TARGET_IP>:8180/",
     "wordlist": "/usr/share/wordlists/dirb/big.txt",
     "extensions": ""
   }
@@ -4475,7 +4475,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan  {\"url\": \"http://192.168.56.101:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/big.txt\", \"extensions\": \"\"}",
+  "msg": "ffuf_scan  {\"url\": \"http://<TARGET_IP>:8180/\", \"wordlist\": \"/usr/share/wordlists/dirb/big.txt\", \"extensions\": \"\"}",
   "level": "debug",
   "ts": "+561.941s"
 }
@@ -4487,7 +4487,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "ffuf_scan (0ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"skipped\": true, \"skip_reason\": \"circuit_breaker_active\", \"retry_after_seconds\": 103}",
+  "msg": "ffuf_scan (0ms)  {\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"skipped\": true, \"skip_reason\": \"circuit_breaker_active\", \"retry_after_seconds\": 103}",
   "level": "debug",
   "ts": "+562.022s"
 }
@@ -4500,7 +4500,7 @@
   "agent_type": "webapp",
   "tool": "ffuf_scan",
   "success": true,
-  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://192.168.56.101:8180\", \"skipped\": true, \"skip_reason\": \"circuit_breaker_active\", \"retry_after_seconds\": 103}",
+  "output": "{\"results\": [], \"total\": 0, \"base_url\": \"http://<TARGET_IP>:8180\", \"skipped\": true, \"skip_reason\": \"circuit_breaker_active\", \"retry_after_seconds\": 103}",
   "error": null
 }
 ```
@@ -4552,7 +4552,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/files/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/files/\"}",
   "level": "debug",
   "ts": "+565.550s"
 }
@@ -4565,7 +4565,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/files/"
+    "url": "http://<TARGET_IP>:8180/files/"
   }
 }
 ```
@@ -4576,7 +4576,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/files/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/files/\"}",
   "level": "debug",
   "ts": "+565.551s"
 }
@@ -4588,7 +4588,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (3744ms)  {\"url\": \"http://192.168.56.101:8180/files/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}…(453 more)",
+  "msg": "whatweb_scan (3744ms)  {\"url\": \"http://<TARGET_IP>:8180/files/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}…(453 more)",
   "level": "debug",
   "ts": "+569.337s"
 }
@@ -4601,7 +4601,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/files/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/files/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -4612,7 +4612,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4635,7 +4635,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4644,7 +4644,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/files/"
+  "url": "http://<TARGET_IP>:8180/files/"
 }
 ```
 
@@ -4654,7 +4654,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+569.391s"
 }
@@ -4666,7 +4666,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4689,7 +4689,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4698,8 +4698,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/files/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/files/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -4750,7 +4750,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101:8180/META-INF/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>:8180/META-INF/\"}",
   "level": "debug",
   "ts": "+573.442s"
 }
@@ -4763,7 +4763,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/META-INF/"
+    "url": "http://<TARGET_IP>:8180/META-INF/"
   }
 }
 ```
@@ -4774,7 +4774,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101:8180/META-INF/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>:8180/META-INF/\"}",
   "level": "debug",
   "ts": "+573.443s"
 }
@@ -4786,7 +4786,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "whatweb_scan (4320ms)  {\"url\": \"http://192.168.56.101:8180/META-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101…(456 more)",
+  "msg": "whatweb_scan (4320ms)  {\"url\": \"http://<TARGET_IP>:8180/META-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>…(456 more)",
   "level": "debug",
   "ts": "+577.842s"
 }
@@ -4799,7 +4799,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/META-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/META-INF/\", \"plugins\": {\"Apache-Tomcat\": {\"version\": [\"5.5\"]}, \"Apache\": {}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"string\": [\"Apache-Coyote/1.1\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"Title\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}, \"technologies\": [{\"name\": \"Apache-Tomcat\", \"detail\": {\"version\": [\"5.5\"]}}, {\"name\": \"Apache\", \"detail\": {}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"string\": [\"Apache-Coyote/1.1\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Apache Tomcat/5.5 - Error report\"]}}]}",
   "error": null
 }
 ```
@@ -4810,7 +4810,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4833,7 +4833,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4842,7 +4842,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/META-INF/"
+  "url": "http://<TARGET_IP>:8180/META-INF/"
 }
 ```
 
@@ -4852,7 +4852,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://192.168.56.101:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': 'http://<TARGET_IP>:8180', 'tech': {'Apache-Tomcat': {'version': ['5.5']}, 'Apache': {}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'st",
   "level": "debug",
   "ts": "+577.895s"
 }
@@ -4864,7 +4864,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "tech": {
     "Apache-Tomcat": {
       "version": [
@@ -4887,7 +4887,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "Title": {
@@ -4896,8 +4896,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101:8180/META-INF/",
-  "target": "http://192.168.56.101:8180"
+  "url": "http://<TARGET_IP>:8180/META-INF/",
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -4948,7 +4948,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nikto_scan  params={\"url\": \"http://192.168.56.101:8180/\", \"timeout\": 300}",
+  "msg": "nikto_scan  params={\"url\": \"http://<TARGET_IP>:8180/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+580.913s"
 }
@@ -4961,7 +4961,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "params": {
-    "url": "http://192.168.56.101:8180/",
+    "url": "http://<TARGET_IP>:8180/",
     "timeout": 300
   }
 }
@@ -4973,7 +4973,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nikto_scan  {\"url\": \"http://192.168.56.101:8180/\", \"timeout\": 300}",
+  "msg": "nikto_scan  {\"url\": \"http://<TARGET_IP>:8180/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+580.914s"
 }
@@ -4985,7 +4985,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "nikto_scan (45406ms)  {\"url\": \"http://192.168.56.101:8180/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"…(7381 more)",
+  "msg": "nikto_scan (45406ms)  {\"url\": \"http://<TARGET_IP>:8180/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"…(7381 more)",
   "level": "debug",
   "ts": "+626.362s"
 }
@@ -4998,7 +4998,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101:8180/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"Platform:           Unknown\", \"description\": \"Platform:           Unknown\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"Server: Apache-Coyote/1.1\", \"description\": \"Server: Apache-Coyote/1.1\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"description\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community\", \"description\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web\", \"description\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We\", \"description\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H\", \"description\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/\", \"description\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security\", \"source_tool\": \"nikto\", \"url\": \"http://192.168.56.101:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT\", \"description\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla\n... [truncated]",
+  "output": "{\"url\": \"http://<TARGET_IP>:8180/\", \"findings\": [{\"title\": \"Your Nikto installation is out of date.\", \"description\": \"Your Nikto installation is out of date.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"Platform:           Unknown\", \"description\": \"Platform:           Unknown\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"Server: Apache-Coyote/1.1\", \"description\": \"Server: Apache-Coyote/1.1\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"description\": \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community\", \"description\": \"[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web\", \"description\": \"[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We\", \"description\": \"[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H\", \"description\": \"[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/\", \"description\": \"[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security\", \"source_tool\": \"nikto\", \"url\": \"http://<TARGET_IP>:8180/\", \"cvss\": 0.0}, {\"title\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT\", \"description\": \"[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla\n... [truncated]",
   "error": null
 }
 ```
@@ -5009,7 +5009,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Your Nikto installation is out of date.",
   "description": "Your Nikto installation is out of date.",
   "cve_id": "",
@@ -5024,7 +5024,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': 'Your Nikto installation is out of date.', 'description': 'Your Nikto installation is out of date.', 'cve_id': '', 'cvss': 0",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': 'Your Nikto installation is out of date.', 'description': 'Your Nikto installation is out of date.', 'cve_id': '', 'cvss': 0",
   "level": "debug",
   "ts": "+626.377s"
 }
@@ -5036,13 +5036,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Your Nikto installation is out of date.",
   "description": "Your Nikto installation is out of date.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5052,7 +5052,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Platform:           Unknown",
   "description": "Platform:           Unknown",
   "cve_id": "",
@@ -5067,7 +5067,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': 'Platform:           Unknown', 'description': 'Platform:           Unknown', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikt",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': 'Platform:           Unknown', 'description': 'Platform:           Unknown', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikt",
   "level": "debug",
   "ts": "+626.378s"
 }
@@ -5079,13 +5079,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Platform:           Unknown",
   "description": "Platform:           Unknown",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5095,7 +5095,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Server: Apache-Coyote/1.1",
   "description": "Server: Apache-Coyote/1.1",
   "cve_id": "",
@@ -5110,7 +5110,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': 'Server: Apache-Coyote/1.1', 'description': 'Server: Apache-Coyote/1.1', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikto_sc",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': 'Server: Apache-Coyote/1.1', 'description': 'Server: Apache-Coyote/1.1', 'cve_id': '', 'cvss': 0.0, 'source_tool': 'nikto_sc",
   "level": "debug",
   "ts": "+626.378s"
 }
@@ -5122,13 +5122,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "Server: Apache-Coyote/1.1",
   "description": "Server: Apache-Coyote/1.1",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5138,7 +5138,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "description": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "cve_id": "",
@@ -5153,7 +5153,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", 'description': \"No CGI Direc",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': \"No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.\", 'description': \"No CGI Direc",
   "level": "debug",
   "ts": "+626.379s"
 }
@@ -5165,13 +5165,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "description": "No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5181,7 +5181,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community",
   "description": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon",
   "cve_id": "",
@@ -5196,7 +5196,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community', ",
   "level": "debug",
   "ts": "+626.379s"
 }
@@ -5208,13 +5208,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community",
   "description": "[500645] /favicon.ico: identifies this app/server as: Apache Tomcat (possibly 5.5.26 through 8.0.15), Alfresco Community. See: https://en.wikipedia.org/wiki/Favicon",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5224,7 +5224,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web",
   "description": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options",
   "cve_id": "",
@@ -5239,7 +5239,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web', ",
   "level": "debug",
   "ts": "+626.380s"
 }
@@ -5251,13 +5251,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web",
   "description": "[013587] /: Suggested security header missing: x-content-type-options. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5267,7 +5267,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We",
   "description": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP",
   "cve_id": "",
@@ -5282,7 +5282,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We', ",
   "level": "debug",
   "ts": "+626.380s"
 }
@@ -5294,13 +5294,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/We",
   "description": "[013587] /: Suggested security header missing: content-security-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5310,7 +5310,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H",
   "description": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy",
   "cve_id": "",
@@ -5325,7 +5325,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H', ",
   "level": "debug",
   "ts": "+626.381s"
 }
@@ -5337,13 +5337,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/H",
   "description": "[013587] /: Suggested security header missing: referrer-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5353,7 +5353,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/",
   "description": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security",
   "cve_id": "",
@@ -5368,7 +5368,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/', ",
   "level": "debug",
   "ts": "+626.381s"
 }
@@ -5380,13 +5380,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/",
   "description": "[013587] /: Suggested security header missing: strict-transport-security. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5396,7 +5396,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy",
   "cve_id": "",
@@ -5411,7 +5411,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
   "level": "debug",
   "ts": "+626.382s"
 }
@@ -5423,13 +5423,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[013587] /: Suggested security header missing: permissions-policy. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5439,7 +5439,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "description": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "cve_id": "",
@@ -5454,7 +5454,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.', 'description': '[",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.', 'description': '[",
   "level": "debug",
   "ts": "+626.383s"
 }
@@ -5466,13 +5466,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "description": "[999967] /: Web Server returns a valid response with junk HTTP methods which may cause false positives.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5482,7 +5482,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[000356] /: Appears to be a default Apache Tomcat install.",
   "description": "[000356] /: Appears to be a default Apache Tomcat install.",
   "cve_id": "",
@@ -5497,7 +5497,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[000356] /: Appears to be a default Apache Tomcat install.', 'description': '[000356] /: Appears to be a default Apache Tom",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[000356] /: Appears to be a default Apache Tomcat install.', 'description': '[000356] /: Appears to be a default Apache Tom",
   "level": "debug",
   "ts": "+626.383s"
 }
@@ -5509,13 +5509,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[000356] /: Appears to be a default Apache Tomcat install.",
   "description": "[000356] /: Appears to be a default Apache Tomcat install.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5525,7 +5525,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies",
   "cve_id": "",
@@ -5540,7 +5540,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT', ",
   "level": "debug",
   "ts": "+626.384s"
 }
@@ -5552,13 +5552,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTT",
   "description": "[95] /admin/: Cookie JSESSIONID created without the httponly flag. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5568,7 +5568,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "description": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "cve_id": "",
@@ -5583,7 +5583,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552', 'description': '[002785] /tomca",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552', 'description': '[002785] /tomca",
   "level": "debug",
   "ts": "+626.384s"
 }
@@ -5595,13 +5595,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "description": "[002785] /tomcat-docs/index.html: Default Apache Tomcat documentation found. See: CWE-552",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5611,7 +5611,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "description": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "cve_id": "",
@@ -5626,7 +5626,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[003489] /webdav/index.html: WebDAV support is enabled.', 'description': '[003489] /webdav/index.html: WebDAV support is en",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[003489] /webdav/index.html: WebDAV support is enabled.', 'description': '[003489] /webdav/index.html: WebDAV support is en",
   "level": "debug",
   "ts": "+626.384s"
 }
@@ -5638,13 +5638,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "description": "[003489] /webdav/index.html: WebDAV support is enabled.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5654,7 +5654,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "description": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "cve_id": "",
@@ -5669,7 +5669,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552', 'description': '[003502] /jsp-examples/: Ap",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552', 'description': '[003502] /jsp-examples/: Ap",
   "level": "debug",
   "ts": "+626.385s"
 }
@@ -5681,13 +5681,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "description": "[003502] /jsp-examples/: Apache Java Server Pages documentation. See: CWE-552",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5697,7 +5697,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "description": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "cve_id": "",
@@ -5712,7 +5712,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': '[006437] /servlets-examples/: Tomcat servlets examples are visible.', 'description': '[006437] /servlets-examples/: Tomcat ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': '[006437] /servlets-examples/: Tomcat servlets examples are visible.', 'description': '[006437] /servlets-examples/: Tomcat ",
   "level": "debug",
   "ts": "+626.385s"
 }
@@ -5724,13 +5724,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "description": "[006437] /servlets-examples/: Tomcat servlets examples are visible.",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 
@@ -5740,7 +5740,7 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom",
   "description": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tomcat. See: CWE-16",
   "cve_id": "",
@@ -5755,7 +5755,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-59692df0",
   "short_id": "weba-5969",
-  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://192.168.56.101:8180', 'title': \"[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom\", ",
+  "msg": "vulnerability  {'type': 'vulnerability', 'host_ip': 'http://<TARGET_IP>:8180', 'title': \"[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom\", ",
   "level": "debug",
   "ts": "+626.386s"
 }
@@ -5767,13 +5767,13 @@
   "agent_id": "webapp-59692df0",
   "agent_type": "webapp",
   "type": "vulnerability",
-  "host_ip": "http://192.168.56.101:8180",
+  "host_ip": "http://<TARGET_IP>:8180",
   "title": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tom",
   "description": "[700124] /manager/html: Default account found for 'Tomcat Manager Application' at (ID 'tomcat', PW 'tomcat'). Apache Tomcat. See: CWE-16",
   "cve_id": "",
   "cvss": 0.0,
   "source_tool": "nikto_scan",
-  "target": "http://192.168.56.101:8180"
+  "target": "http://<TARGET_IP>:8180"
 }
 ```
 

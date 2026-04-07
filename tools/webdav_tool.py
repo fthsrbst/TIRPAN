@@ -60,7 +60,7 @@ class WebDavTool(BaseTool):
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "Target base URL (e.g. 'http://192.168.56.101')",
+                        "description": "Target base URL (e.g. 'http://10.10.10.5')",
                     },
                     "action": {
                         "type": "string",

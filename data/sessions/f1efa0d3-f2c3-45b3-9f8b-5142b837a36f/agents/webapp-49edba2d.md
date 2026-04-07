@@ -9,7 +9,7 @@
 {
   "agent_id": "webapp-49edba2d",
   "agent_type": "webapp",
-  "target": "192.168.56.101"
+  "target": "<TARGET_IP>"
 }
 ```
 
@@ -84,7 +84,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-49edba2d",
   "short_id": "weba-49ed",
-  "msg": "whatweb_scan  params={\"url\": \"http://192.168.56.101/\"}",
+  "msg": "whatweb_scan  params={\"url\": \"http://<TARGET_IP>/\"}",
   "level": "debug",
   "ts": "+339.552s"
 }
@@ -97,7 +97,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "params": {
-    "url": "http://192.168.56.101/"
+    "url": "http://<TARGET_IP>/"
   }
 }
 ```
@@ -108,7 +108,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-49edba2d",
   "short_id": "weba-49ed",
-  "msg": "whatweb_scan  {\"url\": \"http://192.168.56.101/\"}",
+  "msg": "whatweb_scan  {\"url\": \"http://<TARGET_IP>/\"}",
   "level": "debug",
   "ts": "+339.552s"
 }
@@ -120,7 +120,7 @@
   "prefix": "TOOL←OK",
   "agent_id": "webapp-49edba2d",
   "short_id": "weba-49ed",
-  "msg": "whatweb_scan (4881ms)  {\"url\": \"http://192.168.56.101/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"192.168.56.10…(750 more)",
+  "msg": "whatweb_scan (4881ms)  {\"url\": \"http://<TARGET_IP>/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"192.168.56.10…(750 more)",
   "level": "debug",
   "ts": "+344.506s"
 }
@@ -133,7 +133,7 @@
   "agent_type": "webapp",
   "tool": "whatweb_scan",
   "success": true,
-  "output": "{\"url\": \"http://192.168.56.101/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"192.168.56.101\"]}, \"PHP\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}, \"Title\": {\"string\": [\"Metasploitable2 - Linux\"]}, \"WebDAV\": {\"version\": [\"2\"]}, \"X-Powered-By\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {\"version\": [\"2.2.8\"]}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"192.168.56.101\"]}}, {\"name\": \"PHP\", \"detail\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"Metasploitable2 - Linux\"]}}, {\"name\": \"WebDAV\", \"detail\": {\"version\": [\"2\"]}}, {\"name\": \"X-Powered-By\", \"detail\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}]}",
+  "output": "{\"url\": \"http://<TARGET_IP>/\", \"plugins\": {\"Apache\": {\"version\": [\"2.2.8\"]}, \"Country\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}, \"HTTPServer\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}, \"IP\": {\"string\": [\"<TARGET_IP>\"]}, \"PHP\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}, \"Title\": {\"string\": [\"legacy-vulnerable-vm - Linux\"]}, \"WebDAV\": {\"version\": [\"2\"]}, \"X-Powered-By\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}, \"technologies\": [{\"name\": \"Apache\", \"detail\": {\"version\": [\"2.2.8\"]}}, {\"name\": \"Country\", \"detail\": {\"string\": [\"RESERVED\"], \"module\": [\"ZZ\"]}}, {\"name\": \"HTTPServer\", \"detail\": {\"os\": [\"Ubuntu Linux\"], \"string\": [\"Apache/2.2.8 (Ubuntu) DAV/2\"]}}, {\"name\": \"IP\", \"detail\": {\"string\": [\"<TARGET_IP>\"]}}, {\"name\": \"PHP\", \"detail\": {\"version\": [\"5.2.4-2ubuntu5.10\"]}}, {\"name\": \"Title\", \"detail\": {\"string\": [\"legacy-vulnerable-vm - Linux\"]}}, {\"name\": \"WebDAV\", \"detail\": {\"version\": [\"2\"]}}, {\"name\": \"X-Powered-By\", \"detail\": {\"string\": [\"PHP/5.2.4-2ubuntu5.10\"]}}]}",
   "error": null
 }
 ```
@@ -144,7 +144,7 @@
   "agent_id": "webapp-49edba2d",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "192.168.56.101",
+  "host_ip": "<TARGET_IP>",
   "tech": {
     "Apache": {
       "version": [
@@ -169,7 +169,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "PHP": {
@@ -179,7 +179,7 @@
     },
     "Title": {
       "string": [
-        "Metasploitable2 - Linux"
+        "legacy-vulnerable-vm - Linux"
       ]
     },
     "WebDAV": {
@@ -193,7 +193,7 @@
       ]
     }
   },
-  "url": "http://192.168.56.101/"
+  "url": "http://<TARGET_IP>/"
 }
 ```
 
@@ -203,7 +203,7 @@
   "prefix": "FINDING",
   "agent_id": "webapp-49edba2d",
   "short_id": "weba-49ed",
-  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': '192.168.56.101', 'tech': {'Apache': {'version': ['2.2.8']}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'os': ['Ubuntu Linux'], 'string': ",
+  "msg": "webapp_info  {'type': 'webapp_info', 'host_ip': '<TARGET_IP>', 'tech': {'Apache': {'version': ['2.2.8']}, 'Country': {'string': ['RESERVED'], 'module': ['ZZ']}, 'HTTPServer': {'os': ['Ubuntu Linux'], 'string': ",
   "level": "debug",
   "ts": "+344.555s"
 }
@@ -215,7 +215,7 @@
   "agent_id": "webapp-49edba2d",
   "agent_type": "webapp",
   "type": "webapp_info",
-  "host_ip": "192.168.56.101",
+  "host_ip": "<TARGET_IP>",
   "tech": {
     "Apache": {
       "version": [
@@ -240,7 +240,7 @@
     },
     "IP": {
       "string": [
-        "192.168.56.101"
+        "<TARGET_IP>"
       ]
     },
     "PHP": {
@@ -250,7 +250,7 @@
     },
     "Title": {
       "string": [
-        "Metasploitable2 - Linux"
+        "legacy-vulnerable-vm - Linux"
       ]
     },
     "WebDAV": {
@@ -264,8 +264,8 @@
       ]
     }
   },
-  "url": "http://192.168.56.101/",
-  "target": "192.168.56.101"
+  "url": "http://<TARGET_IP>/",
+  "target": "<TARGET_IP>"
 }
 ```
 
@@ -292,7 +292,7 @@
 {
   "agent_id": "webapp-49edba2d",
   "agent_type": "webapp",
-  "thought": "Target is Metasploitable2 running Apache 2.2.8 with PHP 5.2.4 and WebDAV enabled. This is a very vulnerable setup. Let me run nikto to find specific vulnerabilities and interesting paths.",
+  "thought": "Target is legacy-vulnerable-vm running Apache 2.2.8 with PHP 5.2.4 and WebDAV enabled. This is a very vulnerable setup. Let me run nikto to find specific vulnerabilities and interesting paths.",
   "action": "nikto_scan",
   "reasoning": "",
   "situation": "",
@@ -307,7 +307,7 @@
   "prefix": "THINK",
   "agent_id": "webapp-49edba2d",
   "short_id": "weba-49ed",
-  "msg": "Target is Metasploitable2 running Apache 2.2.8 with PHP 5.2.4 and WebDAV enabled. This is a very vulnerable setup. Let me run nikto to find specific vulnerabilities and interesting paths.",
+  "msg": "Target is legacy-vulnerable-vm running Apache 2.2.8 with PHP 5.2.4 and WebDAV enabled. This is a very vulnerable setup. Let me run nikto to find specific vulnerabilities and interesting paths.",
   "level": "debug",
   "ts": "+348.749s"
 }
@@ -319,7 +319,7 @@
   "prefix": "ACTION",
   "agent_id": "webapp-49edba2d",
   "short_id": "weba-49ed",
-  "msg": "nikto_scan  params={\"url\": \"http://192.168.56.101/\", \"timeout\": 300}",
+  "msg": "nikto_scan  params={\"url\": \"http://<TARGET_IP>/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+348.749s"
 }
@@ -332,7 +332,7 @@
   "agent_type": "webapp",
   "tool": "nikto_scan",
   "params": {
-    "url": "http://192.168.56.101/",
+    "url": "http://<TARGET_IP>/",
     "timeout": 300
   }
 }
@@ -344,7 +344,7 @@
   "prefix": "TOOL→",
   "agent_id": "webapp-49edba2d",
   "short_id": "weba-49ed",
-  "msg": "nikto_scan  {\"url\": \"http://192.168.56.101/\", \"timeout\": 300}",
+  "msg": "nikto_scan  {\"url\": \"http://<TARGET_IP>/\", \"timeout\": 300}",
   "level": "debug",
   "ts": "+348.750s"
 }
