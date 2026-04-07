@@ -2,7 +2,7 @@
 TIRPAN — ChatAgent
 
 A conversational agent that can directly invoke penetration testing tools
-when the operator asks for actions like "scan 192.168.56.101" or
+when the operator asks for actions like "scan 10.10.10.5" or
 "exploit the FTP service".
 
 Unlike BrainAgent (which orchestrates sub-agents) and specialized agents

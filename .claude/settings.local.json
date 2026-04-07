@@ -66,7 +66,22 @@
       "Bash(python -c \"import web.websocket_handler; print\\('websocket_handler OK'\\)\")",
       "Bash(python -m py_compile core/soul_loader.py)",
       "Bash(python -m py_compile core/chat_agent.py)",
-      "Bash(python -m py_compile web/websocket_handler.py)"
+      "Bash(python -m py_compile web/websocket_handler.py)",
+      "Bash(git log:*)",
+      "Bash(git config:*)",
+      "Bash(gpg --list-keys)",
+      "Read(//usr/bin/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(sudo apt-get:*)",
+      "Bash(\"/mnt/c/Program Files/GnuPG/bin/gpg.exe\" --list-secret-keys --keyid-format=long)",
+      "Bash(git rebase:*)",
+      "Bash(git stash:*)",
+      "Bash(git push:*)",
+      "Bash(git remote:*)",
+      "Bash(ssh-keygen -t ed25519 -C \"fatihxserbest@gmail.com\" -f ~/.ssh/id_ed25519 -N \"\")",
+      "Read(//home/fatih-root/.ssh/**)",
+      "Bash(wc -l /home/fatih-root/TIRPAN/tools/*.py)",
+      "Bash(xargs cat:*)"
     ]
   }
 }
