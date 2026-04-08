@@ -197,8 +197,13 @@ async def lifespan(app: FastAPI):
             _msfrpcd_proc.terminate()
             await asyncio.wait_for(_msfrpcd_proc.wait(), timeout=5.0)
             _logger.info("msfrpcd stopped cleanly")
+        except ProcessLookupError:
+            _logger.info("msfrpcd already exited")
         except Exception:
-            _msfrpcd_proc.kill()
+            try:
+                _msfrpcd_proc.kill()
+            except ProcessLookupError:
+                pass
 
 
 def create_app() -> FastAPI:

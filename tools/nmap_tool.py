@@ -234,28 +234,42 @@ class NmapTool(BaseTool):
         return base
 
     async def _run_nmap(self, cmd: list[str]) -> str:
+        """Run nmap as an async subprocess so task cancellation kills the process."""
         from config import settings
 
         stdin_data: bytes | None = None
         if cmd[0] == "sudo" and "-S" in cmd:
             stdin_data = (settings.sudo_password + "\n").encode()
 
-        def _run_sync() -> tuple[int, bytes, bytes]:
-            import subprocess as _sp
+        proc: asyncio.subprocess.Process | None = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE if stdin_data else None,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
             try:
-                result = _sp.run(
-                    cmd,
-                    input=stdin_data,
-                    stdout=_sp.PIPE,
-                    stderr=_sp.PIPE,
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(input=stdin_data),
                     timeout=SCAN_TIMEOUT,
                 )
-                return result.returncode, result.stdout, result.stderr
-            except _sp.TimeoutExpired:
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
                 raise TimeoutError(f"nmap timed out after {SCAN_TIMEOUT}s")
 
-        returncode, stdout, stderr = await asyncio.to_thread(_run_sync)
+        except asyncio.CancelledError:
+            # Task was cancelled (emergency stop) — kill the nmap process
+            if proc is not None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+            raise
 
+        returncode = proc.returncode or 0
         if returncode != 0:
             err = stderr.decode().strip()
             out = stdout.decode().strip()
