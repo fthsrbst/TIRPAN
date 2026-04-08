@@ -291,6 +291,72 @@ class OpenRouterClient(LLMClient):
             return False
 
 
+# ── LM Studio ─────────────────────────────────────────────────────────────────
+
+class LMStudioClient(LLMClient):
+    """LM Studio local API — OpenAI-compatible at http://127.0.0.1:1234/v1"""
+
+    @property
+    def _base_url(self) -> str:
+        return settings.lmstudio.base_url.rstrip("/")
+
+    @property
+    def _model(self) -> str:
+        return settings.lmstudio.model or "local-model"
+
+    @property
+    def _timeout(self) -> float:
+        return settings.lmstudio.timeout
+
+    async def chat(self, messages: list[dict], stream: bool = False) -> str:
+        if stream:
+            result = []
+            async for token in self.stream_chat(messages):
+                result.append(token)
+            return "".join(result)
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base_url}/v1/chat/completions",
+                json={"model": self._model, "messages": messages, "stream": False},
+            )
+            resp.raise_for_status()
+            choices = resp.json().get("choices", [])
+            return choices[0]["message"]["content"] if choices else ""
+
+    async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
+        async with httpx.AsyncClient(timeout=self._timeout) as client, client.stream(
+            "POST",
+            f"{self._base_url}/v1/chat/completions",
+            json={"model": self._model, "messages": messages, "stream": True},
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                raw = line[6:]
+                if raw == "[DONE]":
+                    return
+                try:
+                    data = json.loads(raw)
+                    choices = data.get("choices")
+                    if not choices:
+                        continue
+                    token = choices[0].get("delta", {}).get("content", "")
+                    if token:
+                        yield token
+                except (json.JSONDecodeError, IndexError):
+                    continue
+
+    async def is_available(self) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(f"{self._base_url}/v1/models")
+                return resp.status_code == 200
+        except Exception:
+            return False
+
+
 # ── Router ────────────────────────────────────────────────────────────────────
 
 class LLMRouter:
@@ -299,23 +365,26 @@ class LLMRouter:
 
     Strategy:
       - settings.llm.provider == "ollama"      → OllamaClient
+      - settings.llm.provider == "lmstudio"    → LMStudioClient
       - settings.llm.provider == "openrouter"  → OpenRouterClient
-      - If the selected provider fails → fallback to the other
+      - If the selected provider fails → fallback to Ollama
     """
 
     def __init__(self):
         self._ollama = OllamaClient()
         self._openrouter = OpenRouterClient()
+        self._lmstudio = LMStudioClient()
 
     def _primary(self) -> LLMClient:
         if settings.llm.provider == "openrouter":
             return self._openrouter
+        if settings.llm.provider == "lmstudio":
+            return self._lmstudio
         return self._ollama
 
     def _fallback(self) -> LLMClient:
-        if settings.llm.provider == "openrouter":
-            return self._ollama
-        return self._openrouter
+        # Always fall back to Ollama (local)
+        return self._ollama
 
     async def chat(self, messages: list[dict], stream: bool = False) -> str:
         primary = self._primary()

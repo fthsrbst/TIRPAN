@@ -125,6 +125,7 @@ async def run_v2_agent_task(
             "credentials": len(mission_ctx.credentials),
             "loot": len(mission_ctx.loot),
             "findings": result.to_dict() if result else {},
+            "narrative": getattr(agent, "_mission_narrative", ""),
         })
 
     except asyncio.CancelledError:
@@ -135,6 +136,7 @@ async def run_v2_agent_task(
             "event": "kill_switch",
             "data": {},
         })
+        raise  # re-raise so asyncio marks the task as cancelled
 
     except Exception as exc:
         logger.error("V2 agent task failed for session %s: %s", session_id, exc)
@@ -192,6 +194,7 @@ async def run_agent_task(
             "ports": ctx.total_ports,
             "vulns": ctx.total_vulns,
             "exploits": ctx.total_exploits,
+            "narrative": "",
         })
 
     except asyncio.CancelledError:
@@ -219,6 +222,7 @@ async def run_agent_task(
             "event": "kill_switch",
             "data": {},
         })
+        raise  # re-raise so asyncio marks the task as cancelled
 
     except Exception as exc:
         logger.error("Agent task failed for session %s: %s", session_id, exc)

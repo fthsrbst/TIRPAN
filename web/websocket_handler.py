@@ -11,6 +11,7 @@ Message protocol (server → client):
   {"type": "status",        "content": "..."}
 """
 
+import asyncio
 import json
 import uuid
 import httpx
@@ -287,11 +288,194 @@ async def stream_openrouter(
     return full_response
 
 
+def _make_chat_progress_callback(
+    websocket: WebSocket,
+    loop: asyncio.AbstractEventLoop,
+    msg_id: str,
+):
+    """
+    Sync progress_callback → async WebSocket bridge for ChatAgent.
+
+    What gets shown to the user:
+      reasoning    → status bubble: "💭 thought..." (only when using a tool)
+      tool_call    → status bubble: "⚙ Running: tool_name(params)"
+      tool_result  → status bubble: "✓/✗ tool_name: output preview"
+      safety_block → status bubble: "⛔ Blocked: reason"
+      error        → error message
+
+    What is intentionally HIDDEN:
+      llm_token    — raw JSON reasoning chunks (never show to user)
+      chat_reply   — handled by _run_chat_agent after agent.run() returns
+      agent_start/done, shell_io, finding, observation, parallel_* — not relevant to chat UI
+    """
+    def _task(msg: dict) -> None:
+        try:
+            loop.create_task(websocket.send_json(msg))
+        except RuntimeError:
+            pass  # loop closed during shutdown
+
+    def callback(event_type: str, data: dict) -> None:
+        if event_type == "reasoning":
+            # Only show thinking when the agent is about to call a tool,
+            # not when it's about to reply (action == chat_reply).
+            action = data.get("action", "")
+            thought = data.get("thought", "").strip()
+            if thought and action and action not in ("chat_reply", "done"):
+                preview = thought[:200] + ("…" if len(thought) > 200 else "")
+                _task({"type": "status", "content": f"💭 {preview}", "msg_id": msg_id})
+
+        elif event_type == "tool_call":
+            tool_name = data.get("tool", "")
+            params = data.get("params", {})
+            if isinstance(params, dict):
+                params_str = ", ".join(
+                    f"{k}={str(v)!r}" for k, v in list(params.items())[:4]
+                )
+            else:
+                params_str = str(params)[:120]
+            _task({"type": "status", "content": f"⚙ Running: {tool_name}({params_str})", "msg_id": msg_id})
+
+        elif event_type == "tool_result":
+            tool_name = data.get("tool", "")
+            success = data.get("success", False)
+            output = str(data.get("output") or data.get("error") or "")
+            # Show first 400 chars of output, strip leading/trailing whitespace
+            preview = output.strip()[:400]
+            if len(output.strip()) > 400:
+                preview += "…"
+            icon = "✓" if success else "✗"
+            _task({"type": "status", "content": f"{icon} {tool_name}: {preview}", "msg_id": msg_id})
+
+        elif event_type == "safety_block":
+            reason = data.get("reason", data.get("error", ""))
+            _task({"type": "status", "content": f"⛔ Blocked: {reason}", "msg_id": msg_id})
+
+        elif event_type == "error":
+            err = data.get("error", str(data))
+            _task({"type": "error", "content": err})
+
+        # llm_token → intentionally skipped (raw JSON, not user-visible)
+        # chat_reply → handled after agent.run() returns in _run_chat_agent
+
+    return callback
+
+
+def _make_approval_callback(
+    websocket: WebSocket,
+    loop: asyncio.AbstractEventLoop,
+    pending_approvals: dict,
+):
+    """
+    Return an async approval_callback for ChatAgent.
+
+    When the agent wants to run a tool:
+      1. Sends {"type": "approval_request", "approval_id": ..., "tool": ..., "params": ...}
+      2. Suspends until the operator sends {"type": "approval_response", "approval_id": ..., "approved": true/false}
+      3. Returns True (approved) or False (denied)
+
+    Times out after 120s and defaults to denied.
+    """
+    async def callback(action: dict) -> bool:
+        approval_id = str(uuid.uuid4())[:8]
+        fut: asyncio.Future = loop.create_future()
+        pending_approvals[approval_id] = fut
+
+        await websocket.send_json({
+            "type": "approval_request",
+            "approval_id": approval_id,
+            "tool": action.get("tool", ""),
+            "params": action.get("params", {}),
+        })
+
+        try:
+            return await asyncio.wait_for(asyncio.shield(fut), timeout=120.0)
+        except asyncio.TimeoutError:
+            pending_approvals.pop(approval_id, None)
+            await websocket.send_json({
+                "type": "status",
+                "content": "⏱ Approval timed out — action denied.",
+            })
+            return False
+        finally:
+            pending_approvals.pop(approval_id, None)
+
+    return callback
+
+
+async def _run_chat_agent(
+    websocket: WebSocket,
+    user_message: str,
+    agent,
+    conversation_id: str | None,
+    msg_id: str,
+    pending_approvals: dict,
+) -> str:
+    """
+    Run ChatAgent for one user message.
+
+    Event ordering guarantee:
+      1. Status bubbles (tool calls, reasoning) — sent via create_task during run()
+      2. Final reply token  — sent via await AFTER run() completes
+      3. message_end        — sent last
+
+    This sequential await ensures the reply always appears after tool status messages.
+    """
+    agent.inject_user_message(user_message)
+
+    loop = asyncio.get_event_loop()
+    agent._progress_cb = _make_chat_progress_callback(websocket, loop, msg_id)
+    agent._approval_cb = _make_approval_callback(websocket, loop, pending_approvals)
+
+    result = await agent.run()
+
+    final_reply = agent.get_final_reply()
+    if not final_reply:
+        # Fallback: try to extract the last assistant message from memory.
+        # This covers cases where the LLM used an unexpected terminal action
+        # or hit max_iterations without calling chat_reply/done.
+        for m in reversed(list(agent.memory._messages)):
+            if m.role == "assistant" and m.content and m.content.strip():
+                import json as _json
+                try:
+                    parsed = _json.loads(m.content)
+                    p = parsed.get("parameters") or {}
+                    final_reply = (
+                        p.get("message")
+                        or p.get("narrative")
+                        or p.get("findings_summary")
+                        or p.get("summary")
+                        or parsed.get("thought")
+                        or ""
+                    )
+                except Exception:
+                    pass
+                if final_reply:
+                    break
+
+    if not final_reply:
+        if result.status == "failed":
+            final_reply = "I encountered an error while processing your request."
+        else:
+            final_reply = "(No reply generated. Try rephrasing your message.)"
+
+    # Send the final reply as a content token so the frontend renders it as text
+    await websocket.send_json({"type": "token", "content": final_reply, "msg_id": msg_id})
+    await websocket.send_json({"type": "message_end", "msg_id": msg_id})
+    return final_reply
+
+
 async def handle_websocket(websocket: WebSocket) -> None:
     """Main WebSocket connection handler."""
     await websocket.accept()
     conversation_id: str | None = None
     chat_history: list[dict] = []
+
+    # ChatAgent instance — created lazily on first agent-mode message,
+    # reset on new_conversation
+    _chat_agent = None
+
+    # Pending approval futures: approval_id → asyncio.Future[bool]
+    _pending_approvals: dict = {}
 
     # Session subscriptions — list of session IDs this WS is watching
     watched_sessions: list[str] = []
@@ -331,28 +515,79 @@ async def handle_websocket(websocket: WebSocket) -> None:
 
                 await websocket.send_json({"type": "user_echo", "content": content})
 
+                # ── Sync LLM provider from frontend so ChatAgent uses the right backend ──
                 provider = msg.get("provider", "ollama")
                 model_override = msg.get("model", "")
-                if provider == "lmstudio":
-                    lms_model = model_override or settings.lmstudio.model
-                    assistant_text = await stream_lmstudio(websocket, content, chat_history, lms_model, conversation_id)
-                elif provider == "openrouter":
-                    saved = await database.get_all_settings()
-                    api_key = _get_openrouter_key_sync(saved)
-                    or_model = model_override or saved.get("cloud_model", settings.llm.cloud_model)
-                    assistant_text = await stream_openrouter(websocket, content, chat_history, or_model, api_key, conversation_id)
-                else:
+
+                if provider == "openrouter":
+                    settings.llm.provider = "openrouter"
+                    if model_override:
+                        settings.llm.cloud_model = model_override
+                    else:
+                        # Resolve from DB if not overridden
+                        saved = await database.get_all_settings()
+                        or_model = saved.get("cloud_model", settings.llm.cloud_model)
+                        if or_model:
+                            settings.llm.cloud_model = or_model
+                        # Sync API key into settings so LLMRouter's OpenRouterClient picks it up
+                        api_key = _get_openrouter_key_sync(saved)
+                        if api_key:
+                            settings.llm.api_key = api_key
+                elif provider == "lmstudio":
+                    settings.llm.provider = "lmstudio"
+                    if model_override:
+                        settings.lmstudio.model = model_override
+                else:  # ollama
+                    settings.llm.provider = "ollama"
                     if model_override:
                         settings.ollama.model = model_override
-                    assistant_text = await stream_ollama(websocket, content, chat_history, conversation_id)
+
+                # ── Always use ChatAgent (souls + direct tool access) ──────────
+                from core.chat_agent import ChatAgent
+                from core.safety import SafetyGuard
+                from web.app_state import tool_registry
+
+                msg_id = str(uuid.uuid4())[:8]
+
+                if _chat_agent is None:
+                    _chat_agent = ChatAgent(
+                        mission_id=conversation_id or str(uuid.uuid4()),
+                        tool_registry=tool_registry,
+                        safety=SafetyGuard(),
+                    )
+                    # Replay existing chat history into agent memory
+                    for entry in chat_history:
+                        if entry["role"] == "user":
+                            _chat_agent.memory.add_user(entry["content"])
+                        elif entry["role"] == "assistant":
+                            _chat_agent.memory.add_assistant(entry["content"])
+
+                assistant_text = await _run_chat_agent(
+                    websocket, content, _chat_agent, conversation_id, msg_id,
+                    _pending_approvals,
+                )
 
                 chat_history.append({"role": "user", "content": content})
                 if assistant_text:
                     chat_history.append({"role": "assistant", "content": assistant_text})
 
+            elif msg_type == "approval_response":
+                # Operator approved or denied a pending tool execution
+                approval_id = msg.get("approval_id", "")
+                approved = bool(msg.get("approved", False))
+                fut = _pending_approvals.get(approval_id)
+                if fut and not fut.done():
+                    fut.set_result(approved)
+
             elif msg_type == "new_conversation":
                 conversation_id = None
                 chat_history = []
+                _chat_agent = None  # reset agent so next session starts fresh
+                # Cancel any pending approvals
+                for fut in _pending_approvals.values():
+                    if not fut.done():
+                        fut.set_result(False)
+                _pending_approvals.clear()
                 await websocket.send_json({"type": "conversation_reset"})
 
             elif msg_type == "subscribe_session":

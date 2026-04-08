@@ -15,6 +15,7 @@ from tools.searchsploit_tool import SearchSploitTool
 from tools.metasploit_tool import MetasploitTool
 from tools.ssh_tool import SSHTool
 from tools.shell_session_tool import ShellSessionTool
+from tools.local_exec_tool import LocalExecTool
 
 
 def build_tool_registry(
@@ -43,6 +44,7 @@ def build_tool_registry(
     registry.register(MetasploitTool())
     registry.register(SSHTool())
     registry.register(ShellSessionTool())
+    registry.register(LocalExecTool())
 
     if include_extended:
         from tools.masscan_tool import MasscanTool
@@ -63,6 +65,15 @@ def build_tool_registry(
         from tools.webdav_tool import WebDavTool
         from tools.smb_enum_tool import SmbEnumTool
         from tools.telnet_tool import TelnetTool
+        # Web pentest & brute-force tools
+        from tools.hydra_tool import HydraTool
+        from tools.sqlmap_tool import SqlmapTool
+        from tools.wpscan_tool import WPScanTool
+        from tools.hashcat_tool import HashcatTool
+        from tools.commix_tool import CommixTool
+        from tools.john_tool import JohnTool
+        from tools.gobuster_tool import GobusterTool
+        from tools.arjun_tool import ArjunTool
 
         for tool in (
             MasscanTool(),
@@ -83,6 +94,14 @@ def build_tool_registry(
             WebDavTool(),
             SmbEnumTool(),
             TelnetTool(),
+            HydraTool(),
+            SqlmapTool(),
+            WPScanTool(),
+            HashcatTool(),
+            CommixTool(),
+            JohnTool(),
+            GobusterTool(),
+            ArjunTool(),
         ):
             registry.register(tool)
 

