@@ -32,7 +32,7 @@ The agent scans the network, enumerates services, searches for known exploits, s
 
 ## Demo
 
-[![TIRPAN Demo](https://img.youtube.com/vi/t5nF3lujWJg/maxresdefault.jpg)](https://www.youtube.com/watch?v=t5nF3lujWJg)
+[![TIRPAN Demo](gif.gif)](https://www.youtube.com/watch?v=t5nF3lujWJg)
 
 ---
 
