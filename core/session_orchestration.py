@@ -136,6 +136,7 @@ async def run_v2_agent_task(
             "event": "kill_switch",
             "data": {},
         })
+        raise  # re-raise so asyncio marks the task as cancelled
 
     except Exception as exc:
         logger.error("V2 agent task failed for session %s: %s", session_id, exc)
@@ -221,6 +222,7 @@ async def run_agent_task(
             "event": "kill_switch",
             "data": {},
         })
+        raise  # re-raise so asyncio marks the task as cancelled
 
     except Exception as exc:
         logger.error("Agent task failed for session %s: %s", session_id, exc)
