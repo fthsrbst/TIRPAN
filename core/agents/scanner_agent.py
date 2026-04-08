@@ -134,7 +134,7 @@ class ScannerAgent(BaseSpecializedAgent):
             for port_data in host_data.get("ports", []):
                 if port_data.get("state") == "open":
                     ports.append(PortInfo(
-                        number=int(port_data.get("port", port_data.get("portid", 0))),
+                        number=int(port_data.get("number", port_data.get("port", port_data.get("portid", 0)))),
                         state="open",
                         service=port_data.get("service", port_data.get("name", "")),
                         version=port_data.get("version", ""),

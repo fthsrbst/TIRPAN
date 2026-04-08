@@ -69,7 +69,7 @@ These services represent direct interactive access. A foothold here means everyt
 
 **RSH/rlogin/rexec (Ports 512, 513, 514):**
 - These are pre-authentication remote shell services from the 1980s
-- On Metasploitable2 and many legacy systems: completely unauthenticated root access
+- On many legacy Linux/Unix systems: completely unauthenticated root access
 - `rsh -l root target /bin/sh` — you might get a shell immediately
 - rlogin does not require a password if ~/.rhosts or /etc/hosts.equiv allows it
 - Never overlook these ports. They are frequently the fastest path to root
@@ -149,7 +149,7 @@ Database ports should always be probed for default or blank credentials.
 - Distributed compiler daemon — CVE-2004-2687
 - Executes arbitrary commands as the daemon user
 - Metasploit module: `exploit/unix/misc/distcc_exec`
-- Often overlooked but very reliable on Metasploitable2
+- Often overlooked but very reliable on legacy unpatched systems
 
 ---
 
@@ -169,10 +169,26 @@ The real skill in penetration testing is not finding vulnerabilities — it is c
 2. `SELECT '<?php system($_GET["cmd"]); ?>' INTO OUTFILE '/var/www/html/shell.php'`
 3. HTTP request to `/shell.php` → OS command execution as www-data
 
+**SQL Injection → Database Dump → OS Shell:**
+1. Parameter fuzzing discovers SQLi in a GET/POST parameter
+2. `sqlmap` enumerates DBs → dumps credentials table
+3. Credentials used for admin login or SSH access
+4. If MySQL FILE privilege + webroot writable: `sqlmap --os-shell` → full RCE
+
+**Web Form → Command Injection → Shell:**
+1. Input field passes user data to OS command (ping, traceroute, filename)
+2. `commix` detects and exploits the injection point
+3. OS shell → privilege escalation
+
 **Credential Reuse:**
 1. Any exploit gives access to a config file or /etc/shadow
 2. Crack or reuse credentials against SSH, FTP, MySQL, and the web admin panel
 3. Password reuse is one of the most reliable lateral movement techniques
+
+**Brute Force → Admin Access → RCE:**
+1. `hydra` or `wpscan` brute forces login form with rockyou.txt
+2. Admin panel access → file upload, theme editor, or command execution feature
+3. RCE achieved via admin functionality (not a CVE — authorization bypass)
 
 **Low-Privilege Shell → Root:**
 1. Exploit gives shell as `www-data` or `daemon`
@@ -202,14 +218,18 @@ When multiple attack vectors are available, prioritize in this order:
 - These are fast to check and frequently successful
 
 **Priority 4 — Web Application Attacks**
-- Directory brute force, parameter fuzzing, authentication bypass
+- Directory brute force (gobuster/ffuf), parameter fuzzing (arjun), authentication bypass
+- SQL injection (sqlmap), command injection (commix)
+- WordPress/CMS exploitation (wpscan)
 - These are slower but cover a large attack surface
 - Run in parallel with Priority 1-3, not after
 
 **Priority 5 — Brute Force and Enumeration**
-- SSH/FTP brute force (noisy, slow, often blocked)
+- SSH/FTP/HTTP form brute force with Hydra (noisy — use `--delay` to avoid lockouts)
 - SNMP community string brute
-- Only when higher-priority vectors are exhausted
+- WordPress user brute force (wpscan)
+- Hash cracking offline after extraction (hashcat/john — not network-noisy)
+- Lower priority for network brute force; offline cracking can run alongside other attacks
 
 ---
 

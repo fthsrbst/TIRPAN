@@ -54,11 +54,16 @@ async def health():
 # ── Ollama status ─────────────────────────────────────────────────────────────
 
 @router.get("/ollama/status")
-async def ollama_status():
-    """Check if Ollama is reachable and list available models."""
+async def ollama_status(base_url: str | None = None):
+    """Check if Ollama is reachable and list available models.
+
+    Accepts optional ``base_url`` query param so the config page can probe a
+    URL that hasn't been saved yet (avoids requiring a Save before Fetch).
+    """
+    url = (base_url or settings.ollama.base_url).rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{settings.ollama.base_url}/api/tags")
+            resp = await client.get(f"{url}/api/tags")
             if resp.status_code == 200:
                 models = [m["name"] for m in resp.json().get("models", [])]
                 return {"online": True, "models": models, "current": settings.ollama.model}
@@ -202,11 +207,16 @@ class LMStudioSettings(BaseModel):
 
 
 @router.get("/lmstudio/status")
-async def lmstudio_status():
-    """Check if LM Studio is reachable and list available models."""
+async def lmstudio_status(base_url: str | None = None):
+    """Check if LM Studio is reachable and list available models.
+
+    Accepts optional ``base_url`` query param so the config page can probe a
+    URL that hasn't been saved yet.
+    """
+    url = (base_url or settings.lmstudio.base_url).rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{settings.lmstudio.base_url}/v1/models")
+            resp = await client.get(f"{url}/v1/models")
             if resp.status_code == 200:
                 data = resp.json()
                 models = [m["id"] for m in data.get("data", [])]
