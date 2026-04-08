@@ -48,6 +48,7 @@ from core.memory import SessionMemory
 from core.safety import AgentAction, SafetyGuard
 from core.tool_registry import ToolNotFoundError, ToolRegistry
 import core.debug_logger as dbg
+from core.session_tracer import get_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,7 @@ class BaseAgent(ABC):
         safety: SafetyGuard | None = None,
         llm: LLMRouter | None = None,
         progress_callback: ProgressCallback | None = None,
+        approval_callback: ApprovalCallback | None = None,
         agent_id: str | None = None,
         max_iterations: int = _DEFAULT_MAX_ITERATIONS,
         memory_max_messages: int = 50,
@@ -178,6 +180,7 @@ class BaseAgent(ABC):
         self._llm: LLMRouter = llm or llm_router
         self._max_iterations: int = max_iterations
         self._progress_cb: ProgressCallback | None = progress_callback
+        self._approval_cb: ApprovalCallback | None = approval_callback
         self._audit_repo = audit_repo
 
         self._iteration: int = 0
@@ -727,6 +730,9 @@ class BaseAgent(ABC):
                     "and adjust your plan before choosing the next action."
                 )
 
+            _tracer = get_tracer(self.session_id)
+            _tracer.log_llm_request(self.agent_id, self.agent_type, self._iteration, messages)
+
             self.emit_event("llm_thinking_start", {})
             async for token in self._llm.stream_chat(messages):
                 if self._stream_abort.is_set():
@@ -736,6 +742,8 @@ class BaseAgent(ABC):
                     return None
                 response += token
                 self.emit_event("llm_token", {"token": token})
+
+            _tracer.log_llm_response(self.agent_id, self.agent_type, self._iteration, response)
 
             action_dict = LLMRouter.parse_json(response)
             self.memory.add_assistant(response)
@@ -747,10 +755,14 @@ class BaseAgent(ABC):
                 })
 
             self.emit_event("reasoning", {
-                "thought": action_dict.get("thought", ""),
-                "action": action_dict.get("action", ""),
-                "reasoning": action_dict.get("reasoning", ""),
+                "thought":    action_dict.get("thought", ""),
+                "action":     action_dict.get("action", ""),
+                "reasoning":  action_dict.get("reasoning", ""),
+                "situation":  action_dict.get("situation", ""),
+                "hypothesis": action_dict.get("hypothesis", ""),
+                "decision":   action_dict.get("decision", ""),
             })
+            _tracer.log_reasoning(self.agent_id, self.agent_type, self._iteration, action_dict)
             # Debug: show thought + action for every agent
             dbg.brain_think(self.agent_id, action_dict.get("thought", ""))
             dbg.brain_action(self.agent_id, action_dict.get("action", "?"),
@@ -860,9 +872,28 @@ class BaseAgent(ABC):
                 "error": f"Safety rule blocked this action: {reason}",
             }
 
+        # ── Operator approval gate (opt-in — only when callback is set) ──
+        if self._approval_cb is not None:
+            approved = await self._approval_cb({
+                "tool": tool_name,
+                "params": params,
+                "agent_id": self.agent_id,
+            })
+            if not approved:
+                self._log.info("Operator denied tool call: %s", tool_name)
+                self.emit_event("approval_denied", {"tool": tool_name, "params": params})
+                self.memory.add_user(
+                    f"[OPERATOR] Denied execution of '{tool_name}'. "
+                    "Acknowledge this and adjust your plan or reply with chat_reply."
+                )
+                return {"success": False, "output": None, "error": "Operator denied this action."}
+
         # ── Execute ───────────────────────────────────────────────────────
         self.emit_event("tool_call", {"tool": tool_name, "params": params})
         dbg.tool_call(self.agent_id, tool_name, params)
+        get_tracer(self.session_id).log_tool_call(
+            self.agent_id, self.agent_type, self._iteration, tool_name, params
+        )
         await self._audit(
             "TOOL_CALL",
             tool_name=tool_name,
@@ -893,6 +924,9 @@ class BaseAgent(ABC):
             dbg.tool_ok(self.agent_id, tool_name, raw_output, _dur_ms)
         else:
             dbg.tool_fail(self.agent_id, tool_name, str(result.get("error") or ""), _dur_ms)
+        get_tracer(self.session_id).log_tool_result(
+            self.agent_id, self.agent_type, self._iteration, tool_name, result, _dur_ms
+        )
 
         self.emit_event("tool_result", {
             "tool": tool_name,

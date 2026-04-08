@@ -873,6 +873,7 @@ async function loadConversationsFromAPI() {
             projectId: mappings[c.id] || null,
             createdAt: c.created_at * 1000,
         }));
+        _initialDataLoaded = true;
     } catch {
         conversations = [];
     }
@@ -1261,6 +1262,7 @@ let wsReady = false;
 let currentAssistantEl = null;  // streaming message bubble
 let currentAssistantText = '';   // accumulated text for the current stream
 let isStreaming = false;
+let _initialDataLoaded = false;
 
 function updateSendBtn() {
     const btn = document.getElementById('chat-view-send-btn');
@@ -1287,6 +1289,14 @@ function wsConnect() {
         if (activeConvId) {
             ws.send(JSON.stringify({ type: 'load_conversation', conversation_id: activeConvId }));
         }
+        // If the server wasn't ready when the page first loaded, the initial
+        // HTTP fetches may have failed. Reload them on first successful WS connect.
+        if (!_initialDataLoaded) {
+            _initialDataLoaded = true;
+            initConversations();
+            loadPersistedSettings();
+            loadSessionsForSelects();
+        }
     };
 
     ws.onclose = () => {
@@ -1307,6 +1317,10 @@ function wsConnect() {
 
         if (msg.type === 'token') {
             appendToken(msg.content, msg.msg_id);
+        } else if (msg.type === 'status') {
+            appendChatStatusBubble(msg.content, msg.msg_id);
+        } else if (msg.type === 'approval_request') {
+            appendChatApprovalRequest(msg);
         } else if (msg.type === 'message_end') {
             finalizeAssistantMessage();
         } else if (msg.type === 'error') {
@@ -1470,6 +1484,96 @@ function appendToken(token, msgId) {
     if (!p) return;
     currentAssistantText += token;
     p.innerHTML = renderMarkdown(currentAssistantText);
+    scrollToBottom();
+}
+
+/**
+ * Show a tool-activity status bubble inside the current assistant message.
+ * Called for "status" WS messages emitted by ChatAgent's progress callback.
+ */
+function appendChatStatusBubble(content, msgId) {
+    if (!content) return;
+    // Ensure there's an open assistant message to attach to
+    if (!currentAssistantEl) startAssistantMessage();
+
+    // Determine icon/color from prefix
+    let icon = 'info', colorClass = 'text-secondary-text/70';
+    if (content.startsWith('⚙')) { icon = 'settings'; colorClass = 'text-primary/80'; }
+    else if (content.startsWith('✓')) { icon = 'check_circle'; colorClass = 'text-primary'; }
+    else if (content.startsWith('✗')) { icon = 'cancel'; colorClass = 'text-danger'; }
+    else if (content.startsWith('💭')) { icon = 'psychology'; colorClass = 'text-secondary-text/60'; }
+    else if (content.startsWith('⛔')) { icon = 'block'; colorClass = 'text-orange-400'; }
+    else if (content.startsWith('⏱')) { icon = 'timer'; colorClass = 'text-orange-400'; }
+
+    // Strip the emoji prefix for cleaner display
+    const text = content.replace(/^[⚙✓✗💭⛔⏱]\s*/, '').trim();
+
+    // Append status bubble before the main text block
+    const msgText = currentAssistantEl.querySelector('.msg-text');
+    if (!msgText) return;
+
+    // Insert into a status-bubbles container right before msg-text
+    let bubbles = currentAssistantEl.querySelector('.chat-status-bubbles');
+    if (!bubbles) {
+        bubbles = document.createElement('div');
+        bubbles.className = 'chat-status-bubbles flex flex-col gap-1 mb-2';
+        msgText.parentNode.insertBefore(bubbles, msgText);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = `flex items-start gap-2 px-3 py-1.5 bg-surface border border-border-color/40 rounded text-[10px] mono-text ${colorClass}`;
+    bubble.innerHTML = `<span class="material-symbols-outlined text-[12px] shrink-0 mt-0.5">${icon}</span><span class="break-all">${escapeHtml(text)}</span>`;
+    bubbles.appendChild(bubble);
+    scrollToBottom();
+}
+
+/**
+ * Show an approval request card in the chat when ChatAgent asks permission.
+ */
+function appendChatApprovalRequest(msg) {
+    if (!currentAssistantEl) startAssistantMessage();
+    const msgText = currentAssistantEl ? currentAssistantEl.querySelector('.msg-text') : null;
+    const stream = getMessageStream();
+    const container = stream;
+    if (!container) return;
+
+    const card = document.createElement('div');
+    card.className = 'flex gap-4 group';
+    const paramsStr = msg.params && typeof msg.params === 'object'
+        ? Object.entries(msg.params).slice(0, 5).map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`).join('\n')
+        : '';
+    card.innerHTML = `
+        <div class="shrink-0 w-8 h-8 border border-orange-400/60 flex items-center justify-center bg-surface self-start mt-5">
+          <span class="material-symbols-outlined text-orange-400 text-xl">security</span>
+        </div>
+        <div class="flex flex-col gap-2 flex-1 min-w-0">
+          <div class="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Tool Approval Required</div>
+          <div class="bg-surface border border-orange-400/30 p-4">
+            <p class="text-xs text-slate-200 font-bold mb-1">${escapeHtml(msg.tool || '')}</p>
+            ${paramsStr ? `<pre class="text-[10px] mono-text text-secondary-text whitespace-pre-wrap break-all mt-1">${escapeHtml(paramsStr)}</pre>` : ''}
+            <div class="flex gap-2 mt-3">
+              <button class="approval-approve px-4 py-1.5 bg-primary text-black text-[11px] font-bold uppercase tracking-wider hover:brightness-90 transition-all" data-id="${escapeHtml(msg.approval_id || '')}">Approve</button>
+              <button class="approval-deny px-4 py-1.5 border border-danger/50 text-danger text-[11px] font-bold uppercase tracking-wider hover:border-danger transition-all" data-id="${escapeHtml(msg.approval_id || '')}">Deny</button>
+            </div>
+          </div>
+        </div>`;
+
+    card.querySelector('.approval-approve')?.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: true }));
+        card.querySelector('.approval-approve').disabled = true;
+        card.querySelector('.approval-deny').disabled = true;
+        card.querySelector('.approval-approve').textContent = 'Approved';
+    });
+    card.querySelector('.approval-deny')?.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: false }));
+        card.querySelector('.approval-approve').disabled = true;
+        card.querySelector('.approval-deny').disabled = true;
+        card.querySelector('.approval-deny').textContent = 'Denied';
+    });
+
+    container.appendChild(card);
     scrollToBottom();
 }
 
@@ -1708,9 +1812,10 @@ let lmStudioModels = [];
 let lmStudioModel = '';
 let lmStudioBaseUrl = 'http://127.0.0.1:1234';
 
-async function fetchLMStudioStatus() {
+async function fetchLMStudioStatus(overrideUrl) {
     try {
-        const res = await fetch('/api/v1/lmstudio/status');
+        const urlParam = overrideUrl ? `?base_url=${encodeURIComponent(overrideUrl)}` : '';
+        const res = await fetch(`/api/v1/lmstudio/status${urlParam}`);
         const data = await res.json();
 
         const dot = document.getElementById('cfg-lmstudio-status-dot');
@@ -1817,11 +1922,28 @@ function initLMStudioModelDropdown() {
         const wrapper = document.getElementById('cfg-lmstudio-model-wrapper');
         if (wrapper && !wrapper.contains(e.target)) closeLMStudioModelDropdown();
     });
+
+    // Fetch Models button — uses the current URL from the input field
+    document.getElementById('fetch-lmstudio-models-btn')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const urlInput = document.getElementById('cfg-lmstudio-url');
+        const url = urlInput?.value?.trim() || lmStudioBaseUrl;
+        await fetchLMStudioStatus(url);
+    });
+
+    // Fetch Models button for Ollama
+    document.getElementById('fetch-ollama-models-btn')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const urlInput = document.getElementById('cfg-ollama-url');
+        const url = urlInput?.value?.trim() || ollamaBaseUrl;
+        await fetchOllamaStatus(url);
+    });
 }
 
-async function fetchOllamaStatus() {
+async function fetchOllamaStatus(overrideUrl) {
     try {
-        const res = await fetch('/api/v1/ollama/status');
+        const urlParam = overrideUrl ? `?base_url=${encodeURIComponent(overrideUrl)}` : '';
+        const res = await fetch(`/api/v1/ollama/status${urlParam}`);
         const data = await res.json();
 
         const dot = document.getElementById('ollama-dot');
@@ -2766,6 +2888,7 @@ function handleSessionDone(msg) {
         flags:    counts.flags    || [],
         findings: counts.findings || [],
         objective_result: counts.objective_result || counts.objective || '',
+        narrative: counts.narrative || '',
     });
     agOnDone(counts);
     appendConsoleLine('[SESSION] Agent finished — report available in the Report tab', 'text-primary');
@@ -3118,13 +3241,10 @@ async function refreshMissionStats(sessionId) {
         // Skip stat update if user is viewing a different session
         if (viewingSessionId && viewingSessionId !== sessionId) return;
 
-        // Count individual open ports across all scan result blobs (not scan record count)
-        const livePorts = (data.scan_results || [])
-            .flatMap(r => (r.hosts || []).flatMap(h => (h.ports || []).filter(p => p.state === 'open')))
-            .length;
-        const liveHosts = new Set(
-            (data.scan_results || []).flatMap(r => (r.hosts || []).map(h => h.ip)).filter(Boolean)
-        ).size;
+        // Count individual open ports — merge hosts first to deduplicate across multiple scans
+        const _mergedForCount = _mergeHosts((data.scan_results || []).flatMap(r => r.hosts || []));
+        const livePorts = _mergedForCount.flatMap(h => h.ports.filter(p => p.state === 'open')).length;
+        const liveHosts = _mergedForCount.length;
         const liveVulns = (data.vulnerabilities || []).length;
 
         // Use live counts; fall back to V2 in-memory counters; fall back to DB summary fields
@@ -4781,9 +4901,16 @@ function _toolCallSummary(tool, params) {
     return first ? first.slice(0, 120) : tool;
 }
 
+const _ANSI_RE = /\x1b\[[0-9;]*[mGKHFJ]/g;
+
+function _stripAnsi(s) {
+    return typeof s === 'string' ? s.replace(_ANSI_RE, '') : s;
+}
+
 function _resultSummary(output) {
     if (!output) return '';
-    return output.trim().split('\n').filter(l => l.trim()).slice(0, 2).join(' · ').slice(0, 140);
+    const s = _stripAnsi(typeof output === 'string' ? output : JSON.stringify(output));
+    return s.trim().split('\n').filter(l => l.trim()).slice(0, 2).join(' · ').slice(0, 140);
 }
 
 function _closeToolBatch() { _toolBatch = null; }
@@ -4982,7 +5109,8 @@ function _resolveToolBatchItem(data) {
     const pending = _toolBatch.pendingQueue.shift();
     const uid     = pending.uid;
     const success = data.success !== false;
-    const output  = data.output || data.error || '';
+    const rawOutput = data.output || data.error || '';
+    const output = _stripAnsi(typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2));
     const summary = _resultSummary(output);
 
     const statusEl = document.getElementById(`tbstatus-${uid}`);
@@ -4996,7 +5124,7 @@ function _resolveToolBatchItem(data) {
     const resultDetailEl = document.getElementById(`tbresult-detail-${uid}`);
     if (resultDetailEl && output) {
         const cl = success ? 'text-primary/70' : 'text-danger/70';
-        resultDetailEl.innerHTML = `<pre class="${cl} text-[10px] whitespace-pre-wrap break-all leading-relaxed max-h-40 overflow-y-auto border-t border-border-color/20 pt-1.5">${_esc(output.trim().slice(0, 800))}</pre>`;
+        resultDetailEl.innerHTML = `<pre class="${cl} text-[10px] whitespace-pre-wrap break-all leading-relaxed max-h-40 overflow-y-auto border-t border-border-color/20 pt-1.5">${_esc(output.slice(0, 800))}</pre>`;
         resultDetailEl.classList.remove('hidden');
         // Recalculate heights if sections are open
         const item = resultDetailEl.closest('.tool-batch-item');
@@ -5246,17 +5374,44 @@ function finalizeAgentStreamCard() {
 
 function renderMissionReasoning(data) {
     _missionIteration++;
-    const iter      = _missionIteration;
-    const thought   = _esc(data.thought   || '');
-    const reasoning = _esc(data.reasoning || '');
-    const action    = _esc(data.action    || '');
-    // Short preview shown in collapsed header (first ~70 chars of thought)
-    const preview   = thought ? thought.slice(0, 72) + (thought.length > 72 ? '…' : '') : '';
+    const iter       = _missionIteration;
+    const thought    = _esc(data.thought    || '');
+    const reasoning  = _esc(data.reasoning  || '');
+    const action     = _esc(data.action     || '');
+    const situation  = _esc(data.situation  || '');
+    const hypothesis = _esc(data.hypothesis || '');
+    const decision   = _esc(data.decision   || '');
 
-    const bodyHtml = [
+    const hasStructured = situation || hypothesis || decision;
+
+    // Structured rows (shown when LLM provides explicit fields)
+    const structuredHtml = hasStructured ? [
+        situation  ? `<div class="flex gap-2 mb-1.5 items-start">
+            <span class="shrink-0 text-cyan-400 font-bold text-[10px] uppercase tracking-widest w-[80px]">Situation</span>
+            <span class="text-slate-300/85 text-[11px] leading-relaxed whitespace-pre-wrap">${situation}</span>
+        </div>` : '',
+        hypothesis ? `<div class="flex gap-2 mb-1.5 items-start">
+            <span class="shrink-0 text-amber-400 font-bold text-[10px] uppercase tracking-widest w-[80px]">Hypothesis</span>
+            <span class="text-slate-300/85 text-[11px] leading-relaxed whitespace-pre-wrap">${hypothesis}</span>
+        </div>` : '',
+        decision   ? `<div class="flex gap-2 mb-1.5 items-start">
+            <span class="shrink-0 text-emerald-400 font-bold text-[10px] uppercase tracking-widest w-[80px]">Decision</span>
+            <span class="text-slate-300/85 text-[11px] leading-relaxed whitespace-pre-wrap">${decision}</span>
+        </div>` : '',
+    ].filter(Boolean).join('') : '';
+
+    // Fallback: plain thought/reasoning when structured fields absent
+    const fallbackHtml = !hasStructured ? [
         thought   ? `<p class="text-slate-300/80 text-[12px] italic leading-relaxed whitespace-pre-wrap mb-2">${thought}</p>` : '',
         reasoning ? `<p class="text-secondary-text/70 text-[11px] italic leading-relaxed whitespace-pre-wrap mb-2">${reasoning}</p>` : '',
-        action    ? `<p class="text-primary text-[11px] font-bold mt-1 not-italic">→ &nbsp;${action}</p>` : '',
+    ].filter(Boolean).join('') : '';
+
+    const bodyHtml = [
+        structuredHtml || fallbackHtml,
+        action ? `<div class="flex gap-2 items-center mt-2 pt-1.5 border-t border-yellow-500/10">
+            <span class="text-yellow-400/60 text-[10px] uppercase tracking-widest shrink-0">→</span>
+            <span class="text-primary text-[11px] font-bold">${action}</span>
+        </div>` : '',
     ].filter(Boolean).join('');
 
     const thinkOpen = _feedFilterAutoExpand('thinking');
@@ -5313,7 +5468,8 @@ function renderMissionToolCall(data) {
 function renderMissionToolResult(data) {
     const tool    = _esc(data.tool || '');
     const success = data.success !== false;
-    const output  = _esc(data.output || data.error || '');
+    const rawOutput = data.output || data.error || '';
+    const output  = _esc(_stripAnsi(typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2)));
     const borderHex2  = success ? '#ccff00' : '#ef4444';
     const borderRgba2 = success ? 'rgba(204,255,0,0.3)' : 'rgba(239,68,68,0.35)';
     const color   = success ? 'text-primary' : 'text-danger';
@@ -5432,6 +5588,13 @@ function renderMissionDone(data) {
         findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
             <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Objective Result</div>
             <div class="text-secondary-text text-[11px] italic leading-relaxed whitespace-pre-wrap">${_parseMd(_esc(objective))}</div>
+        </div>`;
+    }
+    const narrative = data.narrative || '';
+    if (narrative) {
+        findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
+            <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Attack Narrative</div>
+            <div class="text-secondary-text text-[11px] leading-relaxed whitespace-pre-wrap">${_esc(narrative)}</div>
         </div>`;
     }
     appendMissionCard(`
@@ -5800,7 +5963,10 @@ async function switchToSession(sessionId) {
                 if (evData && evData.events && evData.events.length > 0) {
                     renderMissionStart(session.target, session.mode);
                     agOnMissionStart({ target: session.target, mode: session.mode });
-                    evData.events.forEach(ev => replaySessionEvent(ev.event_type, ev.data));
+                    evData.events.forEach(ev => {
+                        try { replaySessionEvent(ev.event_type, ev.data); }
+                        catch (e) { console.warn('[replay] skipped event:', ev.event_type, e); }
+                    });
                     // Always render graph after full replay and fit view
                     setTimeout(function(){ _agRender(); setTimeout(agZoomFit, 100); }, 150);
                 } else {
@@ -5858,11 +6024,20 @@ function replaySessionEvent(event, data) {
             agOnParallelDone(data);
             break;
         case 'phase_change':
+        case 'phase_changed':
         case 'observation':
         case 'discovery':
             updatePhaseFromEvent(data);
             break;
+        case 'agent_start':
+            _closeToolBatch();
+            agOnThinking({ action: data.agent_type || 'agent', thought: '' });
+            break;
+        case 'finding':
+            updatePhaseFromEvent(data);
+            break;
         case 'done':
+        case 'agent_done':
             setPhaseActive(5);
             break;
         default:
@@ -6618,13 +6793,11 @@ async function saveMsfConfig() {
     });
 }
 
-// ─── Extended saveConfig (wraps existing + adds safety + msf) ─────────────────
+// ─── Extended saveConfig (wraps existing + training) ──────────────────────────
 
 const _origSaveConfig = saveConfig;
 saveConfig = async function () {
     await _origSaveConfig();
-    await saveSafetyConfig();
-    await saveMsfConfig();
     await saveTrainingConfig();
 };
 

@@ -269,8 +269,20 @@ class SearchSploitTool(BaseTool):
                 continue
 
             # --- Platform filter ---
-            if platform_filter and platform_filter.lower() not in platform:
-                continue
+            # "linux" also accepts "unix" and "multiple" (many Linux exploits are
+            # categorised as unix or multiple in ExploitDB).
+            if platform_filter:
+                pf = platform_filter.lower()
+                _linux_equiv = {"linux", "unix", "multiple"}
+                _windows_equiv = {"windows", "multiple"}
+                if pf == "linux":
+                    accepted = _linux_equiv
+                elif pf == "windows":
+                    accepted = _windows_equiv
+                else:
+                    accepted = {pf, "multiple"}
+                if platform not in accepted and not any(a in platform for a in accepted):
+                    continue
 
             # --- Extract CVE (from title first, then file header) ---
             cve_match = _CVE_PATTERN.search(title)

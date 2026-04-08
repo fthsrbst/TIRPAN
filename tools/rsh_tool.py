@@ -2,7 +2,7 @@
 TIRPAN — RSH/Rlogin/Rexec Tool
 ================================
 Exploits Berkeley r-services (ports 512, 513, 514) which typically run
-with no authentication on legacy systems like Metasploitable2.
+with no authentication on legacy Linux/Unix systems.
 
 Methods:
   rsh   — remote shell (port 514) via netcat-style raw TCP
@@ -34,7 +34,7 @@ class RshTool(BaseTool):
             description=(
                 "Berkeley r-services exploit tool for ports 512 (rexec), 513 (rlogin), "
                 "514 (rshell). These legacy services often have NO authentication on old "
-                "Linux systems (Metasploitable2, legacy Unix). "
+                "Linux systems (legacy Unix, unpatched servers). "
                 "Actions:\n"
                 "  check  — probe all three ports, report which accept unauthenticated access\n"
                 "  exec   — execute a command via rsh/rlogin (no credentials needed on vulnerable targets)\n"
@@ -146,7 +146,7 @@ class RshTool(BaseTool):
         """
         Attempt unauthenticated command execution via rsh protocol.
         The rsh protocol sends: local_user\0remote_user\0command\0
-        On Metasploitable2 and legacy systems with permissive hosts.equiv,
+        On legacy systems with permissive hosts.equiv,
         this executes without any password prompt.
         """
         # Try using the rsh binary first (most reliable)

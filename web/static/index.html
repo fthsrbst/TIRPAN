@@ -774,13 +774,8 @@
       <div class="flex-1 overflow-y-auto scrollbar-hide p-8">
         <div class="max-w-4xl mx-auto flex flex-col gap-10">
 
-          <!-- ── SECTION: Safety Guardrails ─────────────────────────────── -->
-          <div>
-            <div class="flex items-center gap-4 mb-6">
-              <div class="h-[1px] flex-1 bg-border-color"></div>
-              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Safety Guardrails — 10 Rules</span>
-              <div class="h-[1px] flex-1 bg-border-color"></div>
-            </div>
+          <!-- Safety Guardrails section removed — configured via mission settings -->
+          <div class="hidden">
             <div class="flex flex-col gap-3">
 
               <!-- Rule 1: Target Scope -->
@@ -966,7 +961,12 @@
               </div>
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
-                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Local LLM (Ollama)</label>
+                <div class="flex items-center justify-between">
+                  <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Local LLM (Ollama)</label>
+                  <button id="fetch-ollama-models-btn" type="button" class="text-[10px] mono-text text-secondary-text hover:text-primary transition-colors flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[13px]">refresh</span>Fetch Models
+                  </button>
+                </div>
                 <input id="cfg-ollama-url" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" placeholder="http://localhost:11434" value="http://localhost:11434"/>
               </div>
 
@@ -992,7 +992,12 @@
 
               <!-- LM Studio row -->
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
-                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">LM Studio URL</label>
+                <div class="flex items-center justify-between">
+                  <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">LM Studio URL</label>
+                  <button id="fetch-lmstudio-models-btn" type="button" class="text-[10px] mono-text text-secondary-text hover:text-primary transition-colors flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[13px]">refresh</span>Fetch Models
+                  </button>
+                </div>
                 <input id="cfg-lmstudio-url" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text" type="text" placeholder="http://localhost:1234" value="http://localhost:1234"/>
               </div>
 
@@ -1081,13 +1086,8 @@
 
           </div>
 
-          <!-- ── SECTION: Metasploit RPC ─────────────────────────────────── -->
-          <div>
-            <div class="flex items-center gap-4 mb-6">
-              <div class="h-[1px] flex-1 bg-border-color"></div>
-              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Metasploit RPC</span>
-              <div class="h-[1px] flex-1 bg-border-color"></div>
-            </div>
+          <!-- Metasploit RPC section removed -->
+          <div class="hidden">
             <div class="grid grid-cols-2 gap-4">
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
@@ -1124,13 +1124,8 @@
             </div>
           </div>
 
-          <!-- ── SECTION: Plugin Registry ───────────────────────────────── -->
-          <div>
-            <div class="flex items-center gap-4 mb-6">
-              <div class="h-[1px] flex-1 bg-border-color"></div>
-              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Tool Registry — Plugins</span>
-              <div class="h-[1px] flex-1 bg-border-color"></div>
-            </div>
+          <!-- Tool Registry section removed -->
+          <div class="hidden">
 
             <!-- Core tools (always enabled) -->
             <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest mb-3">Core Tools (V1 Built-in)</p>
