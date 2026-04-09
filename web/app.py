@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
+from core.pty_manager import PTYManager
 from core.registry_builder import build_tool_registry
 from web.routes import router
 from web.websocket_handler import handle_websocket
@@ -201,6 +202,18 @@ async def lifespan(app: FastAPI):
     # Bootstrap shared tool registry
     from web import app_state
     app_state.tool_registry = build_tool_registry(include_extended=True, load_plugins=True)
+    app_state.pty_manager = PTYManager(idle_timeout_seconds=900, max_sessions=8)
+
+    async def _pty_idle_worker() -> None:
+        while True:
+            await asyncio.sleep(30)
+            try:
+                if app_state.pty_manager is not None:
+                    await app_state.pty_manager.close_idle()
+            except Exception as exc:
+                _logger.debug("PTY idle cleanup skipped: %s", exc)
+
+    _pty_idle_task = asyncio.create_task(_pty_idle_worker())
 
     # Import specialized agents so they self-register into BrainAgent registry
     import core.agents.scanner_agent      # noqa: F401
@@ -211,6 +224,22 @@ async def lifespan(app: FastAPI):
     import core.agents.lateral_agent      # noqa: F401
     import core.agents.reporting_agent    # noqa: F401
     yield
+
+    # ── Shutdown: close PTY sessions and worker ─────────────────────────────
+    if _pty_idle_task is not None:
+        _pty_idle_task.cancel()
+        try:
+            await _pty_idle_task
+        except asyncio.CancelledError:
+            pass
+
+    try:
+        if app_state.pty_manager is not None:
+            await app_state.pty_manager.close_all()
+    except Exception as exc:
+        _logger.debug("PTY shutdown cleanup skipped: %s", exc)
+    finally:
+        app_state.pty_manager = None
 
     # ── Shutdown: stop msfrpcd if we launched it ──────────────────────────────
     if _msfrpcd_proc is not None:
