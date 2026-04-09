@@ -12,14 +12,19 @@ with a helpful message. HTML generation always works.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
+import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from database import db as database
 from database.db import DB_PATH
+from database.sqlite_conn import connect as connect_db
 from database.repositories import (
     ExploitResultRepository,
     ScanResultRepository,
@@ -32,6 +37,12 @@ logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _REPORTS_DIR = Path(__file__).parent.parent / "reports"
+_REPORT_LOGO_ALLOWED_EXTS = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
 
 _RECOMMENDATIONS: dict[str, str] = {
     "CRITICAL": (
@@ -229,6 +240,7 @@ class ReportGenerator:
         raw_scans = await ScanResultRepository(self._db_path).get_for_session(session_id)
         raw_vulns = await VulnerabilityRepository(self._db_path).get_for_session(session_id)
         raw_exploits = await ExploitResultRepository(self._db_path).get_for_session(session_id)
+        branding = await self._build_branding_context()
 
         scan_rows = self._flatten_scan_results(raw_scans)
         vuln_rows = self._enrich_vulns(raw_vulns, raw_exploits)
@@ -269,7 +281,57 @@ class ReportGenerator:
             "scan_results":    scan_rows,
             "vulnerabilities": vuln_rows,
             "exploit_results": exploit_rows,
+            "branding":        branding,
             "generated_at":    datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+
+    async def _build_branding_context(self) -> dict:
+        """Resolve optional company branding (name + logo) for report templates."""
+        company_name = ""
+        logo_file = ""
+
+        try:
+            async with connect_db(self._db_path) as db:
+                async with db.execute(
+                    "SELECT value FROM app_settings WHERE key=?",
+                    ("branding_company_name",),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row and row[0] is not None:
+                        company_name = str(json.loads(row[0]) or "").strip()
+
+                async with db.execute(
+                    "SELECT value FROM app_settings WHERE key=?",
+                    ("branding_logo_file",),
+                ) as cur:
+                    row = await cur.fetchone()
+                    if row and row[0] is not None:
+                        logo_file = str(json.loads(row[0]) or "").strip()
+        except Exception as exc:
+            logger.warning("Branding settings load skipped: %s", exc)
+
+        logo_data_url = ""
+
+        if logo_file and re.fullmatch(r"[A-Za-z0-9_.-]+", logo_file):
+            try:
+                branding_dir = (Path(self._db_path).parent / "branding").resolve()
+                logo_path = (branding_dir / logo_file).resolve()
+                if branding_dir in logo_path.parents and logo_path.exists() and logo_path.is_file():
+                    ext = logo_path.suffix.lower()
+                    mime = _REPORT_LOGO_ALLOWED_EXTS.get(ext)
+                    if mime:
+                        raw = logo_path.read_bytes()
+                        if raw:
+                            encoded = base64.b64encode(raw).decode("ascii")
+                            logo_data_url = f"data:{mime};base64,{encoded}"
+            except Exception as exc:
+                logger.warning("Branding logo load skipped: %s", exc)
+
+        return {
+            "company_name": company_name,
+            "logo_file": logo_file,
+            "logo_data_url": logo_data_url,
+            "has_logo": bool(logo_data_url),
         }
 
     # ── Data processing ───────────────────────────────────────────────────────
@@ -319,7 +381,7 @@ class ReportGenerator:
         return rows
 
     @staticmethod
-    def _enrich_vulns(raw_vulns: list[dict], exploit_results: list[dict]) -> list[dict]:
+    def _enrich_vulns(raw_vulns: list[dict], exploit_results: list[dict] | None = None) -> list[dict]:
         """
         Add severity label, colour, CVSS vector decomposition,
         exploit port, and recommendation to each vulnerability.
@@ -327,7 +389,7 @@ class ReportGenerator:
         """
         # Build a quick lookup: (host_ip, port) → exploit module
         exploit_map: dict[tuple, dict] = {}
-        for e in exploit_results:
+        for e in (exploit_results or []):
             key = (e.get("host_ip") or e.get("target_ip", ""), str(e.get("port", "")))
             if key not in exploit_map:
                 exploit_map[key] = e

@@ -78,11 +78,11 @@ function switchView(viewName) {
     currentView = viewName;
     syncInputMode();
 
-    // Restore saved agent sub-view (feed/graph) when switching to agent
+    // Restore saved agent sub-view (feed/graph/timeline) when switching to agent
     if (viewName === 'agent') {
         try {
             const saved = localStorage.getItem('agView');
-            if (saved === 'graph' || saved === 'feed') switchAgentView(saved);
+            if (saved === 'graph' || saved === 'feed' || saved === 'timeline') switchAgentView(saved);
             else switchAgentView('feed');
         } catch(e) { switchAgentView('feed'); }
     }
@@ -1845,6 +1845,159 @@ let cloudModel = 'anthropic/claude-sonnet-4-6';
 let lmStudioModels = [];
 let lmStudioModel = '';
 let lmStudioBaseUrl = 'http://127.0.0.1:1234';
+let brandingLogoUrl = '';
+let brandingLogoFile = '';
+const _BRANDING_MAX_BYTES = 5 * 1024 * 1024;
+const _BRANDING_ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const _BRANDING_ALLOWED_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+
+function _validateBrandingLogoFile(file) {
+    if (!file) return 'Logo file is required';
+    if (!file.size) return 'Logo file is empty';
+    if (file.size > _BRANDING_MAX_BYTES) return 'Logo is too large (max 5MB)';
+
+    const type = String(file.type || '').toLowerCase();
+    const ext = String(file.name || '').split('.').pop().toLowerCase();
+    const hasAllowedType = _BRANDING_ALLOWED_TYPES.has(type);
+    const hasAllowedExt = _BRANDING_ALLOWED_EXTS.has(ext);
+    if (!hasAllowedType && !hasAllowedExt) {
+        return 'Unsupported logo format. Use PNG, JPG, JPEG, or WEBP';
+    }
+
+    return '';
+}
+
+function _renderBrandingLogoPreview() {
+    const preview = document.getElementById('cfg-branding-logo-preview');
+    const removeBtn = document.getElementById('cfg-branding-logo-remove');
+    if (removeBtn) removeBtn.classList.toggle('hidden', !brandingLogoUrl);
+    if (!preview) return;
+
+    preview.innerHTML = '';
+    if (brandingLogoUrl) {
+        const img = document.createElement('img');
+        const cacheBuster = brandingLogoUrl.includes('?') ? '&' : '?';
+        img.src = `${brandingLogoUrl}${cacheBuster}t=${Date.now()}`;
+        img.alt = 'Company logo preview';
+        img.className = 'max-h-full max-w-full object-contain';
+        preview.appendChild(img);
+        return;
+    }
+
+    const hint = document.createElement('span');
+    hint.className = 'text-[10px] mono-text text-secondary-text';
+    hint.textContent = 'No logo uploaded';
+    preview.appendChild(hint);
+}
+
+async function loadBrandingConfig() {
+    try {
+        const res = await fetch('/api/v1/config/branding');
+        if (!res.ok) return;
+        const data = await res.json();
+        const companyInput = document.getElementById('cfg-branding-company');
+        if (companyInput) companyInput.value = data.company_name || '';
+        brandingLogoUrl = data.logo_url || '';
+        brandingLogoFile = data.logo_file || '';
+        _renderBrandingLogoPreview();
+    } catch {
+        // ignore
+    }
+}
+
+async function saveBrandingConfig() {
+    const companyName = document.getElementById('cfg-branding-company')?.value?.trim() || '';
+    const res = await fetch('/api/v1/config/branding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_name: companyName }),
+    });
+    if (!res.ok) {
+        throw new Error('Failed to save branding settings');
+    }
+}
+
+async function uploadBrandingLogo(file) {
+    if (!file) return;
+    const uploadBtn = document.getElementById('cfg-branding-logo-btn');
+    const originalLabel = uploadBtn ? uploadBtn.textContent : '';
+
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch('/api/v1/config/branding/upload', {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Logo upload failed');
+        }
+
+        await loadBrandingConfig();
+        showToast('Logo uploaded');
+    } catch (err) {
+        showToast(err.message || 'Logo upload failed', true);
+    } finally {
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = originalLabel || 'Upload Logo';
+        }
+    }
+}
+
+async function removeBrandingLogo() {
+    try {
+        const res = await fetch('/api/v1/config/branding/logo', { method: 'DELETE' });
+        if (!res.ok) {
+            throw new Error('Failed to remove logo');
+        }
+        brandingLogoUrl = '';
+        brandingLogoFile = '';
+        _renderBrandingLogoPreview();
+        showToast('Logo removed');
+    } catch (err) {
+        showToast(err.message || 'Failed to remove logo', true);
+    }
+}
+
+function initBrandingConfig() {
+    const uploadBtn = document.getElementById('cfg-branding-logo-btn');
+    const fileInput = document.getElementById('cfg-branding-logo-input');
+    const removeBtn = document.getElementById('cfg-branding-logo-remove');
+
+    if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener('click', () => fileInput.click());
+    }
+
+    if (fileInput) {
+        fileInput.addEventListener('change', async () => {
+            const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+            if (file) {
+                const validationError = _validateBrandingLogoFile(file);
+                if (validationError) {
+                    showToast(validationError, true);
+                    fileInput.value = '';
+                    return;
+                }
+                await uploadBrandingLogo(file);
+            }
+            fileInput.value = '';
+        });
+    }
+
+    if (removeBtn) {
+        removeBtn.addEventListener('click', removeBrandingLogo);
+    }
+
+    _renderBrandingLogoPreview();
+}
 
 async function fetchLMStudioStatus(overrideUrl) {
     try {
@@ -2466,6 +2619,7 @@ async function loadPersistedSettings() {
             lmStudioModel = data.lmstudio_model;
             populateLMStudioModelDropdown();
         }
+        await loadBrandingConfig();
     } catch { /* ignore */ }
 }
 
@@ -2500,6 +2654,7 @@ async function saveConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: apiKey, cloud_model: orModel }),
         });
+        await saveBrandingConfig();
         cloudModel = orModel;
         ollamaBaseUrl = url;
         lmStudioBaseUrl = lmsUrl;
@@ -2576,6 +2731,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCloudModelDropdown();
     initModelPicker();
     initConfigSave();
+    initBrandingConfig();
     initScrollTracking();
     initAgentScrollTracking();
     window.addEventListener('resize', scheduleMinimapUpdate);
@@ -5815,16 +5971,323 @@ function setAgentStatus(key, detail = '') {
 
 let _sessionSwitcherOpen = false;
 let viewingSessionId = null;  // session currently being viewed (may differ from activeMissionId)
+let _sessionSwitcherData = [];
+let _sessionSwitcherVisible = [];
+let _sessionSwitcherQuery = '';
+let _sessionSwitcherStatus = 'all';
+let _sessionSwitcherSort = 'recent';
+let _sessionSwitcherFocusIndex = 0;
+const _SESSION_SWITCHER_PREFS_KEY = 'session_switcher_prefs_v1';
+
+function _loadSessionSwitcherPrefs() {
+    try {
+        const raw = localStorage.getItem(_SESSION_SWITCHER_PREFS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+            if (['all', 'running', 'done', 'error', 'stopped'].includes(parsed.status)) {
+                _sessionSwitcherStatus = parsed.status;
+            }
+            if (['recent', 'name', 'target'].includes(parsed.sort)) {
+                _sessionSwitcherSort = parsed.sort;
+            }
+        }
+    } catch {
+        // ignore
+    }
+}
+
+function _saveSessionSwitcherPrefs() {
+    try {
+        localStorage.setItem(_SESSION_SWITCHER_PREFS_KEY, JSON.stringify({
+            status: _sessionSwitcherStatus,
+            sort: _sessionSwitcherSort,
+        }));
+    } catch {
+        // ignore
+    }
+}
+
+function _sessionEffectiveStatus(session) {
+    if (session.is_running) return 'running';
+    if (session.status === 'running') return 'stopped';
+    return session.status || 'done';
+}
+
+function _sessionStatusColorClass(status) {
+    if (status === 'running') return 'text-primary';
+    if (status === 'done') return 'text-slate-400';
+    if (status === 'stopped') return 'text-orange-400';
+    return 'text-danger';
+}
+
+function _sessionSorter(a, b) {
+    if (_sessionSwitcherSort === 'name') {
+        const an = (a.name || a.target || '').toLowerCase();
+        const bn = (b.name || b.target || '').toLowerCase();
+        return an.localeCompare(bn);
+    }
+    if (_sessionSwitcherSort === 'target') {
+        return (a.target || '').toLowerCase().localeCompare((b.target || '').toLowerCase());
+    }
+    const aa = Number(a.created_at || 0);
+    const bb = Number(b.created_at || 0);
+    return bb - aa;
+}
+
+function _sessionMatchesQuery(session, query) {
+    if (!query) return true;
+    const haystack = `${session.name || ''} ${session.target || ''} ${session.mode || ''} ${session.id || ''}`.toLowerCase();
+    return haystack.includes(query);
+}
+
+function _setSessionSwitcherSummary(total, shown) {
+    const summary = document.getElementById('session-switcher-summary');
+    if (!summary) return;
+    if (!total) {
+        summary.textContent = 'No missions available';
+        return;
+    }
+    summary.textContent = `${shown} of ${total} mission${total === 1 ? '' : 's'}`;
+}
+
+function _setSessionFilterButtonsActive() {
+    document.querySelectorAll('#session-switcher-status-filters .session-switcher-filter-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.status === _sessionSwitcherStatus);
+    });
+}
+
+function _sessionSwitcherApplyFilters() {
+    const normalizedQuery = (_sessionSwitcherQuery || '').trim().toLowerCase();
+    _sessionSwitcherVisible = _sessionSwitcherData
+        .filter((session) => {
+            const effectiveStatus = _sessionEffectiveStatus(session);
+            if (_sessionSwitcherStatus !== 'all' && effectiveStatus !== _sessionSwitcherStatus) return false;
+            return _sessionMatchesQuery(session, normalizedQuery);
+        })
+        .sort(_sessionSorter);
+
+    if (_sessionSwitcherVisible.length === 0) {
+        _sessionSwitcherFocusIndex = 0;
+        return;
+    }
+    if (_sessionSwitcherFocusIndex < 0) _sessionSwitcherFocusIndex = 0;
+    if (_sessionSwitcherFocusIndex >= _sessionSwitcherVisible.length) {
+        _sessionSwitcherFocusIndex = _sessionSwitcherVisible.length - 1;
+    }
+}
+
+function _sessionSwitcherEnsureFocusVisible() {
+    const el = document.querySelector(`#session-switcher-list [data-session-index="${_sessionSwitcherFocusIndex}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest' });
+}
+
+function _renderSessionSwitcherList() {
+    const list = document.getElementById('session-switcher-list');
+    if (!list) return;
+
+    _sessionSwitcherApplyFilters();
+    _setSessionSwitcherSummary(_sessionSwitcherData.length, _sessionSwitcherVisible.length);
+
+    if (!_sessionSwitcherData.length) {
+        list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">No sessions yet</div>';
+        return;
+    }
+
+    if (!_sessionSwitcherVisible.length) {
+        list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">No missions match your filters</div>';
+        return;
+    }
+
+    list.innerHTML = '';
+    _sessionSwitcherVisible.forEach((s, idx) => {
+        const d = s.created_at ? new Date(s.created_at * 1000) : null;
+        const ts = d ? `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '';
+        const effStatus = _sessionEffectiveStatus(s);
+        const statusLabel = effStatus.toUpperCase();
+        const statusColor = _sessionStatusColorClass(effStatus);
+        const isViewing = s.id === (viewingSessionId || activeMissionId);
+        const displayName = s.name ? s.name : s.target;
+
+        const item = document.createElement('div');
+        item.className = `session-switcher-item w-full text-left px-4 py-2.5 hover:bg-primary/5 transition-colors border-b border-border-color/30 ${isViewing ? 'bg-primary/5' : ''} ${idx === _sessionSwitcherFocusIndex ? 'session-switcher-item-focus' : ''} group/sitem flex items-start gap-2`;
+        item.dataset.sessionId = s.id;
+
+        const clickArea = document.createElement('button');
+        clickArea.type = 'button';
+        clickArea.dataset.sessionIndex = String(idx);
+        clickArea.className = 'flex-1 text-left min-w-0';
+        clickArea.innerHTML = `
+            <div class="flex items-center justify-between mb-0.5">
+                <span class="text-[10px] mono-text font-bold text-slate-200 truncate">${_esc(displayName)}</span>
+                <span class="text-[9px] font-bold ${statusColor} uppercase ml-2 shrink-0">${statusLabel}</span>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[9px] mono-text text-secondary-text">${s.id.slice(0, 8).toUpperCase()}</span>
+                ${s.name ? `<span class="text-[9px] mono-text text-secondary-text truncate">${_esc(s.target)}</span>` : ''}
+                <span class="text-[9px] mono-text text-secondary-text">${_esc(s.mode || '')}</span>
+                <span class="text-[9px] mono-text text-secondary-text">${_esc(ts)}</span>
+            </div>`;
+        clickArea.addEventListener('click', () => {
+            closeSessionSwitcher();
+            switchToSession(s.id);
+        });
+
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'flex flex-col gap-1 shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity mt-0.5';
+
+        const renBtn = document.createElement('button');
+        renBtn.type = 'button';
+        renBtn.className = 'text-secondary-text hover:text-primary transition-colors';
+        renBtn.title = 'Rename mission';
+        renBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">edit</span>';
+        renBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeSessionSwitcher();
+            showPrompt({
+                title: 'Name Mission',
+                label: 'Mission name',
+                icon: 'edit',
+                defaultValue: s.name || s.target,
+                onConfirm: async (name) => {
+                    try {
+                        await fetch(`/api/v1/sessions/${s.id}/name`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name }),
+                        });
+                        showToast('Mission renamed');
+                        if (viewingSessionId === s.id || activeMissionId === s.id) {
+                            updateMissionStatusHeader(effStatus, s.id, name);
+                        }
+                        openSessionSwitcher();
+                    } catch {
+                        showToast('Rename failed');
+                    }
+                },
+            });
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'text-secondary-text hover:text-danger transition-colors';
+        delBtn.title = 'Delete mission';
+        delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeSessionSwitcher();
+            showConfirm({
+                title: 'Delete Mission',
+                message: `Delete mission "${s.name || s.target}"? This cannot be undone.`,
+                onConfirm: async () => {
+                    try {
+                        await fetch(`/api/v1/sessions/${s.id}`, { method: 'DELETE' });
+                        showToast('Mission deleted');
+                        if (viewingSessionId === s.id) viewingSessionId = null;
+                        if (activeMissionId === s.id) {
+                            activeMissionId = null;
+                            updateMissionStatusHeader('idle', null, '');
+                            _currentMissionName = '';
+                        }
+                        loadSessionsForSelects();
+                        openSessionSwitcher();
+                    } catch {
+                        showToast('Delete failed');
+                    }
+                },
+            });
+        });
+
+        btnGroup.appendChild(renBtn);
+        btnGroup.appendChild(delBtn);
+        item.appendChild(clickArea);
+        item.appendChild(btnGroup);
+        list.appendChild(item);
+    });
+
+    _sessionSwitcherEnsureFocusVisible();
+}
+
+function _handleSessionSwitcherKeydown(e) {
+    if (!_sessionSwitcherOpen) return;
+
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSessionSwitcher();
+        return;
+    }
+
+    if (!_sessionSwitcherVisible.length) return;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _sessionSwitcherFocusIndex = (_sessionSwitcherFocusIndex + 1) % _sessionSwitcherVisible.length;
+        _renderSessionSwitcherList();
+        return;
+    }
+
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _sessionSwitcherFocusIndex = (_sessionSwitcherFocusIndex - 1 + _sessionSwitcherVisible.length) % _sessionSwitcherVisible.length;
+        _renderSessionSwitcherList();
+        return;
+    }
+
+    if (e.key === 'Enter') {
+        if (document.activeElement && document.activeElement.id === 'session-switcher-sort') return;
+        e.preventDefault();
+        const selected = _sessionSwitcherVisible[_sessionSwitcherFocusIndex];
+        if (!selected) return;
+        closeSessionSwitcher();
+        switchToSession(selected.id);
+    }
+}
 
 function initSessionSwitcher() {
     const btn = document.getElementById('session-switcher-btn');
     const dropdown = document.getElementById('session-switcher-dropdown');
     const closeBtn = document.getElementById('session-dropdown-close');
+    const backdrop = document.getElementById('session-switcher-backdrop');
+    const search = document.getElementById('session-switcher-search');
+    const sort = document.getElementById('session-switcher-sort');
+    const filterButtons = document.querySelectorAll('#session-switcher-status-filters .session-switcher-filter-btn');
+
+    _loadSessionSwitcherPrefs();
+    if (sort) sort.value = _sessionSwitcherSort;
+    _setSessionFilterButtonsActive();
 
     if (btn) btn.addEventListener('click', () => {
         _sessionSwitcherOpen ? closeSessionSwitcher() : openSessionSwitcher();
     });
     if (closeBtn) closeBtn.addEventListener('click', closeSessionSwitcher);
+    if (backdrop) backdrop.addEventListener('click', closeSessionSwitcher);
+
+    if (search) {
+        search.addEventListener('input', () => {
+            _sessionSwitcherQuery = search.value || '';
+            _sessionSwitcherFocusIndex = 0;
+            _renderSessionSwitcherList();
+        });
+    }
+
+    if (sort) {
+        sort.addEventListener('change', () => {
+            _sessionSwitcherSort = sort.value || 'recent';
+            _sessionSwitcherFocusIndex = 0;
+            _saveSessionSwitcherPrefs();
+            _renderSessionSwitcherList();
+        });
+    }
+
+    filterButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            _sessionSwitcherStatus = button.dataset.status || 'all';
+            _sessionSwitcherFocusIndex = 0;
+            _saveSessionSwitcherPrefs();
+            _setSessionFilterButtonsActive();
+            _renderSessionSwitcherList();
+        });
+    });
 
     document.addEventListener('click', (e) => {
         if (!_sessionSwitcherOpen) return;
@@ -5832,119 +6295,39 @@ function initSessionSwitcher() {
             closeSessionSwitcher();
         }
     });
+
+    document.addEventListener('keydown', _handleSessionSwitcherKeydown);
 }
 
 async function openSessionSwitcher() {
     const dropdown = document.getElementById('session-switcher-dropdown');
     const list = document.getElementById('session-switcher-list');
+    const search = document.getElementById('session-switcher-search');
+    const sort = document.getElementById('session-switcher-sort');
     if (!dropdown || !list) return;
 
     _sessionSwitcherOpen = true;
     dropdown.classList.remove('hidden');
+    dropdown.classList.add('is-open');
+    _sessionSwitcherQuery = '';
+    _sessionSwitcherFocusIndex = 0;
+    if (search) search.value = '';
+    if (sort) sort.value = _sessionSwitcherSort;
+    _setSessionFilterButtonsActive();
+    _setSessionSwitcherSummary(0, 0);
     list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading...</div>';
 
     try {
         const res = await fetch('/api/v1/sessions');
+        if (!res.ok) throw new Error('Failed to load sessions');
         const sessions = await res.json();
-
-        if (!sessions.length) {
-            list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">No sessions yet</div>';
-            return;
-        }
-
-        list.innerHTML = '';
-        sessions.forEach(s => {
-            const d = s.created_at ? new Date(s.created_at * 1000) : null;
-            const ts = d ? d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
-            const isRunning = s.is_running;
-            // DB status "running" but no live task means the server restarted mid-session
-            const effStatus = isRunning ? 'running' : (s.status === 'running' ? 'stopped' : (s.status || 'done'));
-            const statusLabel = effStatus.toUpperCase();
-            const statusColor = effStatus === 'running' ? 'text-primary' : (effStatus === 'done' ? 'text-slate-400' : 'text-danger');
-            const isViewing = s.id === (viewingSessionId || activeMissionId);
-            const displayName = s.name ? s.name : s.target;
-
-            const item = document.createElement('div');
-            item.className = `w-full text-left px-4 py-2.5 hover:bg-primary/5 transition-colors border-b border-border-color/30 ${isViewing ? 'bg-primary/5' : ''} group/sitem flex items-start gap-2`;
-            item.dataset.sessionId = s.id;
-            const clickArea = document.createElement('button');
-            clickArea.className = 'flex-1 text-left min-w-0';
-            clickArea.innerHTML = `
-                <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-[10px] mono-text font-bold text-slate-200 truncate">${_esc(displayName)}</span>
-                    <span class="text-[9px] font-bold ${statusColor} uppercase ml-2 shrink-0">${statusLabel}</span>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-[9px] mono-text text-secondary-text">${s.id.slice(0, 8).toUpperCase()}</span>
-                    ${s.name ? `<span class="text-[9px] mono-text text-secondary-text truncate">${_esc(s.target)}</span>` : ''}
-                    <span class="text-[9px] mono-text text-secondary-text">${_esc(s.mode || '')}</span>
-                    <span class="text-[9px] mono-text text-secondary-text">${ts}</span>
-                </div>`;
-            clickArea.addEventListener('click', () => {
-                closeSessionSwitcher();
-                switchToSession(s.id);
-            });
-            const btnGroup = document.createElement('div');
-            btnGroup.className = 'flex flex-col gap-1 shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity mt-0.5';
-
-            const renBtn = document.createElement('button');
-            renBtn.className = 'text-secondary-text hover:text-primary transition-colors';
-            renBtn.title = 'Rename mission';
-            renBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">edit</span>';
-            renBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                closeSessionSwitcher();
-                showPrompt({
-                    title: 'Name Mission',
-                    label: 'Mission name',
-                    icon: 'edit',
-                    defaultValue: s.name || s.target,
-                    onConfirm: async (name) => {
-                        try {
-                            await fetch(`/api/v1/sessions/${s.id}/name`, {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ name }),
-                            });
-                            showToast('Mission renamed');
-                            if (viewingSessionId === s.id || activeMissionId === s.id) {
-                                updateMissionStatusHeader(effStatus, s.id, name);
-                            }
-                            openSessionSwitcher();
-                        } catch { showToast('Rename failed'); }
-                    },
-                });
-            });
-
-            const delBtn = document.createElement('button');
-            delBtn.className = 'text-secondary-text hover:text-danger transition-colors';
-            delBtn.title = 'Delete mission';
-            delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
-            delBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                closeSessionSwitcher();
-                showConfirm({
-                    title: 'Delete Mission',
-                    message: `Delete mission "${s.name || s.target}"? This cannot be undone.`,
-                    onConfirm: async () => {
-                        try {
-                            await fetch(`/api/v1/sessions/${s.id}`, { method: 'DELETE' });
-                            showToast('Mission deleted');
-                            if (viewingSessionId === s.id) { viewingSessionId = null; }
-                            if (activeMissionId === s.id) { activeMissionId = null; updateMissionStatusHeader('idle', null, ''); _currentMissionName = ''; }
-                            loadSessionsForSelects();
-                        } catch { showToast('Delete failed'); }
-                    },
-                });
-            });
-
-            btnGroup.appendChild(renBtn);
-            btnGroup.appendChild(delBtn);
-            item.appendChild(clickArea);
-            item.appendChild(btnGroup);
-            list.appendChild(item);
-        });
+        _sessionSwitcherData = Array.isArray(sessions) ? sessions : [];
+        _renderSessionSwitcherList();
+        if (search) search.focus();
     } catch {
+        _sessionSwitcherData = [];
+        _sessionSwitcherVisible = [];
+        _setSessionSwitcherSummary(0, 0);
         list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-danger">Failed to load sessions</div>';
     }
 }
@@ -5952,6 +6335,7 @@ async function openSessionSwitcher() {
 function closeSessionSwitcher() {
     const dropdown = document.getElementById('session-switcher-dropdown');
     if (dropdown) dropdown.classList.add('hidden');
+    if (dropdown) dropdown.classList.remove('is-open');
     _sessionSwitcherOpen = false;
 }
 
@@ -8535,7 +8919,7 @@ function _agAddNode(type, label, detail, parentId) {
         _agEdges.push({ from:parentId, to:id });
         if (par) par._children.push(id);
     }
-    if (_agView === 'graph') _agScheduleRender();
+    if (_agView === 'graph' || _agView === 'timeline') _agScheduleRender();
     return id;
 }
 
@@ -8545,26 +8929,39 @@ function _agReset() {
     _agParallelGrpId=null; _agParallelActive=false;
     const cnt = document.getElementById('ag-node-count');
     if (cnt) cnt.textContent = '';
+    const timelineContainer = document.getElementById('ag-timeline-container');
+    const timelineEmpty = document.getElementById('ag-timeline-empty');
+    if (timelineContainer) {
+        timelineContainer.innerHTML = '';
+        timelineContainer.classList.add('hidden');
+    }
+    if (timelineEmpty) timelineEmpty.classList.remove('hidden');
     if (_agView === 'graph') _agRender();
+    if (_agView === 'timeline') _agRenderTimeline();
 }
 
 let _agRenderTimer = null;
 function _agScheduleRender() {
     if (_agRenderTimer) clearTimeout(_agRenderTimer);
-    _agRenderTimer = setTimeout(_agRender, 60);
+    _agRenderTimer = setTimeout(() => {
+        if (_agView === 'graph') _agRender();
+        else if (_agView === 'timeline') _agRenderTimeline();
+    }, 60);
 }
 
 // ── View switch ────────────────────────────────────────────────────────────────
 
 function switchAgentView(v) {
-    if (v !== 'feed' && v !== 'graph') v = 'feed';
+    if (v !== 'feed' && v !== 'graph' && v !== 'timeline') v = 'feed';
     _agView = v;
     try { localStorage.setItem('agView', v); } catch(e) {}
     const feedArea  = document.getElementById('agent-scroll-area');
     const minimap   = document.getElementById('ag-minimap-col');
     const graphView = document.getElementById('ag-graph-view');
+    const timelineView = document.getElementById('ag-timeline-view');
     const btnFeed   = document.getElementById('ag-view-btn-feed');
     const btnGraph  = document.getElementById('ag-view-btn-graph');
+    const btnTimeline = document.getElementById('ag-view-btn-timeline');
 
     const isLight = _agIsLight();
     const limePrimary = isLight ? '#4a7c00' : '#ccff00';
@@ -8575,8 +8972,10 @@ function switchAgentView(v) {
     if (feedArea)       feedArea.style.display  = 'none';
     if (minimap)        minimap.style.display   = 'none';
     if (graphView)      graphView.style.display = 'none';
+    if (timelineView)   timelineView.style.display = 'none';
     if (btnFeed)        btnFeed.setAttribute('style',       inactiveS);
     if (btnGraph)       btnGraph.setAttribute('style',      inactiveS);
+    if (btnTimeline)    btnTimeline.setAttribute('style',   inactiveS);
 
     if (v === 'graph') {
         if (graphView)  { graphView.style.display = 'flex'; graphView.style.flex = '1'; }
@@ -8584,12 +8983,111 @@ function switchAgentView(v) {
         const svgEl = document.getElementById('ag-graph-svg');
         if (svgEl) svgEl.style.background = _agSvgBg();
         _agRender();
+    } else if (v === 'timeline') {
+        if (timelineView) {
+            timelineView.style.display = 'flex';
+            timelineView.style.flex = '1';
+        }
+        if (btnTimeline) btnTimeline.setAttribute('style', activeS);
+        _agRenderTimeline();
     } else {
         // feed (default)
         if (feedArea)  feedArea.style.display  = '';
         if (minimap)   minimap.style.display   = 'flex';
         if (btnFeed)   btnFeed.setAttribute('style',  activeS);
     }
+}
+
+function _agTimelineWalk(node, depth, rows, maxDepth) {
+    if (!node || depth > maxDepth) return;
+    const children = Array.isArray(node._children)
+        ? node._children
+            .map((id) => _agNodes.find((n) => n.id === id))
+            .filter(Boolean)
+            .sort((a, b) => a.id - b.id)
+        : [];
+
+    children.forEach((child) => {
+        rows.push({ node: child, depth });
+        _agTimelineWalk(child, depth + 1, rows, maxDepth);
+    });
+}
+
+function _agRenderTimeline() {
+    const timelineView = document.getElementById('ag-timeline-view');
+    const container = document.getElementById('ag-timeline-container');
+    const empty = document.getElementById('ag-timeline-empty');
+    if (!timelineView || !container || !empty) return;
+
+    const thinkingNodes = _agNodes
+        .filter((node) => node.type === 'thinking')
+        .sort((a, b) => a.id - b.id);
+
+    if (!thinkingNodes.length) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+
+    empty.classList.add('hidden');
+    container.classList.remove('hidden');
+    container.innerHTML = '';
+
+    thinkingNodes.forEach((thinkingNode, colIndex) => {
+        const style = _agS(thinkingNode.type);
+        const col = document.createElement('section');
+        col.className = 'ag-timeline-col flex-shrink-0 w-[300px] max-w-[85vw] bg-black/70 border border-border-color p-3 flex flex-col gap-2';
+
+        const header = document.createElement('div');
+        header.className = 'ag-timeline-col-head flex items-center gap-2 pb-2 border-b border-border-color/70';
+        header.innerHTML = `
+            <span class="material-symbols-outlined text-[14px]" style="color:${style.color};font-variation-settings:'FILL' 1;">${style.icon}</span>
+            <span class="text-[10px] mono-text font-bold uppercase tracking-widest text-slate-200">Step ${colIndex + 1}</span>
+        `;
+        col.appendChild(header);
+
+        const title = document.createElement('button');
+        title.type = 'button';
+        title.className = 'ag-timeline-node text-left text-[11px] font-bold mono-text text-yellow-400 truncate';
+        title.textContent = thinkingNode.detail?.action || thinkingNode.label || 'THINKING';
+        title.addEventListener('click', () => agShowDetail(thinkingNode));
+        col.appendChild(title);
+
+        const rows = [];
+        _agTimelineWalk(thinkingNode, 0, rows, 4);
+
+        if (!rows.length) {
+            const noData = document.createElement('div');
+            noData.className = 'text-[10px] mono-text text-secondary-text';
+            noData.textContent = 'No child events in this step.';
+            col.appendChild(noData);
+            container.appendChild(col);
+            return;
+        }
+
+        rows.forEach((row) => {
+            const node = row.node;
+            const nodeStyle = _agS(node.type);
+            const line = document.createElement('button');
+            line.type = 'button';
+            line.className = 'ag-timeline-row w-full text-left border border-border-color/60 bg-black/40 hover:border-primary/40 transition-colors px-2 py-1.5';
+            line.style.marginLeft = `${Math.min(row.depth, 3) * 12}px`;
+            line.style.maxWidth = `calc(100% - ${Math.min(row.depth, 3) * 12}px)`;
+            const resultFlag = node.type === 'result_ok' ? 'OK' : (node.type === 'result_fail' ? 'FAILED' : '');
+            line.innerHTML = `
+                <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="material-symbols-outlined text-[12px] shrink-0" style="color:${nodeStyle.color};font-variation-settings:'FILL' 1;">${nodeStyle.icon}</span>
+                    <span class="text-[10px] mono-text text-slate-200 truncate">${_esc(node.label || node.type)}</span>
+                    ${resultFlag ? `<span class="ml-auto text-[9px] mono-text ${resultFlag === 'OK' ? 'text-primary' : 'text-danger'}">${resultFlag}</span>` : ''}
+                </div>
+            `;
+            line.addEventListener('click', () => agShowDetail(node));
+            col.appendChild(line);
+        });
+
+        container.appendChild(col);
+    });
 }
 
 // ── Layout ────────────────────────────────────────────────────────────────────
@@ -9003,7 +9501,7 @@ function agOnParallelDone(data) {
     // Make the parallel group node the new "last tool" so next thinking connects to it
     if (_agParallelGrpId !== null) _agLastToolId = _agParallelGrpId;
     _agParallelGrpId = null;
-    if (_agView === 'graph') _agRender();
+    if (_agView === 'graph' || _agView === 'timeline') _agScheduleRender();
 }
 
 function agOnReflection(data) {

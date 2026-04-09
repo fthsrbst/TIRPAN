@@ -123,6 +123,38 @@
       color: var(--ink-muted);
       margin-bottom: 64px;
     }
+    .cover-branding {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .cover-branding img {
+      max-height: 46px;
+      max-width: 180px;
+      object-fit: contain;
+      border: 1px solid var(--border);
+      padding: 6px;
+      background: #0b0f14;
+    }
+    .cover-brand-text {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .cover-brand-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--ink-muted);
+    }
+    .cover-brand-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+      word-break: break-word;
+    }
     .cover-grid {
       display: table;
       width: 100%;
@@ -676,6 +708,18 @@
 ══════════════════════════════════════════════════════════════════════ -->
 <div class="cover">
   <div class="cover-badge">&#x1F512; CONFIDENTIAL</div>
+
+  {% if branding.has_logo or branding.company_name %}
+  <div class="cover-branding">
+    {% if branding.has_logo %}
+    <img src="{{ branding.logo_data_url }}" alt="Company logo">
+    {% endif %}
+    <div class="cover-brand-text">
+      <span class="cover-brand-label">Client</span>
+      <span class="cover-brand-name">{{ branding.company_name or 'Confidential Client' }}</span>
+    </div>
+  </div>
+  {% endif %}
 
   <h1>Penetration Test Report</h1>
   <p class="cover-subtitle">TIRPAN Autonomous Security Assessment &mdash; {{ session.target }}</p>
@@ -1486,7 +1530,7 @@
       TIRPAN Autonomous Penetration Testing Agent &nbsp;&middot;&nbsp;
       Session <code>{{ session.id }}</code>
     </span>
-    <span class="footer-logo">TIRPAN v0.1.0</span>
+    <span class="footer-logo">{{ branding.company_name or 'TIRPAN v0.1.0' }}</span>
     <span>{{ generated_at }}</span>
   </div>
 

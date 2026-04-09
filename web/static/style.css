@@ -456,13 +456,11 @@ html.light #terminal-native-shell {
         display: none;
     }
 
-    /* Session dropdown: full-width on phone */
-    #session-switcher-dropdown {
-        position: fixed;
-        left: 8px !important;
-        right: 8px;
-        min-width: unset;
-        width: auto;
+    /* Session popup panel: full-width on phone */
+    #session-switcher-panel {
+        width: calc(100vw - 16px) !important;
+        top: 62px !important;
+        max-height: calc(100vh - 72px);
     }
 
     /* Always show mission status text on phone */
@@ -474,6 +472,73 @@ html.light #terminal-native-shell {
     .phase-step span.text-\[9px\] {
         font-size: 9px !important;
     }
+}
+
+/* Session switcher popup */
+#session-switcher-dropdown {
+    pointer-events: none;
+}
+
+#session-switcher-dropdown.is-open {
+    pointer-events: auto;
+}
+
+#session-switcher-panel {
+    border-radius: 6px;
+}
+
+.session-switcher-filter-btn {
+    border: 1px solid #1f2937;
+    background: rgba(255, 255, 255, 0.02);
+    color: #8f8f8f;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.session-switcher-filter-btn:hover {
+    border-color: rgba(204, 255, 0, 0.3);
+    color: #ccff00;
+}
+
+.session-switcher-filter-btn.active {
+    border-color: rgba(204, 255, 0, 0.45);
+    color: #ccff00;
+    background: rgba(204, 255, 0, 0.08);
+}
+
+.session-switcher-item {
+    outline: none;
+}
+
+.session-switcher-item-focus {
+    box-shadow: inset 0 0 0 1px rgba(204, 255, 0, 0.35);
+    background: rgba(204, 255, 0, 0.06);
+}
+
+html.light .session-switcher-filter-btn {
+    border-color: #d4d4d8;
+    background: rgba(0, 0, 0, 0.02);
+    color: #555;
+}
+
+html.light .session-switcher-filter-btn:hover {
+    border-color: rgba(74, 124, 0, 0.35);
+    color: #4a7c00;
+}
+
+html.light .session-switcher-filter-btn.active {
+    border-color: rgba(74, 124, 0, 0.45);
+    color: #4a7c00;
+    background: rgba(74, 124, 0, 0.08);
+}
+
+html.light .session-switcher-item-focus {
+    box-shadow: inset 0 0 0 1px rgba(74, 124, 0, 0.35);
+    background: rgba(74, 124, 0, 0.08);
 }
 
 /* ── Tablet (768px – 1024px) ─────────────────────────────────────────────── */
@@ -1259,6 +1324,43 @@ html.light #ag-graph-view { background: #f7f7f7; }
 #ag-graph-svg { background: #030303; }
 html.light #ag-graph-svg { background: #f7f7f7; }
 
+#ag-timeline-view {
+    background: #050505;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+html.light #ag-timeline-view {
+    background: #f7f7f7;
+}
+
+.ag-timeline-col {
+    border-radius: 4px;
+}
+
+html.light .ag-timeline-col {
+    background: #f0f0f0 !important;
+    border-color: #d8d8d8 !important;
+}
+
+.ag-timeline-row {
+    border-radius: 2px;
+}
+
+html.light .ag-timeline-row {
+    background: #e8e8e8 !important;
+    border-color: #d0d0d0 !important;
+}
+
+.ag-timeline-node:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 767px) {
+    .ag-timeline-col {
+        width: min(280px, calc(100vw - 36px)) !important;
+    }
+}
+
 .ag-legend-row {
     display: flex;
     align-items: center;
@@ -1342,7 +1444,7 @@ html.light #ag-inject-input { color: #444; }
 html.light #ag-inject-input::placeholder { color: #bbb; }
 
 /* View toggle buttons */
-#ag-view-btn-feed, #ag-view-btn-graph {
+#ag-view-btn-feed, #ag-view-btn-graph, #ag-view-btn-timeline {
     display: flex; align-items: center; gap: 4px;
     padding: 2px 8px; font-size: 9px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .12em;
