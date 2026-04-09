@@ -1313,6 +1313,209 @@ html.light .adv-check-row { color: #18181b; }
 html.light .adv-btn-sm { color: #71717a; border-color: #d4d4d8; }
 html.light .adv-btn-sm:hover { color: #4a7c00; border-color: #4a7c00; }
 
+/* ─── Intel Sidebar Dynamic Cards ───────────────────────────────────────── */
+
+.intel-history-item,
+.intel-node-item,
+.intel-kb-item {
+    border: 1px solid #1e1e1e;
+    background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0));
+    padding: 8px 9px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.intel-history-item:hover,
+.intel-node-item:hover,
+.intel-kb-item:hover {
+    border-color: rgba(204, 255, 0, 0.38);
+    background: rgba(204, 255, 0, 0.05);
+}
+
+.intel-item-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #f2f2f2;
+}
+
+.intel-item-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #8a8a8a;
+}
+
+.intel-pill {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid #2a2a2a;
+    padding: 1px 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9a9a9a;
+}
+
+.intel-pill.intel-pill-danger {
+    border-color: rgba(255, 59, 59, 0.45);
+    color: #ff6f6f;
+    background: rgba(255, 59, 59, 0.08);
+}
+
+.intel-pill.intel-pill-good {
+    border-color: rgba(204, 255, 0, 0.35);
+    color: #ccff00;
+    background: rgba(204, 255, 0, 0.08);
+}
+
+.intel-pill.intel-pill-warn {
+    border-color: rgba(255, 140, 0, 0.4);
+    color: #ffb04d;
+    background: rgba(255, 140, 0, 0.08);
+}
+
+html.light .intel-history-item,
+html.light .intel-node-item,
+html.light .intel-kb-item {
+    border-color: #d2d2d6;
+    background: linear-gradient(180deg, rgba(0,0,0,0.01), rgba(0,0,0,0));
+}
+
+html.light .intel-history-item:hover,
+html.light .intel-node-item:hover,
+html.light .intel-kb-item:hover {
+    border-color: rgba(74, 124, 0, 0.4);
+    background: rgba(74, 124, 0, 0.08);
+}
+
+html.light .intel-item-title { color: #1f1f1f; }
+html.light .intel-item-meta { color: #555; }
+html.light .intel-pill { border-color: #c4c4c8; color: #5d5d63; }
+html.light .intel-pill.intel-pill-danger {
+    border-color: rgba(185, 28, 28, 0.35);
+    color: #b91c1c;
+    background: rgba(185, 28, 28, 0.08);
+}
+html.light .intel-pill.intel-pill-good {
+    border-color: rgba(74, 124, 0, 0.38);
+    color: #4a7c00;
+    background: rgba(74, 124, 0, 0.1);
+}
+html.light .intel-pill.intel-pill-warn {
+    border-color: rgba(194, 80, 10, 0.4);
+    color: #c2500a;
+    background: rgba(194, 80, 10, 0.08);
+}
+
+/* ─── Mission Map Header ────────────────────────────────────────────────── */
+
+.ag-pro-header {
+    border-bottom: 1px solid #121212;
+    background:
+        linear-gradient(90deg, rgba(204, 255, 0, 0.08), transparent 35%),
+        linear-gradient(180deg, #050505, #040404);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 12px;
+}
+
+.ag-pro-title-wrap {
+    min-width: 0;
+    flex: 1;
+}
+
+.ag-pro-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: #7f8a68;
+    margin-bottom: 2px;
+}
+
+.ag-pro-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: #f3f5ee;
+    line-height: 1.2;
+}
+
+.ag-pro-caption {
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    line-height: 1.45;
+    color: #7f7f7f;
+}
+
+.ag-pro-kpi-wrap {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 48%;
+}
+
+.ag-pro-kpi-card {
+    min-width: 92px;
+    border: 1px solid #191919;
+    background: rgba(0, 0, 0, 0.45);
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ag-pro-kpi-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #7a7a7a;
+}
+
+.ag-pro-kpi-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 800;
+    color: #d6e6a0;
+    line-height: 1.1;
+}
+
+html.light .ag-pro-header {
+    border-bottom-color: #d2d2d6;
+    background:
+        linear-gradient(90deg, rgba(74, 124, 0, 0.1), transparent 35%),
+        linear-gradient(180deg, #f6f6f4, #f0f0ee);
+}
+
+html.light .ag-pro-eyebrow { color: #60714a; }
+html.light .ag-pro-title { color: #1b2112; }
+html.light .ag-pro-caption { color: #5d6650; }
+html.light .ag-pro-kpi-card {
+    border-color: #d0d0d4;
+    background: rgba(255, 255, 255, 0.8);
+}
+html.light .ag-pro-kpi-label { color: #677056; }
+html.light .ag-pro-kpi-value { color: #355c00; }
+
+@media (max-width: 1024px) {
+    .ag-pro-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .ag-pro-kpi-wrap {
+        max-width: 100%;
+        justify-content: flex-start;
+    }
+}
+
 /* ─── Attack Graph ──────────────────────────────────────────────────────────── */
 
 #ag-graph-view {
