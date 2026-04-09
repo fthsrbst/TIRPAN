@@ -10,6 +10,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.10.0/lib/xterm-addon-fit.min.js"></script>
 <script id="tailwind-config">
     tailwind.config = {
         darkMode: "class",
@@ -90,17 +93,9 @@
           New Mission
         </button>
 
-        <!-- Quick launch row (last-used target) -->
-        <div class="flex gap-2">
-          <input id="mission-target" class="flex-1 min-w-0 bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-xs font-mono focus:border-primary transition-colors" placeholder="quick target override…" type="text"/>
-          <button id="start-mission-btn" title="Quick launch (last settings)"
-            class="shrink-0 w-9 h-9 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
-            <span class="material-symbols-outlined text-[18px]">play_arrow</span>
-          </button>
-        </div>
-        <p class="text-[9px] text-secondary-text -mt-1">Quick launch reuses last settings · <button class="text-primary/60 hover:text-primary underline" onclick="openAdvModal()">full config →</button></p>
-
-        <!-- Hidden compat fields consumed by startMission() -->
+        <!-- Hidden compat fields consumed by mission helpers -->
+        <input id="mission-target" class="hidden" type="text" value=""/>
+        <button id="start-mission-btn" class="hidden" type="button" aria-hidden="true">Start Mission</button>
         <select id="mission-mode" class="hidden">
           <option value="scan_only">SCAN ONLY</option>
           <option value="full_auto">FULL AUTO</option>
@@ -180,17 +175,13 @@
         <span class="material-symbols-outlined text-sm">summarize</span>
         <span class="text-xs font-medium uppercase tracking-wider">Report</span>
       </div>
-      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="config">
-        <span class="material-symbols-outlined text-sm">settings</span>
-        <span class="text-xs font-medium uppercase tracking-wider">Configuration</span>
-      </div>
-      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="intel">
-        <span class="material-symbols-outlined text-sm">monitoring</span>
-        <span class="text-xs font-medium uppercase tracking-wider">Intel</span>
-      </div>
       <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="outputs">
         <span class="material-symbols-outlined text-sm">folder_open</span>
         <span class="text-xs font-medium uppercase tracking-wider">Outputs</span>
+      </div>
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="config">
+        <span class="material-symbols-outlined text-sm">settings</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Configuration</span>
       </div>
     </div>
   </aside>
@@ -246,9 +237,6 @@
         <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
           <span id="theme-toggle-icon" class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors">dark_mode</span>
         </button>
-        <div class="w-8 h-8 rounded-full border border-border-color flex items-center justify-center cursor-pointer hover:border-primary transition-colors">
-          <span class="material-symbols-outlined text-lg">person</span>
-        </div>
       </div>
     </header>
 
@@ -321,11 +309,6 @@
             class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
             <span class="material-symbols-outlined" style="font-size:11px;">account_tree</span>GRAPH
           </button>
-          <button onclick="switchAgentView('orchestra')" id="ag-view-btn-orchestra"
-            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors"
-            title="V2 Agent Orchestra — shows spawned sub-agents">
-            <span class="material-symbols-outlined" style="font-size:11px;">hub</span>AGENTS
-          </button>
         </div>
       </div>
 
@@ -385,59 +368,6 @@
                    pointer-events:none;"></div>
         </div>
         </div><!-- end minimap column -->
-
-        <!-- ── V2 Agent Orchestra View ──────────────────────────────── -->
-        <div id="ag-orchestra-view" style="display:none;flex:1;min-width:0;flex-direction:column;overflow-y:auto;" class="p-4">
-          <div class="max-w-4xl mx-auto w-full">
-            <!-- Brain header -->
-            <div class="flex items-center gap-3 mb-4">
-              <span class="material-symbols-outlined" style="color:#ccff00;font-size:20px;">psychology</span>
-              <div>
-                <div class="text-[11px] font-bold uppercase tracking-widest" style="color:#ccff00;">TIRPAN V2 · Brain Agent</div>
-                <div id="v2-mission-phase" class="text-[10px] text-secondary-text mono-text">Phase: —</div>
-              </div>
-              <button onclick="fetchAgentOrchestra()" class="ml-auto text-[9px] mono-text text-secondary-text/40 hover:text-secondary-text px-2 py-1 border border-border-color/30 hover:border-border-color transition-colors">↻ Refresh</button>
-            </div>
-
-            <!-- Mission context stats -->
-            <div id="v2-ctx-stats" class="grid grid-cols-4 gap-2 mb-4">
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold" style="color:#ccff00;" id="v2-stat-hosts">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Hosts</div>
-              </div>
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold text-red-400" id="v2-stat-vulns">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Vulns</div>
-              </div>
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold text-blue-400" id="v2-stat-sessions">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Sessions</div>
-              </div>
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold text-purple-400" id="v2-stat-creds">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Creds</div>
-              </div>
-            </div>
-
-            <!-- Agent cards grid -->
-            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Active Sub-Agents</div>
-            <div id="v2-agent-cards" class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-6">
-              <div class="text-[11px] text-secondary-text/40 mono-text col-span-2 py-4 text-center">No agents spawned yet</div>
-            </div>
-
-            <!-- Harvested credentials -->
-            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Harvested Credentials</div>
-            <div id="v2-harvested-creds" class="bg-card border border-border-color mb-4">
-              <div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>
-            </div>
-
-            <!-- Loot -->
-            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Loot</div>
-            <div id="v2-loot" class="bg-card border border-border-color">
-              <div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>
-            </div>
-          </div>
-        </div>
 
         <!-- ── Attack Graph View ─────────────────────────────────── -->
         <div id="ag-graph-view" style="display:none;flex:1;min-width:0;flex-direction:column;">
@@ -534,8 +464,6 @@
             <span id="model-label" class="truncate">—</span>
             <span class="material-symbols-outlined text-[12px] shrink-0">expand_more</span>
           </button>
-          <div id="ollama-dot" class="w-1.5 h-1.5 rounded-full bg-border-color transition-colors"></div>
-          <span id="ollama-status-text" class="text-[10px] mono-text text-secondary-text">—</span>
         </div>
       </div>
 
@@ -639,40 +567,61 @@
 
       <!-- Terminal body: SHELLS — reverse shell session manager -->
       <div id="console-shells" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="shells">
-        <!-- Sub-tab bar for individual shell sessions -->
-        <div id="shell-subtab-bar" class="flex items-center bg-black/80 border-b border-border-color shrink-0 px-2 h-8 gap-1 overflow-x-auto scrollbar-hide">
-          <div id="shell-empty-msg" class="flex items-center gap-2 text-[10px] text-secondary-text italic px-2">
-            <span class="material-symbols-outlined text-[14px] opacity-40">cable</span>
-            Waiting for reverse shell… set up listener with <code class="text-primary/70 bg-white/5 px-1">nc -lvnp 4444</code>
-          </div>
-        </div>
-        <!-- Shell output -->
-        <div id="shell-output-area" class="flex-1 overflow-y-auto p-4 font-mono text-xs text-green-400 scrollbar-hide leading-relaxed"></div>
-        <!-- Shell input line -->
-        <div id="shell-input-row" class="hidden border-t border-border-color bg-black/90 px-3 py-2.5 flex items-center gap-3 shrink-0">
-          <span id="shell-prompt" class="text-green-400 font-mono text-xs shrink-0 select-none">shell#</span>
-          <input id="shell-cmd-input" class="flex-1 bg-transparent text-green-300 font-mono text-xs outline-none border-none caret-green-400" placeholder="type command and press Enter…" type="text" autocomplete="off" spellcheck="false"/>
-          <button onclick="sendShellCommand()" class="text-secondary-text hover:text-primary transition-colors shrink-0">
-            <span class="material-symbols-outlined text-[16px]">send</span>
-          </button>
+        <div class="shells-layout flex-1 min-h-0 flex overflow-hidden">
+          <aside class="shells-sidebar w-[290px] max-w-[42%] border-r border-border-color bg-black/70 flex flex-col min-h-0">
+            <div class="px-3 py-2 border-b border-border-color flex items-center justify-between shrink-0">
+              <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Active Shells</span>
+              <span class="text-[10px] mono-text text-secondary-text/60" id="shell-sidebar-count">0 online</span>
+            </div>
+            <div id="shell-empty-msg" class="flex flex-col gap-2 text-[10px] text-secondary-text italic px-3 py-3 border-b border-border-color/40">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[14px] opacity-40">cable</span>
+                Waiting for reverse shell
+              </div>
+              <p class="text-secondary-text/70 not-italic">Listener hint: <span class="text-primary/80 mono-text">nc -lvnp 4444</span></p>
+            </div>
+            <div id="shell-subtab-bar" class="flex-1 min-h-0 overflow-y-auto scrollbar-hide p-2 flex flex-col gap-1"></div>
+          </aside>
+
+          <section class="shells-main flex-1 min-h-0 flex flex-col bg-black">
+            <div id="shell-active-header" class="px-4 py-2.5 border-b border-border-color bg-black/80 shrink-0">
+              <div class="flex items-center justify-between gap-2">
+                <span id="shell-active-title" class="text-[11px] font-bold uppercase tracking-wider text-secondary-text">No shell selected</span>
+                <span id="shell-active-status" class="text-[10px] font-bold uppercase tracking-widest text-secondary-text/70">IDLE</span>
+              </div>
+              <p id="shell-active-meta" class="text-[10px] text-secondary-text/70 mono-text mt-1">Shell output will appear here when a session becomes active.</p>
+            </div>
+
+            <div id="shell-output-area" class="flex-1 overflow-y-auto p-4 font-mono text-xs text-green-400 scrollbar-hide leading-relaxed whitespace-pre-wrap"></div>
+
+            <div id="shell-input-row" class="hidden border-t border-border-color bg-black/90 px-3 py-2.5 flex items-center gap-3 shrink-0">
+              <span id="shell-prompt" class="text-green-400 font-mono text-xs shrink-0 select-none">shell#</span>
+              <input id="shell-cmd-input" class="flex-1 bg-transparent text-green-300 font-mono text-xs outline-none border-none caret-green-400" placeholder="type command and press Enter…" type="text" autocomplete="off" spellcheck="false"/>
+              <button onclick="sendShellCommand()" class="text-secondary-text hover:text-primary transition-colors shrink-0" title="Send command">
+                <span class="material-symbols-outlined text-[16px]">send</span>
+              </button>
+            </div>
+          </section>
         </div>
       </div>
 
-      <!-- Terminal body: TERMINAL — interactive agent terminal -->
+      <!-- Terminal body: TERMINAL — native bash PTY -->
       <div id="console-terminal" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="terminal">
-        <!-- Output history -->
-        <div id="terminal-output" class="flex-1 overflow-y-auto p-4 font-mono text-xs scrollbar-hide flex flex-col gap-0.5">
-          <div class="text-secondary-text select-none mb-3 border-b border-border-color pb-3">
-            <p class="text-primary font-bold mb-1">TIRPAN Interactive Terminal</p>
-            <p>Commands typed here are injected directly into the active agent session.</p>
-            <p class="text-secondary-text/60 mt-1">Type <span class="text-primary">/help</span> for built-in commands · <span class="text-primary">/shells</span> to list active reverse shells</p>
+        <div class="px-4 py-2 border-b border-border-color bg-black/80 shrink-0 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[14px]">terminal</span>
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Native Bash</span>
+            <span id="terminal-session-badge" class="text-[10px] mono-text text-secondary-text/60">disconnected</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="terminal-clear-btn" class="px-2 py-1 text-[10px] border border-border-color text-secondary-text hover:text-white hover:border-primary transition-colors" type="button">Clear</button>
+            <button id="terminal-open-btn" class="px-2.5 py-1 text-[10px] border border-primary/60 text-primary hover:bg-primary/10 transition-colors" type="button">Connect</button>
+            <button id="terminal-close-btn" class="hidden px-2.5 py-1 text-[10px] border border-danger/70 text-danger hover:bg-danger/10 transition-colors" type="button">Disconnect</button>
           </div>
         </div>
-        <!-- Input bar -->
-        <div class="border-t border-border-color bg-black/90 px-4 py-2.5 flex items-center gap-3 shrink-0">
-          <span class="text-primary font-mono text-xs shrink-0 select-none">tirpan&gt;</span>
-          <input id="terminal-cmd-input" class="flex-1 bg-transparent text-slate-200 font-mono text-xs outline-none border-none caret-primary" placeholder="inject task, instruction, or command to active agent…" type="text" autocomplete="off" spellcheck="false"/>
-          <kbd class="text-[9px] text-secondary-text font-mono shrink-0 select-none">↵ Enter</kbd>
+        <div id="terminal-native-shell" class="flex-1 min-h-0 p-2"></div>
+        <div class="px-4 py-2 border-t border-border-color bg-black/90 text-[10px] mono-text text-secondary-text/70 shrink-0" id="terminal-status-text">
+          Connect to open an interactive bash session.
         </div>
       </div>
     </div>
