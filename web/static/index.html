@@ -206,16 +206,56 @@
             <span id="mission-status-text" class="font-display font-bold text-xs md:text-sm tracking-widest uppercase text-secondary-text max-w-[140px] sm:max-w-none truncate">No Mission</span>
             <span class="material-symbols-outlined text-[13px] text-secondary-text group-hover:text-primary transition-colors">expand_more</span>
           </button>
-          <!-- Session history dropdown -->
-          <div id="session-switcher-dropdown" class="hidden absolute top-full left-0 mt-1 bg-surface border border-border-color z-50 min-w-[320px] shadow-lg">
-            <div class="px-3 py-2 border-b border-border-color flex items-center justify-between shrink-0">
-              <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Mission History</span>
-              <button id="session-dropdown-close" class="text-secondary-text hover:text-primary transition-colors">
-                <span class="material-symbols-outlined text-[14px]">close</span>
-              </button>
-            </div>
-            <div id="session-switcher-list" class="flex flex-col max-h-64 overflow-y-auto scrollbar-hide">
-              <div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading sessions...</div>
+          <!-- Session history popup -->
+          <div id="session-switcher-dropdown" class="hidden fixed inset-0 z-[320]">
+            <div id="session-switcher-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+            <div id="session-switcher-panel" class="absolute left-1/2 top-[74px] -translate-x-1/2 w-[min(760px,calc(100vw-24px))] max-h-[78vh] bg-surface border border-border-color shadow-2xl flex flex-col">
+              <div class="px-4 py-3 border-b border-border-color flex items-center justify-between shrink-0 gap-3">
+                <span class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">Mission History</span>
+                <button id="session-dropdown-close" class="text-secondary-text hover:text-primary transition-colors" type="button" aria-label="Close mission history">
+                  <span class="material-symbols-outlined text-[15px]">close</span>
+                </button>
+              </div>
+
+              <div class="px-4 py-3 border-b border-border-color flex flex-col gap-3 shrink-0">
+                <div class="relative">
+                  <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-secondary-text text-[15px]">search</span>
+                  <input
+                    id="session-switcher-search"
+                    type="text"
+                    class="w-full bg-background-dark border border-border-color text-slate-100 pl-9 pr-3 py-2 text-xs mono-text"
+                    placeholder="Search by mission name, target, mode..."
+                    autocomplete="off"
+                  />
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-1" id="session-switcher-status-filters">
+                    <button type="button" class="session-switcher-filter-btn active" data-status="all">ALL</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="running">RUNNING</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="done">DONE</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="error">ERROR</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="stopped">STOPPED</button>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <label for="session-switcher-sort" class="text-[10px] mono-text text-secondary-text uppercase tracking-wider">Sort</label>
+                    <select id="session-switcher-sort" class="bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-[10px] mono-text">
+                      <option value="recent">Recent</option>
+                      <option value="name">Name</option>
+                      <option value="target">Target</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="px-4 py-2 border-b border-border-color/60 text-[10px] mono-text text-secondary-text/80 shrink-0" id="session-switcher-summary">
+                Loading sessions...
+              </div>
+
+              <div id="session-switcher-list" class="flex flex-col overflow-y-auto scrollbar-hide min-h-0 max-h-[52vh]">
+                <div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading sessions...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -308,6 +348,10 @@
           <button onclick="switchAgentView('graph')" id="ag-view-btn-graph"
             class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
             <span class="material-symbols-outlined" style="font-size:11px;">account_tree</span>GRAPH
+          </button>
+          <button onclick="switchAgentView('timeline')" id="ag-view-btn-timeline"
+            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
+            <span class="material-symbols-outlined" style="font-size:11px;">view_timeline</span>ALT
           </button>
         </div>
       </div>
@@ -407,6 +451,15 @@
           </div>
         </div>
         <!-- ── End Attack Graph View ──────────────────────────────── -->
+
+        <!-- ── Agent Alternative Timeline View ────────────────────── -->
+        <div id="ag-timeline-view" class="hidden flex-1 min-w-0 overflow-auto bg-black/80">
+          <div id="ag-timeline-empty" class="h-full flex items-center justify-center text-[11px] mono-text text-secondary-text px-6 text-center">
+            No timeline data yet. Start a mission to populate this view.
+          </div>
+          <div id="ag-timeline-container" class="hidden min-h-full p-4 md:p-6 flex items-start gap-4"></div>
+        </div>
+        <!-- ── End Agent Alternative Timeline View ────────────────── -->
 
         <!-- Scroll-to-bottom button (hidden when already at bottom) -->
         <button id="agent-scroll-btn"
@@ -959,6 +1012,50 @@
                 </label>
               </div>
 
+            </div>
+          </div>
+
+          <!-- ── SECTION: Nmap ───────────────────────────────────────────── -->
+          <div>
+            <div class="flex items-center gap-4 mb-6">
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Branding</span>
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2">
+                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Company Name</label>
+                <input
+                  id="cfg-branding-company"
+                  class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text"
+                  type="text"
+                  maxlength="120"
+                  placeholder="Acme Security"
+                />
+                <p class="text-[10px] text-secondary-text">Displayed on report cover and footer.</p>
+              </div>
+
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-3 col-span-2 lg:col-span-1">
+                <div>
+                  <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Report Logo</p>
+                  <p class="text-[10px] text-secondary-text mt-1">PNG/JPG/WEBP up to 5MB.</p>
+                </div>
+                <input id="cfg-branding-logo-input" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" />
+                <button id="cfg-branding-logo-btn" type="button" class="self-start px-3 py-1.5 bg-background-dark border border-border-color text-secondary-text hover:text-primary hover:border-primary transition-colors text-[11px] mono-text">
+                  Upload Logo
+                </button>
+                <button id="cfg-branding-logo-remove" type="button" class="hidden self-start px-3 py-1.5 border border-danger/50 text-danger hover:bg-danger/10 transition-colors text-[11px] mono-text">
+                  Remove Logo
+                </button>
+              </div>
+
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2 lg:col-span-1">
+                <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Logo Preview</p>
+                <div id="cfg-branding-logo-preview" class="h-32 border border-border-color bg-background-dark flex items-center justify-center p-3 overflow-hidden">
+                  <span class="text-[10px] mono-text text-secondary-text">No logo uploaded</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -2886,6 +2983,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@ PDF generation is tested only if WeasyPrint is available.
 
 import pytest
 import pytest_asyncio
+import json
 import tempfile
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from database.repositories import (
     VulnerabilityRepository,
     ExploitResultRepository,
 )
+from database.sqlite_conn import connect as connect_db
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -331,6 +333,32 @@ class TestReportGenerator:
         rg = ReportGenerator(db_path)
         html = await rg.generate_html(session_id)
         assert "UTC" in html  # generated_at contains UTC
+
+    @pytest.mark.asyncio
+    async def test_html_contains_branding_logo_and_company(self, populated_session):
+        session_id, db_path = populated_session
+        branding_dir = db_path.parent / "branding"
+        branding_dir.mkdir(exist_ok=True)
+
+        logo_name = "unit_logo.png"
+        logo_bytes = b"\x89PNG\r\n\x1a\n" + (b"\x00" * 48)
+        (branding_dir / logo_name).write_bytes(logo_bytes)
+
+        async with connect_db(db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("branding_company_name", json.dumps("Acme Security")),
+            )
+            await db.execute(
+                "INSERT INTO app_settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("branding_logo_file", json.dumps(logo_name)),
+            )
+            await db.commit()
+
+        rg = ReportGenerator(db_path)
+        html = await rg.generate_html(session_id)
+        assert "Acme Security" in html
+        assert "data:image/png;base64," in html
 
     @pytest.mark.asyncio
     async def test_html_down_host_not_in_port_table(self, populated_session):
