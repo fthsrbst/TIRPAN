@@ -288,6 +288,121 @@ async def stream_openrouter(
     return full_response
 
 
+class _ChatReplyStreamParser:
+    """
+    State machine that extracts the 'message' value from a streaming JSON
+    chat_reply response, yielding content characters as they arrive.
+
+    Expected JSON shape (thought → action → parameters order):
+      {"thought": "...", "action": "chat_reply", "parameters": {"message": "actual text"}}
+
+    Call feed(token) with each raw JSON token. It returns any new message
+    content ready to emit (already JSON-unescaped), or '' if nothing yet.
+    Reset via reset() at the start of each new reasoning iteration.
+    """
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._buf = ""
+        # States: SCANNING → FOUND_ACTION → IN_MESSAGE → DONE
+        self._state = "SCANNING"
+        self._msg_start = -1   # index in _buf where message content begins
+        self._emitted = 0      # how many buf chars we've already processed
+
+    @property
+    def started(self) -> bool:
+        return self._state in ("IN_MESSAGE", "DONE")
+
+    def feed(self, token: str) -> str:
+        if self._state == "DONE":
+            return ""
+        prev_len = len(self._buf)
+        self._buf += token
+
+        if self._state == "SCANNING":
+            if '"action"' in self._buf and "chat_reply" in self._buf:
+                self._state = "FOUND_ACTION"
+                return self._try_find_message()
+
+        elif self._state == "FOUND_ACTION":
+            return self._try_find_message()
+
+        elif self._state == "IN_MESSAGE":
+            return self._extract(prev_len)
+
+        return ""
+
+    def _try_find_message(self) -> str:
+        idx = self._buf.find('"message"')
+        if idx < 0:
+            return ""
+        after = self._buf[idx + len('"message"'):]
+        i = 0
+        # skip whitespace then ':'
+        while i < len(after) and after[i] in " \t\n\r":
+            i += 1
+        if i >= len(after) or after[i] != ":":
+            return ""
+        i += 1
+        # skip whitespace then opening '"'
+        while i < len(after) and after[i] in " \t\n\r":
+            i += 1
+        if i >= len(after) or after[i] != '"':
+            return ""
+        i += 1  # skip opening quote
+        self._msg_start = idx + len('"message"') + i
+        self._emitted = self._msg_start
+        self._state = "IN_MESSAGE"
+        return self._extract(self._msg_start)
+
+    def _extract(self, _from: int) -> str:
+        result: list[str] = []
+        i = self._emitted
+        buf = self._buf
+        while i < len(buf):
+            c = buf[i]
+            if c == "\\":
+                if i + 1 >= len(buf):
+                    break  # wait for next token
+                nc = buf[i + 1]
+                if nc == '"':
+                    result.append('"')
+                elif nc == "\\":
+                    result.append("\\")
+                elif nc == "n":
+                    result.append("\n")
+                elif nc == "r":
+                    result.append("\r")
+                elif nc == "t":
+                    result.append("\t")
+                elif nc == "u":
+                    if i + 6 > len(buf):
+                        break  # wait for full \uXXXX
+                    hex_str = buf[i + 2 : i + 6]
+                    try:
+                        result.append(chr(int(hex_str, 16)))
+                    except ValueError:
+                        result.append(f"\\u{hex_str}")
+                    i += 6
+                    self._emitted = i
+                    continue
+                else:
+                    result.append(nc)
+                i += 2
+                self._emitted = i
+            elif c == '"':
+                self._state = "DONE"
+                self._emitted = i + 1
+                break
+            else:
+                result.append(c)
+                i += 1
+                self._emitted = i
+        return "".join(result)
+
+
 def _make_chat_progress_callback(
     websocket: WebSocket,
     loop: asyncio.AbstractEventLoop,
@@ -297,32 +412,55 @@ def _make_chat_progress_callback(
     Sync progress_callback → async WebSocket bridge for ChatAgent.
 
     What gets shown to the user:
+      llm_token    → real-time streaming of chat_reply message content
       reasoning    → status bubble: "💭 thought..." (only when using a tool)
       tool_call    → status bubble: "⚙ Running: tool_name(params)"
       tool_result  → status bubble: "✓/✗ tool_name: output preview"
       safety_block → status bubble: "⛔ Blocked: reason"
       error        → error message
 
-    What is intentionally HIDDEN:
-      llm_token    — raw JSON reasoning chunks (never show to user)
-      chat_reply   — handled by _run_chat_agent after agent.run() returns
-      agent_start/done, shell_io, finding, observation, parallel_* — not relevant to chat UI
+    Returns (callback, streaming_state) where streaming_state is a dict:
+      {"started": bool, "tasks": list[Task]}
     """
+    parser = _ChatReplyStreamParser()
+    streaming_state: dict = {"started": False, "tasks": [], "logs": []}
+
+    async def _safe_send(msg: dict) -> None:
+        try:
+            await websocket.send_json(msg)
+        except Exception:
+            pass  # WebSocket closed during shutdown — discard silently
+
     def _task(msg: dict) -> None:
         try:
-            loop.create_task(websocket.send_json(msg))
+            t = loop.create_task(_safe_send(msg))
+            streaming_state["tasks"].append(t)
         except RuntimeError:
-            pass  # loop closed during shutdown
+            pass  # event loop already closed during shutdown
 
     def callback(event_type: str, data: dict) -> None:
-        if event_type == "reasoning":
+        nonlocal parser
+
+        if event_type == "llm_thinking_start":
+            # New reasoning iteration — reset parser for fresh JSON
+            parser.reset()
+
+        elif event_type == "llm_token":
+            content = parser.feed(data.get("token", ""))
+            if content:
+                streaming_state["started"] = True
+                _task({"type": "token", "content": content, "msg_id": msg_id})
+
+        elif event_type == "reasoning":
             # Only show thinking when the agent is about to call a tool,
             # not when it's about to reply (action == chat_reply).
             action = data.get("action", "")
             thought = data.get("thought", "").strip()
             if thought and action and action not in ("chat_reply", "done"):
                 preview = thought[:200] + ("…" if len(thought) > 200 else "")
-                _task({"type": "status", "content": f"💭 {preview}", "msg_id": msg_id})
+                text = f"💭 {preview}"
+                _task({"type": "status", "content": text, "msg_id": msg_id})
+                streaming_state["logs"].append(text)
 
         elif event_type == "tool_call":
             tool_name = data.get("tool", "")
@@ -333,31 +471,33 @@ def _make_chat_progress_callback(
                 )
             else:
                 params_str = str(params)[:120]
-            _task({"type": "status", "content": f"⚙ Running: {tool_name}({params_str})", "msg_id": msg_id})
+            text = f"⚙ Running: {tool_name}({params_str})"
+            _task({"type": "status", "content": text, "msg_id": msg_id})
+            streaming_state["logs"].append(text)
 
         elif event_type == "tool_result":
             tool_name = data.get("tool", "")
             success = data.get("success", False)
             output = str(data.get("output") or data.get("error") or "")
-            # Show first 400 chars of output, strip leading/trailing whitespace
             preview = output.strip()[:400]
             if len(output.strip()) > 400:
                 preview += "…"
             icon = "✓" if success else "✗"
-            _task({"type": "status", "content": f"{icon} {tool_name}: {preview}", "msg_id": msg_id})
+            text = f"{icon} {tool_name}: {preview}"
+            _task({"type": "status", "content": text, "msg_id": msg_id})
+            streaming_state["logs"].append(text)
 
         elif event_type == "safety_block":
             reason = data.get("reason", data.get("error", ""))
-            _task({"type": "status", "content": f"⛔ Blocked: {reason}", "msg_id": msg_id})
+            text = f"⛔ Blocked: {reason}"
+            _task({"type": "status", "content": text, "msg_id": msg_id})
+            streaming_state["logs"].append(text)
 
         elif event_type == "error":
             err = data.get("error", str(data))
             _task({"type": "error", "content": err})
 
-        # llm_token → intentionally skipped (raw JSON, not user-visible)
-        # chat_reply → handled after agent.run() returns in _run_chat_agent
-
-    return callback
+    return callback, streaming_state
 
 
 def _make_approval_callback(
@@ -411,22 +551,31 @@ async def _run_chat_agent(
     pending_approvals: dict,
 ) -> str:
     """
-    Run ChatAgent for one user message.
+    Run ChatAgent for one user message with real-time token streaming.
 
     Event ordering guarantee:
       1. Status bubbles (tool calls, reasoning) — sent via create_task during run()
-      2. Final reply token  — sent via await AFTER run() completes
-      3. message_end        — sent last
+      2. chat_reply tokens — streamed in real-time as the LLM generates them
+      3. message_end       — sent after all tokens are flushed
 
-    This sequential await ensures the reply always appears after tool status messages.
+    The _ChatReplyStreamParser intercepts llm_token events and extracts the
+    'message' value from the JSON response, streaming it token-by-token.
+    If streaming didn't activate (unexpected action format), the full reply
+    is sent at once as a fallback.
     """
     agent.inject_user_message(user_message)
 
     loop = asyncio.get_event_loop()
-    agent._progress_cb = _make_chat_progress_callback(websocket, loop, msg_id)
+    progress_cb, streaming_state = _make_chat_progress_callback(websocket, loop, msg_id)
+    agent._progress_cb = progress_cb
     agent._approval_cb = _make_approval_callback(websocket, loop, pending_approvals)
 
     result = await agent.run()
+
+    # Flush all pending streaming token tasks before sending message_end
+    pending_tasks = streaming_state["tasks"]
+    if pending_tasks:
+        await asyncio.gather(*pending_tasks, return_exceptions=True)
 
     final_reply = agent.get_final_reply()
     if not final_reply:
@@ -458,8 +607,10 @@ async def _run_chat_agent(
         else:
             final_reply = "(No reply generated. Try rephrasing your message.)"
 
-    # Send the final reply as a content token so the frontend renders it as text
-    await websocket.send_json({"type": "token", "content": final_reply, "msg_id": msg_id})
+    if not streaming_state["started"]:
+        # Streaming parser didn't activate — send the full reply at once (fallback)
+        await websocket.send_json({"type": "token", "content": final_reply, "msg_id": msg_id})
+
     await websocket.send_json({"type": "message_end", "msg_id": msg_id})
     return final_reply
 
@@ -542,6 +693,25 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     if model_override:
                         settings.ollama.model = model_override
 
+                # ── Quick provider reachability check before spinning up agent ──
+                from core.llm_client import llm_router
+                _prov_ok = await llm_router._primary().is_available()
+                if not _prov_ok:
+                    _pname = type(llm_router._primary()).__name__.replace("Client", "")
+                    _hint = ""
+                    if provider == "lmstudio":
+                        _hint = f" (configured URL: {settings.lmstudio.base_url})"
+                    elif provider == "ollama":
+                        _hint = f" (configured URL: {settings.ollama.base_url})"
+                    await websocket.send_json({
+                        "type": "error",
+                        "content": (
+                            f"Cannot reach {_pname}{_hint}. "
+                            "Make sure the service is running and the URL is correct in Settings."
+                        ),
+                    })
+                    continue
+
                 # ── Always use ChatAgent (souls + direct tool access) ──────────
                 from core.chat_agent import ChatAgent
                 from core.safety import SafetyGuard
@@ -562,10 +732,42 @@ async def handle_websocket(websocket: WebSocket) -> None:
                         elif entry["role"] == "assistant":
                             _chat_agent.memory.add_assistant(entry["content"])
 
-                assistant_text = await _run_chat_agent(
+                # Run the agent as a background task so the WebSocket loop
+                # stays alive to receive approval_response messages while the
+                # agent is suspended waiting for operator approval.
+                agent_task = asyncio.create_task(_run_chat_agent(
                     websocket, content, _chat_agent, conversation_id, msg_id,
                     _pending_approvals,
-                )
+                ))
+
+                while not agent_task.done():
+                    try:
+                        raw2 = await asyncio.wait_for(
+                            websocket.receive_text(), timeout=1.0
+                        )
+                        inner = json.loads(raw2)
+                        inner_type = inner.get("type")
+                        if inner_type == "approval_response":
+                            aid = inner.get("approval_id", "")
+                            appr = bool(inner.get("approved", False))
+                            fut2 = _pending_approvals.get(aid)
+                            if fut2 and not fut2.done():
+                                fut2.set_result(appr)
+                        elif inner_type == "ping":
+                            await websocket.send_json({"type": "pong"})
+                        # Other message types while agent is running are ignored
+                    except asyncio.TimeoutError:
+                        continue
+                    except json.JSONDecodeError:
+                        pass
+
+                assistant_text = await agent_task
+
+                # Persist the conversation turn to the database
+                if conversation_id:
+                    await database.add_message(conversation_id, "user", content)
+                    if assistant_text:
+                        await database.add_message(conversation_id, "assistant", assistant_text)
 
                 chat_history.append({"role": "user", "content": content})
                 if assistant_text:
@@ -573,6 +775,7 @@ async def handle_websocket(websocket: WebSocket) -> None:
 
             elif msg_type == "approval_response":
                 # Operator approved or denied a pending tool execution
+                # (also handled in the inner loop above while agent is running)
                 approval_id = msg.get("approval_id", "")
                 approved = bool(msg.get("approved", False))
                 fut = _pending_approvals.get(approval_id)

@@ -82,8 +82,15 @@ function switchView(viewName) {
     if (viewName === 'agent') {
         try {
             const saved = localStorage.getItem('agView');
-            if (saved === 'graph' || saved === 'feed') switchAgentView(saved);
-        } catch(e) {}
+            if (saved === 'graph' || saved === 'feed' || saved === 'orchestra') switchAgentView(saved);
+            else switchAgentView('feed');
+        } catch(e) { switchAgentView('feed'); }
+    }
+
+    // Refresh local model lists whenever the config view is opened
+    if (viewName === 'config') {
+        fetchOllamaStatus();
+        fetchLMStudioStatus();
     }
 
     // Update nav highlight
@@ -1558,19 +1565,35 @@ function appendChatApprovalRequest(msg) {
           </div>
         </div>`;
 
+    function dismissApprovalCard(label) {
+        card.querySelector('.approval-approve').disabled = true;
+        card.querySelector('.approval-deny').disabled = true;
+        const btnRow = card.querySelector('.flex.gap-2');
+        if (btnRow) btnRow.innerHTML = `<span class="text-[11px] font-bold uppercase tracking-wider text-secondary-text">${label}</span>`;
+        // Lock height before animating to prevent layout jump
+        card.style.height = card.offsetHeight + 'px';
+        card.style.overflow = 'hidden';
+        card.style.transition = 'opacity 0.3s ease';
+        card.style.opacity = '0';
+        setTimeout(() => {
+            card.style.transition = 'height 0.25s ease, margin-top 0.25s ease, padding-top 0.25s ease, padding-bottom 0.25s ease';
+            card.style.height = '0';
+            card.style.marginTop = '0';
+            card.style.paddingTop = '0';
+            card.style.paddingBottom = '0';
+        }, 310);
+        setTimeout(() => card.remove(), 580);
+    }
+
     card.querySelector('.approval-approve')?.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: true }));
-        card.querySelector('.approval-approve').disabled = true;
-        card.querySelector('.approval-deny').disabled = true;
-        card.querySelector('.approval-approve').textContent = 'Approved';
+        dismissApprovalCard('✓ Approved');
     });
     card.querySelector('.approval-deny')?.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: false }));
-        card.querySelector('.approval-approve').disabled = true;
-        card.querySelector('.approval-deny').disabled = true;
-        card.querySelector('.approval-deny').textContent = 'Denied';
+        dismissApprovalCard('✗ Denied');
     });
 
     container.appendChild(card);
@@ -1818,6 +1841,20 @@ async function fetchLMStudioStatus(overrideUrl) {
         const res = await fetch(`/api/v1/lmstudio/status${urlParam}`);
         const data = await res.json();
 
+        // Fallback: if backend can't reach LM Studio (e.g. WSL2 networking),
+        // try fetching directly from the browser instead.
+        if (!data.online) {
+            const directUrl = (overrideUrl || lmStudioBaseUrl).replace(/\/$/, '');
+            try {
+                const directRes = await fetch(`${directUrl}/v1/models`, { signal: AbortSignal.timeout(5000) });
+                if (directRes.ok) {
+                    const directData = await directRes.json();
+                    data.online = true;
+                    data.models = (directData.data || []).map(m => m.id);
+                }
+            } catch { /* still offline */ }
+        }
+
         const dot = document.getElementById('cfg-lmstudio-status-dot');
 
         if (data.online) {
@@ -1839,56 +1876,35 @@ async function fetchLMStudioStatus(overrideUrl) {
         const cfgModel = document.getElementById('cfg-lmstudio-model');
         if (cfgModel && lmStudioModel) cfgModel.value = lmStudioModel;
 
-        // Load base URL from backend
-        try {
-            const cfgRes = await fetch('/api/v1/config/lmstudio');
-            const cfgData = await cfgRes.json();
-            lmStudioBaseUrl = cfgData.base_url || lmStudioBaseUrl;
-            const cfgUrl = document.getElementById('cfg-lmstudio-url');
-            if (cfgUrl) cfgUrl.value = lmStudioBaseUrl;
-            if (cfgData.model && !lmStudioModel) {
-                lmStudioModel = cfgData.model;
-                populateLMStudioModelDropdown();
-            }
-        } catch { /* ignore */ }
+        // Load base URL from backend — but don't overwrite the input when the user
+        // called us with a custom override URL (e.g. while typing a new address).
+        if (!overrideUrl) {
+            try {
+                const cfgRes = await fetch('/api/v1/config/lmstudio');
+                const cfgData = await cfgRes.json();
+                lmStudioBaseUrl = cfgData.base_url || lmStudioBaseUrl;
+                const cfgUrl = document.getElementById('cfg-lmstudio-url');
+                if (cfgUrl) cfgUrl.value = lmStudioBaseUrl;
+                if (cfgData.model && !lmStudioModel) {
+                    lmStudioModel = cfgData.model;
+                    populateLMStudioModelDropdown();
+                }
+            } catch { /* ignore */ }
+        } else {
+            // Keep lmStudioBaseUrl in sync with what was actually used
+            lmStudioBaseUrl = overrideUrl;
+        }
 
     } catch { /* ignore */ }
 }
 
 function populateLMStudioModelDropdown() {
-    const list = document.getElementById('cfg-lmstudio-model-list');
-    const label = document.getElementById('cfg-lmstudio-model-label');
-    const hidden = document.getElementById('cfg-lmstudio-model');
-    if (!list) return;
-
-    list.innerHTML = '';
-
-    if (!lmStudioModels.length) {
-        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is LM Studio running?</div>';
-        if (label) label.textContent = lmStudioModel || '—';
-        if (hidden && lmStudioModel) hidden.value = lmStudioModel;
-        return;
+    // Update config label and hidden input
+    updateCfgLabels();
+    // Refresh picker if open
+    if (!document.getElementById('model-picker-overlay')?.classList.contains('hidden')) {
+        renderModelPickerList(document.getElementById('model-picker-search')?.value || '');
     }
-
-    if (label) label.textContent = lmStudioModel || lmStudioModels[0] || '—';
-    if (hidden) hidden.value = lmStudioModel || '';
-
-    lmStudioModels.forEach(model => {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = [
-            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
-            'hover:bg-primary/10 hover:text-primary transition-colors',
-            model === lmStudioModel ? 'text-primary' : 'text-slate-300',
-        ].join(' ');
-        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === lmStudioModel ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
-        item.addEventListener('click', () => {
-            lmStudioModel = model;
-            closeLMStudioModelDropdown();
-            populateLMStudioModelDropdown();
-        });
-        list.appendChild(item);
-    });
 }
 
 function openLMStudioModelDropdown() {
@@ -1946,6 +1962,20 @@ async function fetchOllamaStatus(overrideUrl) {
         const res = await fetch(`/api/v1/ollama/status${urlParam}`);
         const data = await res.json();
 
+        // Fallback: if backend can't reach Ollama (e.g. WSL2 networking),
+        // try fetching directly from the browser instead.
+        if (!data.online) {
+            const directUrl = (overrideUrl || ollamaBaseUrl).replace(/\/$/, '');
+            try {
+                const directRes = await fetch(`${directUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+                if (directRes.ok) {
+                    const directData = await directRes.json();
+                    data.online = true;
+                    data.models = (directData.models || []).map(m => m.name);
+                }
+            } catch { /* still offline */ }
+        }
+
         const dot = document.getElementById('ollama-dot');
         const label = document.getElementById('ollama-status-text');
         const cfgDot = document.getElementById('cfg-ollama-status-dot');
@@ -1999,145 +2029,41 @@ function updateModelLabel() {
 }
 
 function populateModelDropdown() {
-    // Header dropdown
-    const list = document.getElementById('model-dropdown-list');
-    if (list) {
-        list.innerHTML = '';
-
-        const hasOllama = availableModels.length > 0;
-        const hasLMS = lmStudioModels.length > 0;
-        const hasOR = openRouterModels.length > 0 || !!cloudModel;
-
-        if (!hasOllama && !hasLMS && !hasOR) {
-            list.innerHTML = '<div class="px-4 py-2 text-[10px] mono-text text-secondary-text">No models found</div>';
-        } else {
-            // Ollama section
-            if (hasOllama) {
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-border-color';
-                sep.textContent = 'Ollama';
-                list.appendChild(sep);
-
-                availableModels.forEach(model => {
-                    const item = document.createElement('button');
-                    const isActive = activeProvider === 'ollama' && model === activeModel;
-                    item.className = [
-                        'w-full text-left px-4 py-2 text-[11px] mono-text',
-                        'hover:bg-primary/10 hover:text-primary transition-colors',
-                        isActive ? 'text-primary' : 'text-slate-300',
-                    ].join(' ');
-                    item.textContent = model;
-                    if (isActive) {
-                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                    }
-                    item.addEventListener('click', () => selectModel(model, 'ollama'));
-                    list.appendChild(item);
-                });
-            }
-
-            // LM Studio section
-            if (hasLMS) {
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
-                sep.textContent = 'LM Studio';
-                list.appendChild(sep);
-
-                lmStudioModels.forEach(model => {
-                    const item = document.createElement('button');
-                    const isActive = activeProvider === 'lmstudio' && model === activeModel;
-                    item.className = [
-                        'w-full text-left px-4 py-2 text-[11px] mono-text',
-                        'hover:bg-primary/10 hover:text-primary transition-colors',
-                        isActive ? 'text-primary' : 'text-slate-300',
-                    ].join(' ');
-                    item.textContent = model;
-                    if (isActive) {
-                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                    }
-                    item.addEventListener('click', () => selectModel(model, 'lmstudio'));
-                    list.appendChild(item);
-                });
-            }
-
-            // OpenRouter section — always rendered independently of Ollama/LMStudio
-            if (openRouterModels.length > 0) {
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
-                sep.textContent = 'OpenRouter';
-                list.appendChild(sep);
-
-                openRouterModels.forEach(model => {
-                    const item = document.createElement('button');
-                    const isActive = activeProvider === 'openrouter' && model === activeModel;
-                    item.className = [
-                        'w-full text-left px-4 py-2 text-[11px] mono-text',
-                        'hover:bg-primary/10 hover:text-primary transition-colors',
-                        isActive ? 'text-primary' : 'text-slate-300',
-                    ].join(' ');
-                    item.textContent = model;
-                    if (isActive) {
-                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                    }
-                    item.addEventListener('click', () => selectModel(model, 'openrouter'));
-                    list.appendChild(item);
-                });
-            } else if (cloudModel) {
-                // Show current cloud model even without fetched list
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
-                sep.textContent = 'OpenRouter';
-                list.appendChild(sep);
-                const item = document.createElement('button');
-                const isActive = activeProvider === 'openrouter';
-                item.className = [
-                    'w-full text-left px-4 py-2 text-[11px] mono-text',
-                    'hover:bg-primary/10 hover:text-primary transition-colors',
-                    isActive ? 'text-primary' : 'text-slate-300',
-                ].join(' ');
-                item.textContent = cloudModel;
-                if (isActive) item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                item.addEventListener('click', () => selectModel(cloudModel, 'openrouter'));
-                list.appendChild(item);
-            }
-        }
+    // Update config panel labels to reflect current state
+    updateCfgLabels();
+    // Refresh picker list if open
+    if (!document.getElementById('model-picker-overlay')?.classList.contains('hidden')) {
+        renderModelPickerList(document.getElementById('model-picker-search')?.value || '');
     }
-
-    // Config dropdown
-    populateCfgModelDropdown();
 }
 
-function populateCfgModelDropdown() {
-    const list = document.getElementById('cfg-model-list');
-    const label = document.getElementById('cfg-model-label');
-    const hidden = document.getElementById('cfg-ollama-model');
-    if (!list) return;
+function updateCfgLabels() {
+    // Ollama config label
+    const ollamaLabel = document.getElementById('cfg-model-label');
+    const ollamaHidden = document.getElementById('cfg-ollama-model');
+    const ollamaActive = activeProvider === 'ollama' ? activeModel : '';
+    const ollamaDisplay = ollamaActive || availableModels[0] || '—';
+    if (ollamaLabel) ollamaLabel.textContent = ollamaDisplay;
+    if (ollamaHidden) ollamaHidden.value = ollamaDisplay !== '—' ? ollamaDisplay : '';
 
-    list.innerHTML = '';
+    // LM Studio config label
+    const lmsLabel = document.getElementById('cfg-lmstudio-model-label');
+    const lmsHidden = document.getElementById('cfg-lmstudio-model');
+    const lmsDisplay = lmStudioModel || lmStudioModels[0] || '—';
+    if (lmsLabel) lmsLabel.textContent = lmsDisplay;
+    if (lmsHidden) lmsHidden.value = lmsDisplay !== '—' ? lmsDisplay : '';
 
-    if (!availableModels.length) {
-        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is Ollama running?</div>';
-        if (label) label.textContent = '—';
-        return;
+    // Status dots
+    const ollamaDot = document.getElementById('cfg-ollama-status-dot');
+    const lmsDot = document.getElementById('cfg-lmstudio-status-dot');
+    if (ollamaDot) {
+        ollamaDot.classList.remove('bg-border-color', 'bg-primary', 'bg-danger');
+        ollamaDot.classList.add(availableModels.length ? 'bg-primary' : 'bg-danger');
     }
-
-    if (label) label.textContent = activeModel || availableModels[0] || '—';
-    if (hidden) hidden.value = activeModel || '';
-
-    availableModels.forEach(model => {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = [
-            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
-            'hover:bg-primary/10 hover:text-primary transition-colors',
-            model === activeModel ? 'text-primary' : 'text-slate-300',
-        ].join(' ');
-        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === activeModel ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
-        item.addEventListener('click', () => {
-            selectModel(model);
-            closeCfgModelDropdown();
-        });
-        list.appendChild(item);
-    });
+    if (lmsDot) {
+        lmsDot.classList.remove('bg-border-color', 'bg-primary', 'bg-danger');
+        lmsDot.classList.add(lmStudioModels.length ? 'bg-primary' : 'bg-danger');
+    }
 }
 
 async function fetchOpenRouterModels() {
@@ -2272,73 +2198,209 @@ function selectModel(model, provider = 'ollama') {
     }
 }
 
-function openCfgModelDropdown() {
-    const dd = document.getElementById('cfg-model-dropdown');
-    const chevron = document.getElementById('cfg-model-chevron');
-    const btn = document.getElementById('cfg-model-btn');
-    if (dd) dd.classList.remove('hidden');
-    if (chevron) chevron.textContent = 'expand_less';
-    if (btn) btn.classList.add('border-primary');
-}
+// ─── Model Picker Popup ───────────────────────────────────────────────────────
 
-function closeCfgModelDropdown() {
-    const dd = document.getElementById('cfg-model-dropdown');
-    const chevron = document.getElementById('cfg-model-chevron');
-    const btn = document.getElementById('cfg-model-btn');
-    if (dd) dd.classList.add('hidden');
-    if (chevron) chevron.textContent = 'expand_more';
-    if (btn) btn.classList.remove('border-primary');
-}
+let _pickerContext = null; // null/'all' = global, 'ollama', 'lmstudio', 'openrouter'
 
-function initCfgModelDropdown() {
-    const btn = document.getElementById('cfg-model-btn');
-    if (!btn) return;
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const dd = document.getElementById('cfg-model-dropdown');
-        if (dd && dd.classList.contains('hidden')) openCfgModelDropdown();
-        else closeCfgModelDropdown();
+function _updatePickerSidebarActive() {
+    const active = _pickerContext || 'all';
+    document.querySelectorAll('.picker-provider-btn').forEach(btn => {
+        const p = btn.dataset.pickerProvider;
+        const isActive = p === active;
+        btn.classList.toggle('text-primary', isActive);
+        btn.classList.toggle('text-secondary-text', !isActive);
+        btn.classList.toggle('bg-primary/10', isActive);
+        btn.style.borderLeftColor = isActive ? 'var(--color-primary, #22d3ee)' : 'transparent';
     });
-    document.addEventListener('click', (e) => {
-        const wrapper = document.getElementById('cfg-model-wrapper');
-        if (wrapper && !wrapper.contains(e.target)) closeCfgModelDropdown();
+    // Update sidebar status dots
+    const ollamaDot = document.getElementById('picker-sidebar-ollama-dot');
+    const lmsDot   = document.getElementById('picker-sidebar-lmstudio-dot');
+    const orDot    = document.getElementById('picker-sidebar-or-dot');
+    if (ollamaDot) ollamaDot.className = `w-1.5 h-1.5 rounded-full mt-0.5 ${availableModels.length ? 'bg-primary' : 'bg-border-color'}`;
+    if (lmsDot)   lmsDot.className   = `w-1.5 h-1.5 rounded-full mt-0.5 ${lmStudioModels.length ? 'bg-primary' : 'bg-border-color'}`;
+    if (orDot)    orDot.className    = `w-1.5 h-1.5 rounded-full mt-0.5 ${openRouterModels.length ? 'bg-primary' : 'bg-border-color'}`;
+}
+
+function openModelPicker(context = null) {
+    _pickerContext = context;
+    const search = document.getElementById('model-picker-search');
+    if (search) search.value = '';
+    _updatePickerSidebarActive();
+    renderModelPickerList('');
+    document.getElementById('model-picker-overlay')?.classList.remove('hidden');
+    setTimeout(() => search?.focus(), 50);
+}
+
+function closeModelPicker() {
+    document.getElementById('model-picker-overlay')?.classList.add('hidden');
+    _pickerContext = null;
+}
+
+function renderModelPickerList(query) {
+    const list = document.getElementById('model-picker-list');
+    if (!list) return;
+    const q = query.toLowerCase().trim();
+
+    // Build sections based on context
+    const sections = [];
+
+    const ollamaFiltered = availableModels.filter(m => !q || m.toLowerCase().includes(q));
+    const lmsFiltered = lmStudioModels.filter(m => !q || m.toLowerCase().includes(q));
+    const orModels = [...openRouterModels];
+    if (cloudModel && !orModels.includes(cloudModel)) orModels.unshift(cloudModel);
+    const orFiltered = orModels.filter(m => !q || m.toLowerCase().includes(q));
+
+    if (_pickerContext === 'ollama') {
+        if (ollamaFiltered.length) sections.push({ provider: 'ollama', label: 'Ollama', models: ollamaFiltered });
+    } else if (_pickerContext === 'lmstudio') {
+        if (lmsFiltered.length) sections.push({ provider: 'lmstudio', label: 'LM Studio', models: lmsFiltered });
+    } else if (_pickerContext === 'openrouter') {
+        if (orFiltered.length) sections.push({ provider: 'openrouter', label: 'OpenRouter', models: orFiltered });
+    } else {
+        if (ollamaFiltered.length) sections.push({ provider: 'ollama', label: 'Ollama', models: ollamaFiltered });
+        if (lmsFiltered.length) sections.push({ provider: 'lmstudio', label: 'LM Studio', models: lmsFiltered });
+        if (orFiltered.length) sections.push({ provider: 'openrouter', label: 'OpenRouter', models: orFiltered });
+    }
+    _updatePickerSidebarActive();
+
+    list.innerHTML = '';
+
+    if (!sections.length) {
+        const empty = document.createElement('div');
+        empty.className = 'px-6 py-10 text-center text-secondary-text text-xs mono-text flex flex-col items-center gap-3';
+        empty.innerHTML = `
+            <span class="material-symbols-outlined text-[32px] opacity-30">smart_toy</span>
+            <span>${q ? 'No models match your search' : 'No models found — check Ollama / LM Studio is running'}</span>
+        `;
+        list.appendChild(empty);
+        return;
+    }
+
+    sections.forEach(({ provider, label, models }) => {
+        // Section header
+        const sep = document.createElement('div');
+        sep.className = 'px-6 py-2 flex items-center gap-2 text-[9px] mono-text text-secondary-text uppercase tracking-[0.2em] border-b border-border-color bg-[#080808] sticky top-0';
+        const onlineColor = (provider === 'ollama' && availableModels.length) || (provider === 'lmstudio' && lmStudioModels.length) || provider === 'openrouter'
+            ? 'bg-primary' : 'bg-danger';
+        sep.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${onlineColor} shrink-0"></span><span>${escapeHtml(label)}</span><span class="ml-auto text-[9px] opacity-50">${models.length} model${models.length !== 1 ? 's' : ''}</span>`;
+        list.appendChild(sep);
+
+        models.forEach(model => {
+            const isActive = model === activeModel && activeProvider === provider;
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = [
+                'w-full text-left px-6 py-3.5 text-[11px] mono-text flex items-center gap-3',
+                'hover:bg-primary/5 transition-colors border-b border-border-color/20',
+                isActive ? 'text-primary' : 'text-slate-300',
+            ].join(' ');
+            item.innerHTML = `
+                <span class="flex-1 truncate">${escapeHtml(model)}</span>
+                ${isActive ? '<span class="material-symbols-outlined text-[14px] shrink-0 text-primary">check_circle</span>' : '<span class="material-symbols-outlined text-[14px] shrink-0 opacity-20">radio_button_unchecked</span>'}
+            `;
+            item.addEventListener('click', () => onModelPickerSelect(model, provider));
+            list.appendChild(item);
+        });
     });
+
+    // Update footer status
+    const statusText = document.getElementById('model-picker-status-text');
+    const statusDot = document.getElementById('model-picker-ollama-dot');
+    if (statusText) {
+        const parts = [];
+        if (availableModels.length) parts.push(`Ollama: ${availableModels.length} model${availableModels.length !== 1 ? 's' : ''}`);
+        if (lmStudioModels.length) parts.push(`LM Studio: ${lmStudioModels.length}`);
+        if (openRouterModels.length) parts.push(`OpenRouter: ${openRouterModels.length}`);
+        statusText.textContent = parts.length ? parts.join(' · ') : 'No providers online';
+    }
+    if (statusDot) {
+        const anyOnline = availableModels.length || lmStudioModels.length || openRouterModels.length;
+        statusDot.className = `w-2 h-2 rounded-full transition-colors ${anyOnline ? 'bg-primary' : 'bg-danger'}`;
+    }
 }
 
-function openModelDropdown() {
-    const dd = document.getElementById('model-dropdown');
-    const chevron = document.getElementById('model-chevron');
-    if (dd) dd.classList.remove('hidden');
-    if (chevron) chevron.textContent = 'expand_less';
+function onModelPickerSelect(model, provider) {
+    if (_pickerContext === 'ollama') {
+        // Update config Ollama field only
+        const cfgLabel = document.getElementById('cfg-model-label');
+        const cfgHidden = document.getElementById('cfg-ollama-model');
+        if (cfgLabel) cfgLabel.textContent = model;
+        if (cfgHidden) cfgHidden.value = model;
+        // Also update active session if provider matches
+        selectModel(model, 'ollama');
+    } else if (_pickerContext === 'lmstudio') {
+        lmStudioModel = model;
+        const cfgLabel = document.getElementById('cfg-lmstudio-model-label');
+        const cfgHidden = document.getElementById('cfg-lmstudio-model');
+        if (cfgLabel) cfgLabel.textContent = model;
+        if (cfgHidden) cfgHidden.value = model;
+        selectModel(model, 'lmstudio');
+    } else {
+        selectModel(model, provider);
+    }
+    closeModelPicker();
 }
 
-function closeModelDropdown() {
-    const dd = document.getElementById('model-dropdown');
-    const chevron = document.getElementById('model-chevron');
-    if (dd) dd.classList.add('hidden');
-    if (chevron) chevron.textContent = 'expand_more';
-}
+function initModelPicker() {
+    // Close button
+    document.getElementById('model-picker-close')?.addEventListener('click', closeModelPicker);
 
-function initModelSelector() {
-    const btn = document.getElementById('model-selector-btn');
-    if (!btn) return;
+    // Backdrop click
+    document.getElementById('model-picker-overlay')?.addEventListener('click', (e) => {
+        if (e.target.id === 'model-picker-overlay') closeModelPicker();
+    });
 
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const dd = document.getElementById('model-dropdown');
-        if (dd && dd.classList.contains('hidden')) {
-            openModelDropdown();
-        } else {
-            closeModelDropdown();
+    // ESC key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !document.getElementById('model-picker-overlay')?.classList.contains('hidden')) {
+            closeModelPicker();
         }
     });
 
-    // Close on outside click
-    document.addEventListener('click', (e) => {
-        const wrapper = document.getElementById('model-selector-wrapper');
-        if (wrapper && !wrapper.contains(e.target)) closeModelDropdown();
+    // Search input
+    document.getElementById('model-picker-search')?.addEventListener('input', (e) => {
+        renderModelPickerList(e.target.value);
+    });
+
+    // Refresh button
+    document.getElementById('model-picker-refresh')?.addEventListener('click', async () => {
+        const btn = document.getElementById('model-picker-refresh');
+        if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+        await Promise.all([fetchOllamaStatus(), fetchLMStudioStatus()]);
+        renderModelPickerList(document.getElementById('model-picker-search')?.value || '');
+        if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+    });
+
+    // Header model selector button → global picker
+    document.getElementById('model-selector-btn')?.addEventListener('click', () => openModelPicker(null));
+
+    // Config Ollama model button → ollama-filtered picker
+    document.getElementById('cfg-model-btn')?.addEventListener('click', () => openModelPicker('ollama'));
+
+    // Config LM Studio model button → lmstudio-filtered picker
+    document.getElementById('cfg-lmstudio-model-btn')?.addEventListener('click', () => openModelPicker('lmstudio'));
+
+    // Provider sidebar buttons
+    document.querySelectorAll('.picker-provider-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const p = btn.dataset.pickerProvider;
+            _pickerContext = (p === 'all') ? null : p;
+            const search = document.getElementById('model-picker-search');
+            if (search) search.value = '';
+            _updatePickerSidebarActive();
+            renderModelPickerList('');
+        });
     });
 }
+
+// Kept as no-op stubs — called from old fetch functions, harmless
+function closeModelDropdown() {}
+function initModelSelector() {}
+function initCfgModelDropdown() {}
+function openCfgModelDropdown() {}
+function closeCfgModelDropdown() {}
+function openLMStudioModelDropdown() {}
+function closeLMStudioModelDropdown() {}
 
 // ─── Config Save & Persistent Settings ───────────────────────────────────────
 
@@ -2501,6 +2563,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCfgModelDropdown();
     initLMStudioModelDropdown();
     initCloudModelDropdown();
+    initModelPicker();
     initConfigSave();
     initScrollTracking();
     initAgentScrollTracking();
@@ -8270,7 +8333,7 @@ const _V2_AGENT_TYPE_ICONS = {
 };
 
 async function fetchAgentOrchestra() {
-    const sid = _currentSessionId;
+    const sid = activeMissionId;
     if (!sid) return;
 
     try {

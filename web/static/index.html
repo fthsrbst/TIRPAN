@@ -528,20 +528,12 @@
         </div>
         <div class="flex items-center gap-3">
           <!-- Model selector -->
-          <div id="model-selector-wrapper" class="relative">
-            <button id="model-selector-btn"
-              class="flex items-center gap-1.5 border border-border-color px-2.5 py-1 text-[10px] mono-text text-secondary-text hover:border-primary hover:text-primary transition-colors group">
-              <span class="material-symbols-outlined text-[13px] group-hover:text-primary transition-colors">smart_toy</span>
-              <span id="model-label">—</span>
-              <span class="material-symbols-outlined text-[12px]" id="model-chevron">expand_more</span>
-            </button>
-            <div id="model-dropdown"
-              class="hidden absolute top-full right-0 mt-1 bg-surface border border-border-color z-50 min-w-[220px] shadow-lg">
-              <div id="model-dropdown-list" class="flex flex-col py-1">
-                <div class="px-4 py-2 text-[10px] mono-text text-secondary-text">Loading models...</div>
-              </div>
-            </div>
-          </div>
+          <button id="model-selector-btn"
+            class="flex items-center gap-1.5 border border-border-color px-2.5 py-1 text-[10px] mono-text text-secondary-text hover:border-primary hover:text-primary transition-colors group max-w-[180px]">
+            <span class="material-symbols-outlined text-[13px] group-hover:text-primary transition-colors shrink-0">smart_toy</span>
+            <span id="model-label" class="truncate">—</span>
+            <span class="material-symbols-outlined text-[12px] shrink-0">expand_more</span>
+          </button>
           <div id="ollama-dot" class="w-1.5 h-1.5 rounded-full bg-border-color transition-colors"></div>
           <span id="ollama-status-text" class="text-[10px] mono-text text-secondary-text">—</span>
         </div>
@@ -972,22 +964,15 @@
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Local Model (Ollama)</label>
-                <div class="relative" id="cfg-model-wrapper">
-                  <button id="cfg-model-btn" type="button"
-                    class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
-                    <span id="cfg-model-label" class="truncate">—</span>
-                    <div class="flex items-center gap-2 shrink-0 ml-2">
-                      <span id="cfg-ollama-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
-                      <span class="material-symbols-outlined text-secondary-text text-[16px]" id="cfg-model-chevron">expand_more</span>
-                    </div>
-                  </button>
-                  <input type="hidden" id="cfg-ollama-model" value=""/>
-                  <div id="cfg-model-dropdown" class="hidden absolute top-full left-0 right-0 bg-card border border-border-color border-t-0 z-50 max-h-48 overflow-y-auto scrollbar-hide">
-                    <div id="cfg-model-list">
-                      <div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found</div>
-                    </div>
+                <button id="cfg-model-btn" type="button" data-picker="ollama"
+                  class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
+                  <span id="cfg-model-label" class="truncate">—</span>
+                  <div class="flex items-center gap-2 shrink-0 ml-2">
+                    <span id="cfg-ollama-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
+                    <span class="material-symbols-outlined text-secondary-text text-[16px]">expand_more</span>
                   </div>
-                </div>
+                </button>
+                <input type="hidden" id="cfg-ollama-model" value=""/>
               </div>
 
               <!-- LM Studio row -->
@@ -1003,22 +988,15 @@
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">LM Studio Model</label>
-                <div class="relative" id="cfg-lmstudio-model-wrapper">
-                  <button id="cfg-lmstudio-model-btn" type="button"
-                    class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
-                    <span id="cfg-lmstudio-model-label" class="truncate">—</span>
-                    <div class="flex items-center gap-2 shrink-0 ml-2">
-                      <span id="cfg-lmstudio-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
-                      <span class="material-symbols-outlined text-secondary-text text-[16px]" id="cfg-lmstudio-model-chevron">expand_more</span>
-                    </div>
-                  </button>
-                  <input type="hidden" id="cfg-lmstudio-model" value=""/>
-                  <div id="cfg-lmstudio-model-dropdown" class="hidden absolute top-full left-0 right-0 bg-card border border-border-color border-t-0 z-50 max-h-48 overflow-y-auto scrollbar-hide">
-                    <div id="cfg-lmstudio-model-list">
-                      <div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is LM Studio running?</div>
-                    </div>
+                <button id="cfg-lmstudio-model-btn" type="button" data-picker="lmstudio"
+                  class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
+                  <span id="cfg-lmstudio-model-label" class="truncate">—</span>
+                  <div class="flex items-center gap-2 shrink-0 ml-2">
+                    <span id="cfg-lmstudio-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
+                    <span class="material-symbols-outlined text-secondary-text text-[16px]">expand_more</span>
                   </div>
-                </div>
+                </button>
+                <input type="hidden" id="cfg-lmstudio-model" value=""/>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex items-center gap-4 col-span-2">
@@ -2884,9 +2862,81 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
   </div>
 </div>
 
+<!-- ── Model Picker Modal ────────────────────────────────────────────────── -->
+<div id="model-picker-overlay" class="hidden fixed inset-0 bg-black/80 z-[300] flex items-start justify-center pt-[8vh] px-4" style="backdrop-filter:blur(4px);">
+  <div class="bg-[#0a0a0a] border border-border-color w-full max-w-2xl flex flex-col shadow-2xl" style="max-height:80vh;">
+
+    <!-- Header -->
+    <div class="px-6 py-4 border-b border-border-color flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-3">
+        <span class="material-symbols-outlined text-primary text-[16px]">smart_toy</span>
+        <span class="font-display font-bold text-sm uppercase tracking-widest">Select Model</span>
+      </div>
+      <button id="model-picker-close" class="material-symbols-outlined text-secondary-text hover:text-primary transition-colors text-[20px]">close</button>
+    </div>
+
+    <!-- Search -->
+    <div class="px-6 py-3 border-b border-border-color shrink-0">
+      <div class="relative">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] pointer-events-none">search</span>
+        <input id="model-picker-search" type="text" autocomplete="off" placeholder="Search models…"
+          class="w-full bg-background-dark border border-border-color text-slate-100 pl-9 pr-4 py-2 text-xs mono-text focus:border-primary outline-none transition-colors"/>
+      </div>
+    </div>
+
+    <!-- Body: provider sidebar + model list -->
+    <div class="flex flex-1 min-h-0">
+
+      <!-- Provider sidebar -->
+      <div class="w-28 shrink-0 border-r border-border-color flex flex-col py-2 gap-0.5 bg-[#060606]">
+        <button data-picker-provider="all"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent"
+          style="border-left-color:transparent">
+          <span class="material-symbols-outlined text-[18px]">grid_view</span>
+          All
+        </button>
+        <button data-picker-provider="ollama"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent">
+          <span class="material-symbols-outlined text-[18px]">computer</span>
+          Ollama
+          <span id="picker-sidebar-ollama-dot" class="w-1.5 h-1.5 rounded-full bg-border-color mt-0.5"></span>
+        </button>
+        <button data-picker-provider="lmstudio"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent">
+          <span class="material-symbols-outlined text-[18px]">memory</span>
+          LM Studio
+          <span id="picker-sidebar-lmstudio-dot" class="w-1.5 h-1.5 rounded-full bg-border-color mt-0.5"></span>
+        </button>
+        <button data-picker-provider="openrouter"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent">
+          <span class="material-symbols-outlined text-[18px]">cloud</span>
+          OpenRouter
+          <span id="picker-sidebar-or-dot" class="w-1.5 h-1.5 rounded-full bg-border-color mt-0.5"></span>
+        </button>
+      </div>
+
+      <!-- Model list -->
+      <div id="model-picker-list" class="flex-1 overflow-y-auto scrollbar-hide">
+        <div class="px-6 py-8 text-center text-secondary-text text-xs mono-text">Loading models…</div>
+      </div>
+
+    </div>
+
+    <!-- Footer status -->
+    <div class="px-6 py-3 border-t border-border-color shrink-0 flex items-center gap-2">
+      <div id="model-picker-ollama-dot" class="w-2 h-2 rounded-full bg-border-color transition-colors"></div>
+      <span id="model-picker-status-text" class="text-[10px] mono-text text-secondary-text">—</span>
+      <button id="model-picker-refresh" class="ml-auto flex items-center gap-1 text-[10px] mono-text text-secondary-text hover:text-primary transition-colors">
+        <span class="material-symbols-outlined text-[13px]">refresh</span>Refresh
+      </button>
+    </div>
+
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
