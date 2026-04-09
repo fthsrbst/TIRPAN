@@ -988,6 +988,147 @@ class BrainAgent(BaseAgent):
                 item.get("description", ""),
             )
 
+    @staticmethod
+    def _finding_value(payload: dict, *keys: str, default=None):
+        nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        for key in keys:
+            if payload.get(key) not in (None, ""):
+                return payload.get(key)
+            if nested.get(key) not in (None, ""):
+                return nested.get(key)
+        return default
+
+    async def _integrate_finding_from_bus(self, payload: dict) -> None:
+        """Best-effort automatic context integration for child-agent findings."""
+        finding_type = str(self._finding_value(payload, "finding_type", "type", default="")).lower().strip()
+        if not finding_type:
+            return
+
+        if finding_type in ("host", "host_discovered"):
+            ip = str(self._finding_value(payload, "ip", "host_ip", "host", "target_ip", default="")).strip()
+            if not ip:
+                return
+            ports: list[PortInfo] = []
+            for p in (self._finding_value(payload, "ports", default=[]) or []):
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    number = int(p.get("number", p.get("port", p.get("portid", 0))))
+                except Exception:
+                    continue
+                if number <= 0:
+                    continue
+                state = str(p.get("state", "open") or "open").lower()
+                if state and state != "open":
+                    continue
+                ports.append(PortInfo(
+                    number=number,
+                    state="open",
+                    service=str(p.get("service", p.get("name", "")) or ""),
+                    version=str(p.get("version", "") or ""),
+                ))
+
+            os_raw = self._finding_value(payload, "os_type", "os", default="")
+            os_type = str(os_raw.get("name", "") if isinstance(os_raw, dict) else (os_raw or ""))
+            await self.ctx.update_host(HostInfo(
+                ip=ip,
+                hostname=str(self._finding_value(payload, "hostname", default="") or ""),
+                os_type=os_type,
+                ports=ports,
+            ))
+            return
+
+        if finding_type in ("port_scan", "service_scan"):
+            ip = str(self._finding_value(payload, "host", "ip", "host_ip", default="")).strip()
+            if not ip:
+                return
+            ports: list[PortInfo] = []
+            for svc in (self._finding_value(payload, "services", default=[]) or []):
+                if not isinstance(svc, dict):
+                    continue
+                try:
+                    number = int(svc.get("port", svc.get("number", svc.get("portid", 0))))
+                except Exception:
+                    continue
+                if number <= 0:
+                    continue
+                ports.append(PortInfo(
+                    number=number,
+                    state="open",
+                    service=str(svc.get("service", svc.get("name", "")) or ""),
+                    version=str(svc.get("version", "") or ""),
+                ))
+            await self.ctx.update_host(HostInfo(ip=ip, ports=ports))
+            return
+
+        if finding_type == "os_detection":
+            ip = str(self._finding_value(payload, "host", "ip", "host_ip", default="")).strip()
+            if not ip:
+                return
+            os_raw = self._finding_value(payload, "os", default="")
+            os_type = str(os_raw.get("name", "") if isinstance(os_raw, dict) else (os_raw or ""))
+            await self.ctx.update_host(HostInfo(ip=ip, os_type=os_type))
+            return
+
+        if finding_type in ("vulnerability", "vuln", "cve"):
+            await self.ctx.add_vulnerability(VulnInfo(
+                title=str(self._finding_value(payload, "title", "name", "description", default="Potential vulnerability") or "Potential vulnerability"),
+                host_ip=str(self._finding_value(payload, "host_ip", "ip", "host", default="") or ""),
+                port=int(self._finding_value(payload, "port", default=0) or 0),
+                service=str(self._finding_value(payload, "service", default="") or ""),
+                cve_id=str(self._finding_value(payload, "cve_id", "cve", default="") or ""),
+                cvss=float(self._finding_value(payload, "cvss_score", "cvss", "score", default=0.0) or 0.0),
+                exploit_path=str(self._finding_value(payload, "exploit_path", "module", default="") or ""),
+                description=str(self._finding_value(payload, "description", default="") or ""),
+            ))
+            return
+
+        if finding_type in ("session", "session_opened", "shell_opened"):
+            session_raw = self._finding_value(payload, "session_id", "msf_session_id", default="")
+            session_id = str(session_raw) if session_raw not in (None, "") else str(uuid.uuid4())
+            await self.ctx.add_session(SessionInfo(
+                session_id=session_id,
+                host_ip=str(self._finding_value(payload, "host_ip", "ip", "host", default=self.ctx.target) or self.ctx.target),
+                session_type=str(self._finding_value(payload, "session_type", default="shell") or "shell"),
+                privilege_level=int(self._finding_value(payload, "privilege_level", default=0) or 0),
+                username=str(self._finding_value(payload, "username", default="") or ""),
+            ))
+            return
+
+        if finding_type in ("credential", "credential_found"):
+            hash_value = str(self._finding_value(payload, "hash", default="") or "")
+            cred_type = str(self._finding_value(payload, "credential_type", default=("hash" if hash_value else "plaintext")) or "plaintext")
+            await self.ctx.add_credential(HarvestedCredential(
+                source_host=str(self._finding_value(payload, "source_host", "host_ip", "ip", default=self.ctx.target) or self.ctx.target),
+                username=str(self._finding_value(payload, "username", default="") or ""),
+                password=str(self._finding_value(payload, "password", default="") or ""),
+                hash=hash_value,
+                credential_type=cred_type,
+                service=str(self._finding_value(payload, "service", default="") or ""),
+            ))
+            return
+
+        if finding_type in ("flag", "loot", "file_found"):
+            loot_type = "flag" if finding_type == "flag" else ("file" if finding_type == "file_found" else "data")
+            await self.ctx.add_loot(LootItem(
+                source_host=str(self._finding_value(payload, "host_ip", "ip", "host", default=self.ctx.target) or self.ctx.target),
+                loot_type=loot_type,
+                description=str(self._finding_value(payload, "description", "path", default=finding_type) or finding_type),
+                file_path=str(self._finding_value(payload, "path", "file_path", default="") or ""),
+                content=str(self._finding_value(payload, "content", default="") or ""),
+            ))
+            return
+
+        if finding_type == "lateral_edge":
+            from_ip = str(self._finding_value(payload, "from_ip", "source_ip", default="") or "")
+            to_ip = str(self._finding_value(payload, "to_ip", "host_ip", "ip", default="") or "")
+            if from_ip and to_ip:
+                await self.ctx.add_lateral_edge(
+                    from_ip,
+                    to_ip,
+                    str(self._finding_value(payload, "description", default="") or ""),
+                )
+
     # ── ask_operator ──────────────────────────────────────────────────────────
 
     async def _ask_operator(self, params: dict) -> dict:
@@ -1039,18 +1180,29 @@ class BrainAgent(BaseAgent):
         """
         if msg.msg_type == MessageType.FINDING:
             # Queue finding for integration into next Brain iteration
-            finding_type = msg.payload.get("finding_type") or msg.payload.get("type", "?")
+            payload = msg.payload if isinstance(msg.payload, dict) else {}
+            finding_type = payload.get("finding_type") or payload.get("type", "?")
             dbg.bus_finding(msg.sender_id, finding_type,
-                            str(msg.payload.get("data", msg.payload))[:200])
-            self._add_finding(msg.payload)
+                            str(payload.get("data", payload))[:200])
+
+            # Keep findings in the Brain result list, but avoid re-emitting
+            # another "finding" UI event (specialized agents already emitted it).
+            self._findings.append(payload)
+
+            # Integrate into canonical MissionContext immediately.
+            try:
+                await self._integrate_finding_from_bus(payload)
+            except Exception as exc:
+                logger.debug("BrainAgent: finding integration failed: %s", exc)
+
             # Track shell sessions and broadcast to UI
             if finding_type in ("session", "session_opened", "shell_opened"):
-                await self._register_shell(msg.payload)
+                await self._register_shell(payload)
                 # Cancel other exploit agents for the same target — one shell is enough.
                 # Exploit agents running reverse/bind handlers will otherwise hang until timeout.
                 if not self._mission_done:
-                    _pd = msg.payload.get("data") if isinstance(msg.payload.get("data"), dict) else {}
-                    host_ip_for_cancel = msg.payload.get("host_ip") or _pd.get("host_ip", "")
+                    _pd = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                    host_ip_for_cancel = payload.get("host_ip") or _pd.get("host_ip", "")
                     for aid, task in list(self._child_tasks.items()):
                         if task.done():
                             continue
@@ -1067,8 +1219,8 @@ class BrainAgent(BaseAgent):
                 # This runs even while Brain is blocked in wait_for_agents, so the shell
                 # doesn't sit idle waiting for the whole batch to finish.
                 if not self._mission_done and self.ctx.allow_post_exploitation:
-                    _nested = msg.payload.get("data") if isinstance(msg.payload.get("data"), dict) else {}
-                    host_ip = msg.payload.get("host_ip") or _nested.get("host_ip", "")
+                    _nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                    host_ip = payload.get("host_ip") or _nested.get("host_ip", "")
                     # Only spawn if no post_exploit agent is already active for this target
                     already_running = any(
                         atype == "post_exploit" and tgt == host_ip
@@ -1078,7 +1230,7 @@ class BrainAgent(BaseAgent):
                         )
                     )
                     if not already_running and host_ip:
-                        shell_key = msg.payload.get("shell_key") or _nested.get("shell_key", "")
+                        shell_key = payload.get("shell_key") or _nested.get("shell_key", "")
                         obj_str = "; ".join(self.ctx.objectives) if self.ctx.objectives else ""
                         task = f"post_exploitation | objectives: {obj_str}" if obj_str else "post_exploitation"
                         opts: dict = {}
@@ -1094,10 +1246,10 @@ class BrainAgent(BaseAgent):
             # Auto-stop: flag finding → mission achieved, cancel all children immediately
             if finding_type == "flag" and not self._mission_done:
                 content = (
-                    msg.payload.get("content")
-                    or msg.payload.get("data", {}).get("content", "")
-                    if isinstance(msg.payload.get("data"), dict)
-                    else msg.payload.get("content", "")
+                    payload.get("content")
+                    or payload.get("data", {}).get("content", "")
+                    if isinstance(payload.get("data"), dict)
+                    else payload.get("content", "")
                 )
                 self._mission_done = True
                 self._cancel_all_children("flag_found")
