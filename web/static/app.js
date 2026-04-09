@@ -63,6 +63,36 @@ let previousView = 'agent';
 
 const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission', 'outputs'];
 
+function _agCurrentSessionPrefId() {
+    return viewingSessionId || activeMissionId || '';
+}
+
+function _agViewStorageKey(sessionId) {
+    const sid = String(sessionId || '').trim().toLowerCase();
+    return sid ? `tirpan_ag_view:${sid}` : 'agView';
+}
+
+function _agLoadSavedView(sessionId) {
+    try {
+        const perSession = localStorage.getItem(_agViewStorageKey(sessionId));
+        if (perSession === 'graph' || perSession === 'feed' || perSession === 'timeline') return perSession;
+        const fallback = localStorage.getItem('agView');
+        if (fallback === 'graph' || fallback === 'feed' || fallback === 'timeline') return fallback;
+    } catch (e) {
+        // no-op
+    }
+    return 'feed';
+}
+
+function _agSaveViewPreference(view, sessionId) {
+    try {
+        localStorage.setItem('agView', view);
+        localStorage.setItem(_agViewStorageKey(sessionId), view);
+    } catch (e) {
+        // no-op
+    }
+}
+
 function switchView(viewName) {
     if (!viewName) return;
     if (currentView !== 'intel') previousView = currentView;
@@ -80,11 +110,7 @@ function switchView(viewName) {
 
     // Restore saved agent sub-view (feed/graph/timeline) when switching to agent
     if (viewName === 'agent') {
-        try {
-            const saved = localStorage.getItem('agView');
-            if (saved === 'graph' || saved === 'feed' || saved === 'timeline') switchAgentView(saved);
-            else switchAgentView('feed');
-        } catch(e) { switchAgentView('feed'); }
+        switchAgentView(_agLoadSavedView(_agCurrentSessionPrefId()));
     }
 
     // Refresh local model lists whenever the config view is opened
@@ -3699,14 +3725,15 @@ async function refreshMissionStats(sessionId) {
 
         // Count individual open ports — merge hosts first to deduplicate across multiple scans
         const _mergedForCount = _extractHostsFromScanResults(data.scan_results || []);
-        const livePorts = _mergedForCount.flatMap(h => h.ports.filter(p => p.state === 'open')).length;
+        const livePorts = _countOpenPortsFromHosts(_mergedForCount);
+        const statPorts = _sessionOpenPortCount(data, _mergedForCount);
         const liveHosts = _mergedForCount.length;
         const liveVulns = (data.vulnerabilities || []).length;
 
         // Use live counts; fall back to V2 in-memory counters; fall back to DB summary fields
         setStatValue('stat-vulns', liveVulns || _v2Vulns  || data.vulns_found || '—');
         setStatValue('stat-hosts', liveHosts || _v2Hosts.size || data.hosts_found || '—');
-        setStatValue('stat-ports', livePorts || _v2Ports  || data.ports_found || '—');
+        setStatValue('stat-ports', statPorts || _v2Ports || livePorts || data.ports_found || '—');
 
         // Update network panel with live scan data
         updateNetworkPanelFromSession(data);
@@ -3749,6 +3776,7 @@ function resetMissionStats() {
     setStatValue('stat-shells', '0');
     // Reset V2 live finding counters
     _v2Hosts.clear();
+    _v2OpenPortKeys.clear();
     _v2Vulns  = 0;
     _v2Ports  = 0;
     _v2Shells = 0;
@@ -3756,17 +3784,49 @@ function resetMissionStats() {
 
 // ── V2 live finding counters (updated via "finding" WebSocket events) ──────────
 const _v2Hosts = new Set();  // unique IPs
+const _v2OpenPortKeys = new Set();
 let _v2Vulns  = 0;
 let _v2Ports  = 0;
 let _v2Shells = 0;
 
+function _rememberV2OpenPorts(hostIp, ports) {
+    const ip = String(hostIp || '').trim();
+    if (!ip || !Array.isArray(ports)) return;
+    ports.forEach((p) => {
+        const state = String((p && p.state) || 'open').toLowerCase();
+        if (state && state !== 'open') return;
+        const num = Number((p && (p.number ?? p.port)) || 0);
+        if (!Number.isFinite(num) || num <= 0) return;
+        const proto = String((p && p.protocol) || 'tcp').toLowerCase();
+        _v2OpenPortKeys.add(`${ip}:${num}/${proto}`);
+    });
+    _v2Ports = Math.max(_v2Ports, _v2OpenPortKeys.size);
+}
+
 function _handleV2Finding(data) {
     const type = data.type || '';
     if (type === 'host') {
-        if (data.ip) _v2Hosts.add(data.ip);
-        if (Array.isArray(data.ports)) _v2Ports += data.ports.filter(p => p.state === 'open').length;
+        if (data.ip) {
+            _v2Hosts.add(data.ip);
+            _rememberV2OpenPorts(data.ip, data.ports || []);
+        }
         setStatValue('stat-hosts', _v2Hosts.size || '—');
         setStatValue('stat-ports', _v2Ports   || '—');
+    } else if (type === 'port_scan') {
+        const hostIp = data.host || data.ip || data.host_ip || '';
+        if (hostIp) _v2Hosts.add(hostIp);
+
+        if (Array.isArray(data.services) && data.services.length > 0) {
+            _rememberV2OpenPorts(hostIp, data.services);
+        } else {
+            const hinted = Number(data.open_ports || 0);
+            if (Number.isFinite(hinted) && hinted > 0) {
+                _v2Ports = Math.max(_v2Ports, hinted);
+            }
+        }
+
+        setStatValue('stat-hosts', _v2Hosts.size || '—');
+        setStatValue('stat-ports', _v2Ports || '—');
     } else if (type === 'vulnerability') {
         _v2Vulns++;
         setStatValue('stat-vulns', _v2Vulns || '—');
@@ -4114,6 +4174,29 @@ function _mergeHosts(allHosts) {
     return result;
 }
 
+function _countOpenPortsFromHosts(hosts) {
+    const rows = Array.isArray(hosts) ? hosts : [];
+    const seen = new Set();
+    rows.forEach((host) => {
+        const ip = String((host && host.ip) || '').trim();
+        (host && Array.isArray(host.ports) ? host.ports : []).forEach((port) => {
+            const state = String((port && port.state) || 'open').toLowerCase();
+            if (state && state !== 'open') return;
+            const num = Number((port && (port.number ?? port.port)) || 0);
+            if (!Number.isFinite(num) || num <= 0) return;
+            const proto = String((port && port.protocol) || 'tcp').toLowerCase();
+            seen.add(`${ip}:${num}/${proto}`);
+        });
+    });
+    return seen.size;
+}
+
+function _sessionOpenPortCount(data, mergedHosts) {
+    const summary = Number((data && data.ports_found) || 0);
+    if (Number.isFinite(summary) && summary > 0) return summary;
+    return _countOpenPortsFromHosts(mergedHosts);
+}
+
 function updateNetworkPanelFromSession(data) {
     const scanResults    = data.scan_results    || [];
     const exploitResults = data.exploit_results || [];
@@ -4123,8 +4206,7 @@ function updateNetworkPanelFromSession(data) {
     _networkVulnCount    = vulnCount;
 
     const allHosts  = _extractHostsFromScanResults(scanResults);
-    const openPorts = allHosts.flatMap(h => h.ports.filter(p => p.state === 'open'));
-    const portCount = openPorts.length;
+    const portCount = _sessionOpenPortCount(data, allHosts);
 
     _topoLastHosts    = allHosts;
     _topoLastExploits = exploitResults;
@@ -7360,11 +7442,10 @@ async function switchToSession(sessionId) {
 
         // Compute stats — prefer DB summary fields, fall back to counting attached arrays
         // (DB summary may be 0 if the session was stopped before the final update)
-        const hostsFound = session.hosts_found ||
-            new Set((session.scan_results || []).flatMap(r => (r.hosts || []).map(h => h.ip))).size;
+        const mergedHosts = _extractHostsFromScanResults(session.scan_results || []);
+        const hostsFound = Number(session.hosts_found || 0) || mergedHosts.length;
         const vulnsFound = session.vulns_found || (session.vulnerabilities || []).length;
-        const portsFound = session.ports_found ||
-            (session.scan_results || []).flatMap(r => (r.hosts || []).flatMap(h => h.ports || [])).length;
+        const portsFound = _sessionOpenPortCount(session, mergedHosts);
 
         setStatValue('stat-vulns', vulnsFound || '—');
         setStatValue('stat-hosts', hostsFound || '—');
@@ -10057,7 +10138,7 @@ function _agScheduleRender() {
 function switchAgentView(v) {
     if (v !== 'feed' && v !== 'graph' && v !== 'timeline') v = 'feed';
     _agView = v;
-    try { localStorage.setItem('agView', v); } catch(e) {}
+    _agSaveViewPreference(v, _agCurrentSessionPrefId());
     const feedArea  = document.getElementById('agent-scroll-area');
     const minimap   = document.getElementById('ag-minimap-col');
     const graphView = document.getElementById('ag-graph-view');

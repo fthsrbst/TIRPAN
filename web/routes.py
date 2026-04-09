@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from config import SafetyConfig, settings
+from core.session_data_recovery import recover_session_findings_from_events
 from core.session_orchestration import (
     run_agent_task as _run_agent_task_service,
     run_v2_agent_task as _run_v2_agent_task_service,
@@ -46,6 +47,11 @@ _vuln_repo = VulnerabilityRepository()
 _exploit_repo = ExploitResultRepository()
 _event_repo = SessionEventRepository()
 
+_REPORT_CACHE_TTL_SECONDS = 900.0
+_REPORT_CACHE_MAX_ITEMS = 48
+_REPORT_CACHE: dict[tuple[str, str, str], tuple[float, str | bytes]] = {}
+_REPORT_RENDER_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+
 _BRANDING_MAX_BYTES = 5 * 1024 * 1024
 _BRANDING_ALLOWED_EXTS = {
     ".png": "image/png",
@@ -54,6 +60,62 @@ _BRANDING_ALLOWED_EXTS = {
     ".webp": "image/webp",
 }
 _BRANDING_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _report_cache_version(session: dict) -> str:
+    return "|".join(
+        [
+            str(session.get("updated_at") or 0),
+            str(session.get("finished_at") or 0),
+            str(session.get("status") or ""),
+            str(session.get("hosts_found") or 0),
+            str(session.get("ports_found") or 0),
+            str(session.get("vulns_found") or 0),
+            str(session.get("exploits_run") or 0),
+        ]
+    )
+
+
+def _report_cache_get(sid: str, fmt: str, version: str) -> str | bytes | None:
+    now = time.time()
+    key = (sid, fmt, version)
+    entry = _REPORT_CACHE.get(key)
+    if not entry:
+        return None
+    cached_at, payload = entry
+    if (now - cached_at) > _REPORT_CACHE_TTL_SECONDS:
+        _REPORT_CACHE.pop(key, None)
+        return None
+    return payload
+
+
+def _report_cache_put(sid: str, fmt: str, version: str, payload: str | bytes) -> None:
+    now = time.time()
+    _REPORT_CACHE[(sid, fmt, version)] = (now, payload)
+
+    # Remove stale entries first.
+    stale = [
+        key for key, (cached_at, _) in _REPORT_CACHE.items()
+        if (now - cached_at) > _REPORT_CACHE_TTL_SECONDS
+    ]
+    for key in stale:
+        _REPORT_CACHE.pop(key, None)
+
+    # Cap cache size.
+    if len(_REPORT_CACHE) > _REPORT_CACHE_MAX_ITEMS:
+        ordered = sorted(_REPORT_CACHE.items(), key=lambda item: item[1][0])
+        overflow = len(_REPORT_CACHE) - _REPORT_CACHE_MAX_ITEMS
+        for key, _ in ordered[:overflow]:
+            _REPORT_CACHE.pop(key, None)
+
+
+def _report_lock(sid: str, fmt: str) -> asyncio.Lock:
+    key = (sid, fmt)
+    lock = _REPORT_RENDER_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _REPORT_RENDER_LOCKS[key] = lock
+    return lock
 
 
 def _branding_dir() -> Path:
@@ -1346,13 +1408,45 @@ async def get_session(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    from web import session_manager
+    is_running = session_manager.is_running(sid)
+
     # Attach findings
     scan_results = await _scan_repo.get_for_session(sid)
     vulns = await _vuln_repo.get_for_session(sid)
     exploits = await _exploit_repo.get_for_session(sid)
 
-    from web import session_manager
-    session["is_running"] = session_manager.is_running(sid)
+    # Historical sessions can end with empty normalized tables even though
+    # event logs contain real findings. Recover once at read-time.
+    needs_recovery = (not is_running) and (
+        not scan_results
+        or not vulns
+        or not exploits
+        or int(session.get("hosts_found") or 0) == 0
+        or int(session.get("ports_found") or 0) == 0
+        or int(session.get("vulns_found") or 0) == 0
+    )
+
+    if needs_recovery:
+        try:
+            recovered = await recover_session_findings_from_events(
+                session_id=sid,
+                target=str(session.get("target") or ""),
+                session_repo=_session_repo,
+                scan_repo=_scan_repo,
+                vuln_repo=_vuln_repo,
+                exploit_repo=_exploit_repo,
+                event_repo=_event_repo,
+                persist=True,
+            )
+            scan_results = recovered.get("scan_results", scan_results)
+            vulns = recovered.get("vulnerabilities", vulns)
+            exploits = recovered.get("exploit_results", exploits)
+            session = await _session_repo.get(sid) or session
+        except Exception as exc:
+            logger.warning("Session recovery failed for %s: %s", sid, exc)
+
+    session["is_running"] = is_running
     session["scan_results"] = scan_results
     session["vulnerabilities"] = vulns
     session["exploit_results"] = exploits
@@ -1642,11 +1736,24 @@ async def get_report_html(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    version = _report_cache_version(session)
+    cached_html = _report_cache_get(sid, "html", version)
+    if isinstance(cached_html, str):
+        return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+
     try:
         from reporting.report_generator import ReportGenerator
-        generator = ReportGenerator()
-        html = await generator.generate_html(sid)
-        return HTMLResponse(content=html)
+
+        lock = _report_lock(sid, "html")
+        async with lock:
+            cached_html = _report_cache_get(sid, "html", version)
+            if isinstance(cached_html, str):
+                return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+
+            generator = ReportGenerator()
+            html = await generator.generate_html(sid)
+            _report_cache_put(sid, "html", version, html)
+            return HTMLResponse(content=html, headers={"X-Report-Cache": "MISS"})
     except Exception as exc:
         logger.error("Report HTML generation failed: %s", exc)
         raise HTTPException(500, f"Report generation failed: {exc}")
@@ -1659,17 +1766,50 @@ async def get_report_pdf(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    try:
-        from reporting.report_generator import ReportGenerator
-        generator = ReportGenerator()
-        pdf_bytes = await generator.generate_pdf(sid)
+    version = _report_cache_version(session)
+    cached_pdf = _report_cache_get(sid, "pdf", version)
+    if isinstance(cached_pdf, (bytes, bytearray)):
         return Response(
-            content=pdf_bytes,
+            content=bytes(cached_pdf),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"'
+                "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                "X-Report-Cache": "HIT",
             },
         )
+
+    try:
+        from reporting.report_generator import ReportGenerator
+
+        lock = _report_lock(sid, "pdf")
+        async with lock:
+            cached_pdf = _report_cache_get(sid, "pdf", version)
+            if isinstance(cached_pdf, (bytes, bytearray)):
+                return Response(
+                    content=bytes(cached_pdf),
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                        "X-Report-Cache": "HIT",
+                    },
+                )
+
+            generator = ReportGenerator()
+            cached_html = _report_cache_get(sid, "html", version)
+            if isinstance(cached_html, str):
+                pdf_bytes = await generator.generate_pdf_from_html(cached_html)
+            else:
+                pdf_bytes = await generator.generate_pdf(sid)
+
+            _report_cache_put(sid, "pdf", version, pdf_bytes)
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                    "X-Report-Cache": "MISS",
+                },
+            )
     except Exception as exc:
         logger.error("Report PDF generation failed: %s", exc)
         raise HTTPException(500, f"PDF generation failed: {exc}")
