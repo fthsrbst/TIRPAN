@@ -139,6 +139,27 @@ async def lifespan(app: FastAPI):
     if _cloud_model:
         settings.llm.cloud_model = _cloud_model
 
+    # Restore LM Studio URL/model from DB (env default is 127.0.0.1 which breaks WSL)
+    _lms_url = _all_settings.get("lmstudio_base_url", "")
+    if _lms_url:
+        settings.lmstudio.base_url = _lms_url
+    _lms_model = _all_settings.get("lmstudio_model", "")
+    if _lms_model:
+        settings.lmstudio.model = _lms_model
+
+    # Restore Ollama URL from DB if user changed it from default
+    _ollama_url = _all_settings.get("ollama_base_url", "")
+    if _ollama_url:
+        settings.ollama.base_url = _ollama_url
+    _ollama_model = _all_settings.get("ollama_model", "")
+    if _ollama_model:
+        settings.ollama.model = _ollama_model
+
+    # Restore active LLM provider
+    _provider = _all_settings.get("active_provider", "")
+    if _provider in ("ollama", "lmstudio", "openrouter", "anthropic"):
+        settings.llm.provider = _provider
+
     _msf_pw = _load_secret_sync("msf_password")
     if _msf_pw:
         settings.msf.password = _msf_pw

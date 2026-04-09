@@ -54,6 +54,9 @@ from core.playbook import get_playbook
 from core.training_data import get_collector as _get_training_collector
 import core.debug_logger as dbg
 from core.session_tracer import get_tracer as _get_tracer
+from database.repositories import AgentInstanceRepository as _AgentInstanceRepo
+
+_agent_instance_repo = _AgentInstanceRepo()
 from core.mission_context import (
     AgentStatus,
     AttackEdge,
@@ -591,6 +594,18 @@ class BrainAgent(BaseAgent):
         dbg.agent_spawn(self.agent_id, agent_id, agent_type, target)
         logger.info("BrainAgent: spawned %s (id=%s) for %s", agent_type, agent_id, target)
 
+        # Persist to DB so the Agent page can display this agent
+        if self.session_id:
+            try:
+                await _agent_instance_repo.create(
+                    session_id=self.session_id,
+                    agent_id=agent_id,
+                    agent_type=agent_type,
+                    target=target,
+                )
+            except Exception:
+                pass  # non-critical — don't break spawn if DB write fails
+
         spawn_result = {
             "success": True,
             "status": "spawned",
@@ -682,6 +697,11 @@ class BrainAgent(BaseAgent):
         await self.ctx.update_agent_status(AgentStatus(
             agent_id=agent_id, agent_type=agent_type, status="running"
         ))
+        if self.session_id:
+            try:
+                await _agent_instance_repo.update_status(agent_id=agent_id, status="running")
+            except Exception:
+                pass
         try:
             result: AgentResult = await agent.run()
         except Exception as exc:
@@ -712,11 +732,26 @@ class BrainAgent(BaseAgent):
         ))
         dbg.agent_done(agent_id, agent_type, result.status,
                        len(result.findings), result.iterations)
+        final_status = "done" if result.status in ("success", "partial") else "failed"
         await self.ctx.update_agent_status(AgentStatus(
             agent_id=agent_id,
             agent_type=agent_type,
-            status="done" if result.status in ("success", "partial") else "failed",
+            status=final_status,
         ))
+
+        # Update DB record so the Agent page reflects the final state
+        if self.session_id:
+            try:
+                await _agent_instance_repo.update_status(
+                    agent_id=agent_id,
+                    status=final_status,
+                    iterations=result.iterations,
+                    findings=result.findings,
+                    error=result.error or "",
+                )
+            except Exception:
+                pass  # non-critical
+
         return result
 
     # ── wait_for_agents ──────────────────────────────────────────────────────

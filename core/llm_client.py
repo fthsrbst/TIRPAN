@@ -53,11 +53,39 @@ class LLMClient(ABC):
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
+def _resolve_local_url(url: str) -> str:
+    """On WSL2, try to replace localhost/127.0.0.1 with the Windows host IP.
+
+    WSL2 cannot reach Windows services at 127.0.0.1 — the host is reachable
+    via the nameserver IP found in /etc/resolv.conf.
+    """
+    import os
+    try:
+        if not os.path.exists("/proc/version"):
+            return url
+        with open("/proc/version") as f:
+            if "microsoft" not in f.read().lower():
+                return url
+        # We are in WSL2 — check if the URL targets localhost
+        if not any(h in url for h in ("127.0.0.1", "localhost")):
+            return url
+        with open("/etc/resolv.conf") as f:
+            for line in f:
+                if line.startswith("nameserver"):
+                    host_ip = line.split()[1].strip()
+                    return url.replace("127.0.0.1", host_ip).replace("localhost", host_ip)
+    except Exception:
+        pass
+    return url
+
+
 class OllamaClient(LLMClient):
     """Ollama local API — http://localhost:11434"""
 
     def __init__(self):
-        self.base_url = settings.ollama.base_url.rstrip("/")
+        base = settings.ollama.base_url.rstrip("/")
+        self.base_url = _resolve_local_url(base)
+        self._original_base_url = base
         self.model = settings.ollama.model
         self.timeout = settings.ollama.timeout
 
