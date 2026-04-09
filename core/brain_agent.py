@@ -128,6 +128,8 @@ class BrainAgent(BaseAgent):
         message_bus: AgentMessageBus,
         # Optional dict of agent-type → constructor kwargs overrides
         agent_constructor_kwargs: dict[str, dict] | None = None,
+        # Per-agent model overrides: agent_type → {provider, model}
+        agent_models: dict | None = None,
         **base_kwargs,
     ):
         # Force agent_type = "brain"
@@ -137,6 +139,7 @@ class BrainAgent(BaseAgent):
         self.ctx = mission_context
         self.bus = message_bus
         self._agent_ctor_kwargs = agent_constructor_kwargs or {}
+        self._agent_models: dict = agent_models or {}
 
         # Track spawned child agents: agent_id → asyncio.Task
         self._child_tasks: dict[str, asyncio.Task] = {}
@@ -534,6 +537,32 @@ class BrainAgent(BaseAgent):
         }
         mem_defaults = _AGENT_MEMORY.get(agent_type, {"memory_max_tokens": 16384, "memory_max_messages": 30})
 
+        # Resolve per-agent LLM — use override if configured, else inherit brain's LLM
+        child_llm = self._llm
+        _model_cfg = None
+        # Map agent_type to the model-config key used in agent_models dict
+        _AGENT_TYPE_TO_MODEL_KEY = {
+            "scanner":     "scanner",
+            "exploit":     "scanner",
+            "webapp":      "scanner",
+            "post_exploit": "postexploit",
+            "lateral":     "osint",
+            "osint":       "osint",
+            "reporting":   "reporting",
+        }
+        _model_key = _AGENT_TYPE_TO_MODEL_KEY.get(agent_type, agent_type)
+        # Fall back to direct key lookup if the mapped key is absent
+        if _model_key not in self._agent_models and agent_type in self._agent_models:
+            _model_key = agent_type
+        if _model_key in self._agent_models:
+            _model_cfg = self._agent_models[_model_key]
+        if _model_cfg and (_model_cfg.get("provider") or _model_cfg.get("model")):
+            from core.llm_client import make_agent_llm
+            child_llm = make_agent_llm(
+                _model_cfg.get("provider", ""),
+                _model_cfg.get("model", ""),
+            )
+
         # Build constructor kwargs for the child agent
         child_kwargs = {
             "agent_type":         agent_type,
@@ -541,7 +570,7 @@ class BrainAgent(BaseAgent):
             "mission_id":         self.mission_id,
             "tool_registry":      self._registry,
             "safety":             self._safety,
-            "llm":                self._llm,
+            "llm":                child_llm,
             "progress_callback":  self._progress_cb,
             "audit_repo":         self._audit_repo,
             "session_id":         self.session_id,
@@ -1529,12 +1558,21 @@ def make_brain(
     progress_callback=None,
     audit_repo=None,
     max_iterations: int = 100,
+    agent_models: dict | None = None,
 ) -> "BrainAgent":
     """
     Convenience factory for creating a BrainAgent with all required deps.
 
     Used by web/routes.py start_session (mode=v2_auto).
     """
+    # Apply brain's own model override if configured
+    brain_llm = None
+    if agent_models and agent_models.get("brain"):
+        cfg = agent_models["brain"]
+        if cfg.get("provider") or cfg.get("model"):
+            from core.llm_client import make_agent_llm
+            brain_llm = make_agent_llm(cfg.get("provider", ""), cfg.get("model", ""))
+
     return BrainAgent(
         mission_context=mission_ctx,
         message_bus=message_bus,
@@ -1543,9 +1581,11 @@ def make_brain(
         session_id=session_id,
         tool_registry=tool_registry,
         safety=safety,
+        llm=brain_llm,
         progress_callback=progress_callback,
         audit_repo=audit_repo,
         max_iterations=max_iterations,
+        agent_models=agent_models or {},
         # Brain needs more memory than child agents — it coordinates the
         # entire mission and must retain findings, agent results, and
         # strategic context across many iterations.

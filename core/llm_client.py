@@ -167,6 +167,10 @@ class OpenRouterClient(LLMClient):
     @property
     def _current_model(self) -> str:
         """Always read the live model from settings (may be updated at runtime)."""
+        # _forced_model is set by make_agent_llm() for per-agent model overrides
+        forced = getattr(self, "_forced_model", None)
+        if forced:
+            return forced
         return settings.llm.cloud_model or self.model
 
     def _has_valid_key(self) -> bool:
@@ -330,6 +334,10 @@ class LMStudioClient(LLMClient):
 
     @property
     def _model(self) -> str:
+        # _model_override is set by make_agent_llm() for per-agent overrides
+        override = getattr(self, "_model_override", None)
+        if override:
+            return override
         return settings.lmstudio.model or "local-model"
 
     @property
@@ -404,6 +412,14 @@ class LLMRouter:
         self._lmstudio = LMStudioClient()
 
     def _primary(self) -> LLMClient:
+        # _forced_provider is set by make_agent_llm() for per-agent overrides
+        forced = getattr(self, "_forced_provider", None)
+        if forced == "openrouter":
+            return self._openrouter
+        if forced == "lmstudio":
+            return self._lmstudio
+        if forced == "ollama":
+            return self._ollama
         if settings.llm.provider == "openrouter":
             return self._openrouter
         if settings.llm.provider == "lmstudio":
@@ -468,6 +484,26 @@ class LLMRouter:
     def parse_json(response: str) -> dict:
         """Bounded parser wrapper for extracting tool-call JSON from model output."""
         return parse_llm_json(response)
+
+def make_agent_llm(provider: str, model: str) -> LLMRouter:
+    """
+    Create a new LLMRouter locked to a specific provider and model.
+
+    Used for per-agent model overrides (e.g. brain uses OpenRouter claude-opus,
+    while reporting uses Ollama mistral:7b).
+    """
+    router = LLMRouter()
+    if provider and provider != "inherit":
+        router._forced_provider = provider
+    if model:
+        if provider == "openrouter":
+            router._openrouter._forced_model = model
+        elif provider == "lmstudio":
+            router._lmstudio._model_override = model
+        else:  # ollama
+            router._ollama.model = model
+    return router
+
 
 # Singleton
 llm_router = LLMRouter()

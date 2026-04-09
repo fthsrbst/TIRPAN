@@ -1,0 +1,14 @@
+[
+  {
+    "filename": "nmap_192.168.56.101_service.xml",
+    "tool": "nmap",
+    "size_bytes": 35300,
+    "created_at": "2026-04-09T12:34:11.391407+00:00"
+  },
+  {
+    "filename": "nmap_192.168.56.101_os.xml",
+    "tool": "nmap",
+    "size_bytes": 10501,
+    "created_at": "2026-04-09T12:35:25.249069+00:00"
+  }
+]

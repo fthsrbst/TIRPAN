@@ -925,6 +925,13 @@ class StartSessionRequest(BaseModel):
     provider: str = ""
     model: str = ""
 
+    # Execution control
+    confirm_every_step: bool = False
+
+    # Per-agent model overrides — keyed by agent_type
+    # e.g. {"brain": {"provider": "openrouter", "model": "..."}, "reporting": {...}}
+    agent_models: dict = {}
+
     # Profile load
     profile_id: Optional[str] = None
 
@@ -1164,6 +1171,8 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         port_range=body.port_range,
         scan_type=body.scan_type,
         nse_categories=body.nse_categories,
+        confirm_every_step=body.confirm_every_step,
+        agent_models=body.agent_models or {},
     )
 
     # Set global speed profile for this session
@@ -1249,6 +1258,18 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             mission_ctx.objectives = list(mission.objectives)
 
         bus = AgentMessageBus()
+        # Merge per-mission agent_models with global defaults from DB settings
+        _agent_models = dict(mission.agent_models or {})
+        if not _agent_models:
+            try:
+                import json as _json_am
+                _saved_am = await database.get_all_settings()
+                _global_am_raw = _saved_am.get("agent_models", "{}")
+                _global_am = _json_am.loads(_global_am_raw) if isinstance(_global_am_raw, str) else (_global_am_raw or {})
+                _agent_models = _global_am
+            except Exception:
+                pass
+
         agent = make_brain(
             target=body.target.strip(),
             session_id=session_id,
@@ -1259,6 +1280,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             safety=guard,
             progress_callback=progress_cb,
             audit_repo=_audit_repo,
+            agent_models=_agent_models or None,
         )
         # Attach bus and ctx so the /mission-context endpoint can read them
         agent._mission_ctx = mission_ctx

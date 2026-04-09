@@ -497,6 +497,21 @@ class PentestAgent(BaseAgent):
                     self._state = AgentState.REASONING
                     continue
 
+            # ── Step-by-step gate (confirm every tool call) ───────────────
+            if (
+                self._ctx.mission
+                and self._ctx.mission.confirm_every_step
+                and action_dict.get("action") not in ("done", "chat_reply", "thinking")
+            ):
+                approved = await self._ask_user_approval(action_dict)
+                if not approved:
+                    self.memory.add_user(
+                        "User declined this action. "
+                        "Consider an alternative approach or ask for guidance."
+                    )
+                    self._state = AgentState.REASONING
+                    continue
+
             # ── Parallel tool execution ───────────────────────────────────
             if action_dict.get("action") == "parallel_tools":
                 tool_calls = action_dict.get("tools") or []
