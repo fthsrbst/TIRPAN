@@ -4,13 +4,16 @@ REST API routes.
 
 import asyncio
 import logging
+import re
 import subprocess
 import time
+import uuid
+from pathlib import Path
 from typing import Optional
 
 import httpx
 import psutil
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
@@ -42,6 +45,48 @@ _scan_repo = ScanResultRepository()
 _vuln_repo = VulnerabilityRepository()
 _exploit_repo = ExploitResultRepository()
 _event_repo = SessionEventRepository()
+
+_BRANDING_MAX_BYTES = 5 * 1024 * 1024
+_BRANDING_ALLOWED_EXTS = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+_BRANDING_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _branding_dir() -> Path:
+    path = Path(database.DB_PATH).parent / "branding"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _branding_safe_stem(filename: str) -> str:
+    stem = Path(filename or "logo").stem
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_")
+    return (stem or "logo")[:48]
+
+
+def _detect_branding_ext(content: bytes) -> str | None:
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _delete_branding_file(file_name: str) -> None:
+    if not file_name or not _BRANDING_FILE_RE.fullmatch(file_name):
+        return
+    base = _branding_dir().resolve()
+    candidate = (base / file_name).resolve()
+    if base not in candidate.parents:
+        return
+    if candidate.exists() and candidate.is_file():
+        candidate.unlink(missing_ok=True)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -225,6 +270,114 @@ async def get_settings():
 async def set_setting(key: str, body: dict):
     await database.set_setting(key, body.get("value"))
     return {"ok": True}
+
+
+class BrandingConfigRequest(BaseModel):
+    company_name: str = ""
+
+
+@router.get("/config/branding")
+async def get_branding_config():
+    saved = await database.get_all_settings()
+    company_name = str(saved.get("branding_company_name", "") or "").strip()
+    logo_file = str(saved.get("branding_logo_file", "") or "").strip()
+    if logo_file and not _BRANDING_FILE_RE.fullmatch(logo_file):
+        logo_file = ""
+    logo_url = f"/api/v1/branding/{logo_file}" if logo_file else ""
+    return {
+        "company_name": company_name,
+        "logo_file": logo_file,
+        "logo_url": logo_url,
+        "has_logo": bool(logo_file),
+    }
+
+
+@router.post("/config/branding")
+async def save_branding_config(body: BrandingConfigRequest):
+    company_name = (body.company_name or "").strip()[:120]
+    await database.set_setting("branding_company_name", company_name)
+    return {"ok": True, "company_name": company_name}
+
+
+@router.post("/config/branding/upload")
+async def upload_branding_logo(file: UploadFile = File(...)):
+    if not file or not file.filename:
+        raise HTTPException(400, "Logo file is required")
+
+    original_ext = Path(file.filename).suffix.lower()
+    if original_ext not in _BRANDING_ALLOWED_EXTS:
+        raise HTTPException(400, "Unsupported file format. Use PNG, JPG, JPEG, or WEBP")
+
+    content = await file.read(_BRANDING_MAX_BYTES + 1)
+    if not content:
+        raise HTTPException(400, "Uploaded file is empty")
+    if len(content) > _BRANDING_MAX_BYTES:
+        raise HTTPException(400, "Logo is too large (max 5MB)")
+
+    detected_ext = _detect_branding_ext(content)
+    if not detected_ext:
+        raise HTTPException(400, "Uploaded file is not a valid PNG/JPG/WEBP image")
+
+    # JPEG accepts both .jpg and .jpeg extensions.
+    if detected_ext == ".jpg":
+        if original_ext not in (".jpg", ".jpeg"):
+            raise HTTPException(400, "File extension does not match image content")
+        final_ext = original_ext
+    else:
+        if detected_ext != original_ext:
+            raise HTTPException(400, "File extension does not match image content")
+        final_ext = detected_ext
+
+    safe_name = f"{uuid.uuid4().hex[:12]}_{_branding_safe_stem(file.filename)}{final_ext}"
+    base = _branding_dir().resolve()
+    target = (base / safe_name).resolve()
+    if base not in target.parents:
+        raise HTTPException(400, "Invalid file path")
+
+    target.write_bytes(content)
+
+    previous_logo = str(await database.get_setting("branding_logo_file", "") or "").strip()
+    await database.set_setting("branding_logo_file", safe_name)
+    if previous_logo and previous_logo != safe_name:
+        _delete_branding_file(previous_logo)
+
+    return {
+        "ok": True,
+        "logo_file": safe_name,
+        "logo_url": f"/api/v1/branding/{safe_name}",
+    }
+
+
+@router.delete("/config/branding/logo")
+async def delete_branding_logo():
+    logo_file = str(await database.get_setting("branding_logo_file", "") or "").strip()
+    if logo_file:
+        _delete_branding_file(logo_file)
+    await database.set_setting("branding_logo_file", "")
+    return {"ok": True}
+
+
+@router.get("/branding/{filename}")
+async def get_branding_logo(filename: str):
+    if not _BRANDING_FILE_RE.fullmatch(filename):
+        raise HTTPException(400, "Invalid filename")
+
+    base = _branding_dir().resolve()
+    target = (base / filename).resolve()
+    if base not in target.parents:
+        raise HTTPException(400, "Invalid filename")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "Logo not found")
+
+    media_type = _BRANDING_ALLOWED_EXTS.get(target.suffix.lower())
+    if not media_type:
+        raise HTTPException(404, "Unsupported logo format")
+
+    return Response(
+        content=target.read_bytes(),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.post("/config/ollama")
