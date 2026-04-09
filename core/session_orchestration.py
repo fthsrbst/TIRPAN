@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from core.session_data_recovery import recover_session_findings_from_events
 from database.repositories import (
     AuditLogRepository,
     ExploitResultRepository,
@@ -114,13 +115,34 @@ async def run_v2_agent_task(
         except Exception as exc:
             logger.warning("V2 exploit flush failed: %s", exc)
 
+        # Normalize/persist from event stream as a safety net for sessions where
+        # MissionContext integration is partial (or older sessions missing rows).
+        await asyncio.sleep(0)
+        recovery = await recover_session_findings_from_events(
+            session_id=session_id,
+            target=str(getattr(mission_ctx, "target", "") or ""),
+            session_repo=session_repo,
+            scan_repo=scan_repo,
+            vuln_repo=vuln_repo,
+            exploit_repo=exploit_repo,
+            persist=True,
+        )
+        stats = recovery.get("stats", {})
+        hosts_found = int(stats.get("hosts_found", len(mission_ctx.hosts)))
+        ports_found = int(stats.get("ports_found", 0))
+        vulns_found = int(stats.get("vulns_found", len(mission_ctx.vulnerabilities)))
+        exploits_run = int(stats.get("exploits_run", 0))
+
         await session_repo.update_status(session_id, "done")
         await session_manager.broadcast(session_id, {
             "type": "session_done",
             "session_id": session_id,
             "v2": True,
-            "hosts": len(mission_ctx.hosts),
-            "vulnerabilities": len(mission_ctx.vulnerabilities),
+            "hosts": hosts_found,
+            "ports": ports_found,
+            "vulns": vulns_found,
+            "exploits": exploits_run,
+            "vulnerabilities": vulns_found,
             "sessions": len(mission_ctx.active_sessions),
             "credentials": len(mission_ctx.credentials),
             "loot": len(mission_ctx.loot),
