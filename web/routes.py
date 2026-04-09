@@ -53,20 +53,58 @@ async def health():
 
 # ── Ollama status ─────────────────────────────────────────────────────────────
 
+def _wsl2_host_ip() -> str | None:
+    """Return the Windows host IP for WSL2, or None if not on WSL2."""
+    try:
+        import os
+        if not os.path.exists("/proc/version"):
+            return None
+        with open("/proc/version") as f:
+            if "microsoft" not in f.read().lower():
+                return None
+        with open("/etc/resolv.conf") as f:
+            for line in f:
+                if line.startswith("nameserver"):
+                    return line.split()[1].strip()
+    except Exception:
+        pass
+    return None
+
+
+async def _try_url(client: httpx.AsyncClient, url: str) -> httpx.Response | None:
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            return resp
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/ollama/status")
 async def ollama_status(base_url: str | None = None):
     """Check if Ollama is reachable and list available models.
 
     Accepts optional ``base_url`` query param so the config page can probe a
     URL that hasn't been saved yet (avoids requiring a Save before Fetch).
+    On WSL2, also tries the Windows host IP as a fallback when localhost fails.
     """
     url = (base_url or settings.ollama.base_url).rstrip("/")
+    candidate_urls = [url]
+
+    # WSL2 fallback: if the URL points to localhost/127.0.0.1, also try the Windows host IP
+    wsl_ip = _wsl2_host_ip()
+    if wsl_ip and any(h in url for h in ("127.0.0.1", "localhost")):
+        port = url.rsplit(":", 1)[-1] if ":" in url.split("//")[-1] else "11434"
+        candidate_urls.append(f"http://{wsl_ip}:{port}")
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{url}/api/tags")
-            if resp.status_code == 200:
-                models = [m["name"] for m in resp.json().get("models", [])]
-                return {"online": True, "models": models, "current": settings.ollama.model}
+            for candidate in candidate_urls:
+                resp = await _try_url(client, f"{candidate}/api/tags")
+                if resp is not None:
+                    models = [m["name"] for m in resp.json().get("models", [])]
+                    return {"online": True, "models": models, "current": settings.ollama.model}
             return {"online": False, "models": [], "current": settings.ollama.model}
     except Exception as e:
         return {"online": False, "models": [], "current": settings.ollama.model, "error": str(e)}
@@ -212,15 +250,24 @@ async def lmstudio_status(base_url: str | None = None):
 
     Accepts optional ``base_url`` query param so the config page can probe a
     URL that hasn't been saved yet.
+    On WSL2, also tries the Windows host IP as a fallback when localhost fails.
     """
     url = (base_url or settings.lmstudio.base_url).rstrip("/")
+    candidate_urls = [url]
+
+    wsl_ip = _wsl2_host_ip()
+    if wsl_ip and any(h in url for h in ("127.0.0.1", "localhost")):
+        port = url.rsplit(":", 1)[-1] if ":" in url.split("//")[-1] else "1234"
+        candidate_urls.append(f"http://{wsl_ip}:{port}")
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{url}/v1/models")
-            if resp.status_code == 200:
-                data = resp.json()
-                models = [m["id"] for m in data.get("data", [])]
-                return {"online": True, "models": models, "current": settings.lmstudio.model}
+            for candidate in candidate_urls:
+                resp = await _try_url(client, f"{candidate}/v1/models")
+                if resp is not None:
+                    data = resp.json()
+                    models = [m["id"] for m in data.get("data", [])]
+                    return {"online": True, "models": models, "current": settings.lmstudio.model}
             return {"online": False, "models": [], "current": settings.lmstudio.model}
     except Exception as e:
         return {"online": False, "models": [], "current": settings.lmstudio.model, "error": str(e)}
