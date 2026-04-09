@@ -82,7 +82,7 @@ function switchView(viewName) {
     if (viewName === 'agent') {
         try {
             const saved = localStorage.getItem('agView');
-            if (saved === 'graph' || saved === 'feed' || saved === 'orchestra') switchAgentView(saved);
+            if (saved === 'graph' || saved === 'feed') switchAgentView(saved);
             else switchAgentView('feed');
         } catch(e) { switchAgentView('feed'); }
     }
@@ -1309,6 +1309,7 @@ function wsConnect() {
     ws.onclose = () => {
         wsReady = false;
         setConnectionBadge(false);
+        _handleNativeSocketClose();
         // Reconnect after 3 s
         setTimeout(wsConnect, 3000);
     };
@@ -1347,6 +1348,16 @@ function wsConnect() {
             renderConversationList();
         } else if (msg.type === 'conversation_reset') {
             // UI already reset by createNewConversation()
+        } else if (
+            msg.type === 'terminal_opened'
+            || msg.type === 'terminal_output'
+            || msg.type === 'terminal_exit'
+            || msg.type === 'terminal_closed'
+            || msg.type === 'terminal_error'
+            || msg.type === 'terminal_pong'
+            || msg.type === 'terminal_resized'
+        ) {
+            _handleNativeTerminalMessage(msg);
         }
     };
 }
@@ -2892,7 +2903,11 @@ function handleSessionEvent(msg) {
         const hostIp   = data.host_ip   || '';
         const stype    = data.session_type || 'shell';
         const module   = data.module    || '';
-        _onReverseShellReceived(shellKey, `${hostIp} [${stype}]`);
+        _onReverseShellReceived(shellKey, {
+            hostIp,
+            sessionType: stype,
+            module,
+        });
         appendConsoleLine(`[SHELL] New ${stype} session on ${hostIp}${module ? ' via ' + module : ''}`, 'text-green-400');
         appendMissionCard(`
             <div class="border border-green-500/40 bg-green-500/5 px-4 py-2 font-mono text-xs">
@@ -6976,7 +6991,7 @@ document.addEventListener('DOMContentLoaded', () => {
     _advInitExploitCascade();
     _advInitVersionSlider();
     _initConsoleTabs();
-    _initTerminalInput();
+    _initNativeTerminal();
     _initShellInput();
 });
 
@@ -7852,6 +7867,14 @@ function _switchConsoleTab(tabName) {
     document.querySelectorAll('#view-console .console-body').forEach(body => {
         body.classList.toggle('hidden', body.dataset.tab !== tabName);
     });
+
+    if (tabName === 'terminal' && _nativeFitAddon) {
+        setTimeout(() => {
+            _nativeFitAddon.fit();
+            _sendNativeTerminalResize();
+            if (_nativeTerm) _nativeTerm.focus();
+        }, 30);
+    }
 }
 
 // ─── Objective Confirmation Card ──────────────────────────────────────────────
@@ -7942,180 +7965,186 @@ function appendMissionCardEl(el) {
     feed.scrollTop = feed.scrollHeight;
 }
 
+const _shellSessionMeta = {};
+let _activeShellId = null;
+
+function _refreshShellSidebarCount() {
+    const badge = document.getElementById('shell-count-badge');
+    const sidebar = document.getElementById('shell-sidebar-count');
+    const activeCount = parseInt(badge?.dataset.count || '0', 10) || 0;
+    if (sidebar) sidebar.textContent = `${activeCount} online`;
+}
+
+function _setActiveShellHeader(shellId) {
+    const title = document.getElementById('shell-active-title');
+    const status = document.getElementById('shell-active-status');
+    const metaEl = document.getElementById('shell-active-meta');
+    const meta = _shellSessionMeta[shellId];
+
+    if (!meta) {
+        if (title) title.textContent = 'No shell selected';
+        if (status) {
+            status.textContent = 'IDLE';
+            status.classList.remove('text-primary', 'text-danger', 'text-yellow-400');
+            status.classList.add('text-secondary-text/70');
+        }
+        if (metaEl) metaEl.textContent = 'Shell output will appear here when a session becomes active.';
+        return;
+    }
+
+    if (title) title.textContent = `${meta.hostIp} [${meta.sessionType}]`;
+    if (status) {
+        status.classList.remove('text-secondary-text/70', 'text-primary', 'text-danger', 'text-yellow-400');
+        if (meta.status === 'closed') {
+            status.textContent = 'CLOSED';
+            status.classList.add('text-danger');
+        } else {
+            status.textContent = 'LIVE';
+            status.classList.add('text-primary');
+        }
+    }
+    if (metaEl) {
+        const moduleInfo = meta.module ? ` · module ${meta.module}` : '';
+        const reasonInfo = meta.reason ? ` · ${meta.reason}` : '';
+        metaEl.textContent = `shell ${shellId}${moduleInfo}${reasonInfo}`;
+    }
+}
+
 // Called when a reverse shell arrives
-function _onReverseShellReceived(shellId, remoteAddr) {
+function _onReverseShellReceived(shellId, shellInfo) {
     const badge = document.getElementById('shell-count-badge');
     const emptyMsg = document.getElementById('shell-empty-msg');
     const inputRow = document.getElementById('shell-input-row');
     const bar = document.getElementById('shell-subtab-bar');
+    const hostIp = shellInfo?.hostIp || 'unknown-host';
+    const sessionType = shellInfo?.sessionType || 'shell';
+    const module = shellInfo?.module || '';
 
-    const currentCount = parseInt(badge.dataset.count || '0') + 1;
-    badge.dataset.count = currentCount;
-    badge.textContent = currentCount;
-    badge.classList.remove('hidden');
+    _shellSessionMeta[shellId] = {
+        shellId,
+        hostIp,
+        sessionType,
+        module,
+        status: 'active',
+        reason: '',
+    };
+
+    const currentCount = (parseInt(badge?.dataset.count || '0', 10) || 0) + 1;
+    if (badge) {
+        badge.dataset.count = currentCount;
+        badge.textContent = currentCount;
+        badge.classList.remove('hidden');
+    }
     setStatValue('stat-shells', currentCount);
+    _refreshShellSidebarCount();
+
     if (emptyMsg) emptyMsg.classList.add('hidden');
 
-    const subTab = document.createElement('button');
-    subTab.className = 'shell-subtab px-3 py-1 text-[10px] font-mono border border-border-color hover:border-primary bg-black/60 whitespace-nowrap transition-colors';
-    subTab.textContent = `SHELL-${currentCount} [${remoteAddr}]`;
-    subTab.dataset.shellId = shellId;
-    subTab.onclick = () => _activateShell(shellId, remoteAddr);
-    bar.appendChild(subTab);
+    if (bar) {
+        const subTab = document.createElement('button');
+        subTab.className = 'shell-subtab shell-subtab-idle px-3 py-2 text-left text-[10px] font-mono border border-border-color/80 bg-black/60 transition-colors';
+        subTab.dataset.shellId = shellId;
+        subTab.title = `${hostIp} [${sessionType}]`;
+        subTab.innerHTML = `
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-secondary-text uppercase tracking-wider">${_escHtml(sessionType)}</span>
+                            <span class="shell-live-badge text-[9px] text-secondary-text/70">LIVE</span>
+            </div>
+            <div class="mt-1 text-primary truncate">${_escHtml(hostIp)}</div>
+        `;
+        subTab.onclick = () => _activateShell(shellId);
+        bar.appendChild(subTab);
+    }
 
     if (inputRow) inputRow.classList.remove('hidden');
-    _activateShell(shellId, remoteAddr);
+    _activateShell(shellId);
     _switchConsoleTab('shells');
 
     if (currentView !== 'console') {
-        showToast(`Reverse shell received: ${remoteAddr} — Console → SHELLS`);
+        showToast(`Reverse shell received: ${hostIp} — Console → SHELLS`);
     }
 }
 
-let _activeShellId = null;
-
 function _onShellClosed(shellId, hostIp, reason) {
-    // Append a [DEAD] marker to this shell's output buffer
+    const meta = _shellSessionMeta[shellId];
+    if (meta) {
+        meta.status = 'closed';
+        meta.reason = reason || 'connection lost';
+        if (hostIp && !meta.hostIp) meta.hostIp = hostIp;
+    }
+
     const buf = _shellOutputBuffers[shellId];
     if (buf) buf.push(`\n[!] Shell closed: ${reason}`);
+
+    const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
+    if (tab) {
+        tab.classList.remove('shell-subtab-active', 'shell-subtab-idle', 'shell-subtab-unread');
+        tab.classList.add('shell-subtab-dead');
+        const liveBadge = tab.querySelector('.shell-live-badge');
+        if (liveBadge) {
+            liveBadge.textContent = 'DEAD';
+            liveBadge.classList.remove('text-secondary-text/70');
+            liveBadge.classList.add('text-danger');
+        }
+    }
+
     if (_activeShellId === shellId) {
-        _shellPrint(`<span class="text-orange-400">[!] Shell closed — ${_escHtml(reason)}</span>`);
-        // Disable input
+        _shellPrint(`<span class="text-orange-400">[!] Shell closed — ${_escHtml(reason)}</span>`, 'system');
         const inp = document.getElementById('shell-cmd-input');
         if (inp) inp.disabled = true;
         const row = document.getElementById('shell-input-row');
         if (row) row.classList.add('opacity-40');
+        _setActiveShellHeader(shellId);
     }
-    // Mark the subtab as dead
-    const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
-    if (tab) {
-        tab.classList.remove('text-primary', 'text-secondary-text', 'text-yellow-300');
-        tab.classList.add('text-danger', 'line-through', 'opacity-60');
-    }
-    // Update badge count
+
     const badge = document.getElementById('shell-count-badge');
-    if (badge && badge.dataset.count > 0) {
-        const newCount = parseInt(badge.dataset.count) - 1;
+    if (badge && parseInt(badge.dataset.count || '0', 10) > 0) {
+        const newCount = parseInt(badge.dataset.count || '0', 10) - 1;
         badge.dataset.count = newCount;
         badge.textContent = newCount;
         setStatValue('stat-shells', newCount);
         if (newCount === 0) badge.classList.add('hidden');
     }
+    _refreshShellSidebarCount();
 }
 
-function _activateShell(shellId, remoteAddr) {
+function _activateShell(shellId) {
     _activeShellId = shellId;
     document.querySelectorAll('.shell-subtab').forEach(t => {
         const active = t.dataset.shellId === shellId;
-        t.classList.toggle('text-primary', active);
-        t.classList.toggle('border-primary', active);
-        t.classList.toggle('text-secondary-text', !active);
-        if (active) t.classList.remove('text-yellow-300');
+        t.classList.toggle('shell-subtab-active', active && !t.classList.contains('shell-subtab-dead'));
+        t.classList.toggle('shell-subtab-idle', !active && !t.classList.contains('shell-subtab-dead'));
+        if (active) t.classList.remove('shell-subtab-unread');
     });
-    const prompt = document.getElementById('shell-prompt');
-    if (prompt) prompt.textContent = `${remoteAddr}#`;
 
-    // Replay buffered output for this shell
+    const meta = _shellSessionMeta[shellId];
+    _setActiveShellHeader(shellId);
+
+    const prompt = document.getElementById('shell-prompt');
+    if (prompt) {
+        const promptHost = meta?.hostIp || shellId;
+        prompt.textContent = `${promptHost}#`;
+    }
+
     const out = document.getElementById('shell-output-area');
     if (out) {
         out.innerHTML = '';
         const buf = _shellOutputBuffers[shellId] || [];
-        buf.forEach(line => _shellPrint(_escHtml(line)));
+        buf.forEach(line => _shellPrint(_escHtml(line), 'output'));
     }
 
-    // Re-enable input (may have been disabled by a closed-shell state)
     const row = document.getElementById('shell-input-row');
-    if (row) row.classList.remove('opacity-40');
     const inp = document.getElementById('shell-cmd-input');
-    if (inp) { inp.disabled = false; inp.focus(); }
-}
-
-// ─── Interactive Terminal ──────────────────────────────────────────────────────
-
-const _termHistory = [];
-let _termHistoryIdx = -1;
-
-function _initTerminalInput() {
-    const input = document.getElementById('terminal-cmd-input');
-    if (!input) return;
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); _termSubmit(); }
-        else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            if (_termHistoryIdx < _termHistory.length - 1) {
-                _termHistoryIdx++;
-                input.value = _termHistory[_termHistory.length - 1 - _termHistoryIdx];
-            }
-        } else if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            _termHistoryIdx > 0 ? (input.value = _termHistory[_termHistory.length - 1 - (--_termHistoryIdx)])
-                                : (_termHistoryIdx = -1, input.value = '');
+    if (meta?.status === 'closed') {
+        if (row) row.classList.add('opacity-40');
+        if (inp) inp.disabled = true;
+    } else {
+        if (row) row.classList.remove('opacity-40');
+        if (inp) {
+            inp.disabled = false;
+            inp.focus();
         }
-    });
-}
-
-async function _termSubmit() {
-    const input = document.getElementById('terminal-cmd-input');
-    const cmd = input.value.trim();
-    if (!cmd) return;
-    input.value = '';
-    _termHistoryIdx = -1;
-    _termHistory.push(cmd);
-    _termPrint(`<span class="text-primary">tirpan&gt;</span> ${_escHtml(cmd)}`);
-
-    if (cmd === '/help') {
-        _termPrint(`<span class="text-secondary-text">  /help            show this help
-  /shells          list active reverse shells
-  /clear           clear output
-  /status          show active session
-  /view &lt;name&gt;     switch to a view
-  anything else    inject into active agent as task instruction</span>`);
-        return;
     }
-    if (cmd === '/clear') {
-        const out = document.getElementById('terminal-output');
-        if (out) { const h = out.firstElementChild; out.innerHTML = ''; if (h) out.appendChild(h); }
-        return;
-    }
-    if (cmd === '/shells') {
-        const shells = document.querySelectorAll('.shell-subtab');
-        if (!shells.length) { _termPrint('<span class="text-secondary-text">No active shells</span>'); return; }
-        shells.forEach(s => _termPrint(`<span class="text-green-400">  ${_escHtml(s.textContent)}</span>`));
-        return;
-    }
-    if (cmd === '/status') {
-        _termPrint(`<span class="text-secondary-text">Session: ${activeMissionId || '(none)'}</span>`);
-        return;
-    }
-    if (cmd.startsWith('/view ')) {
-        switchView(cmd.slice(6).trim());
-        return;
-    }
-    if (!activeMissionId) {
-        _termPrint('<span class="text-danger">No active session — launch a mission first</span>');
-        return;
-    }
-    try {
-        const res = await fetch(`/api/v1/sessions/${activeMissionId}/inject`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: cmd }),
-        });
-        _termPrint(res.ok
-            ? '<span class="text-secondary-text/60 text-[10px]">→ injected into agent</span>'
-            : '<span class="text-danger">Injection failed</span>');
-    } catch (_) {
-        _termPrint('<span class="text-danger">Network error</span>');
-    }
-}
-
-function _termPrint(htmlLine) {
-    const out = document.getElementById('terminal-output');
-    if (!out) return;
-    const d = document.createElement('div');
-    d.innerHTML = htmlLine;
-    out.appendChild(d);
-    out.scrollTop = out.scrollHeight;
 }
 
 // ─── Reverse Shell Input ───────────────────────────────────────────────────────
@@ -8146,19 +8175,26 @@ async function sendShellCommand() {
     const input = document.getElementById('shell-cmd-input');
     const cmd = input.value;
     if (!_activeShellId) { showToast('No active shell', true); return; }
+
+    const meta = _shellSessionMeta[_activeShellId];
+    if (meta?.status === 'closed') {
+        showToast('This shell is closed', true);
+        return;
+    }
+
     input.value = '';
     _shellHistoryIdx = -1;
     if (cmd.trim()) _shellCmdHistory.push(cmd);
-    _shellPrint(`<span class="text-green-300 select-none"># </span>${_escHtml(cmd)}`);
+    _shellPrint(`<span class="text-green-300 select-none">operator$ </span>${_escHtml(cmd)}`, 'input');
     try {
         const res = await fetch(`/api/v1/shells/${_activeShellId}/send`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: cmd }),
         });
-        if (!res.ok) _shellPrint('<span class="text-danger">Send failed — shell may be closed</span>');
+        if (!res.ok) _shellPrint('<span class="text-danger">Send failed — shell may be closed</span>', 'system');
     } catch (_) {
-        _shellPrint('<span class="text-danger">Connection error</span>');
+        _shellPrint('<span class="text-danger">Connection error</span>', 'system');
     }
 }
 
@@ -8167,26 +8203,272 @@ const _shellOutputBuffers = {};
 
 // Called by WebSocket handler when shell output arrives
 function receiveShellOutput(shellId, data) {
-    // Always buffer
     if (!_shellOutputBuffers[shellId]) _shellOutputBuffers[shellId] = [];
     _shellOutputBuffers[shellId].push(data);
-    // Print immediately only if this shell is active
+
     if (_activeShellId === shellId) {
-        _shellPrint(_escHtml(data));
+        _shellPrint(_escHtml(data), 'output');
     } else {
-        // Flash the subtab to indicate new output
         const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
-        if (tab) tab.classList.add('text-yellow-300');
+        if (tab && !tab.classList.contains('shell-subtab-dead')) {
+            tab.classList.add('shell-subtab-unread');
+        }
     }
 }
 
-function _shellPrint(htmlContent) {
+function _shellPrint(htmlContent, kind = 'output') {
     const out = document.getElementById('shell-output-area');
     if (!out) return;
     const d = document.createElement('div');
+    d.className = `shell-line shell-line-${kind}`;
     d.innerHTML = htmlContent;
     out.appendChild(d);
     out.scrollTop = out.scrollHeight;
+}
+
+// ─── Native Terminal (PTY) ───────────────────────────────────────────────────
+
+let _nativeTerm = null;
+let _nativeFitAddon = null;
+let _nativeTerminalId = null;
+let _nativeTerminalKeepAlive = null;
+
+function _setNativeTerminalStatus(text, tone = 'muted') {
+    const statusText = document.getElementById('terminal-status-text');
+    const badge = document.getElementById('terminal-session-badge');
+    if (statusText) statusText.textContent = text;
+    if (!badge) return;
+
+    badge.classList.remove('text-secondary-text/60', 'text-primary', 'text-danger', 'text-yellow-400');
+    if (tone === 'live') {
+        badge.textContent = 'connected';
+        badge.classList.add('text-primary');
+    } else if (tone === 'error') {
+        badge.textContent = 'error';
+        badge.classList.add('text-danger');
+    } else if (tone === 'pending') {
+        badge.textContent = 'connecting';
+        badge.classList.add('text-yellow-400');
+    } else {
+        badge.textContent = 'disconnected';
+        badge.classList.add('text-secondary-text/60');
+    }
+}
+
+function _startNativeTerminalKeepAlive() {
+    _stopNativeTerminalKeepAlive();
+    _nativeTerminalKeepAlive = setInterval(() => {
+        if (_nativeTerminalId && ws && wsReady) {
+            ws.send(JSON.stringify({
+                type: 'terminal_ping',
+                terminal_id: _nativeTerminalId,
+            }));
+        }
+    }, 15000);
+}
+
+function _stopNativeTerminalKeepAlive() {
+    if (_nativeTerminalKeepAlive) {
+        clearInterval(_nativeTerminalKeepAlive);
+        _nativeTerminalKeepAlive = null;
+    }
+}
+
+function _setNativeTerminalButtons(connected) {
+    const openBtn = document.getElementById('terminal-open-btn');
+    const closeBtn = document.getElementById('terminal-close-btn');
+    if (openBtn) openBtn.classList.toggle('hidden', connected);
+    if (closeBtn) closeBtn.classList.toggle('hidden', !connected);
+}
+
+function _nativeTerminalRowsCols() {
+    if (_nativeTerm) {
+        return {
+            rows: Math.max(12, _nativeTerm.rows || 24),
+            cols: Math.max(40, _nativeTerm.cols || 80),
+        };
+    }
+    return { rows: 24, cols: 80 };
+}
+
+function _sendNativeTerminalResize() {
+    if (!_nativeTerminalId || !ws || !wsReady) return;
+    const { rows, cols } = _nativeTerminalRowsCols();
+    ws.send(JSON.stringify({
+        type: 'terminal_resize',
+        terminal_id: _nativeTerminalId,
+        rows,
+        cols,
+    }));
+}
+
+function _initNativeTerminal() {
+    const container = document.getElementById('terminal-native-shell');
+    const openBtn = document.getElementById('terminal-open-btn');
+    const closeBtn = document.getElementById('terminal-close-btn');
+    const clearBtn = document.getElementById('terminal-clear-btn');
+    if (!container || !openBtn || !closeBtn || !clearBtn) return;
+
+    openBtn.addEventListener('click', _openNativeTerminal);
+    closeBtn.addEventListener('click', _closeNativeTerminal);
+    clearBtn.addEventListener('click', () => {
+        if (_nativeTerm) _nativeTerm.clear();
+    });
+
+    if (typeof window.Terminal === 'undefined') {
+        _setNativeTerminalStatus('Terminal library failed to load.', 'error');
+        return;
+    }
+
+    _nativeTerm = new window.Terminal({
+        cursorBlink: true,
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: 12,
+        lineHeight: 1.35,
+        scrollback: 8000,
+        convertEol: true,
+        theme: {
+            background: '#050505',
+            foreground: '#d6d6d6',
+            cursor: '#ccff00',
+            selectionBackground: 'rgba(204,255,0,0.22)',
+        },
+    });
+
+    if (window.FitAddon && window.FitAddon.FitAddon) {
+        _nativeFitAddon = new window.FitAddon.FitAddon();
+        _nativeTerm.loadAddon(_nativeFitAddon);
+    }
+
+    _nativeTerm.open(container);
+    if (_nativeFitAddon) _nativeFitAddon.fit();
+    _nativeTerm.writeln('\x1b[90mNative terminal ready. Click Connect to start bash.\x1b[0m');
+
+    _nativeTerm.onData(data => {
+        if (!_nativeTerminalId || !ws || !wsReady) return;
+        ws.send(JSON.stringify({
+            type: 'terminal_input',
+            terminal_id: _nativeTerminalId,
+            data,
+        }));
+    });
+
+    _nativeTerm.onResize(({ rows, cols }) => {
+        if (!_nativeTerminalId || !ws || !wsReady) return;
+        ws.send(JSON.stringify({
+            type: 'terminal_resize',
+            terminal_id: _nativeTerminalId,
+            rows,
+            cols,
+        }));
+    });
+
+    window.addEventListener('resize', () => {
+        if (_nativeFitAddon) {
+            _nativeFitAddon.fit();
+            _sendNativeTerminalResize();
+        }
+    });
+
+    _setNativeTerminalStatus('Connect to open an interactive bash session.');
+    _setNativeTerminalButtons(false);
+}
+
+function _openNativeTerminal() {
+    if (_nativeTerminalId) return;
+    if (!ws || !wsReady) {
+        showToast('WebSocket not connected', true);
+        _setNativeTerminalStatus('WebSocket disconnected. Retrying soon…', 'error');
+        return;
+    }
+    if (_nativeFitAddon) _nativeFitAddon.fit();
+
+    const { rows, cols } = _nativeTerminalRowsCols();
+    const sessionId = activeMissionId || 'operator-local';
+    ws.send(JSON.stringify({
+        type: 'terminal_open',
+        session_id: sessionId,
+        rows,
+        cols,
+        shell: 'bash',
+    }));
+    _setNativeTerminalStatus('Connecting native bash…', 'pending');
+}
+
+function _closeNativeTerminal() {
+    if (!_nativeTerminalId) {
+        _setNativeTerminalStatus('Terminal already disconnected.');
+        _setNativeTerminalButtons(false);
+        return;
+    }
+    if (ws && wsReady) {
+        ws.send(JSON.stringify({
+            type: 'terminal_close',
+            terminal_id: _nativeTerminalId,
+        }));
+    }
+    _nativeTerminalId = null;
+    _stopNativeTerminalKeepAlive();
+    _setNativeTerminalButtons(false);
+    _setNativeTerminalStatus('Terminal disconnected by operator.');
+}
+
+function _handleNativeTerminalMessage(msg) {
+    if (msg.type === 'terminal_opened') {
+        _nativeTerminalId = msg.terminal_id;
+        _setNativeTerminalButtons(true);
+        _setNativeTerminalStatus(`Connected (${msg.shell || 'bash'}) — interactive mode enabled.`, 'live');
+        _startNativeTerminalKeepAlive();
+        if (_nativeFitAddon) _nativeFitAddon.fit();
+        if (_nativeTerm) {
+            _nativeTerm.focus();
+            _nativeTerm.writeln('\r\n\x1b[32m[connected]\x1b[0m interactive shell is live\r\n');
+        }
+        return;
+    }
+
+    if (msg.type === 'terminal_output') {
+        if (!_nativeTerminalId || msg.terminal_id !== _nativeTerminalId) return;
+        if (_nativeTerm) _nativeTerm.write(msg.data || '');
+        return;
+    }
+
+    if (msg.type === 'terminal_resized') {
+        return;
+    }
+
+    if (msg.type === 'terminal_pong') {
+        return;
+    }
+
+    if (msg.type === 'terminal_error') {
+        if (_nativeTerm && msg.message) {
+            _nativeTerm.writeln(`\r\n\x1b[31m[error]\x1b[0m ${msg.message}`);
+        }
+        _setNativeTerminalStatus(msg.message || 'Terminal error', 'error');
+        return;
+    }
+
+    if (msg.type === 'terminal_closed' || msg.type === 'terminal_exit') {
+        if (_nativeTerminalId && msg.terminal_id && msg.terminal_id !== _nativeTerminalId) return;
+        _nativeTerminalId = null;
+        _stopNativeTerminalKeepAlive();
+        _setNativeTerminalButtons(false);
+        const reason = msg.reason || 'session closed';
+        _setNativeTerminalStatus(`Terminal closed: ${reason}`);
+        if (_nativeTerm) {
+            _nativeTerm.writeln(`\r\n\x1b[33m[closed]\x1b[0m ${reason}`);
+        }
+    }
+}
+
+function _handleNativeSocketClose() {
+    _stopNativeTerminalKeepAlive();
+    if (_nativeTerminalId) {
+        _nativeTerminalId = null;
+        _setNativeTerminalButtons(false);
+        _setNativeTerminalStatus('Socket dropped. Reconnect and press Connect again.', 'error');
+    }
 }
 
 
@@ -8275,15 +8557,14 @@ function _agScheduleRender() {
 // ── View switch ────────────────────────────────────────────────────────────────
 
 function switchAgentView(v) {
+    if (v !== 'feed' && v !== 'graph') v = 'feed';
     _agView = v;
     try { localStorage.setItem('agView', v); } catch(e) {}
-    const feedArea      = document.getElementById('agent-scroll-area');
-    const minimap       = document.getElementById('ag-minimap-col');
-    const graphView     = document.getElementById('ag-graph-view');
-    const orchestraView = document.getElementById('ag-orchestra-view');
-    const btnFeed       = document.getElementById('ag-view-btn-feed');
-    const btnGraph      = document.getElementById('ag-view-btn-graph');
-    const btnOrchestra  = document.getElementById('ag-view-btn-orchestra');
+    const feedArea  = document.getElementById('agent-scroll-area');
+    const minimap   = document.getElementById('ag-minimap-col');
+    const graphView = document.getElementById('ag-graph-view');
+    const btnFeed   = document.getElementById('ag-view-btn-feed');
+    const btnGraph  = document.getElementById('ag-view-btn-graph');
 
     const isLight = _agIsLight();
     const limePrimary = isLight ? '#4a7c00' : '#ccff00';
@@ -8294,10 +8575,8 @@ function switchAgentView(v) {
     if (feedArea)       feedArea.style.display  = 'none';
     if (minimap)        minimap.style.display   = 'none';
     if (graphView)      graphView.style.display = 'none';
-    if (orchestraView)  orchestraView.style.display = 'none';
     if (btnFeed)        btnFeed.setAttribute('style',       inactiveS);
     if (btnGraph)       btnGraph.setAttribute('style',      inactiveS);
-    if (btnOrchestra)   btnOrchestra.setAttribute('style',  inactiveS);
 
     if (v === 'graph') {
         if (graphView)  { graphView.style.display = 'flex'; graphView.style.flex = '1'; }
@@ -8305,10 +8584,6 @@ function switchAgentView(v) {
         const svgEl = document.getElementById('ag-graph-svg');
         if (svgEl) svgEl.style.background = _agSvgBg();
         _agRender();
-    } else if (v === 'orchestra') {
-        if (orchestraView) { orchestraView.style.display = 'flex'; orchestraView.style.flex = '1'; }
-        if (btnOrchestra)  btnOrchestra.setAttribute('style', activeS);
-        fetchAgentOrchestra();
     } else {
         // feed (default)
         if (feedArea)  feedArea.style.display  = '';
@@ -8316,142 +8591,6 @@ function switchAgentView(v) {
         if (btnFeed)   btnFeed.setAttribute('style',  activeS);
     }
 }
-
-// ── V2 Agent Orchestra ────────────────────────────────────────────────────────
-
-const _V2_AGENT_STATUS_COLORS = {
-    spawning: '#eab308',
-    running: '#ccff00',
-    done: '#3b82f6',
-    failed: '#ef4444',
-    paused: '#a855f7',
-};
-const _V2_AGENT_TYPE_ICONS = {
-    scanner: 'radar', exploit: 'bug_report', post_exploit: 'terminal',
-    webapp: 'web', osint: 'search', lateral: 'share', reporting: 'description',
-    brain: 'psychology',
-};
-
-async function fetchAgentOrchestra() {
-    const sid = activeMissionId;
-    if (!sid) return;
-
-    try {
-        // Fetch agents
-        const agentsResp = await fetch(`/api/v1/sessions/${sid}/agents`);
-        if (agentsResp.ok) {
-            const { agents } = await agentsResp.json();
-            _renderAgentCards(agents || []);
-        }
-
-        // Fetch mission context for stats
-        const ctxResp = await fetch(`/api/v1/sessions/${sid}/mission-context`);
-        if (ctxResp.ok) {
-            const ctx = await ctxResp.json();
-            const h = ctx.hosts ? Object.keys(ctx.hosts).length : 0;
-            const v = ctx.vulnerabilities ? ctx.vulnerabilities.length : 0;
-            const s = ctx.active_sessions ? ctx.active_sessions.length : 0;
-            const c = ctx.credentials ? ctx.credentials.length : 0;
-            _setEl('v2-stat-hosts', h);
-            _setEl('v2-stat-vulns', v);
-            _setEl('v2-stat-sessions', s);
-            _setEl('v2-stat-creds', c);
-            if (ctx.current_phase) _setEl('v2-mission-phase', 'Phase: ' + ctx.current_phase);
-        }
-
-        // Fetch harvested credentials
-        const credResp = await fetch(`/api/v1/sessions/${sid}/credentials/harvested`);
-        if (credResp.ok) {
-            const { credentials } = await credResp.json();
-            _renderHarvestedCreds(credentials || []);
-        }
-
-        // Fetch loot
-        const lootResp = await fetch(`/api/v1/sessions/${sid}/loot`);
-        if (lootResp.ok) {
-            const { loot } = await lootResp.json();
-            _renderLoot(loot || []);
-        }
-    } catch(e) {
-        console.warn('Orchestra fetch error:', e);
-    }
-}
-
-function _setEl(id, text) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = text;
-}
-
-function _renderAgentCards(agents) {
-    const container = document.getElementById('v2-agent-cards');
-    if (!container) return;
-    if (!agents.length) {
-        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text col-span-2 py-4 text-center">No agents spawned yet</div>';
-        return;
-    }
-    container.innerHTML = agents.map(a => {
-        const color = _V2_AGENT_STATUS_COLORS[a.status] || '#555';
-        const icon  = _V2_AGENT_TYPE_ICONS[a.agent_type] || 'smart_toy';
-        const dur   = a.finished_at ? ((a.finished_at - a.started_at) / 1000).toFixed(1) + 's' : 'running…';
-        return `<div class="bg-card border p-3 flex flex-col gap-1" style="border-color:${color}22;">
-          <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined" style="font-size:14px;color:${color};">${icon}</span>
-            <span class="text-[11px] font-bold uppercase tracking-wider" style="color:${color};">${a.agent_type}</span>
-            <span class="ml-auto text-[9px] mono-text" style="color:${color};">${a.status.toUpperCase()}</span>
-          </div>
-          <div class="text-[10px] text-secondary-text mono-text truncate">${a.target || '—'}</div>
-          <div class="flex items-center gap-2 mt-1">
-            <span class="text-[9px] text-secondary-text/50">${a.iterations || 0} iters · ${dur}</span>
-            <span class="text-[9px] text-secondary-text/50">${(a.findings||[]).length} findings</span>
-          </div>
-        </div>`;
-    }).join('');
-}
-
-function _renderHarvestedCreds(creds) {
-    const container = document.getElementById('v2-harvested-creds');
-    if (!container) return;
-    if (!creds.length) {
-        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>';
-        return;
-    }
-    container.innerHTML = `<table class="w-full text-[10px] mono-text">
-      <thead><tr class="border-b border-border-color/30">
-        <th class="text-left p-2 text-secondary-text/50">Host</th>
-        <th class="text-left p-2 text-secondary-text/50">Type</th>
-        <th class="text-left p-2 text-secondary-text/50">Username</th>
-        <th class="text-left p-2 text-secondary-text/50">Service</th>
-      </tr></thead>
-      <tbody>${creds.map(c => `<tr class="border-b border-border-color/10">
-        <td class="p-2 text-primary/80">${c.source_host||'—'}</td>
-        <td class="p-2 text-secondary-text">${c.credential_type||'—'}</td>
-        <td class="p-2 text-yellow-400">${c.username||'—'}</td>
-        <td class="p-2 text-secondary-text">${c.service||'—'}</td>
-      </tr>`).join('')}</tbody>
-    </table>`;
-}
-
-function _renderLoot(loot) {
-    const container = document.getElementById('v2-loot');
-    if (!container) return;
-    if (!loot.length) {
-        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>';
-        return;
-    }
-    container.innerHTML = loot.map(l => `<div class="p-2 border-b border-border-color/20 flex items-center gap-2">
-      <span class="material-symbols-outlined text-purple-400" style="font-size:13px;">folder</span>
-      <div>
-        <div class="text-[10px] text-primary/80">${l.description||l.loot_type}</div>
-        <div class="text-[9px] text-secondary-text/50">${l.source_host} · ${l.source_path||''}</div>
-      </div>
-    </div>`).join('');
-}
-
-// Auto-refresh orchestra view every 5s when visible
-setInterval(() => {
-    if (_agView === 'orchestra') fetchAgentOrchestra();
-}, 5000);
-
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 

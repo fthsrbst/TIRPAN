@@ -13,6 +13,7 @@ Message protocol (server → client):
 
 import asyncio
 import json
+import logging
 import uuid
 import httpx
 from fastapi import WebSocket, WebSocketDisconnect
@@ -21,6 +22,8 @@ from config import settings
 from core.secure_store import async_get_secret, get_secret
 from web.stats_state import token_counter
 from database import db as database
+
+logger = logging.getLogger(__name__)
 
 
 def _get_openrouter_key_sync(saved: dict) -> str:
@@ -631,8 +634,75 @@ async def handle_websocket(websocket: WebSocket) -> None:
     # Session subscriptions — list of session IDs this WS is watching
     watched_sessions: list[str] = []
 
+    # Native terminal sessions bound to this websocket
+    terminal_ids: set[str] = set()
+    terminal_tasks: dict[str, asyncio.Task] = {}
+
     async def _send(event: dict) -> None:
         await websocket.send_json(event)
+
+    async def _close_terminal_local(terminal_id: str, reason: str) -> None:
+        task = terminal_tasks.pop(terminal_id, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
+        try:
+            from web import app_state
+            mgr = getattr(app_state, "pty_manager", None)
+            if mgr is not None:
+                await mgr.close_terminal(terminal_id, reason=reason)
+        except Exception as exc:
+            logger.debug("Terminal close failed for %s: %s", terminal_id, exc)
+
+        terminal_ids.discard(terminal_id)
+
+    async def _terminal_stream_loop(terminal_id: str) -> None:
+        try:
+            from web import app_state
+            mgr = getattr(app_state, "pty_manager", None)
+            if mgr is None:
+                await websocket.send_json({
+                    "type": "terminal_error",
+                    "terminal_id": terminal_id,
+                    "message": "PTY manager unavailable",
+                })
+                return
+
+            while True:
+                output = await mgr.read_terminal(terminal_id, timeout=0.08)
+                if output:
+                    await websocket.send_json({
+                        "type": "terminal_output",
+                        "terminal_id": terminal_id,
+                        "data": output,
+                    })
+
+                exit_code = mgr.get_exit_code(terminal_id)
+                if exit_code is not None:
+                    await websocket.send_json({
+                        "type": "terminal_exit",
+                        "terminal_id": terminal_id,
+                        "exit_code": exit_code,
+                        "reason": "shell_exit",
+                    })
+                    await _close_terminal_local(terminal_id, reason="shell_exit")
+                    break
+
+                await asyncio.sleep(0.01)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Terminal stream loop error for %s: %s", terminal_id, exc)
+            try:
+                await websocket.send_json({
+                    "type": "terminal_error",
+                    "terminal_id": terminal_id,
+                    "message": str(exc),
+                })
+            except Exception:
+                pass
+            await _close_terminal_local(terminal_id, reason="stream_error")
 
     try:
         while True:
@@ -818,6 +888,136 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     watched_sessions.remove(sid)
                     session_manager.unsubscribe(sid, _send)
 
+            elif msg_type == "terminal_open":
+                sid = str(msg.get("session_id", "") or "").strip()
+                if sid and sid != "operator-local" and sid not in watched_sessions:
+                    await websocket.send_json({
+                        "type": "terminal_error",
+                        "message": "Subscribe to a session before opening terminal",
+                    })
+                    continue
+                if not sid:
+                    sid = "operator-local"
+
+                if terminal_ids:
+                    await websocket.send_json({
+                        "type": "terminal_error",
+                        "message": "A native terminal is already open for this client",
+                    })
+                    continue
+
+                from web import app_state
+                mgr = getattr(app_state, "pty_manager", None)
+                if mgr is None:
+                    await websocket.send_json({
+                        "type": "terminal_error",
+                        "message": "PTY backend is not initialized",
+                    })
+                    continue
+
+                rows = int(msg.get("rows", 24) or 24)
+                cols = int(msg.get("cols", 80) or 80)
+                shell = str(msg.get("shell", "bash") or "bash")
+
+                try:
+                    term = await mgr.open_terminal(
+                        session_id=sid,
+                        shell=shell,
+                        rows=rows,
+                        cols=cols,
+                    )
+                except Exception as exc:
+                    await websocket.send_json({
+                        "type": "terminal_error",
+                        "message": str(exc),
+                    })
+                    continue
+
+                terminal_ids.add(term.terminal_id)
+                terminal_tasks[term.terminal_id] = asyncio.create_task(_terminal_stream_loop(term.terminal_id))
+
+                await websocket.send_json({
+                    "type": "terminal_opened",
+                    "terminal_id": term.terminal_id,
+                    "shell": shell,
+                    "rows": rows,
+                    "cols": cols,
+                    "session_id": sid,
+                })
+
+            elif msg_type == "terminal_input":
+                terminal_id = str(msg.get("terminal_id", "") or "")
+                if terminal_id not in terminal_ids:
+                    await websocket.send_json({
+                        "type": "terminal_error",
+                        "message": "Unknown or closed terminal session",
+                    })
+                    continue
+
+                from web import app_state
+                mgr = getattr(app_state, "pty_manager", None)
+                if mgr is None:
+                    await websocket.send_json({
+                        "type": "terminal_error",
+                        "terminal_id": terminal_id,
+                        "message": "PTY backend is not initialized",
+                    })
+                    continue
+
+                data = str(msg.get("data", "") or "")
+                try:
+                    await mgr.write_terminal(terminal_id, data)
+                except Exception as exc:
+                    await websocket.send_json({
+                        "type": "terminal_error",
+                        "terminal_id": terminal_id,
+                        "message": str(exc),
+                    })
+
+            elif msg_type == "terminal_resize":
+                terminal_id = str(msg.get("terminal_id", "") or "")
+                if terminal_id not in terminal_ids:
+                    continue
+
+                from web import app_state
+                mgr = getattr(app_state, "pty_manager", None)
+                if mgr is None:
+                    continue
+
+                rows = int(msg.get("rows", 24) or 24)
+                cols = int(msg.get("cols", 80) or 80)
+                try:
+                    await mgr.resize_terminal(terminal_id, rows=rows, cols=cols)
+                    await websocket.send_json({
+                        "type": "terminal_resized",
+                        "terminal_id": terminal_id,
+                        "rows": rows,
+                        "cols": cols,
+                    })
+                except Exception:
+                    pass
+
+            elif msg_type == "terminal_ping":
+                terminal_id = str(msg.get("terminal_id", "") or "")
+                from web import app_state
+                mgr = getattr(app_state, "pty_manager", None)
+                if mgr is not None and terminal_id:
+                    try:
+                        mgr.touch_terminal(terminal_id)
+                    except Exception:
+                        pass
+                await websocket.send_json({"type": "terminal_pong", "terminal_id": terminal_id})
+
+            elif msg_type == "terminal_close":
+                terminal_id = str(msg.get("terminal_id", "") or "")
+                if terminal_id in terminal_ids:
+                    await _close_terminal_local(terminal_id, reason="operator_close")
+                    await websocket.send_json({
+                        "type": "terminal_closed",
+                        "terminal_id": terminal_id,
+                        "reason": "operator_close",
+                    })
+
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
 
@@ -835,6 +1035,20 @@ async def handle_websocket(websocket: WebSocket) -> None:
         except Exception:
             pass
     finally:
+        # Clean up terminal sessions bound to this websocket
+        try:
+            for terminal_id in list(terminal_ids):
+                await _close_terminal_local(terminal_id, reason="connection_lost")
+        except Exception:
+            pass
+
+        for task in list(terminal_tasks.values()):
+            try:
+                task.cancel()
+            except Exception:
+                pass
+        terminal_tasks.clear()
+
         # Clean up all session subscriptions
         try:
             from web import session_manager
