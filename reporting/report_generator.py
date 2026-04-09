@@ -257,6 +257,26 @@ class ReportGenerator:
 
         overall_risk, risk_color = self._overall_risk(critical_count, high_count, medium_count, low_count)
 
+        service_inventory = self._build_service_inventory(scan_rows, vuln_rows)
+        host_exposure = self._build_host_exposure(scan_rows, vuln_rows, exploit_rows)
+        priority_actions = self._build_priority_actions(vuln_rows, host_exposure)
+        evidence_timeline = self._build_evidence_timeline(raw_scans, raw_vulns, raw_exploits)
+
+        assessment_start = float(session.get("created_at") or 0.0)
+        assessment_end = float(session.get("finished_at") or session.get("updated_at") or assessment_start)
+        duration_seconds = max(0, int(assessment_end - assessment_start)) if assessment_end and assessment_start else 0
+        exploit_success_rate = round((exploits_success / max(len(exploit_rows), 1)) * 100) if exploit_rows else 0
+
+        engagement = {
+            "started_at": self._format_ts(assessment_start),
+            "ended_at": self._format_ts(assessment_end),
+            "duration": self._format_duration(duration_seconds),
+            "unique_services": len(service_inventory),
+            "vulnerable_hosts": sum(1 for h in host_exposure if h.get("vuln_count", 0) > 0),
+            "exploited_hosts": sum(1 for h in host_exposure if h.get("exploited")),
+            "exploit_success_rate": f"{exploit_success_rate}%",
+        }
+
         stats = {
             "hosts_found":      session.get("hosts_found", 0) or len({r["ip"] for r in scan_rows}),
             "ports_found":      session.get("ports_found", 0) or len(scan_rows),
@@ -281,6 +301,11 @@ class ReportGenerator:
             "scan_results":    scan_rows,
             "vulnerabilities": vuln_rows,
             "exploit_results": exploit_rows,
+            "service_inventory": service_inventory,
+            "host_exposure": host_exposure,
+            "priority_actions": priority_actions,
+            "evidence_timeline": evidence_timeline,
+            "engagement":      engagement,
             "branding":        branding,
             "generated_at":    datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         }
@@ -424,3 +449,330 @@ class ReportGenerator:
         # Sort by CVSS score descending
         enriched.sort(key=lambda x: float(x.get("cvss_score") or 0), reverse=True)
         return enriched
+
+    @staticmethod
+    def _format_ts(ts: float | int | None) -> str:
+        if not ts:
+            return "—"
+        try:
+            return datetime.fromtimestamp(float(ts), tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
+        except Exception:
+            return "—"
+
+    @staticmethod
+    def _format_duration(seconds: int) -> str:
+        if seconds <= 0:
+            return "0m"
+        days, rem = divmod(seconds, 86400)
+        hours, rem = divmod(rem, 3600)
+        mins, _ = divmod(rem, 60)
+        parts: list[str] = []
+        if days:
+            parts.append(f"{days}d")
+        if hours:
+            parts.append(f"{hours}h")
+        if mins or not parts:
+            parts.append(f"{mins}m")
+        return " ".join(parts)
+
+    @staticmethod
+    def _build_service_inventory(scan_rows: list[dict], vuln_rows: list[dict]) -> list[dict]:
+        inventory: dict[str, dict] = {}
+
+        def ensure(service_name: str) -> dict:
+            raw_name = (service_name or "unknown").strip() or "unknown"
+            key = raw_name.lower()
+            if key not in inventory:
+                inventory[key] = {
+                    "service": raw_name,
+                    "hosts": set(),
+                    "ports": set(),
+                    "versions": set(),
+                    "vuln_count": 0,
+                    "critical_count": 0,
+                    "max_cvss": 0.0,
+                }
+            elif inventory[key]["service"] == "unknown" and raw_name != "unknown":
+                inventory[key]["service"] = raw_name
+            return inventory[key]
+
+        for row in scan_rows:
+            entry = ensure(str(row.get("service") or "unknown"))
+            ip = row.get("ip") or ""
+            if ip:
+                entry["hosts"].add(ip)
+            port = row.get("port")
+            proto = row.get("protocol") or "tcp"
+            if port:
+                entry["ports"].add(f"{port}/{proto}")
+            version = str(row.get("version") or "").strip()
+            if version:
+                entry["versions"].add(version)
+
+        for vuln in vuln_rows:
+            entry = ensure(str(vuln.get("service") or "unknown"))
+            score = float(vuln.get("cvss_score") or 0.0)
+            entry["vuln_count"] += 1
+            entry["max_cvss"] = max(entry["max_cvss"], score)
+            if score >= 9.0:
+                entry["critical_count"] += 1
+            host_ip = vuln.get("host_ip") or ""
+            if host_ip:
+                entry["hosts"].add(host_ip)
+            version = str(vuln.get("service_version") or "").strip()
+            if version:
+                entry["versions"].add(version)
+
+        rows = []
+        for entry in inventory.values():
+            rows.append(
+                {
+                    "service": entry["service"],
+                    "host_count": len(entry["hosts"]),
+                    "open_port_count": len(entry["ports"]),
+                    "vuln_count": entry["vuln_count"],
+                    "critical_count": entry["critical_count"],
+                    "max_cvss": round(float(entry["max_cvss"]), 1),
+                    "versions": ", ".join(sorted(entry["versions"])[:3]) if entry["versions"] else "—",
+                }
+            )
+
+        rows.sort(
+            key=lambda x: (
+                int(x.get("vuln_count", 0)),
+                float(x.get("max_cvss", 0.0)),
+                int(x.get("host_count", 0)),
+            ),
+            reverse=True,
+        )
+        return rows
+
+    @staticmethod
+    def _build_host_exposure(scan_rows: list[dict], vuln_rows: list[dict], exploit_rows: list[dict]) -> list[dict]:
+        hosts: dict[str, dict] = {}
+
+        def ensure(ip: str) -> dict:
+            key = ip or "unknown"
+            if key not in hosts:
+                hosts[key] = {
+                    "ip": key,
+                    "open_ports": set(),
+                    "services": set(),
+                    "vuln_count": 0,
+                    "max_cvss": 0.0,
+                    "exploit_attempts": 0,
+                    "exploited": False,
+                }
+            return hosts[key]
+
+        for row in scan_rows:
+            ip = str(row.get("ip") or "")
+            if not ip:
+                continue
+            entry = ensure(ip)
+            port = row.get("port")
+            proto = row.get("protocol") or "tcp"
+            if port:
+                entry["open_ports"].add(f"{port}/{proto}")
+            service = str(row.get("service") or "").strip()
+            if service:
+                entry["services"].add(service)
+
+        for vuln in vuln_rows:
+            ip = str(vuln.get("host_ip") or "")
+            if not ip:
+                continue
+            entry = ensure(ip)
+            entry["vuln_count"] += 1
+            entry["max_cvss"] = max(entry["max_cvss"], float(vuln.get("cvss_score") or 0.0))
+            service = str(vuln.get("service") or "").strip()
+            if service:
+                entry["services"].add(service)
+
+        for exploit in exploit_rows:
+            ip = str(exploit.get("host_ip") or exploit.get("target_ip") or "")
+            if not ip:
+                continue
+            entry = ensure(ip)
+            entry["exploit_attempts"] += 1
+            if exploit.get("success"):
+                entry["exploited"] = True
+
+        output = []
+        for entry in hosts.values():
+            max_cvss = float(entry["max_cvss"])
+            if entry["exploited"]:
+                risk_label = "COMPROMISED"
+                risk_color = "#ff4444"
+            elif max_cvss >= 9.0:
+                risk_label = "CRITICAL"
+                risk_color = "#ff4444"
+            elif max_cvss >= 7.0:
+                risk_label = "HIGH"
+                risk_color = "#ff8c42"
+            elif entry["vuln_count"] > 0:
+                risk_label = "MEDIUM"
+                risk_color = "#ffd43b"
+            else:
+                risk_label = "LOW"
+                risk_color = "#69db7c"
+
+            output.append(
+                {
+                    "ip": entry["ip"],
+                    "open_port_count": len(entry["open_ports"]),
+                    "services": ", ".join(sorted(entry["services"])[:4]) if entry["services"] else "—",
+                    "vuln_count": entry["vuln_count"],
+                    "max_cvss": round(max_cvss, 1),
+                    "exploit_attempts": entry["exploit_attempts"],
+                    "exploited": entry["exploited"],
+                    "risk_label": risk_label,
+                    "risk_color": risk_color,
+                }
+            )
+
+        output.sort(
+            key=lambda x: (
+                1 if x.get("exploited") else 0,
+                float(x.get("max_cvss") or 0.0),
+                int(x.get("vuln_count") or 0),
+                int(x.get("open_port_count") or 0),
+            ),
+            reverse=True,
+        )
+        return output
+
+    @staticmethod
+    def _build_priority_actions(vuln_rows: list[dict], host_exposure: list[dict]) -> list[dict]:
+        if not vuln_rows:
+            return []
+
+        actions: list[dict] = []
+
+        compromised_hosts = [h for h in host_exposure if h.get("exploited")]
+        if compromised_hosts:
+            actions.append(
+                {
+                    "priority": "IMMEDIATE",
+                    "owner": "SOC / Incident Response",
+                    "due_window": "0-24 hours",
+                    "title": "Contain and investigate compromised hosts",
+                    "rationale": (
+                        f"{len(compromised_hosts)} host(s) had successful exploit attempts "
+                        "and should be isolated and forensically reviewed."
+                    ),
+                    "recommendation": (
+                        "Isolate affected hosts from production segments, rotate credentials, "
+                        "and validate persistence mechanisms before returning systems to service."
+                    ),
+                }
+            )
+
+        owner_map = {
+            "http": "Application Security",
+            "https": "Application Security",
+            "ssh": "Infrastructure Operations",
+            "smb": "Endpoint / AD Team",
+            "rdp": "Endpoint / AD Team",
+            "mysql": "Database Operations",
+            "mssql": "Database Operations",
+        }
+        due_map = {
+            "CRITICAL": "0-24 hours",
+            "HIGH": "24-72 hours",
+            "MEDIUM": "< 30 days",
+            "LOW": "Next maintenance window",
+            "NONE": "Track",
+        }
+        priority_rank = {"IMMEDIATE": 0, "CRITICAL": 1, "HIGH": 2, "MEDIUM": 3, "LOW": 4, "NONE": 5}
+
+        seen_services: set[str] = set()
+        for vuln in vuln_rows:
+            service = (str(vuln.get("service") or "unknown").strip().lower() or "unknown")
+            if service in seen_services:
+                continue
+            seen_services.add(service)
+
+            severity = str(vuln.get("severity") or "LOW")
+            cve_id = str(vuln.get("cve_id") or "")
+            title = f"Patch and harden {service.upper()} service"
+            if cve_id:
+                title = f"Remediate {cve_id} on {service.upper()}"
+
+            actions.append(
+                {
+                    "priority": severity,
+                    "owner": owner_map.get(service, "Infrastructure Operations"),
+                    "due_window": due_map.get(severity, "< 30 days"),
+                    "title": title,
+                    "rationale": (
+                        f"Highest observed CVSS for {service.upper()} is "
+                        f"{float(vuln.get('cvss_score') or 0.0):.1f}."
+                    ),
+                    "recommendation": str(vuln.get("recommendation") or _RECOMMENDATIONS.get(severity, _RECOMMENDATIONS["LOW"])),
+                }
+            )
+
+            if len(actions) >= 6:
+                break
+
+        actions.sort(key=lambda a: priority_rank.get(a.get("priority", "NONE"), 9))
+        return actions[:6]
+
+    @staticmethod
+    def _build_evidence_timeline(raw_scans: list[dict], raw_vulns: list[dict], raw_exploits: list[dict]) -> list[dict]:
+        events: list[dict] = []
+
+        for scan in raw_scans:
+            ts = float(scan.get("created_at") or 0.0)
+            hosts_up = sum(1 for h in (scan.get("hosts") or []) if h.get("state") == "up")
+            events.append(
+                {
+                    "ts": ts,
+                    "kind": "scan",
+                    "label": f"{str(scan.get('scan_type') or 'scan').upper()} completed",
+                    "detail": f"{hosts_up} host(s) responded for target {scan.get('target') or 'scope'}.",
+                }
+            )
+
+        for vuln in raw_vulns:
+            ts = float(vuln.get("created_at") or 0.0)
+            sev = cvss.severity_label(float(vuln.get("cvss_score") or 0.0))
+            title = str(vuln.get("title") or "Unnamed finding")
+            events.append(
+                {
+                    "ts": ts,
+                    "kind": "vuln",
+                    "label": f"{sev} finding identified",
+                    "detail": f"{title} on {vuln.get('host_ip') or 'unknown host'}.",
+                }
+            )
+
+        for exploit in raw_exploits:
+            ts = float(exploit.get("created_at") or 0.0)
+            success = bool(exploit.get("success"))
+            result = "successful" if success else "failed"
+            mod = exploit.get("module") or "unknown/module"
+            host = exploit.get("host_ip") or exploit.get("target_ip") or "unknown host"
+            events.append(
+                {
+                    "ts": ts,
+                    "kind": "exploit",
+                    "label": f"Exploit attempt {result}",
+                    "detail": f"{mod} against {host}.",
+                }
+            )
+
+        events.sort(key=lambda e: e.get("ts", 0.0))
+        events = events[-30:]
+
+        for ev in events:
+            ts = float(ev.get("ts") or 0.0)
+            if ts:
+                ev["time"] = datetime.fromtimestamp(ts, tz=UTC).strftime("%H:%M:%S")
+                ev["date"] = datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d")
+            else:
+                ev["time"] = "—"
+                ev["date"] = "—"
+
+        return events

@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>TIRPAN</title>
-<link rel="icon" type="image/png" href="logo.png"/>
+<link rel="icon" type="image/png" href="scythe.png"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet"/>
@@ -351,7 +351,7 @@
           </button>
           <button onclick="switchAgentView('timeline')" id="ag-view-btn-timeline"
             class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
-            <span class="material-symbols-outlined" style="font-size:11px;">view_timeline</span>ALT
+            <span class="material-symbols-outlined" style="font-size:11px;">view_timeline</span>TIMELINE
           </button>
         </div>
       </div>
@@ -415,6 +415,29 @@
 
         <!-- ── Attack Graph View ─────────────────────────────────── -->
         <div id="ag-graph-view" style="display:none;flex:1;min-width:0;flex-direction:column;">
+          <div class="ag-pro-header">
+            <div class="ag-pro-title-wrap">
+              <p class="ag-pro-eyebrow">Mission Map</p>
+              <h3 class="ag-pro-title">Node-Based Attack Storyboard</h3>
+              <p id="ag-graph-caption" class="ag-pro-caption">
+                Select any node to see what happened, why it happened, and what it means.
+              </p>
+            </div>
+            <div class="ag-pro-kpi-wrap">
+              <div class="ag-pro-kpi-card">
+                <span class="ag-pro-kpi-label">Active Nodes</span>
+                <span id="ag-kpi-nodes" class="ag-pro-kpi-value">0</span>
+              </div>
+              <div class="ag-pro-kpi-card">
+                <span class="ag-pro-kpi-label">Critical Paths</span>
+                <span id="ag-kpi-risk" class="ag-pro-kpi-value">0</span>
+              </div>
+              <div class="ag-pro-kpi-card">
+                <span class="ag-pro-kpi-label">Current Phase</span>
+                <span id="ag-kpi-phase" class="ag-pro-kpi-value">Idle</span>
+              </div>
+            </div>
+          </div>
           <!-- SVG + detail panel row -->
           <div style="flex:1;min-height:0;display:flex;overflow:hidden;">
             <!-- Canvas area -->
@@ -422,11 +445,11 @@
               <svg id="ag-graph-svg" style="width:100%;height:100%;display:block;"></svg>
               <!-- Legend -->
               <div id="ag-legend" style="position:absolute;top:12px;left:14px;display:flex;flex-direction:column;gap:5px;pointer-events:none;">
-                <div class="ag-legend-row" data-color="#ccff00"><span class="ag-ld"></span><span class="ag-lt">Agent / OK</span></div>
-                <div class="ag-legend-row" data-color="#eab308"><span class="ag-ld"></span><span class="ag-lt">Thinking</span></div>
-                <div class="ag-legend-row" data-color="#3b82f6"><span class="ag-ld"></span><span class="ag-lt">Tool</span></div>
-                <div class="ag-legend-row" data-color="#a855f7"><span class="ag-ld"></span><span class="ag-lt">Reflection</span></div>
-                <div class="ag-legend-row" data-color="#f97316"><span class="ag-ld"></span><span class="ag-lt">Parallel</span></div>
+                <div class="ag-legend-row" data-color="#ccff00"><span class="ag-ld"></span><span class="ag-lt">Mission Start / Success</span></div>
+                <div class="ag-legend-row" data-color="#eab308"><span class="ag-ld"></span><span class="ag-lt">Reasoning Step</span></div>
+                <div class="ag-legend-row" data-color="#3b82f6"><span class="ag-ld"></span><span class="ag-lt">Tool Action</span></div>
+                <div class="ag-legend-row" data-color="#a855f7"><span class="ag-ld"></span><span class="ag-lt">Reflection Insight</span></div>
+                <div class="ag-legend-row" data-color="#f97316"><span class="ag-ld"></span><span class="ag-lt">Parallel Branch</span></div>
               </div>
               <!-- Zoom controls -->
               <div style="position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:3px;">
@@ -1010,6 +1033,91 @@
                   <input type="checkbox" class="sr-only peer" checked/>
                   <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
                 </label>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ── SECTION: Per-Agent Models ─────────────────────────────── -->
+          <div>
+            <div class="flex items-center gap-4 mb-6">
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Per-Agent Models</span>
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+            </div>
+            <p class="text-[10px] text-secondary-text mb-4">Override which model each agent type uses. Click a row to pick from available models. Leave empty to inherit the global active model.</p>
+            <div class="flex flex-col gap-2">
+
+              <!-- brain -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_brain')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">psychology</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Brain</p>
+                  <p class="text-[9px] text-secondary-text">orchestrator</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-brain-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_brain" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_brain')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-brain-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-brain-model" value=""/>
+              </div>
+
+              <!-- scanner/exploit -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_scanner')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">manage_search</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Scanner / Exploit</p>
+                  <p class="text-[9px] text-secondary-text">scan, vuln, msf</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-scanner-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_scanner" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_scanner')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-scanner-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-scanner-model" value=""/>
+              </div>
+
+              <!-- reporting -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_reporting')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">description</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Reporting</p>
+                  <p class="text-[9px] text-secondary-text">report generation</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-reporting-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_reporting" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_reporting')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-reporting-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-reporting-model" value=""/>
+              </div>
+
+              <!-- osint/lateral -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_osint')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">travel_explore</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">OSINT / Lateral</p>
+                  <p class="text-[9px] text-secondary-text">recon, pivot</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-osint-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_osint" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_osint')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-osint-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-osint-model" value=""/>
               </div>
 
             </div>
@@ -1972,7 +2080,8 @@
         <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="credentials">03 Credentials</button>
         <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="discovery">04 Discovery</button>
         <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="policy">05 Policy</button>
-        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap" data-tab="profiles">06 Profiles</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-l border-border-color" data-tab="profiles">06 Profiles</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-l border-border-color" data-tab="models">07 Models</button>
       </div>
 
       <!-- Tab bodies (scrollable area) -->
@@ -2049,6 +2158,21 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
               <button class="adv-mode-btn flex-1" data-mode="v2_auto" title="V2 multi-agent: BrainAgent coordinates specialized sub-agents">V2 Auto ✦</button>
             </div>
             <p id="adv-mode-desc" class="text-[9px] text-secondary-text">Scan and identify vulnerabilities — no exploitation.</p>
+          </div>
+
+          <!-- Step-by-step execution toggle -->
+          <div class="flex items-center gap-4 p-4 bg-card border border-border-color">
+            <div class="flex-1">
+              <p class="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <span class="material-symbols-outlined text-[14px]">step</span>
+                Step-by-Step Execution
+              </p>
+              <p class="text-[10px] text-secondary-text mt-0.5">Agent pauses and asks for your approval before every tool call. Disable for fully autonomous operation.</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" id="adv-step-by-step" class="sr-only peer"/>
+              <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+            </label>
           </div>
 
           <div class="flex flex-col gap-2">
@@ -2375,6 +2499,113 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
               <button onclick="advRefreshToolStatus()" class="adv-btn-sm">Refresh</button>
             </div>
             <div id="adv-tool-status" class="flex flex-col gap-1.5"></div>
+          </div>
+        </div>
+
+        <!-- ── TAB 7: MODELS ───────────────────────────────────────────── -->
+        <div id="adv-tab-models" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-5">
+
+          <p class="text-[10px] text-secondary-text">Override which AI model each agent uses for this mission. Click a row to pick from available models. Leave empty to inherit the global active model.</p>
+
+          <div class="flex flex-col gap-2">
+
+            <!-- Brain -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_brain')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">psychology</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Brain</p>
+                <p class="text-[9px] text-secondary-text">V2 orchestrator</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-brain-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_brain" onclick="event.stopPropagation(); clearAgentModel('adv_agent_brain')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-brain-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-brain-model" value=""/>
+            </div>
+
+            <!-- Scanner / Exploit -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_scanner')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">manage_search</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Scanner / Exploit</p>
+                <p class="text-[9px] text-secondary-text">port scan, web, vuln</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-scanner-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_scanner" onclick="event.stopPropagation(); clearAgentModel('adv_agent_scanner')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-scanner-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-scanner-model" value=""/>
+            </div>
+
+            <!-- Post-Exploit / Lateral -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_postexploit')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">account_tree</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Post-Exploit / Lateral</p>
+                <p class="text-[9px] text-secondary-text">post-exploit, pivot</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-postexploit-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_postexploit" onclick="event.stopPropagation(); clearAgentModel('adv_agent_postexploit')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-postexploit-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-postexploit-model" value=""/>
+            </div>
+
+            <!-- Reporting -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_reporting')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">description</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Reporting</p>
+                <p class="text-[9px] text-secondary-text">report generation</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-reporting-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_reporting" onclick="event.stopPropagation(); clearAgentModel('adv_agent_reporting')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-reporting-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-reporting-model" value=""/>
+            </div>
+
+            <!-- OSINT -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_osint')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">travel_explore</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">OSINT</p>
+                <p class="text-[9px] text-secondary-text">open-source intelligence</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-osint-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_osint" onclick="event.stopPropagation(); clearAgentModel('adv_agent_osint')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-osint-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-osint-model" value=""/>
+            </div>
+
+          </div>
+
+          <div class="border-t border-border-color pt-4">
+            <button onclick="advLoadAgentModelDefaults()" class="adv-btn-sm flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[13px]">download</span>
+              Load from Global Config Defaults
+            </button>
           </div>
         </div>
 
@@ -2715,17 +2946,35 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
           <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">History</span>
         </div>
 
-        <div class="flex items-center justify-between">
-          <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Past Sessions</p>
-          <span class="mono-text text-[9px] text-secondary-text">0 total</span>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Sessions</span>
+            <span id="intel-history-total-sessions" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Active</span>
+            <span id="intel-history-active-sessions" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Findings</span>
+            <span id="intel-history-total-findings" class="mono-text text-sm font-bold text-danger">0</span>
+          </div>
         </div>
 
-        <p class="text-[10px] text-secondary-text mono-text text-center py-4">No sessions yet</p>
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Recent Missions</p>
+            <span id="intel-history-total" class="mono-text text-[9px] text-secondary-text">0 total</span>
+          </div>
+          <div id="intel-history-list" class="max-h-[320px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-2">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No sessions yet</p>
+          </div>
+        </div>
 
         <!-- New session button -->
-        <button class="w-full border border-dashed border-border-color hover:border-primary text-secondary-text hover:text-primary transition-colors py-2.5 flex items-center justify-center gap-2 mt-1">
-          <span class="material-symbols-outlined text-[16px]">add</span>
-          <span class="text-[10px] font-bold uppercase tracking-widest">New Session</span>
+        <button id="intel-history-open-latest" class="w-full border border-dashed border-border-color hover:border-primary text-secondary-text hover:text-primary transition-colors py-2.5 flex items-center justify-center gap-2 mt-1">
+          <span class="material-symbols-outlined text-[16px]">history_toggle_off</span>
+          <span class="text-[10px] font-bold uppercase tracking-widest">Open Latest Mission</span>
         </button>
 
       </div>
@@ -2737,12 +2986,70 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
           <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Nodes</span>
         </div>
 
-        <div class="flex items-center justify-between">
-          <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Discovered Hosts</p>
-          <span class="mono-text text-[9px] text-secondary-text">0 online</span>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Hosts</span>
+            <span id="intel-nodes-total" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Vulnerable</span>
+            <span id="intel-nodes-vuln" class="mono-text text-sm font-bold text-danger">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Exploited</span>
+            <span id="intel-nodes-exploited" class="mono-text text-sm font-bold text-orange-400">0</span>
+          </div>
         </div>
 
-        <p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Discovered Hosts</p>
+            <span id="intel-nodes-online" class="mono-text text-[9px] text-secondary-text">0 online</span>
+          </div>
+          <div id="intel-nodes-list" class="max-h-[320px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-2">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ─── PANEL: KNOWLEDGE BASE ─────────────────────────────────────── -->
+      <div id="intel-panel-kb" class="intel-panel hidden flex flex-col gap-3">
+
+        <div class="flex items-center justify-between -mt-1">
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Knowledge Base</span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Entries</span>
+            <span id="intel-kb-entry-count" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Success Rate</span>
+            <span id="intel-kb-success-rate" class="mono-text text-sm font-bold text-primary">0%</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Updated</span>
+            <span id="intel-kb-last-updated" class="mono-text text-sm font-bold text-secondary-text">—</span>
+          </div>
+        </div>
+
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Learned Attack Patterns</p>
+            <span class="mono-text text-[9px] text-secondary-text">Live</span>
+          </div>
+          <div id="intel-kb-list" class="max-h-[320px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-2">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No knowledge patterns yet</p>
+          </div>
+        </div>
+
+        <div class="bg-surface border border-border-color p-2.5">
+          <p id="intel-kb-summary" class="text-[10px] mono-text text-secondary-text leading-relaxed">
+            Knowledge Base captures what worked in previous missions and suggests repeatable remediation actions.
+          </p>
+        </div>
 
       </div>
 
@@ -2916,7 +3223,10 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
     <div class="px-6 py-4 border-b border-border-color flex items-center justify-between shrink-0">
       <div class="flex items-center gap-3">
         <span class="material-symbols-outlined text-primary text-[16px]">smart_toy</span>
-        <span class="font-display font-bold text-sm uppercase tracking-widest">Select Model</span>
+        <div>
+          <span class="font-display font-bold text-sm uppercase tracking-widest">Select Model</span>
+          <p id="model-picker-subtitle" class="text-[9px] text-secondary-text mono-text hidden"></p>
+        </div>
       </div>
       <button id="model-picker-close" class="material-symbols-outlined text-secondary-text hover:text-primary transition-colors text-[20px]">close</button>
     </div>

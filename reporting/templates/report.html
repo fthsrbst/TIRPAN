@@ -791,18 +791,24 @@
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.1 Engagement Overview</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.2 Risk Distribution</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.3 Key Findings Summary</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.4 Engagement Metrics</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.5 Evidence Timeline</span></div>
   <div class="toc-entry"><span class="toc-num">2.</span><span class="toc-title">Scope &amp; Methodology</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.1 Engagement Scope</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.2 Testing Methodology (PTES)</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.3 Tools Used</span></div>
   <div class="toc-entry"><span class="toc-num">3.</span><span class="toc-title">Discovered Hosts &amp; Services</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">3.1 Service Exposure Inventory</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">3.2 Host Exposure Prioritization</span></div>
   <div class="toc-entry"><span class="toc-num">4.</span><span class="toc-title">Vulnerability Findings</span></div>
   {% if exploit_results %}
   <div class="toc-entry"><span class="toc-num">5.</span><span class="toc-title">Exploitation Results</span></div>
   <div class="toc-entry"><span class="toc-num">6.</span><span class="toc-title">Remediation Roadmap</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">6.1 Prioritized Action Plan</span></div>
   <div class="toc-entry"><span class="toc-num">7.</span><span class="toc-title">Compliance Mapping</span></div>
   {% else %}
   <div class="toc-entry"><span class="toc-num">5.</span><span class="toc-title">Remediation Roadmap</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">5.1 Prioritized Action Plan</span></div>
   <div class="toc-entry"><span class="toc-num">6.</span><span class="toc-title">Compliance Mapping</span></div>
   {% endif %}
 </div>
@@ -927,6 +933,50 @@
     The assessment did not identify any vulnerabilities against the target.
     This may indicate that the scan is still in progress or the target has no open ports within the configured scope.
   </div>
+  {% endif %}
+
+  <h3 class="sub-title">1.4 Engagement Metrics</h3>
+  <div class="info-grid">
+    <div class="info-row">
+      <label>Assessment Start</label>
+      <div class="info-val">{{ engagement.started_at }}</div>
+    </div>
+    <div class="info-row">
+      <label>Assessment End</label>
+      <div class="info-val">{{ engagement.ended_at }}</div>
+    </div>
+    <div class="info-row">
+      <label>Total Duration</label>
+      <div class="info-val">{{ engagement.duration }}</div>
+    </div>
+    <div class="info-row">
+      <label>Unique Services</label>
+      <div class="info-val">{{ engagement.unique_services }}</div>
+    </div>
+    <div class="info-row">
+      <label>Vulnerable Hosts</label>
+      <div class="info-val">{{ engagement.vulnerable_hosts }}</div>
+    </div>
+    <div class="info-row">
+      <label>Exploited Hosts</label>
+      <div class="info-val">{{ engagement.exploited_hosts }}</div>
+    </div>
+    <div class="info-row full">
+      <label>Exploit Success Rate</label>
+      <div class="info-val">{{ engagement.exploit_success_rate }}</div>
+    </div>
+  </div>
+
+  {% if evidence_timeline %}
+  <h3 class="sub-title">1.5 Evidence Timeline</h3>
+  <ul class="timeline" style="margin-bottom: 8px;">
+    {% for ev in evidence_timeline %}
+    <li>
+      <div class="tl-time">{{ ev.date }} {{ ev.time }} UTC</div>
+      <div class="tl-text"><strong>{{ ev.label }}</strong> - {{ ev.detail }}</div>
+    </li>
+    {% endfor %}
+  </ul>
   {% endif %}
 </div>
 
@@ -1074,6 +1124,71 @@
       {% endfor %}
     </tbody>
   </table>
+
+  {% if service_inventory %}
+  <h3 class="sub-title">3.1 Service Exposure Inventory</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th>Hosts</th>
+        <th>Open Ports</th>
+        <th>Findings</th>
+        <th>Critical</th>
+        <th>Max CVSS</th>
+        <th>Observed Versions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for svc in service_inventory %}
+      <tr>
+        <td><strong>{{ svc.service }}</strong></td>
+        <td>{{ svc.host_count }}</td>
+        <td>{{ svc.open_port_count }}</td>
+        <td>{{ svc.vuln_count }}</td>
+        <td {% if svc.critical_count > 0 %}style="color:var(--critical); font-weight:700;"{% endif %}>{{ svc.critical_count }}</td>
+        <td style="font-weight:700; color:{{ '#ff4444' if svc.max_cvss >= 9 else '#ff8c42' if svc.max_cvss >= 7 else '#ffd43b' if svc.max_cvss >= 4 else '#69db7c' }};">{{ "%.1f"|format(svc.max_cvss or 0) }}</td>
+        <td style="color:var(--ink-muted);">{{ svc.versions }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if host_exposure %}
+  <h3 class="sub-title">3.2 Host Exposure Prioritization</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Host</th>
+        <th>Risk</th>
+        <th>Open Ports</th>
+        <th>Services</th>
+        <th>Findings</th>
+        <th>Max CVSS</th>
+        <th>Exploit Attempts</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for host in host_exposure[:20] %}
+      <tr>
+        <td><code>{{ host.ip }}</code></td>
+        <td><strong style="color: {{ host.risk_color }};">{{ host.risk_label }}</strong></td>
+        <td>{{ host.open_port_count }}</td>
+        <td style="color:var(--ink-muted);">{{ host.services }}</td>
+        <td>{{ host.vuln_count }}</td>
+        <td style="font-weight:700; color:{{ host.risk_color }};">{{ "%.1f"|format(host.max_cvss or 0) }}</td>
+        <td>
+          {{ host.exploit_attempts }}
+          {% if host.exploited %}
+          <span class="result-fail" style="margin-left:4px;">(Compromised)</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -1382,6 +1497,39 @@
   </p>
 
   {% if vulnerabilities %}
+
+  {% if priority_actions %}
+  <h3 class="sub-title">{% if exploit_results %}6.1{% else %}5.1{% endif %} Prioritized Action Plan</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Priority</th>
+        <th>Owner</th>
+        <th>SLA</th>
+        <th>Action</th>
+        <th>Rationale</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for action in priority_actions %}
+      <tr>
+        <td>
+          <span class="roadmap-priority {% if action.priority in ('IMMEDIATE', 'CRITICAL') %}rp-immediate{% elif action.priority == 'HIGH' %}rp-short{% elif action.priority == 'MEDIUM' %}rp-medium{% else %}rp-long{% endif %}">
+            {{ action.priority }}
+          </span>
+        </td>
+        <td>{{ action.owner }}</td>
+        <td>{{ action.due_window }}</td>
+        <td>
+          <strong>{{ action.title }}</strong><br>
+          <span style="font-size:12px; color:var(--ink-muted);">{{ action.recommendation }}</span>
+        </td>
+        <td style="color:var(--ink-muted);">{{ action.rationale }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 
   {% set crit_vulns = vulnerabilities | selectattr('severity', 'eq', 'CRITICAL') | list %}
   {% set high_vulns = vulnerabilities | selectattr('severity', 'eq', 'HIGH') | list %}

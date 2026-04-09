@@ -30,6 +30,44 @@ SCAN_TIMEOUT = 1800  # 30 minutes max (full-range vuln scans can take 20+ minute
 
 class NmapTool(BaseTool):
 
+    @staticmethod
+    def _is_sudo_auth_failure(err: str, out: str) -> bool:
+        text = f"{err}\n{out}".lower()
+        markers = (
+            "password is required",
+            "a password is required",
+            "no password was provided",
+            "incorrect password",
+            "sorry, try again",
+            "incorrect password attempts",
+            "[sudo] password for",
+        )
+        return any(m in text for m in markers)
+
+    @staticmethod
+    def _downgrade_non_root_cmd_from_sudo(cmd: list[str]) -> list[str]:
+        # Drop sudo wrapper and privileged-only scan flags when retrying without root.
+        try:
+            nmap_idx = cmd.index("nmap")
+            plain = cmd[nmap_idx:]
+        except ValueError:
+            plain = ["nmap"] + [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
+
+        filtered: list[str] = []
+        for arg in plain:
+            if arg in ("-sS", "-O", "--osscan-guess"):
+                continue
+            if arg in ("sudo", "-n", "-S", "-k"):
+                continue
+            filtered.append(arg)
+
+        has_mode = any(a in ("-sn", "-sV", "-sT", "-sU", "-A") for a in filtered)
+        if not has_mode:
+            # Ensure command stays meaningful after privileged flags are removed.
+            filtered.insert(1, "-sV")
+
+        return filtered
+
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -273,15 +311,10 @@ class NmapTool(BaseTool):
         if returncode != 0:
             err = stderr.decode().strip()
             out = stdout.decode().strip()
-            if cmd[0] == "sudo" and ("password is required" in err or "a password is required" in err):
+            if cmd and cmd[0] == "sudo" and self._is_sudo_auth_failure(err, out):
                 settings.nmap_sudo = False
-                # Strip sudo prefix entirely: ["sudo", "-n", "nmap", ...] → ["nmap", ...]
-                # Find the first "nmap" element (the actual binary) and keep everything from there.
-                try:
-                    nmap_idx = cmd.index("nmap")
-                    cmd_no_sudo = cmd[nmap_idx:]
-                except ValueError:
-                    cmd_no_sudo = ["nmap"] + [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
+                cmd_no_sudo = self._downgrade_non_root_cmd_from_sudo(cmd)
+                logger.warning("nmap sudo auth failed; retrying without sudo: %s", " ".join(cmd_no_sudo))
                 return await self._run_nmap(cmd_no_sudo)
             details = err or out or f"exit code {returncode}"
             raise RuntimeError(f"nmap failed (rc={returncode}): {details}")

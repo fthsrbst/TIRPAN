@@ -214,6 +214,15 @@ function _updateShieldVisibility(show) {
 
 const ALL_INTEL_PANELS = ['analysis', 'network', 'shield', 'history', 'nodes', 'kb'];
 
+function _setIntelNavActive(panelName) {
+    const items = document.querySelectorAll('.intel-nav-item');
+    items.forEach((item) => {
+        const active = item.dataset.panel === panelName;
+        item.classList.toggle('text-primary', active);
+        item.classList.toggle('text-secondary-text', !active);
+    });
+}
+
 function switchIntelPanel(panelName) {
     // Hide all panels
     ALL_INTEL_PANELS.forEach(p => {
@@ -222,20 +231,38 @@ function switchIntelPanel(panelName) {
     });
     // Show target
     const target = document.getElementById(`intel-panel-${panelName}`);
-    if (target) target.classList.remove('hidden');
+    if (target) {
+        target.classList.remove('hidden');
+        _setIntelNavActive(panelName);
+    } else {
+        const fallback = document.getElementById('intel-panel-analysis');
+        if (fallback) fallback.classList.remove('hidden');
+        _setIntelNavActive('analysis');
+    }
+
+    const sid = viewingSessionId || activeMissionId || (_intelSessionsCache[0] ? _intelSessionsCache[0].id : null);
+
+    if (panelName === 'history') {
+        refreshIntelPanelsForSession(sid, { refreshHistory: true });
+        return;
+    }
+
+    if (panelName === 'analysis' || panelName === 'network' || panelName === 'nodes' || panelName === 'kb') {
+        if (_intelCurrentSessionData && sid && _intelCurrentSessionData.id === sid) {
+            syncAnalysisPanelFromSession(_intelCurrentSessionData);
+            updateNetworkPanelFromSession(_intelCurrentSessionData);
+            updateIntelNodesPanel(_intelCurrentSessionData);
+            updateIntelKnowledgeBasePanel(_intelCurrentSessionData);
+        } else {
+            refreshIntelPanelsForSession(sid);
+        }
+    }
 }
 
 function initIntelNav() {
     const items = document.querySelectorAll('.intel-nav-item');
     items.forEach(item => {
         item.addEventListener('click', () => {
-            items.forEach(i => {
-                i.classList.add('text-secondary-text');
-                i.classList.remove('text-primary');
-            });
-            item.classList.remove('text-secondary-text');
-            item.classList.add('text-primary');
-
             const panel = item.dataset.panel;
             if (panel) {
                 switchIntelPanel(panel);
@@ -271,6 +298,7 @@ function switchIntelTab(tabName) {
     const title = document.getElementById('intel-view-title');
     if (icon) icon.textContent = INTEL_TAB_ICONS[tabName] || 'monitoring';
     if (title) title.textContent = tabName.charAt(0).toUpperCase() + tabName.slice(1);
+    _setIntelNavActive(tabName);
 
     // When switching to network tab: force fresh render + fit
     if (tabName === 'network') {
@@ -960,8 +988,27 @@ async function loadConversation(convId) {
         const messages = data.messages || [];
         if (!messages.length) { resetMessageStream(); return; }
         messages.forEach(msg => {
-            if (msg.role === 'user') appendUserMessageDOM(msg.content);
-            else if (msg.role === 'assistant') appendAssistantMessageDOM(msg.content);
+            if (msg.role === 'user') {
+                currentAssistantEl = null;
+                appendUserMessageDOM(msg.content);
+            } else if (msg.role === 'tool_log') {
+                // Replay tool activity lines as status bubbles inside an assistant bubble
+                if (!currentAssistantEl) startAssistantMessage();
+                msg.content.split('\n').forEach(line => {
+                    if (line.trim()) appendChatStatusBubble(line.trim(), null);
+                });
+            } else if (msg.role === 'assistant') {
+                if (currentAssistantEl) {
+                    // Fill in the text of the already-open bubble (created by tool_log)
+                    const p = currentAssistantEl.querySelector('.msg-text');
+                    const cursor = currentAssistantEl.querySelector('.cursor-blink');
+                    if (cursor) cursor.remove();
+                    if (p) p.innerHTML = renderMarkdown(msg.content);
+                    currentAssistantEl = null;
+                } else {
+                    appendAssistantMessageDOM(msg.content);
+                }
+            }
         });
         autoScroll = true;
         forceScrollToBottom();
@@ -1331,6 +1378,12 @@ function wsConnect() {
             appendChatApprovalRequest(msg);
         } else if (msg.type === 'message_end') {
             finalizeAssistantMessage();
+            // If user submitted a custom "Other" instruction during approval, send it now
+            if (_pendingApprovalOtherMessage) {
+                const pendingMsg = _pendingApprovalOtherMessage;
+                _pendingApprovalOtherMessage = null;
+                setTimeout(() => sendChatMessage(pendingMsg), 200);
+            }
         } else if (msg.type === 'error') {
             appendErrorMessage(msg.content);
             finalizeAssistantMessage();
@@ -1548,9 +1601,12 @@ function appendChatStatusBubble(content, msgId) {
 /**
  * Show an approval request card in the chat when ChatAgent asks permission.
  */
+// Holds a user message to send automatically after the current agent turn ends
+// (set when user clicks "Other" in an approval card — deny + queue instruction)
+let _pendingApprovalOtherMessage = null;
+
 function appendChatApprovalRequest(msg) {
     if (!currentAssistantEl) startAssistantMessage();
-    const msgText = currentAssistantEl ? currentAssistantEl.querySelector('.msg-text') : null;
     const stream = getMessageStream();
     const container = stream;
     if (!container) return;
@@ -1560,6 +1616,7 @@ function appendChatApprovalRequest(msg) {
     const paramsStr = msg.params && typeof msg.params === 'object'
         ? Object.entries(msg.params).slice(0, 5).map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`).join('\n')
         : '';
+    const approvalId = escapeHtml(msg.approval_id || '');
     card.innerHTML = `
         <div class="shrink-0 w-8 h-8 border border-orange-400/60 flex items-center justify-center bg-surface self-start mt-5">
           <span class="material-symbols-outlined text-orange-400 text-xl">security</span>
@@ -1569,19 +1626,23 @@ function appendChatApprovalRequest(msg) {
           <div class="bg-surface border border-orange-400/30 p-4">
             <p class="text-xs text-slate-200 font-bold mb-1">${escapeHtml(msg.tool || '')}</p>
             ${paramsStr ? `<pre class="text-[10px] mono-text text-secondary-text whitespace-pre-wrap break-all mt-1">${escapeHtml(paramsStr)}</pre>` : ''}
-            <div class="flex gap-2 mt-3">
-              <button class="approval-approve px-4 py-1.5 bg-primary text-black text-[11px] font-bold uppercase tracking-wider hover:brightness-90 transition-all" data-id="${escapeHtml(msg.approval_id || '')}">Approve</button>
-              <button class="approval-deny px-4 py-1.5 border border-danger/50 text-danger text-[11px] font-bold uppercase tracking-wider hover:border-danger transition-all" data-id="${escapeHtml(msg.approval_id || '')}">Deny</button>
+            <div class="approval-action-row flex gap-2 mt-3">
+              <button class="approval-approve px-4 py-1.5 bg-primary text-black text-[11px] font-bold uppercase tracking-wider hover:brightness-90 transition-all" data-id="${approvalId}">Approve</button>
+              <button class="approval-deny px-4 py-1.5 border border-danger/50 text-danger text-[11px] font-bold uppercase tracking-wider hover:border-danger transition-all" data-id="${approvalId}">Deny</button>
+            </div>
+            <div class="flex gap-2 mt-2 items-center">
+              <input class="approval-other-input flex-1 bg-background-dark border border-border-color text-slate-200 px-3 py-1.5 text-[11px] mono-text focus:border-orange-400/60 transition-colors" placeholder="Other… (deny + send custom instruction)" type="text"/>
+              <button class="approval-other-send px-3 py-1.5 border border-orange-400/40 text-orange-400 text-[11px] font-bold uppercase tracking-wider hover:border-orange-400 transition-all" data-id="${approvalId}">Send</button>
             </div>
           </div>
         </div>`;
 
     function dismissApprovalCard(label) {
-        card.querySelector('.approval-approve').disabled = true;
-        card.querySelector('.approval-deny').disabled = true;
-        const btnRow = card.querySelector('.flex.gap-2');
-        if (btnRow) btnRow.innerHTML = `<span class="text-[11px] font-bold uppercase tracking-wider text-secondary-text">${label}</span>`;
-        // Lock height before animating to prevent layout jump
+        card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        const actionRow = card.querySelector('.approval-action-row');
+        if (actionRow) actionRow.innerHTML = `<span class="text-[11px] font-bold uppercase tracking-wider text-secondary-text">${label}</span>`;
+        const otherRow = card.querySelector('.flex.gap-2.mt-2');
+        if (otherRow) otherRow.remove();
         card.style.height = card.offsetHeight + 'px';
         card.style.overflow = 'hidden';
         card.style.transition = 'opacity 0.3s ease';
@@ -1605,6 +1666,22 @@ function appendChatApprovalRequest(msg) {
         const id = e.currentTarget.getAttribute('data-id');
         ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: false }));
         dismissApprovalCard('✗ Denied');
+    });
+    card.querySelector('.approval-other-send')?.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const text = card.querySelector('.approval-other-input')?.value?.trim();
+        if (!text) return;
+        // Deny the current action, then queue the custom text as the next user message
+        ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: false }));
+        _pendingApprovalOtherMessage = text;
+        dismissApprovalCard(`✗ Denied — queued: "${text.slice(0, 40)}${text.length > 40 ? '…' : ''}"`);
+    });
+    // Allow Enter key in the Other input to submit
+    card.querySelector('.approval-other-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            card.querySelector('.approval-other-send')?.click();
+        }
     });
 
     container.appendChild(card);
@@ -2364,9 +2441,11 @@ function selectModel(model, provider = 'ollama') {
 
 // ─── Model Picker Popup ───────────────────────────────────────────────────────
 
-let _pickerContext = null; // null/'all' = global, 'ollama', 'lmstudio', 'openrouter'
+let _pickerContext    = null; // display filter: null/'all'/'ollama'/'lmstudio'/'openrouter'
+let _pickerAgentCtx  = null; // per-agent target key when open for a specific agent row
 
 function _updatePickerSidebarActive() {
+    // In per-agent mode the display filter is _pickerContext; if null → 'all'
     const active = _pickerContext || 'all';
     document.querySelectorAll('.picker-provider-btn').forEach(btn => {
         const p = btn.dataset.pickerProvider;
@@ -2385,8 +2464,29 @@ function _updatePickerSidebarActive() {
     if (orDot)    orDot.className    = `w-1.5 h-1.5 rounded-full mt-0.5 ${openRouterModels.length ? 'bg-primary' : 'bg-border-color'}`;
 }
 
+const _AGENT_DISPLAY_NAMES = {
+    brain: 'Brain', scanner: 'Scanner / Exploit', postexploit: 'Post-Exploit / Lateral',
+    reporting: 'Reporting', osint: 'OSINT',
+};
+
 function openModelPicker(context = null) {
-    _pickerContext = context;
+    const subtitle = document.getElementById('model-picker-subtitle');
+    if (context && (context.startsWith('cfg_agent_') || context.startsWith('adv_agent_'))) {
+        // Per-agent mode: store agent context separately; show all providers by default
+        _pickerAgentCtx = context;
+        _pickerContext  = null; // show all
+        if (subtitle) {
+            const parts = context.split('_');
+            const agentKey = parts.slice(2).join('_');
+            const scope = parts[0] === 'cfg' ? 'Global config' : 'Mission override';
+            subtitle.textContent = `${scope} → ${_AGENT_DISPLAY_NAMES[agentKey] || agentKey} agent`;
+            subtitle.classList.remove('hidden');
+        }
+    } else {
+        _pickerAgentCtx = null;
+        _pickerContext  = context;
+        if (subtitle) subtitle.classList.add('hidden');
+    }
     const search = document.getElementById('model-picker-search');
     if (search) search.value = '';
     _updatePickerSidebarActive();
@@ -2397,7 +2497,8 @@ function openModelPicker(context = null) {
 
 function closeModelPicker() {
     document.getElementById('model-picker-overlay')?.classList.add('hidden');
-    _pickerContext = null;
+    _pickerContext   = null;
+    _pickerAgentCtx  = null;
 }
 
 function renderModelPickerList(query) {
@@ -2499,6 +2600,9 @@ function onModelPickerSelect(model, provider) {
         if (cfgLabel) cfgLabel.textContent = model;
         if (cfgHidden) cfgHidden.value = model;
         selectModel(model, 'lmstudio');
+    } else if (_pickerAgentCtx) {
+        // Per-agent model selection — write to that agent row regardless of provider filter
+        _setAgentModelRow(_pickerAgentCtx, model, provider);
     } else {
         selectModel(model, provider);
     }
@@ -2548,6 +2652,7 @@ function initModelPicker() {
     document.querySelectorAll('.picker-provider-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const p = btn.dataset.pickerProvider;
+            // Only change the display filter — if we're in per-agent mode, keep _pickerAgentCtx
             _pickerContext = (p === 'all') ? null : p;
             const search = document.getElementById('model-picker-search');
             if (search) search.value = '';
@@ -2620,7 +2725,113 @@ async function loadPersistedSettings() {
             populateLMStudioModelDropdown();
         }
         await loadBrandingConfig();
+
+        // Load per-agent model overrides
+        if (data.agent_models) {
+            try {
+                const am = typeof data.agent_models === 'string' ? JSON.parse(data.agent_models) : data.agent_models;
+                _applyAgentModelsToConfigUI(am);
+            } catch { /* ignore */ }
+        }
     } catch { /* ignore */ }
+}
+
+// ── Per-Agent Model Helpers ───────────────────────────────────────────────────
+//
+// Context key format:  "{scope}_agent_{agentKey}"
+//   scope    = "cfg"  (Configuration page)  or "adv" (Mission Config tab)
+//   agentKey = brain | scanner | postexploit | reporting | osint
+
+const _CFG_AGENT_KEYS = ['brain', 'scanner', 'reporting', 'osint'];
+const _ADV_AGENT_KEYS = ['brain', 'scanner', 'postexploit', 'reporting', 'osint'];
+
+/** Open the shared model picker for a specific per-agent row. */
+function openAgentModelPicker(contextKey) {
+    openModelPicker(contextKey);
+}
+
+/** Clear a per-agent model override and reset the row. */
+function clearAgentModel(contextKey) {
+    const parts = contextKey.split('_');           // e.g. ['cfg','agent','brain']
+    const scope    = parts[0];
+    const agentKey = parts.slice(2).join('_');     // handles e.g. 'postexploit'
+    const prefix   = `${scope}-agent-model-${agentKey}`;
+    const provEl   = document.getElementById(`${prefix}-provider`);
+    const modEl    = document.getElementById(`${prefix}-model`);
+    const labelEl  = document.getElementById(`${prefix}-label`);
+    const clearBtn = document.querySelector(`.agent-model-clear[data-key="${contextKey}"]`);
+    if (provEl)   provEl.value  = '';
+    if (modEl)    modEl.value   = '';
+    if (labelEl) {
+        labelEl.textContent = '— inherit global —';
+        labelEl.classList.remove('text-primary');
+        labelEl.classList.add('text-secondary-text');
+    }
+    if (clearBtn) clearBtn.classList.add('hidden');
+}
+
+/** Write a model selection into a per-agent row's hidden inputs + label. */
+function _setAgentModelRow(contextKey, model, provider) {
+    const parts    = contextKey.split('_');
+    const scope    = parts[0];
+    const agentKey = parts.slice(2).join('_');
+    const prefix   = `${scope}-agent-model-${agentKey}`;
+    const provEl   = document.getElementById(`${prefix}-provider`);
+    const modEl    = document.getElementById(`${prefix}-model`);
+    const labelEl  = document.getElementById(`${prefix}-label`);
+    const clearBtn = document.querySelector(`.agent-model-clear[data-key="${contextKey}"]`);
+    if (provEl)  provEl.value = provider;
+    if (modEl)   modEl.value  = model;
+    if (labelEl) {
+        const badge = { openrouter: 'OR', ollama: 'Ollama', lmstudio: 'LMS' }[provider] || provider;
+        labelEl.textContent = badge ? `${badge} · ${model}` : (model || '— inherit global —');
+        labelEl.classList.toggle('text-primary', !!(model || provider));
+        labelEl.classList.toggle('text-secondary-text', !(model || provider));
+    }
+    if (clearBtn) clearBtn.classList.toggle('hidden', !(model || provider));
+}
+
+function _applyAgentModelsToConfigUI(am) {
+    for (const key of _CFG_AGENT_KEYS) {
+        if (am[key] && (am[key].provider || am[key].model)) {
+            _setAgentModelRow(`cfg_agent_${key}`, am[key].model || '', am[key].provider || '');
+        }
+    }
+}
+
+function _collectAgentModelsFromConfigUI() {
+    const result = {};
+    for (const key of _CFG_AGENT_KEYS) {
+        const provider = document.getElementById(`cfg-agent-model-${key}-provider`)?.value?.trim() || '';
+        const model    = document.getElementById(`cfg-agent-model-${key}-model`)?.value?.trim()    || '';
+        if (provider || model) result[key] = { provider, model };
+    }
+    return result;
+}
+
+/** Load per-agent model defaults from Configuration page into Mission Config "07 Models" tab. */
+function advLoadAgentModelDefaults() {
+    const am = _collectAgentModelsFromConfigUI();
+    for (const key of _ADV_AGENT_KEYS) {
+        const srcKey = key === 'postexploit' ? 'scanner' : key;
+        const src = am[srcKey] || {};
+        if (src.provider || src.model) {
+            _setAgentModelRow(`adv_agent_${key}`, src.model || '', src.provider || '');
+        } else {
+            clearAgentModel(`adv_agent_${key}`);
+        }
+    }
+    showToast('Loaded defaults from global config');
+}
+
+function _collectAgentModelsFromMissionUI() {
+    const result = {};
+    for (const key of _ADV_AGENT_KEYS) {
+        const provider = document.getElementById(`adv-agent-model-${key}-provider`)?.value?.trim() || '';
+        const model    = document.getElementById(`adv-agent-model-${key}-model`)?.value?.trim()    || '';
+        if (provider || model) result[key] = { provider, model };
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
 }
 
 async function saveConfig() {
@@ -2655,6 +2866,13 @@ async function saveConfig() {
             body: JSON.stringify({ api_key: apiKey, cloud_model: orModel }),
         });
         await saveBrandingConfig();
+        // Save per-agent models
+        const agentModels = _collectAgentModelsFromConfigUI();
+        fetch('/api/v1/settings/agent_models', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: JSON.stringify(agentModels) }),
+        });
         cloudModel = orModel;
         ollamaBaseUrl = url;
         lmStudioBaseUrl = lmsUrl;
@@ -2716,6 +2934,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initModeToggle();
     initIntelNav();
     initIntelTabs();
+    initIntelPanelControls();
     initExpandButtons();
     initNodeToggles();
     initClock();
@@ -2755,6 +2974,9 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSafetyConfig();
     loadMsfConfig();
     loadTrainingConfig();
+    updateIntelHistoryPanel([]);
+    updateIntelNodesPanel(null);
+    updateIntelKnowledgeBasePanel(null);
     loadSessionsForSelects();
 });
 
@@ -3140,11 +3362,11 @@ function handleSessionDone(msg) {
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 if (!data) return;
-                if (Array.isArray(data.vulnerabilities) && data.vulnerabilities.length > 0) {
-                    _analysisVulns = data.vulnerabilities;
-                    updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: data.vulnerabilities }) });
-                }
+                syncAnalysisPanelFromSession(data);
+                _intelCurrentSessionData = data;
                 updateNetworkPanelFromSession(data);
+                updateIntelNodesPanel(data);
+                updateIntelKnowledgeBasePanel(data);
             })
             .catch(() => {});
     }
@@ -3476,7 +3698,7 @@ async function refreshMissionStats(sessionId) {
         if (viewingSessionId && viewingSessionId !== sessionId) return;
 
         // Count individual open ports — merge hosts first to deduplicate across multiple scans
-        const _mergedForCount = _mergeHosts((data.scan_results || []).flatMap(r => r.hosts || []));
+        const _mergedForCount = _extractHostsFromScanResults(data.scan_results || []);
         const livePorts = _mergedForCount.flatMap(h => h.ports.filter(p => p.state === 'open')).length;
         const liveHosts = _mergedForCount.length;
         const liveVulns = (data.vulnerabilities || []).length;
@@ -3488,6 +3710,10 @@ async function refreshMissionStats(sessionId) {
 
         // Update network panel with live scan data
         updateNetworkPanelFromSession(data);
+        syncAnalysisPanelFromSession(data);
+        _intelCurrentSessionData = data;
+        updateIntelNodesPanel(data);
+        updateIntelKnowledgeBasePanel(data);
 
         // Update phase bar based on agent's attack_phase
         updatePhaseFromSessionStatus(data.status);
@@ -3577,6 +3803,51 @@ function resetAnalysisPanel(target) {
 
     const summary = document.getElementById('analysis-summary-text');
     if (summary) summary.textContent = `Mission active on ${target || '?'}. Awaiting scan results…`;
+}
+
+function syncAnalysisPanelFromSession(sessionData) {
+    const vulns = Array.isArray(sessionData?.vulnerabilities) ? sessionData.vulnerabilities : [];
+    const status = (sessionData?.status || '').toLowerCase();
+
+    if (vulns.length > 0) {
+        _analysisVulns = vulns;
+        updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: vulns }) });
+        return;
+    }
+
+    _analysisVulns = [];
+
+    const list = document.getElementById('analysis-findings-list');
+    if (list) {
+        const label = status === 'running'
+            ? 'Scan in progress. Findings will appear automatically.'
+            : 'No validated vulnerabilities for this mission.';
+        list.innerHTML = `<p class="text-[10px] text-secondary-text mono-text text-center py-4">${label}</p>`;
+    }
+
+    const scoreEl = document.getElementById('analysis-threat-score');
+    if (scoreEl) { scoreEl.textContent = '0.0'; scoreEl.style.color = '#888'; }
+
+    const statusEl = document.getElementById('analysis-threat-status');
+    if (statusEl) {
+        statusEl.textContent = status === 'running' ? 'SCANNING' : 'LOW';
+        statusEl.style.color = status === 'running' ? '#ccff00' : '#888';
+    }
+
+    const circle = document.getElementById('analysis-threat-circle');
+    if (circle) {
+        circle.setAttribute('stroke', status === 'running' ? '#ccff00' : '#444');
+        circle.setAttribute('stroke-dashoffset', status === 'running' ? '280' : '364.4');
+    }
+
+    const summary = document.getElementById('analysis-summary-text');
+    if (summary) {
+        summary.textContent = status === 'running'
+            ? `Mission active on ${sessionData?.target || '?'}. Scan is still collecting data.`
+            : `No vulnerabilities were confirmed for ${sessionData?.target || 'this mission'}.`;
+    }
+
+    _updateAnalysisExpanded([]);
 }
 
 function updateAnalysisPanelFromSearchsploit(data) {
@@ -3775,6 +4046,52 @@ function _portRiskLabel(portNum) {
 }
 
 // Merge duplicate host entries (multiple scans can return the same IP)
+function _extractHostsFromScanResults(scanResults) {
+    const rows = Array.isArray(scanResults) ? scanResults : [];
+    const hasNestedHosts = rows.some((r) => Array.isArray(r && r.hosts));
+
+    if (hasNestedHosts) {
+        return _mergeHosts(rows.flatMap((r) => (Array.isArray(r && r.hosts) ? r.hosts : [])));
+    }
+
+    const hostsByIp = new Map();
+    rows.forEach((row) => {
+        const ip = String((row && (row.ip || row.host_ip)) || '').trim();
+        if (!ip) return;
+
+        if (!hostsByIp.has(ip)) {
+            hostsByIp.set(ip, {
+                ip,
+                hostname: (row && row.hostname) || '',
+                os: (row && row.os) || '',
+                ports: [],
+            });
+        }
+
+        const host = hostsByIp.get(ip);
+        if (host && !host.hostname && row && row.hostname) host.hostname = row.hostname;
+        if (host && !host.os && row && row.os) host.os = row.os;
+
+        const portNum = Number((row && (row.port ?? row.port_number)) || 0);
+        if (!Number.isFinite(portNum) || portNum <= 0 || !host) return;
+
+        const protocol = String((row && row.protocol) || 'tcp');
+        const state = String((row && row.state) || 'open');
+        const exists = host.ports.some((p) => Number(p.number) === portNum && String(p.protocol || 'tcp') === protocol);
+        if (exists) return;
+
+        host.ports.push({
+            number: portNum,
+            protocol,
+            state,
+            service: String((row && row.service) || ''),
+            version: String((row && row.version) || ''),
+        });
+    });
+
+    return _mergeHosts([...hostsByIp.values()]);
+}
+
 function _mergeHosts(allHosts) {
     const map = new Map();
     for (const h of allHosts) {
@@ -3801,10 +4118,11 @@ function updateNetworkPanelFromSession(data) {
     const scanResults    = data.scan_results    || [];
     const exploitResults = data.exploit_results || [];
     const vulnCount      = (data.vulnerabilities || []).length || data.vulns_found || 0;
+    const sessionStatus  = String(data.status || '').toLowerCase();
     _networkScanResults  = scanResults;
     _networkVulnCount    = vulnCount;
 
-    const allHosts  = _mergeHosts(scanResults.flatMap(r => r.hosts || []));
+    const allHosts  = _extractHostsFromScanResults(scanResults);
     const openPorts = allHosts.flatMap(h => h.ports.filter(p => p.state === 'open'));
     const portCount = openPorts.length;
 
@@ -3819,6 +4137,9 @@ function updateNetworkPanelFromSession(data) {
     setStatValue('network-ports-count', portCount        || '0');
     setStatValue('network-vulns-count', vulnCount        || '0');
 
+    const subnetText = document.getElementById('network-subnet-text');
+    if (subnetText) subnetText.textContent = data.target || data.name || '—';
+
     // Small sidebar topology (SVG-based, compact)
     renderNetworkTopology(allHosts, exploitResults);
 
@@ -3827,6 +4148,16 @@ function updateNetworkPanelFromSession(data) {
         if (dot) { dot.style.backgroundColor = '#ccff00'; dot.style.boxShadow = '0 0 4px #ccff00'; }
         const txt = document.getElementById('network-status-text');
         if (txt) { txt.textContent = 'Scanning'; txt.style.color = '#ccff00'; }
+    } else {
+        const dot = document.getElementById('network-status-dot');
+        const txt = document.getElementById('network-status-text');
+        if (sessionStatus === 'running') {
+            if (dot) { dot.style.backgroundColor = '#ccff00'; dot.style.boxShadow = '0 0 4px #ccff00'; }
+            if (txt) { txt.textContent = 'Scanning'; txt.style.color = '#ccff00'; }
+        } else {
+            if (dot) { dot.style.backgroundColor = '#555'; dot.style.boxShadow = 'none'; }
+            if (txt) { txt.textContent = 'No Scan Data'; txt.style.color = '#888'; }
+        }
     }
 
     _updateNetworkExpanded(data, allHosts, portCount, vulnCount, exploitResults);
@@ -3855,6 +4186,658 @@ function stopNetworkPanel() {
     if (dot) { dot.style.backgroundColor = ''; dot.style.boxShadow = ''; }
     const txt = document.getElementById('network-status-text');
     if (txt) { txt.textContent = 'Done'; txt.style.color = ''; }
+}
+
+// ─── Intel Side Panels: History / Nodes / Knowledge Base ───────────────────
+
+let _intelSessionsCache = [];
+let _intelCurrentSessionData = null;
+
+function _intelSetText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+}
+
+function _intelFormatTimestamp(ts) {
+    if (!ts) return '—';
+    const d = new Date(Number(ts) * 1000);
+    if (Number.isNaN(d.getTime())) return '—';
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function _intelFormatDuration(session) {
+    const start = Number(session?.created_at || 0);
+    const end = Number(session?.finished_at || session?.updated_at || 0);
+    if (!start || !end || end <= start) return '—';
+    const sec = Math.max(0, Math.floor(end - start));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function _intelNormalizedStatus(session) {
+    if (session?.is_running) return 'running';
+    const st = String(session?.status || 'done').toLowerCase();
+    if (st === 'running') return 'stopped';
+    if (st === 'paused') return 'paused';
+    if (st === 'error') return 'error';
+    if (st === 'stopped') return 'stopped';
+    if (st === 'idle') return 'idle';
+    return 'done';
+}
+
+function _intelStatusPill(status) {
+    if (status === 'running') return '<span class="intel-pill intel-pill-good">Running</span>';
+    if (status === 'error' || status === 'stopped') return '<span class="intel-pill intel-pill-danger">Issue</span>';
+    if (status === 'paused' || status === 'idle') return '<span class="intel-pill intel-pill-warn">Paused</span>';
+    return '<span class="intel-pill">Done</span>';
+}
+
+function initIntelPanelControls() {
+    const latestBtn = document.getElementById('intel-history-open-latest');
+    if (latestBtn && !latestBtn.dataset.bound) {
+        latestBtn.dataset.bound = '1';
+        latestBtn.addEventListener('click', () => {
+            const sid = latestBtn.dataset.sessionId || '';
+            if (!sid) return;
+            switchToSession(sid);
+        });
+    }
+}
+
+function _intelGetTabBody(tabName) {
+        return document.querySelector(`.intel-tab-body[data-intel-tab="${tabName}"]`);
+}
+
+function _intelStatusBadge(status) {
+        if (status === 'running') return '<span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[8px] font-bold uppercase">Running</span>';
+        if (status === 'error' || status === 'stopped') return '<span class="px-2 py-0.5 bg-danger/10 border border-danger/30 text-danger text-[8px] font-bold uppercase">Issue</span>';
+        if (status === 'paused' || status === 'idle') return '<span class="px-2 py-0.5 bg-orange-400/10 border border-orange-400/30 text-orange-400 text-[8px] font-bold uppercase">Paused</span>';
+        return '<span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[8px] font-bold uppercase">Done</span>';
+}
+
+function updateIntelHistoryExpanded(sessions) {
+        const body = _intelGetTabBody('history');
+        if (!body) return;
+
+        const sorted = [...(Array.isArray(sessions) ? sessions : [])]
+                .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+
+        const total = sorted.length;
+        const findings = sorted.reduce((acc, s) => acc + Number(s.vulns_found || 0), 0);
+        const runs = sorted.reduce((acc, s) => acc + Number(s.exploits_run || 0), 0);
+        const hits = sorted.reduce((acc, s) => acc + Number(s.exploits_success || 0), 0);
+        const exploitRate = runs > 0 ? Math.round((hits / runs) * 100) : 0;
+        const durations = sorted
+                .map((s) => {
+                        const start = Number(s.created_at || 0);
+                        const end = Number(s.finished_at || s.updated_at || 0);
+                        return (start > 0 && end > start) ? (end - start) : 0;
+                })
+                .filter((v) => v > 0);
+        const avgSec = durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+        const avgLabel = avgSec ? _intelFormatDuration({ created_at: 1, finished_at: avgSec + 1 }) : '—';
+
+        if (!total) {
+                body.innerHTML = `
+                    <div class="max-w-6xl mx-auto flex flex-col gap-6">
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Sessions</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulns Found</p><p class="mono-text text-3xl font-bold text-danger">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Avg Duration</p><p class="mono-text text-3xl font-bold">—</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Exploit Rate</p><p class="mono-text text-3xl font-bold text-primary">0%</p></div>
+                        </div>
+                        <div class="bg-card border border-border-color p-8 text-center">
+                            <p class="text-sm text-secondary-text">No session history yet.</p>
+                        </div>
+                    </div>`;
+                return;
+        }
+
+        const rows = sorted.slice(0, 20).map((s) => {
+                const status = _intelNormalizedStatus(s);
+                const sid = _esc(String(s.id || '').slice(0, 8).toUpperCase());
+                const target = _esc(s.target || '—');
+                const mode = _esc(String(s.mode || 'unknown').replace(/_/g, ' ').toUpperCase());
+                const start = _esc(_intelFormatTimestamp(s.created_at));
+                const duration = _esc(_intelFormatDuration(s));
+                const hosts = Number(s.hosts_found || 0);
+                const vulns = Number(s.vulns_found || 0);
+                return `
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                        <td class="px-6 py-3 text-primary font-bold">${sid}</td>
+                        <td class="px-4 py-3 text-slate-300">${target}</td>
+                        <td class="px-4 py-3 text-slate-400">${mode}</td>
+                        <td class="px-4 py-3 text-secondary-text">${start}</td>
+                        <td class="px-4 py-3 text-slate-300">${duration}</td>
+                        <td class="px-4 py-3 text-slate-300">${hosts}</td>
+                        <td class="px-4 py-3 ${vulns > 0 ? 'text-danger font-bold' : 'text-slate-400'}">${vulns}</td>
+                        <td class="px-4 py-3">${_intelStatusBadge(status)}</td>
+                    </tr>`;
+        }).join('');
+
+        body.innerHTML = `
+            <div class="max-w-6xl mx-auto flex flex-col gap-8">
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Sessions</p><p class="mono-text text-3xl font-bold text-primary">${total}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulns Found</p><p class="mono-text text-3xl font-bold text-danger">${findings}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Avg Duration</p><p class="mono-text text-3xl font-bold">${_esc(avgLabel)}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Exploit Rate</p><p class="mono-text text-3xl font-bold text-primary">${exploitRate}%</p></div>
+                </div>
+                <div class="bg-card border border-border-color overflow-hidden">
+                    <div class="px-6 py-3 border-b border-border-color flex items-center justify-between">
+                        <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Session History</p>
+                        <span class="mono-text text-[10px] text-secondary-text">${total} sessions</span>
+                    </div>
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b border-border-color">
+                                <th class="text-left px-6 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Session</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Target</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Mode</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Start</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Duration</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Hosts</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Vulns</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="mono-text text-xs">${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+}
+
+function updateIntelNodesExpanded(sessionData, hosts, vulnByHost, exploitedHosts) {
+        const body = _intelGetTabBody('nodes');
+        if (!body) return;
+
+        const hostList = Array.isArray(hosts) ? hosts : [];
+        const openPortCount = hostList.reduce((acc, h) => acc + (h.ports || []).filter((p) => p.state === 'open').length, 0);
+        const vulnerableCount = vulnByHost instanceof Map ? vulnByHost.size : 0;
+        const exploitedCount = exploitedHosts instanceof Set ? exploitedHosts.size : 0;
+        const runningCount = (sessionData && String(sessionData.status || '').toLowerCase() === 'running') ? 1 : 0;
+
+        if (!sessionData || !hostList.length) {
+                body.innerHTML = `
+                    <div class="max-w-6xl mx-auto flex flex-col gap-6">
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Hosts</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulnerable</p><p class="mono-text text-3xl font-bold text-danger">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Open Ports</p><p class="mono-text text-3xl font-bold">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Scanning</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                        </div>
+                        <div class="bg-card border border-border-color p-8 text-center">
+                            <p class="text-sm text-secondary-text">No host inventory available for this mission yet.</p>
+                        </div>
+                    </div>`;
+                return;
+        }
+
+        const rows = hostList.slice(0, 30).map((host) => {
+                const ip = _esc(host.ip || 'unknown');
+                const os = _esc(host.os || 'Unknown OS');
+                const openPorts = (host.ports || []).filter((p) => p.state === 'open');
+                const portPreview = _esc(openPorts.slice(0, 4).map((p) => `${p.number}/${p.protocol || 'tcp'}`).join(', ') || '—');
+                const vulnCount = vulnByHost.get(host.ip) || 0;
+                const exploited = exploitedHosts.has(host.ip);
+                const riskText = exploited ? 'COMPROMISED' : (vulnCount > 0 ? 'AT RISK' : 'STABLE');
+                const riskClass = exploited ? 'text-danger' : (vulnCount > 0 ? 'text-orange-400' : 'text-primary');
+                return `
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                        <td class="px-5 py-3"><span class="mono-text text-slate-200 font-bold">${ip}</span></td>
+                        <td class="px-4 py-3 text-secondary-text">${os}</td>
+                        <td class="px-4 py-3 text-slate-300">${openPorts.length}</td>
+                        <td class="px-4 py-3 ${vulnCount > 0 ? 'text-danger font-bold' : 'text-slate-400'}">${vulnCount}</td>
+                        <td class="px-4 py-3 ${riskClass} font-bold">${riskText}</td>
+                        <td class="px-4 py-3 text-secondary-text">${portPreview}</td>
+                    </tr>`;
+        }).join('');
+
+        body.innerHTML = `
+            <div class="max-w-6xl mx-auto flex flex-col gap-8">
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Hosts</p><p class="mono-text text-3xl font-bold text-primary">${hostList.length}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulnerable</p><p class="mono-text text-3xl font-bold text-danger">${vulnerableCount}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Open Ports</p><p class="mono-text text-3xl font-bold">${openPortCount}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Scanning</p><p class="mono-text text-3xl font-bold ${runningCount ? 'text-primary animate-pulse' : 'text-secondary-text'}">${runningCount}</p></div>
+                </div>
+                <div class="bg-card border border-border-color overflow-hidden">
+                    <div class="px-6 py-3 border-b border-border-color flex items-center justify-between">
+                        <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Host Exposure Matrix</p>
+                        <span class="mono-text text-[10px] text-secondary-text">${exploitedCount} exploited</span>
+                    </div>
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b border-border-color bg-surface">
+                                <th class="text-left px-5 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Host</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">OS</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Open Ports</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Findings</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Risk</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Port Preview</th>
+                            </tr>
+                        </thead>
+                        <tbody class="mono-text text-xs">${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+}
+
+function updateIntelKnowledgeBaseExpanded(entries, globalRate, lastTs) {
+        const body = _intelGetTabBody('kb');
+        if (!body) return;
+
+        const rows = Array.isArray(entries) ? entries : [];
+        const serviceCount = new Set(rows.map((r) => String(r.service || 'unknown'))).size;
+        const updatedAt = lastTs ? _intelFormatTimestamp(lastTs) : '—';
+
+        if (!rows.length) {
+                body.innerHTML = `
+                    <div class="max-w-6xl mx-auto flex flex-col gap-6">
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">KB Entries</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Success Rate</p><p class="mono-text text-3xl font-bold text-primary">0%</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Services Mapped</p><p class="mono-text text-3xl font-bold">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Last Updated</p><p class="mono-text text-lg font-bold text-secondary-text">—</p></div>
+                        </div>
+                        <div class="bg-card border border-border-color p-8 text-center">
+                            <p class="text-sm text-secondary-text">No reusable attack pattern has been learned for this mission yet.</p>
+                        </div>
+                    </div>`;
+                return;
+        }
+
+        const tableRows = rows.slice(0, 20).map((entry) => {
+                const service = _esc(String(entry.service || 'unknown').toUpperCase());
+                const version = _esc(entry.version || 'mixed versions');
+                const module = _esc(entry.module || 'manual_validation');
+                const findings = Number(entry.findings || 0);
+                const success = Number(entry.successes || 0);
+                const attempts = Number(entry.attempts || 0);
+                const cvss = Number(entry.maxCvss || 0).toFixed(1);
+                const hostCount = Number(entry.hostCount || 0);
+                return `
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                        <td class="px-5 py-3 text-primary font-bold">${service}</td>
+                        <td class="px-4 py-3 text-slate-400">${version}</td>
+                        <td class="px-4 py-3 text-slate-300" style="word-break:break-all">${module}</td>
+                        <td class="px-4 py-3 text-slate-300">${findings}</td>
+                        <td class="px-4 py-3 text-primary font-bold">${success}/${attempts}</td>
+                        <td class="px-4 py-3 ${Number(entry.maxCvss || 0) >= 7 ? 'text-danger font-bold' : 'text-slate-400'}">${cvss}</td>
+                        <td class="px-4 py-3 text-secondary-text">${hostCount}</td>
+                    </tr>`;
+        }).join('');
+
+        body.innerHTML = `
+            <div class="max-w-6xl mx-auto flex flex-col gap-8">
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">KB Entries</p><p class="mono-text text-3xl font-bold text-primary">${rows.length}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Success Rate</p><p class="mono-text text-3xl font-bold text-primary">${globalRate}%</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Services Mapped</p><p class="mono-text text-3xl font-bold">${serviceCount}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Last Updated</p><p class="mono-text text-sm font-bold text-primary">${_esc(updatedAt)}</p></div>
+                </div>
+                <div class="bg-card border border-border-color overflow-hidden">
+                    <div class="px-6 py-3 border-b border-border-color flex items-center justify-between">
+                        <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Reusable Attack Patterns</p>
+                        <span class="mono-text text-[10px] text-secondary-text">${rows.length} entries</span>
+                    </div>
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b border-border-color bg-surface">
+                                <th class="text-left px-5 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Service</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Version</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Module</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Findings</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Success</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Max CVSS</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Hosts</th>
+                            </tr>
+                        </thead>
+                        <tbody class="mono-text text-xs">${tableRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+}
+
+function updateIntelHistoryPanel(sessions) {
+    const sorted = [...(Array.isArray(sessions) ? sessions : [])]
+        .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+    _intelSessionsCache = sorted;
+
+    const total = sorted.length;
+    const active = sorted.filter((s) => _intelNormalizedStatus(s) === 'running').length;
+    const findings = sorted.reduce((acc, s) => acc + Number(s.vulns_found || 0), 0);
+
+    _intelSetText('intel-history-total-sessions', total);
+    _intelSetText('intel-history-active-sessions', active);
+    _intelSetText('intel-history-total-findings', findings);
+    _intelSetText('intel-history-total', `${total} total`);
+
+    const list = document.getElementById('intel-history-list');
+    const latestBtn = document.getElementById('intel-history-open-latest');
+    const latest = sorted[0] || null;
+
+    if (latestBtn) {
+        latestBtn.dataset.sessionId = latest ? latest.id : '';
+        latestBtn.disabled = !latest;
+        latestBtn.style.opacity = latest ? '' : '0.5';
+        latestBtn.style.cursor = latest ? '' : 'not-allowed';
+    }
+
+    if (!list) {
+        updateIntelHistoryExpanded(sorted);
+        return;
+    }
+    if (!total) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No sessions yet</p>';
+        updateIntelHistoryExpanded(sorted);
+        return;
+    }
+
+    list.innerHTML = sorted.slice(0, 10).map((s) => {
+        const status = _intelNormalizedStatus(s);
+        const mission = _esc(s.name || s.target || 'Untitled mission');
+        const target = _esc(s.target || '—');
+        const hosts = Number(s.hosts_found || 0);
+        const vulns = Number(s.vulns_found || 0);
+        const dur = _intelFormatDuration(s);
+        const when = _intelFormatTimestamp(s.created_at);
+        return `
+            <button type="button" class="intel-history-item w-full text-left" data-session-id="${s.id}">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="intel-item-title truncate">${mission}</p>
+                  <p class="intel-item-meta truncate">${target}</p>
+                </div>
+                ${_intelStatusPill(status)}
+              </div>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="intel-pill">${hosts} hosts</span>
+                <span class="intel-pill ${vulns > 0 ? 'intel-pill-danger' : ''}">${vulns} vulns</span>
+                <span class="intel-pill">${dur}</span>
+              </div>
+              <p class="intel-item-meta mt-1 truncate">${when}</p>
+            </button>`;
+    }).join('');
+
+    list.querySelectorAll('[data-session-id]').forEach((item) => {
+        item.addEventListener('click', () => {
+            const sid = item.dataset.sessionId;
+            if (sid) switchToSession(sid);
+        });
+    });
+
+    updateIntelHistoryExpanded(sorted);
+}
+
+function updateIntelNodesPanel(sessionData) {
+    const list = document.getElementById('intel-nodes-list');
+    if (!sessionData) {
+        _intelSetText('intel-nodes-total', '0');
+        _intelSetText('intel-nodes-vuln', '0');
+        _intelSetText('intel-nodes-exploited', '0');
+        _intelSetText('intel-nodes-online', '0 online');
+        if (list) list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>';
+        updateIntelNodesExpanded(null, [], new Map(), new Set());
+        return;
+    }
+
+    const scanResults = sessionData.scan_results || [];
+    const vulns = sessionData.vulnerabilities || [];
+    const exploits = sessionData.exploit_results || [];
+    const hosts = _extractHostsFromScanResults(scanResults);
+
+    const vulnByHost = new Map();
+    vulns.forEach((v) => {
+        const ip = v.host_ip || '';
+        if (!ip) return;
+        vulnByHost.set(ip, (vulnByHost.get(ip) || 0) + 1);
+    });
+    const exploitedHosts = new Set(
+        exploits
+            .filter((e) => e.success && e.host_ip)
+            .map((e) => e.host_ip),
+    );
+
+    const vulnerableHostCount = [...vulnByHost.keys()].length;
+    _intelSetText('intel-nodes-total', hosts.length);
+    _intelSetText('intel-nodes-vuln', vulnerableHostCount);
+    _intelSetText('intel-nodes-exploited', exploitedHosts.size);
+    _intelSetText('intel-nodes-online', `${hosts.length} online`);
+
+    if (!list) {
+        updateIntelNodesExpanded(sessionData, hosts, vulnByHost, exploitedHosts);
+        return;
+    }
+    if (!hosts.length) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>';
+        updateIntelNodesExpanded(sessionData, hosts, vulnByHost, exploitedHosts);
+        return;
+    }
+
+    const sortedHosts = [...hosts].sort((a, b) => {
+        const aExp = exploitedHosts.has(a.ip) ? 1 : 0;
+        const bExp = exploitedHosts.has(b.ip) ? 1 : 0;
+        if (bExp !== aExp) return bExp - aExp;
+        const aV = vulnByHost.get(a.ip) || 0;
+        const bV = vulnByHost.get(b.ip) || 0;
+        if (bV !== aV) return bV - aV;
+        return (b.ports?.length || 0) - (a.ports?.length || 0);
+    });
+
+    list.innerHTML = sortedHosts.slice(0, 20).map((host) => {
+        const ip = _esc(host.ip || 'unknown');
+        const os = _esc(host.os || 'Unknown OS');
+        const hostname = _esc(host.hostname || '');
+        const openPorts = (host.ports || []).filter((p) => p.state === 'open');
+        const portPreview = openPorts.slice(0, 4).map((p) => `${p.number}/${p.protocol || 'tcp'}`).join(', ');
+        const vulnCount = vulnByHost.get(host.ip) || 0;
+        const exploited = exploitedHosts.has(host.ip);
+        return `
+            <div class="intel-node-item">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="intel-item-title truncate">${ip}</p>
+                  <p class="intel-item-meta truncate">${hostname || os}</p>
+                </div>
+                <span class="intel-pill ${exploited ? 'intel-pill-danger' : vulnCount > 0 ? 'intel-pill-warn' : 'intel-pill-good'}">
+                  ${exploited ? 'Exploited' : vulnCount > 0 ? 'At Risk' : 'Stable'}
+                </span>
+              </div>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="intel-pill">${openPorts.length} open ports</span>
+                <span class="intel-pill ${vulnCount > 0 ? 'intel-pill-danger' : ''}">${vulnCount} findings</span>
+              </div>
+              <p class="intel-item-meta mt-1 truncate">${portPreview || 'No open ports recorded'}</p>
+            </div>`;
+    }).join('');
+
+    updateIntelNodesExpanded(sessionData, sortedHosts, vulnByHost, exploitedHosts);
+}
+
+function updateIntelKnowledgeBasePanel(sessionData) {
+    const list = document.getElementById('intel-kb-list');
+    if (!sessionData) {
+        _intelSetText('intel-kb-entry-count', '0');
+        _intelSetText('intel-kb-success-rate', '0%');
+        _intelSetText('intel-kb-last-updated', '—');
+        const summary = document.getElementById('intel-kb-summary');
+        if (summary) summary.textContent = 'Knowledge Base captures what worked in previous missions and suggests repeatable remediation actions.';
+        if (list) list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No knowledge patterns yet</p>';
+        updateIntelKnowledgeBaseExpanded([], 0, 0);
+        return;
+    }
+
+    const vulns = Array.isArray(sessionData.vulnerabilities) ? sessionData.vulnerabilities : [];
+    const exploits = Array.isArray(sessionData.exploit_results) ? sessionData.exploit_results : [];
+    const byKey = new Map();
+
+    const rememberEntry = (service, version, module) => {
+        const safeService = (service || 'unknown').toLowerCase();
+        const safeVersion = version || '';
+        const safeModule = module || 'manual_validation';
+        const key = `${safeService}|${safeVersion}|${safeModule}`;
+        if (!byKey.has(key)) {
+            byKey.set(key, {
+                service: safeService,
+                version: safeVersion,
+                module: safeModule,
+                findings: 0,
+                attempts: 0,
+                successes: 0,
+                maxCvss: 0,
+                hosts: new Set(),
+                cves: new Set(),
+            });
+        }
+        return byKey.get(key);
+    };
+
+    vulns.forEach((v) => {
+        const module = v.exploit_path || 'manual_validation';
+        const entry = rememberEntry(v.service, v.service_version, module);
+        entry.findings += 1;
+        entry.maxCvss = Math.max(entry.maxCvss, Number(v.cvss_score || 0));
+        if (v.host_ip) entry.hosts.add(v.host_ip);
+        if (v.cve_id) entry.cves.add(v.cve_id);
+    });
+
+    exploits.forEach((e) => {
+        const mod = e.module || 'manual_validation';
+        const linkedV = vulns.find((v) => {
+            if (!v.host_ip || !e.host_ip || v.host_ip !== e.host_ip) return false;
+            if (v.exploit_path && e.module) return v.exploit_path === e.module;
+            return true;
+        });
+        const entry = rememberEntry(linkedV?.service || 'unknown', linkedV?.service_version || '', mod);
+        entry.attempts += 1;
+        if (e.success) entry.successes += 1;
+        if (e.host_ip) entry.hosts.add(e.host_ip);
+    });
+
+    const rows = [...byKey.values()].map((entry) => {
+        const attempts = entry.attempts || entry.findings || 0;
+        const successRate = attempts > 0 ? Math.round((entry.successes / attempts) * 100) : 0;
+        return {
+            ...entry,
+            attempts,
+            successRate,
+            hostCount: entry.hosts.size,
+            cveCount: entry.cves.size,
+        };
+    }).sort((a, b) => {
+        if (b.successes !== a.successes) return b.successes - a.successes;
+        if (b.maxCvss !== a.maxCvss) return b.maxCvss - a.maxCvss;
+        return b.findings - a.findings;
+    });
+
+    const totalAttempts = exploits.length;
+    const totalSuccess = exploits.filter((e) => e.success).length;
+    const globalRate = totalAttempts > 0 ? Math.round((totalSuccess / totalAttempts) * 100) : 0;
+    const lastTs = Math.max(
+        Number(sessionData.updated_at || 0),
+        ...vulns.map((v) => Number(v.created_at || 0)),
+        ...exploits.map((e) => Number(e.created_at || 0)),
+    );
+
+    _intelSetText('intel-kb-entry-count', rows.length);
+    _intelSetText('intel-kb-success-rate', `${globalRate}%`);
+    _intelSetText('intel-kb-last-updated', lastTs ? _intelFormatTimestamp(lastTs).split(' ')[1] || '—' : '—');
+
+    const summary = document.getElementById('intel-kb-summary');
+    if (summary) {
+        if (!rows.length) {
+            summary.textContent = 'No reusable attack pattern has been learned yet for this mission.';
+        } else {
+            const top = rows[0];
+            summary.textContent = `Top reusable pattern: ${top.service.toUpperCase()} via ${top.module}. ${top.successes} successful validation(s) across ${top.hostCount} host(s).`;
+        }
+    }
+
+    if (!list) {
+        updateIntelKnowledgeBaseExpanded(rows, globalRate, lastTs);
+        return;
+    }
+    if (!rows.length) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No knowledge patterns yet</p>';
+        updateIntelKnowledgeBaseExpanded([], globalRate, lastTs);
+        return;
+    }
+
+    list.innerHTML = rows.slice(0, 12).map((entry) => {
+        const service = _esc((entry.service || 'unknown').toUpperCase());
+        const module = _esc(entry.module || 'manual_validation');
+        const version = _esc(entry.version || 'mixed versions');
+        const cvss = entry.maxCvss > 0 ? entry.maxCvss.toFixed(1) : '—';
+        const rateClass = entry.successRate >= 70 ? 'intel-pill-good' : entry.successRate >= 35 ? 'intel-pill-warn' : 'intel-pill-danger';
+        return `
+            <div class="intel-kb-item">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="intel-item-title truncate">${service}</p>
+                  <p class="intel-item-meta truncate">${version}</p>
+                </div>
+                <span class="intel-pill ${rateClass}">${entry.successRate}%</span>
+              </div>
+              <p class="intel-item-meta mt-1 truncate">${module}</p>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="intel-pill">${entry.findings} findings</span>
+                <span class="intel-pill">${entry.successes}/${entry.attempts} success</span>
+                <span class="intel-pill ${entry.maxCvss >= 9 ? 'intel-pill-danger' : entry.maxCvss >= 7 ? 'intel-pill-warn' : ''}">CVSS ${cvss}</span>
+              </div>
+            </div>`;
+    }).join('');
+
+    updateIntelKnowledgeBaseExpanded(rows, globalRate, lastTs);
+}
+
+async function refreshIntelHistoryPanel() {
+    try {
+        const res = await fetch('/api/v1/sessions');
+        if (!res.ok) {
+            updateIntelHistoryPanel(_intelSessionsCache);
+            return false;
+        }
+        const sessions = await res.json();
+        updateIntelHistoryPanel(sessions);
+        return true;
+    } catch {
+        updateIntelHistoryPanel(_intelSessionsCache);
+        return false;
+    }
+}
+
+async function refreshIntelPanelsForSession(sessionId, options = {}) {
+    const refreshHistory = Boolean(options.refreshHistory);
+
+    if (refreshHistory || !_intelSessionsCache.length) {
+        await refreshIntelHistoryPanel();
+    }
+
+    const resolvedSessionId = sessionId || viewingSessionId || activeMissionId || (_intelSessionsCache[0] ? _intelSessionsCache[0].id : null);
+    if (!resolvedSessionId) {
+        _intelCurrentSessionData = null;
+        syncAnalysisPanelFromSession(null);
+        resetNetworkPanel('—');
+        updateIntelNodesPanel(null);
+        updateIntelKnowledgeBasePanel(null);
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${resolvedSessionId}`);
+        if (!res.ok) return;
+        const session = await res.json();
+        _intelCurrentSessionData = session;
+        syncAnalysisPanelFromSession(session);
+        updateNetworkPanelFromSession(session);
+        updateIntelNodesPanel(session);
+        updateIntelKnowledgeBasePanel(session);
+    } catch {
+        // ignore refresh failures to avoid blocking the main UI
+    }
 }
 
 // ── Sidebar mini-topology (compact SVG, unchanged) ────────────────────────────
@@ -5928,6 +6911,23 @@ async function loadSessionsForSelects() {
             }
         }
 
+        updateIntelHistoryPanel(sessions);
+
+        const intelSessionId = viewingSessionId || activeMissionId || (_intelSessionsCache[0] ? _intelSessionsCache[0].id : (sessions[0] ? sessions[0].id : null));
+        if (!intelSessionId) {
+            syncAnalysisPanelFromSession(null);
+            resetNetworkPanel('—');
+            updateIntelNodesPanel(null);
+            updateIntelKnowledgeBasePanel(null);
+        } else if (_intelCurrentSessionData && _intelCurrentSessionData.id === intelSessionId) {
+            syncAnalysisPanelFromSession(_intelCurrentSessionData);
+            updateNetworkPanelFromSession(_intelCurrentSessionData);
+            updateIntelNodesPanel(_intelCurrentSessionData);
+            updateIntelKnowledgeBasePanel(_intelCurrentSessionData);
+        } else {
+            refreshIntelPanelsForSession(intelSessionId);
+        }
+
     } catch { /* ignore */ }
 }
 
@@ -6371,14 +7371,14 @@ async function switchToSession(sessionId) {
         setStatValue('stat-ports', portsFound || '—');
 
         // Populate intel panels from stored session data
-        if (Array.isArray(session.vulnerabilities) && session.vulnerabilities.length > 0) {
-            _analysisVulns = session.vulnerabilities;
-            updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: session.vulnerabilities }) });
-        }
+        syncAnalysisPanelFromSession(session);
+        _intelCurrentSessionData = session;
         updateNetworkPanelFromSession(session);
+        updateIntelNodesPanel(session);
+        updateIntelKnowledgeBasePanel(session);
         // For historical sessions: reconstruct timeline from existing data
         {
-            const hist_hosts    = _mergeHosts((session.scan_results || []).flatMap(r => r.hosts || []));
+            const hist_hosts    = _extractHostsFromScanResults(session.scan_results || []);
             const hist_exploits = session.exploit_results || [];
             if (hist_hosts.length > 0 && _topoEvents.length === 0) {
                 _topoReconstructEvents(hist_hosts, hist_exploits);
@@ -7977,6 +8977,14 @@ function _advApplyConfig(cfg) {
             if (el) el.checked = cfg[key];
         }
     });
+    if (typeof cfg.confirm_every_step !== 'undefined') {
+        const el = document.getElementById('adv-step-by-step');
+        if (el) el.checked = !!cfg.confirm_every_step;
+    }
+    if (cfg.mission_briefing) {
+        const el = document.getElementById('adv-mission-briefing');
+        if (el) el.value = cfg.mission_briefing;
+    }
 }
 
 function _advCollectConfig() {
@@ -8009,6 +9017,8 @@ function _advCollectConfig() {
         objectives:             _v('adv-objectives'),
         excluded_ports:         _v('adv-excluded-ports'),
         version_intensity:      (() => { const el = document.getElementById('adv-version-intensity'); return el ? el.value : '5'; })(),
+        confirm_every_step:     _c('adv-step-by-step'),
+        mission_briefing:       _v('adv-mission-briefing'),
     };
 }
 
@@ -8141,9 +9151,11 @@ async function launchAdvancedMission() {
         allow_browser_recon: cfg.allow_browser_recon,
         known_tech: knownTech ? knownTech.split(',').map(s => s.trim()).filter(Boolean) : undefined,
         scope_notes: scopeNotes || undefined,
-        notes: cfg.notes || undefined,
+        notes: (cfg.notes || cfg.mission_briefing) || undefined,
         objectives: cfg.objectives ? cfg.objectives.split('\n').map(s => s.trim()).filter(Boolean) : undefined,
         credential_ids: newCredIds.length > 0 ? newCredIds : undefined,
+        confirm_every_step: cfg.confirm_every_step || false,
+        agent_models: _collectAgentModelsFromMissionUI() || undefined,
     };
 
     // Sync primary target back to sidebar quick-launch field
@@ -8889,11 +9901,101 @@ const _AG = {
     error:      { color:'#ef4444', bg:'#1a0000', bgL:'#fff0f0', icon:'error',           r:26, stroke:1.5 },
 };
 
+const _AG_FRIENDLY = {
+    tirpan: 'Mission Controller',
+    target: 'Target Scope',
+    thinking: 'Reasoning Step',
+    reflecting: 'Reflection Stream',
+    reflection: 'Reflection Insight',
+    tool_nmap: 'Network Scan Action',
+    tool_msf: 'Exploit Action',
+    tool_bash: 'Command Execution',
+    tool_ssh: 'Credential / Access Action',
+    tool_spy: 'Vulnerability Lookup',
+    tool_other: 'Tool Action',
+    parallel: 'Parallel Action Group',
+    result_ok: 'Successful Result',
+    result_fail: 'Failed Result',
+    done: 'Mission Completed',
+    error: 'Error Event',
+};
+
+const _AG_PHASE_LABELS = {
+    1: 'Discovery',
+    2: 'Port Scan',
+    3: 'Exploit Search',
+    4: 'Exploitation',
+    5: 'Reporting',
+};
+
 function _agS(type) { return _AG[type] || _AG.tool_other; }
 function _agIsLight() { return document.documentElement.classList.contains('light'); }
 function _agBg(type) { return _agIsLight() ? _agS(type).bgL : _agS(type).bg; }
 function _agSvgBg() { return _agIsLight() ? '#f7f7f7' : '#030303'; }
 function _agEdgeColor(main) { return _agIsLight() ? (main ? '#ccc' : '#ddd') : (main ? '#1e1e1e' : '#111'); }
+
+function _agFriendlyType(type) {
+    return _AG_FRIENDLY[type] || String(type || 'Unknown').replace(/_/g, ' ');
+}
+
+function _agNarrative(node) {
+    if (!node) return 'This step has no details yet.';
+    switch (node.type) {
+        case 'tirpan':
+            return 'This node represents the central mission controller coordinating the entire operation.';
+        case 'target':
+            return 'This node marks the target scope currently being assessed.';
+        case 'thinking':
+            return 'The agent is analyzing evidence and deciding the safest next action.';
+        case 'parallel':
+            return 'Multiple actions were launched in parallel to reduce mission time.';
+        case 'tool_msf':
+            return 'An exploitation or validation action was attempted against a discovered weakness.';
+        case 'tool_nmap':
+            return 'A discovery scan collected host, port, and service evidence.';
+        case 'result_ok':
+            return 'The previous action completed successfully and produced usable evidence.';
+        case 'result_fail':
+            return 'The previous action did not succeed. This helps refine the next decision.';
+        case 'reflection':
+        case 'reflecting':
+            return 'The agent summarized lessons learned before moving forward.';
+        case 'done':
+            return 'Mission objectives were completed and reporting phase is ready.';
+        case 'error':
+            return 'An error occurred at this step and may require operator review.';
+        default:
+            return 'This node records a mission event in the execution chain.';
+    }
+}
+
+function _agUpdateMeta() {
+    const nodeEl = document.getElementById('ag-kpi-nodes');
+    const riskEl = document.getElementById('ag-kpi-risk');
+    const phaseEl = document.getElementById('ag-kpi-phase');
+    const captionEl = document.getElementById('ag-graph-caption');
+
+    if (nodeEl) nodeEl.textContent = String(_agNodes.length || 0);
+
+    const riskyCount = _agNodes.filter((n) =>
+        n.type === 'result_fail' ||
+        n.type === 'tool_msf' ||
+        n.type === 'error'
+    ).length;
+    if (riskEl) riskEl.textContent = String(riskyCount || 0);
+
+    const phaseLabel = _AG_PHASE_LABELS[_currentPhase] || 'Idle';
+    if (phaseEl) phaseEl.textContent = phaseLabel;
+
+    if (captionEl) {
+        const lastNode = _agNodes.length ? _agNodes[_agNodes.length - 1] : null;
+        if (!lastNode) {
+            captionEl.textContent = 'Select any node to see what happened, why it happened, and what it means.';
+        } else {
+            captionEl.textContent = `Latest milestone: ${_agFriendlyType(lastNode.type)} — ${lastNode.label || 'event'}.`;
+        }
+    }
+}
 
 function _agToolType(name) {
     const n = (name || '').toLowerCase();
@@ -8936,6 +10038,7 @@ function _agReset() {
         timelineContainer.classList.add('hidden');
     }
     if (timelineEmpty) timelineEmpty.classList.remove('hidden');
+    _agUpdateMeta();
     if (_agView === 'graph') _agRender();
     if (_agView === 'timeline') _agRenderTimeline();
 }
@@ -8996,6 +10099,8 @@ function switchAgentView(v) {
         if (minimap)   minimap.style.display   = 'flex';
         if (btnFeed)   btnFeed.setAttribute('style',  activeS);
     }
+
+    _agUpdateMeta();
 }
 
 function _agTimelineWalk(node, depth, rows, maxDepth) {
@@ -9203,6 +10308,7 @@ function _agRender() {
     // Node count badge
     const cnt = document.getElementById('ag-node-count');
     if (cnt) cnt.textContent = _agNodes.length + ' nodes · ' + _agEdges.length + ' edges';
+    _agUpdateMeta();
 
     // ── Edges ──
     var visibleEdges = _agEdges.filter(function(e) {
@@ -9372,6 +10478,7 @@ function agShowDetail(node) {
     var titleEl = document.getElementById('ag-detail-title');
     var iconEl  = document.getElementById('ag-detail-icon');
     var bodyEl  = document.getElementById('ag-detail-body');
+    var captionEl = document.getElementById('ag-graph-caption');
     if (!panel) return;
 
     var st = _agS(node.type);
@@ -9380,8 +10487,15 @@ function agShowDetail(node) {
     if (iconEl)  { iconEl.textContent = st.icon; iconEl.style.color = st.color; }
 
     var d   = node.detail || {};
+    var friendlyType = _agFriendlyType(node.type);
     var html = '<span class="ag-type-badge" style="border:1px solid '+st.color+'44;color:'+st.color+';">'
-             + node.type.replace(/_/g,' ') + '</span><br>';
+             + _esc(friendlyType) + '</span><br>';
+
+    html += _agKV('What This Means', _esc(_agNarrative(node)), isLight);
+
+    if (captionEl) {
+        captionEl.textContent = `${friendlyType}: ${node.label || 'event details are available on this panel.'}`;
+    }
 
     if (node.type === 'parallel') {
         var toolCount = node._children.length;
@@ -9429,6 +10543,7 @@ function _agSec(title, content, isLight) {
 function agCloseDetail() {
     var panel = document.getElementById('ag-detail-panel');
     if (panel) panel.style.width = '0';
+    _agUpdateMeta();
 }
 
 // ── Injection from graph view ─────────────────────────────────────────────────

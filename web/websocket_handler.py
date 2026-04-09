@@ -615,7 +615,7 @@ async def _run_chat_agent(
         await websocket.send_json({"type": "token", "content": final_reply, "msg_id": msg_id})
 
     await websocket.send_json({"type": "message_end", "msg_id": msg_id})
-    return final_reply
+    return final_reply, streaming_state["logs"]
 
 
 async def handle_websocket(websocket: WebSocket) -> None:
@@ -719,7 +719,11 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 cid = msg.get("conversation_id")
                 if cid:
                     messages = await database.get_messages(cid)
-                    chat_history = [{"role": m["role"], "content": m["content"]} for m in messages]
+                    # Only user/assistant roles go into agent memory; tool_log is UI-only
+                    chat_history = [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in messages if m["role"] in ("user", "assistant")
+                    ]
                     conversation_id = cid
                     await websocket.send_json({"type": "conversation_loaded", "messages": messages})
 
@@ -831,11 +835,16 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     except json.JSONDecodeError:
                         pass
 
-                assistant_text = await agent_task
+                assistant_text, tool_logs = await agent_task
 
                 # Persist the conversation turn to the database
                 if conversation_id:
                     await database.add_message(conversation_id, "user", content)
+                    # Save tool activity logs so they can be replayed when loading history
+                    if tool_logs:
+                        await database.add_message(
+                            conversation_id, "tool_log", "\n".join(tool_logs)
+                        )
                     if assistant_text:
                         await database.add_message(conversation_id, "assistant", assistant_text)
 
