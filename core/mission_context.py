@@ -315,6 +315,7 @@ class MissionContext:
         mode: str,
         operator_notes: str = "",
         environment_type: str = "unknown",
+        auto_targeting: bool = False,
         # Permission flags — sourced from MissionBrief, single source of truth
         allow_exploitation: bool = False,
         allow_post_exploitation: bool = False,
@@ -331,6 +332,7 @@ class MissionContext:
         self.mode = mode
         self.operator_notes = operator_notes
         self.environment_type = environment_type
+        self.auto_targeting = auto_targeting
 
         # Permission flags
         self.allow_exploitation = allow_exploitation
@@ -382,6 +384,7 @@ class MissionContext:
         brief: "MissionBrief",
         target: str,
         scope: list[str] | None = None,
+        auto_targeting: bool = False,
     ) -> "MissionContext":
         """
         Build MissionContext from a MissionBrief.
@@ -393,6 +396,7 @@ class MissionContext:
             scope=scope or [target],
             mode="full_auto",
             operator_notes=brief.scope_notes,
+            auto_targeting=auto_targeting,
             allow_exploitation=brief.allow_exploitation,
             allow_post_exploitation=brief.allow_post_exploitation,
             allow_lateral_movement=brief.allow_lateral_movement,
@@ -525,6 +529,7 @@ class MissionContext:
             "mission_id": self.mission_id,
             "target": self.target,
             "scope": self.scope,
+            "auto_targeting": self.auto_targeting,
             "mode": self.mode,
             "environment_type": self.environment_type,
             "operator_notes": self.operator_notes,
@@ -560,6 +565,18 @@ class MissionContext:
             f"TARGET: {self.target}",
             f"PHASE: {self.phase} | ENV: {self.environment_type} | MODE: {self.mode}",
         ]
+
+        if self.scope:
+            scope_preview = ", ".join(str(s) for s in self.scope[:8])
+            if len(self.scope) > 8:
+                scope_preview += ", ..."
+            lines.append(f"SCOPE ({len(self.scope)}): {scope_preview}")
+
+        if self.auto_targeting:
+            lines.append("TARGET MODE: AUTO_DISCOVERY (enumerate full scope)")
+
+        if self.operator_notes:
+            lines.append(f"OPERATOR NOTES: {self.operator_notes[:280]}")
 
         if self.objectives:
             lines.append("MISSION OBJECTIVES (MUST ACHIEVE):")

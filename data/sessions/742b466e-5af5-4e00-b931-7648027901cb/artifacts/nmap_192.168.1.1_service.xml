@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Mon Apr 13 17:21:16 2026 as: /usr/lib/nmap/nmap -oX - -T3 -Pn -sS -sV -p 1-1000 -&#45;script default -&#45;script-timeout 30s 192.168.1.1 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -oX - -T3 -Pn -sS -sV -p 1-1000 -&#45;script default -&#45;script-timeout 30s 192.168.1.1" start="1776090076" startstr="Mon Apr 13 17:21:16 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1000" services="1-1000"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1776090076" endtime="1776090111"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.1.1" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="closed" count="997">
+<extrareasons reason="reset" count="997" proto="tcp" ports="1-52,54-79,81-442,444-1000"/>
+</extraports>
+<port protocol="tcp" portid="53"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="domain" extrainfo="generic dns response: NXDOMAIN" servicefp="SF-Port53-TCP:V=7.95%I=7%D=4/13%Time=69DCFBF2%P=x86_64-pc-linux-gnu%r(DNS-SD-TCP,7B,&quot;\0y\0\0\x80\x83\0\x01\0\0\0\x01\0\0\t_services\x07_dns-sd\x04_udp\x05local\0\0\x0c\0\x01\0\0\x06\0\x01\0\0\x01,\0@\x01a\x0croot-servers\x03net\0\x05nstld\x0cverisign-grs\x03com\0x\xc2\xef\xd4\0\0\x07\x08\0\0\x03\x84\0\t:\x80\0\x01Q\x80&quot;);" method="probed" conf="10"/><script id="fingerprint-strings" output="&#xa;  DNS-SD-TCP: &#xa;    _services&#xa;    _dns-sd&#xa;    _udp&#xa;    local&#xa;    root-servers&#xa;    nstld&#xa;    verisign-grs"><elem key="DNS-SD-TCP">&#xa;    _services&#xa;    _dns-sd&#xa;    _udp&#xa;    local&#xa;    root-servers&#xa;    nstld&#xa;    verisign-grs</elem>
+</script></port>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="http" product="Mini web server" version="1.0" extrainfo="ZTE ZXV10 W300 ADSL router http config" ostype="Linux 2.4.17" devicetype="broadband router" method="probed" conf="10"><cpe>cpe:/h:zte:zxv10_w300</cpe><cpe>cpe:/o:montavista:linux_kernel:2.4.17</cpe></service><script id="http-title" output="&amp;#90;&amp;#88;&amp;#72;&amp;#78;&amp;#32;&amp;#72;&amp;#50;&amp;#54;&amp;#55;&amp;#65;&amp;#32;&amp;#86;&amp;#..."><elem key="title">&amp;#90;&amp;#88;&amp;#72;&amp;#78;&amp;#32;&amp;#72;&amp;#50;&amp;#54;&amp;#55;&amp;#65;&amp;#32;&amp;#86;&amp;#49;&amp;#46;&amp;#48;</elem>
+</script><script id="http-server-header" output="Mini web server 1.0 ZTE corp 2005."><elem>Mini web server 1.0 ZTE corp 2005.</elem>
+</script></port>
+<port protocol="tcp" portid="443"><state state="filtered" reason="no-response" reason_ttl="0"/><service name="https" method="table" conf="3"/></port>
+</ports>
+<times srtt="3853" rttvar="910" to="100000"/>
+</host>
+<runstats><finished time="1776090111" timestr="Mon Apr 13 17:21:51 2026" summary="Nmap done at Mon Apr 13 17:21:51 2026; 1 IP address (1 host up) scanned in 35.80 seconds" elapsed="35.80" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

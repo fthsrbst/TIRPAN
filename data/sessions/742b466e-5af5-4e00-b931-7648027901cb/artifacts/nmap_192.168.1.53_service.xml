@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Mon Apr 13 17:23:19 2026 as: /usr/lib/nmap/nmap -oX - -T3 -Pn -sS -sV -p 1-1000 -&#45;script default -&#45;script-timeout 30s 192.168.1.53 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -oX - -T3 -Pn -sS -sV -p 1-1000 -&#45;script default -&#45;script-timeout 30s 192.168.1.53" start="1776090199" startstr="Mon Apr 13 17:23:19 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1000" services="1-1000"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1776090200" endtime="1776090212"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.1.53" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="closed" count="994">
+<extrareasons reason="reset" count="994" proto="tcp" ports="1-21,23-79,81-110,112-138,140-221,223-444,446-1000"/>
+</extraports>
+<port protocol="tcp" portid="22"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ssh" product="OpenSSH" version="10.0p2 Debian 7+deb13u2" extrainfo="protocol 2.0" ostype="Linux" method="probed" conf="10"><cpe>cpe:/a:openbsd:openssh:10.0p2</cpe><cpe>cpe:/o:linux:linux_kernel</cpe></service></port>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="http" product="nginx" method="probed" conf="10"><cpe>cpe:/a:igor_sysoev:nginx</cpe></service><script id="http-title" output="Welcome to nginx!"><elem key="title">Welcome to nginx!</elem>
+</script></port>
+<port protocol="tcp" portid="111"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="rpcbind" version="2-4" extrainfo="RPC #100000" method="probed" conf="10"/><script id="rpcinfo" output="&#xa;  program version    port/proto  service&#xa;  100000  2,3,4        111/tcp   rpcbind&#xa;  100000  2,3,4        111/udp   rpcbind&#xa;  100000  3,4          111/tcp6  rpcbind&#xa;  100000  3,4          111/udp6  rpcbind&#xa;"><table key="100000">
+<table key="udp6">
+<table key="version">
+<elem>3</elem>
+<elem>4</elem>
+</table>
+<elem key="owner">superuser</elem>
+<elem key="port">111</elem>
+<elem key="addr">::</elem>
+</table>
+<table key="udp">
+<table key="version">
+<elem>2</elem>
+<elem>3</elem>
+<elem>4</elem>
+</table>
+<elem key="owner">superuser</elem>
+<elem key="port">111</elem>
+<elem key="addr">0.0.0.0</elem>
+</table>
+<table key="local">
+<table key="version">
+<elem>3</elem>
+<elem>4</elem>
+</table>
+<elem key="addr">/run/rpcbind.sock</elem>
+<elem key="owner">superuser</elem>
+</table>
+<table key="tcp">
+<table key="version">
+<elem>2</elem>
+<elem>3</elem>
+<elem>4</elem>
+</table>
+<elem key="owner">superuser</elem>
+<elem key="port">111</elem>
+<elem key="addr">0.0.0.0</elem>
+</table>
+<table key="tcp6">
+<table key="version">
+<elem>3</elem>
+<elem>4</elem>
+</table>
+<elem key="owner">superuser</elem>
+<elem key="port">111</elem>
+<elem key="addr">::</elem>
+</table>
+</table>
+</script></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="netbios-ssn" product="Samba smbd" version="4" method="probed" conf="10"><cpe>cpe:/a:samba:samba:4</cpe></service></port>
+<port protocol="tcp" portid="222"><state state="open" reason="syn-ack" reason_ttl="62"/><service name="ssh" product="OpenSSH" version="10.0" extrainfo="protocol 2.0" method="probed" conf="10"><cpe>cpe:/a:openbsd:openssh:10.0</cpe></service></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="netbios-ssn" product="Samba smbd" version="4" method="probed" conf="10"><cpe>cpe:/a:samba:samba:4</cpe></service></port>
+</ports>
+<hostscript><script id="smb2-security-mode" output="&#xa;  3:1:1: &#xa;    Message signing enabled but not required"><table key="3:1:1">
+<elem>Message signing enabled but not required</elem>
+</table>
+</script><script id="nbstat" output="NetBIOS name: FATIHPI, NetBIOS user: &lt;unknown&gt;, NetBIOS MAC: &lt;unknown&gt; (unknown)"/><script id="smb2-time" output="&#xa;  date: 2026-04-13T14:23:31&#xa;  start_date: N/A"><elem key="date">2026-04-13T14:23:31</elem>
+<elem key="start_date">N/A</elem>
+</script></hostscript><times srtt="447" rttvar="72" to="100000"/>
+</host>
+<runstats><finished time="1776090212" timestr="Mon Apr 13 17:23:32 2026" summary="Nmap done at Mon Apr 13 17:23:32 2026; 1 IP address (1 host up) scanned in 12.66 seconds" elapsed="12.66" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

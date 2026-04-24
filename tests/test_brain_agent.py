@@ -123,7 +123,7 @@ class TestBrainAgentConstruction:
         msgs = brain.build_messages()
         assert len(msgs) >= 1
         assert msgs[0]["role"] == "system"
-        assert "BrainAgent" in msgs[0]["content"]
+        assert "TIRPAN" in msgs[0]["content"]
 
     def test_system_prompt_includes_context_summary(self):
         ctx = make_ctx()
@@ -186,6 +186,79 @@ class TestSpawnAgent:
         }))
         assert any(t == "agent_spawned" for t, _ in events)
         _AGENT_REGISTRY.pop("fake3", None)
+
+
+class TestSpawnAgentModelRouting:
+    def test_child_defaults_to_global_router_when_no_override(self):
+        _register_agent_type("fake_model_default", "tests.test_brain_agent", "FakeChildAgent")
+        brain = make_brain(agent_models={"brain": {"provider": "openrouter", "model": "brain-only"}})
+
+        try:
+            default_router = MagicMock(name="default_router")
+            with patch("core.llm_client.make_agent_llm", return_value=default_router) as mk:
+                run(brain._spawn_agent({
+                    "agent_type": "fake_model_default",
+                    "target": "10.0.0.1",
+                    "task_type": "scan",
+                }))
+
+            mk.assert_called_once_with("", "")
+        finally:
+            run(brain.on_run_end(None))
+            _AGENT_REGISTRY.pop("fake_model_default", None)
+
+    def test_exploit_uses_explicit_override(self):
+        original = _AGENT_REGISTRY.get("exploit")
+        _AGENT_REGISTRY["exploit"] = ("tests.test_brain_agent", "FakeChildAgent")
+        brain = make_brain(agent_models={"exploit": {"provider": "openrouter", "model": "exp-model"}})
+
+        try:
+            default_router = MagicMock(name="default_router")
+            exploit_router = MagicMock(name="exploit_router")
+            with patch(
+                "core.llm_client.make_agent_llm",
+                side_effect=[default_router, exploit_router],
+            ) as mk:
+                run(brain._spawn_agent({
+                    "agent_type": "exploit",
+                    "target": "10.0.0.2",
+                    "task_type": "exploit",
+                }))
+
+            assert mk.call_args_list[0].args == ("", "")
+            assert mk.call_args_list[1].args == ("openrouter", "exp-model")
+        finally:
+            run(brain.on_run_end(None))
+            if original is not None:
+                _AGENT_REGISTRY["exploit"] = original
+            else:
+                _AGENT_REGISTRY.pop("exploit", None)
+
+    def test_scanner_override_backfills_exploit_when_explicit_missing(self):
+        original = _AGENT_REGISTRY.get("exploit")
+        _AGENT_REGISTRY["exploit"] = ("tests.test_brain_agent", "FakeChildAgent")
+        brain = make_brain(agent_models={"scanner": {"provider": "ollama", "model": "scanner-model"}})
+
+        try:
+            default_router = MagicMock(name="default_router")
+            exploit_router = MagicMock(name="exploit_router")
+            with patch(
+                "core.llm_client.make_agent_llm",
+                side_effect=[default_router, exploit_router],
+            ) as mk:
+                run(brain._spawn_agent({
+                    "agent_type": "exploit",
+                    "target": "10.0.0.3",
+                    "task_type": "exploit",
+                }))
+
+            assert mk.call_args_list[1].args == ("ollama", "scanner-model")
+        finally:
+            run(brain.on_run_end(None))
+            if original is not None:
+                _AGENT_REGISTRY["exploit"] = original
+            else:
+                _AGENT_REGISTRY.pop("exploit", None)
 
 
 # ── _wait_for_agents ──────────────────────────────────────────────────────────

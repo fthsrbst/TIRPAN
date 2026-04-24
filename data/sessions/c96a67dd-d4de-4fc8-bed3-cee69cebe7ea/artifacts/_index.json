@@ -1,0 +1,20 @@
+[
+  {
+    "filename": "nmap_192.168.56.101_service.xml",
+    "tool": "nmap",
+    "size_bytes": 18702,
+    "created_at": "2026-04-11T14:11:12.806422+00:00"
+  },
+  {
+    "filename": "nmap_192.168.56.101_full.xml",
+    "tool": "nmap",
+    "size_bytes": 131637,
+    "created_at": "2026-04-11T14:12:27.311995+00:00"
+  },
+  {
+    "filename": "ffuf_http___192.168.56.101.json",
+    "tool": "ffuf",
+    "size_bytes": 6712,
+    "created_at": "2026-04-11T14:14:25.765429+00:00"
+  }
+]
