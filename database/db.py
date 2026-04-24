@@ -366,6 +366,106 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v9 applied: V2 multi-agent tables")
 
+        if version < 10:
+            await db.executescript("""
+                -- ── defense_sessions ─────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS defense_sessions (
+                    id          TEXT PRIMARY KEY,
+                    name        TEXT NOT NULL DEFAULT '',
+                    network     TEXT NOT NULL,
+                    mode        TEXT NOT NULL DEFAULT 'manual',
+                    status      TEXT NOT NULL DEFAULT 'idle',
+                    started_at  REAL,
+                    stopped_at  REAL,
+                    created_at  REAL NOT NULL
+                );
+
+                -- ── defense_alerts ───────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS defense_alerts (
+                    id              TEXT PRIMARY KEY,
+                    defense_sid     TEXT NOT NULL REFERENCES defense_sessions(id) ON DELETE CASCADE,
+                    alert_type      TEXT NOT NULL,
+                    severity        TEXT NOT NULL,
+                    src_ip          TEXT,
+                    dst_ip          TEXT,
+                    dst_port        INTEGER,
+                    protocol        TEXT,
+                    details         TEXT NOT NULL DEFAULT '{}',
+                    status          TEXT NOT NULL DEFAULT 'open',
+                    mitre_tactic    TEXT,
+                    mitre_technique TEXT,
+                    created_at      REAL NOT NULL,
+                    resolved_at     REAL
+                );
+                CREATE INDEX IF NOT EXISTS idx_dalerts_session
+                    ON defense_alerts(defense_sid, created_at);
+
+                -- ── defense_blocks ───────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS defense_blocks (
+                    id          TEXT PRIMARY KEY,
+                    defense_sid TEXT NOT NULL REFERENCES defense_sessions(id) ON DELETE CASCADE,
+                    block_type  TEXT NOT NULL,
+                    target_ip   TEXT NOT NULL,
+                    target_port INTEGER,
+                    rule_id     TEXT,
+                    reason      TEXT NOT NULL,
+                    alert_id    TEXT REFERENCES defense_alerts(id),
+                    active      INTEGER NOT NULL DEFAULT 1,
+                    created_at  REAL NOT NULL,
+                    removed_at  REAL
+                );
+
+                -- ── defense_deceptions ───────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS defense_deceptions (
+                    id              TEXT PRIMARY KEY,
+                    defense_sid     TEXT NOT NULL REFERENCES defense_sessions(id) ON DELETE CASCADE,
+                    deception_type  TEXT NOT NULL,
+                    target_ip       TEXT,
+                    bind_port       INTEGER,
+                    fake_service    TEXT,
+                    details         TEXT NOT NULL DEFAULT '{}',
+                    triggered       INTEGER NOT NULL DEFAULT 0,
+                    status          TEXT NOT NULL DEFAULT 'active',
+                    created_at      REAL NOT NULL,
+                    removed_at      REAL
+                );
+
+                -- ── attacker_profiles ────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS attacker_profiles (
+                    id              TEXT PRIMARY KEY,
+                    defense_sid     TEXT NOT NULL REFERENCES defense_sessions(id) ON DELETE CASCADE,
+                    src_ip          TEXT NOT NULL,
+                    ttps            TEXT NOT NULL DEFAULT '[]',
+                    known_ports     TEXT NOT NULL DEFAULT '[]',
+                    known_hosts     TEXT NOT NULL DEFAULT '[]',
+                    deceived_with   TEXT NOT NULL DEFAULT '[]',
+                    actor_guess     TEXT,
+                    actor_conf      REAL DEFAULT 0.0,
+                    next_move       TEXT,
+                    next_move_conf  REAL DEFAULT 0.0,
+                    last_seen       REAL,
+                    created_at      REAL NOT NULL,
+                    UNIQUE(defense_sid, src_ip)
+                );
+
+                -- ── defense_events ───────────────────────────────────────────
+                CREATE TABLE IF NOT EXISTS defense_events (
+                    id          TEXT PRIMARY KEY,
+                    defense_sid TEXT NOT NULL REFERENCES defense_sessions(id) ON DELETE CASCADE,
+                    event_type  TEXT NOT NULL,
+                    payload     TEXT NOT NULL DEFAULT '{}',
+                    created_at  REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_devents_session
+                    ON defense_events(defense_sid, created_at);
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (10, time.time(), "defense module: defense_sessions, defense_alerts, defense_blocks, defense_deceptions, attacker_profiles, defense_events"),
+            )
+            await db.commit()
+            logger.info("DB migration v10 applied: defense module tables")
+
     logger.info("Database ready: %s", path)
 
 

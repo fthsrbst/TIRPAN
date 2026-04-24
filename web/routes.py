@@ -3,6 +3,7 @@ REST API routes.
 """
 
 import asyncio
+import json
 import logging
 import re
 import subprocess
@@ -18,12 +19,14 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from config import SafetyConfig, settings
+from core.agent_model_config import normalize_agent_models
 from core.session_data_recovery import recover_session_findings_from_events
 from core.session_orchestration import (
     run_agent_task as _run_agent_task_service,
     run_v2_agent_task as _run_v2_agent_task_service,
 )
 from core.secure_store import async_get_secret, async_set_secret, get_secret
+from core.targeting import infer_local_scope_targets, normalize_targets
 from database import db as database
 from database.repositories import (
     AuditLogRepository,
@@ -932,7 +935,7 @@ async def tools_status():
 # ── Pentest Sessions ───────────────────────────────────────────────────────────
 
 class StartSessionRequest(BaseModel):
-    target: str = ""   # optional when resume_from_session_id is set
+    target: str = ""   # optional: if empty, target scope is inferred automatically
     mode: str = "scan_only"
     mission_name: str = ""
 
@@ -1104,8 +1107,46 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
                 body.resume_from_session_id[:8], len(resume_scan_results), len(resume_vulnerabilities),
             )
 
-    if not body.target.strip():
-        raise HTTPException(400, "Target IP or CIDR is required (or set resume_from_session_id)")
+    # Resolve mission scope targets.
+    # - If explicit target(s) provided, use them.
+    # - If omitted, infer private local subnets and run a full-scope engagement.
+    requested_targets = normalize_targets([
+        body.target,
+        *(body.additional_targets or []),
+    ])
+
+    auto_targeting = False
+    if not requested_targets:
+        inferred_targets = infer_local_scope_targets()
+        if not inferred_targets:
+            raise HTTPException(
+                400,
+                "Target not provided and auto-discovery found no private local subnet. "
+                "Provide target IP/CIDR/domain manually.",
+            )
+        requested_targets = inferred_targets
+        auto_targeting = True
+        auto_note = (
+            "AUTO-TARGET MODE: No explicit target was provided. "
+            f"Discovered scope: {', '.join(requested_targets)}. "
+            "Enumerate all hosts/services/vulnerabilities across the full scope."
+        )
+        body.scope_notes = f"{auto_note}\n{body.scope_notes}" if body.scope_notes else auto_note
+
+    # Canonicalized mission targets.
+    body.target = requested_targets[0]
+    body.additional_targets = requested_targets[1:]
+    # Agent execution target expression supports multiple scope entries.
+    # nmap_scan now accepts whitespace/comma-separated targets.
+    agent_target_expr = " ".join(requested_targets)
+
+    effective_allowed_cidr = body.allowed_cidr
+    if not effective_allowed_cidr:
+        if auto_targeting or len(requested_targets) > 1:
+            # Keep global policy when running broad/multi-scope missions.
+            effective_allowed_cidr = settings.safety.allowed_cidr
+        else:
+            effective_allowed_cidr = body.target
 
     # If a scan profile was selected, load and merge its config
     if body.profile_id:
@@ -1125,7 +1166,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
     # Build SafetyConfig — start from global settings, apply per-session overrides
     safety_cfg = SafetyConfig(
-        allowed_cidr=body.allowed_cidr or body.target,
+        allowed_cidr=effective_allowed_cidr,
         allowed_port_min=settings.safety.allowed_port_min,
         allowed_port_max=settings.safety.allowed_port_max,
         excluded_ips=list(settings.safety.excluded_ips),
@@ -1212,6 +1253,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             ))
 
     # Build MissionBrief
+    normalized_body_agent_models = normalize_agent_models(body.agent_models or {})
     mission = MissionBrief(
         target_type=body.target_type,
         objectives=body.objectives,
@@ -1234,7 +1276,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         scan_type=body.scan_type,
         nse_categories=body.nse_categories,
         confirm_every_step=body.confirm_every_step,
-        agent_models=body.agent_models or {},
+        agent_models=normalized_body_agent_models,
     )
 
     # Set global speed profile for this session
@@ -1247,16 +1289,15 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         settings.safety.excluded_ports = list(set(existing) | set(per_session_ports))
 
     # Persist session record
-    session_data = await _session_repo.create(body.target.strip(), body.mode)
+    session_data = await _session_repo.create(agent_target_expr, body.mode)
     session_id = session_data["id"]
 
     # Save the per-session safety config so rollback can restore the exact same settings
-    import json as _json_safety
-    await _session_repo.save_safety_cfg(session_id, _json_safety.dumps(safety_cfg.model_dump()))
+    await _session_repo.save_safety_cfg(session_id, json.dumps(safety_cfg.model_dump()))
 
     session_obj = Session(
         id=session_id,
-        target=body.target.strip(),
+        target=agent_target_expr,
         mode=body.mode,
         status="idle",
         created_at=session_data["created_at"],
@@ -1295,17 +1336,22 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         import core.debug_logger as dbg; dbg.print_banner()
         # Register session for UI debug log streaming (unregistered on session end)
         dbg.register_session(session_id, progress_cb)
-        dbg.info("routes", f"V2 session started | target={body.target} session={session_id[:8]}")
+        dbg.info("routes", f"V2 session started | target={agent_target_expr} session={session_id[:8]}")
         from core.brain_agent import BrainAgent, make_brain
         from core.message_bus import AgentMessageBus
         from core.mission_context import MissionContext
 
+        mission_scope = list(requested_targets)
+        if body.allowed_cidr and body.allowed_cidr not in mission_scope:
+            mission_scope.append(body.allowed_cidr)
+
         mission_ctx = MissionContext(
             mission_id=session_id,
-            target=body.target.strip(),
-            scope=[body.allowed_cidr or body.target.strip()],
+            target=agent_target_expr,
+            scope=mission_scope,
             mode=body.mode,
             operator_notes=body.scope_notes or body.notes,
+            auto_targeting=auto_targeting,
             allow_exploitation=mission.allow_exploitation,
             allow_post_exploitation=mission.allow_post_exploitation,
             allow_lateral_movement=mission.allow_lateral_movement,
@@ -1320,20 +1366,25 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             mission_ctx.objectives = list(mission.objectives)
 
         bus = AgentMessageBus()
-        # Merge per-mission agent_models with global defaults from DB settings
-        _agent_models = dict(mission.agent_models or {})
+        # Merge per-mission agent_models with global defaults from DB settings.
+        # Mission-level overrides always win; global defaults are fallback only.
+        _agent_models = normalize_agent_models(mission.agent_models or {})
         if not _agent_models:
             try:
-                import json as _json_am
                 _saved_am = await database.get_all_settings()
                 _global_am_raw = _saved_am.get("agent_models", "{}")
-                _global_am = _json_am.loads(_global_am_raw) if isinstance(_global_am_raw, str) else (_global_am_raw or {})
-                _agent_models = _global_am
-            except Exception:
-                pass
+                _global_am = json.loads(_global_am_raw) if isinstance(_global_am_raw, str) else (_global_am_raw or {})
+                _agent_models = normalize_agent_models(_global_am)
+                if _agent_models:
+                    logger.info(
+                        "Session %s started with global agent model defaults (mission overrides absent)",
+                        session_id,
+                    )
+            except Exception as exc:
+                logger.warning("Failed to load global agent model defaults: %s", exc)
 
         agent = make_brain(
-            target=body.target.strip(),
+            target=agent_target_expr,
             session_id=session_id,
             mission_brief=mission,
             mission_ctx=mission_ctx,
@@ -1355,7 +1406,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         # ── V1 PentestAgent path (existing) ───────────────────────────────────
         agent = PentestAgent(
             session=session_obj,
-            target=body.target.strip(),
+            target=agent_target_expr,
             mode=body.mode,
             registry=registry,
             safety=guard,
@@ -1384,7 +1435,9 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
     return {
         "session_id": session_id,
-        "target": body.target,
+        "target": agent_target_expr,
+        "resolved_targets": requested_targets,
+        "auto_targeting": auto_targeting,
         "mode": body.mode,
         "speed_profile": body.speed_profile,
         "status": "running",
@@ -1465,9 +1518,13 @@ async def kill_session(sid: str):
 
     kill_details = session_manager.kill_with_details(sid)
     if kill_details.get("killed"):
-        # Status will be updated to "stopped" via CancelledError handler in _run_agent_task
-        # but we pre-set it here in case the task was already done
         await _session_repo.update_status(sid, "stopped", "Emergency stop triggered by user")
+        await session_manager.broadcast(sid, {
+            "type": "session_event",
+            "session_id": sid,
+            "event": "kill_switch",
+            "data": {"resumable": bool(kill_details.get("resumable", False))},
+        })
         await _audit_repo.log(
             "KILL_SWITCH",
             session_id=sid,
@@ -1475,6 +1532,7 @@ async def kill_session(sid: str):
                 "reason": "Emergency stop triggered by user",
                 "killed_in_ms": kill_details.get("killed_in_ms", 0),
                 "child_agents_cancelled": kill_details.get("child_agents_cancelled", 0),
+                "resumable": bool(kill_details.get("resumable", False)),
             },
         )
         return {
@@ -1483,6 +1541,7 @@ async def kill_session(sid: str):
             "killed_in_ms": kill_details.get("killed_in_ms", 0),
             "child_agents_cancelled": kill_details.get("child_agents_cancelled", 0),
             "task_cancelled": kill_details.get("task_cancelled", False),
+            "resumable": bool(kill_details.get("resumable", False)),
         }
 
     return {
@@ -1549,6 +1608,7 @@ async def pause_session(sid: str):
 
     ok = session_manager.pause_session(sid)
     if ok:
+        await _session_repo.update_status(sid, "paused")
         await session_manager.broadcast(sid, {
             "type": "session_event",
             "session_id": sid,
@@ -1569,6 +1629,7 @@ async def resume_session(sid: str):
 
     ok = session_manager.resume_session(sid)
     if ok:
+        await _session_repo.update_status(sid, "running")
         await session_manager.broadcast(sid, {
             "type": "session_event",
             "session_id": sid,

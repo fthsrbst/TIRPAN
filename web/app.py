@@ -21,6 +21,7 @@ from config import settings
 from core.pty_manager import PTYManager
 from core.registry_builder import build_tool_registry
 from web.routes import router
+from web.defense_routes import defense_router
 from web.websocket_handler import handle_websocket
 from database.db import init_db
 
@@ -188,8 +189,9 @@ async def lifespan(app: FastAPI):
     # Cleanup sessions that were left in "running" or "idle" state from a previous crash/restart.
     # "idle" sessions were created but the background task was killed before it could set status
     # to "running" (e.g. server reloaded immediately after a mission was launched).
-    from database.repositories import SessionRepository
+    from database.repositories import SessionRepository, AgentInstanceRepository
     _repo = SessionRepository()
+    _agent_repo = AgentInstanceRepository()
     try:
         _orphans = await _repo.list_all()
     except Exception as exc:
@@ -198,6 +200,20 @@ async def lifespan(app: FastAPI):
     for _s in _orphans:
         if _s.get("status") in ("running", "idle"):
             await _repo.update_status(_s["id"], "error", "Server restarted — session interrupted")
+            try:
+                _active_agents = await _agent_repo.get_active(_s["id"])
+            except Exception as exc:
+                _logger.warning("Startup orphan-agent cleanup skipped for %s: %s", _s.get("id"), exc)
+                _active_agents = []
+            for _a in _active_agents:
+                try:
+                    await _agent_repo.update_status(
+                        agent_id=_a.get("id", ""),
+                        status="failed",
+                        error="Server restarted — session interrupted",
+                    )
+                except Exception as exc:
+                    _logger.warning("Startup orphan-agent update skipped for %s: %s", _a.get("id", "?"), exc)
 
     # Bootstrap shared tool registry
     from web import app_state
@@ -279,6 +295,7 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(router)
+    application.include_router(defense_router)
 
     @application.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):

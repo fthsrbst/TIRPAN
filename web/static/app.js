@@ -136,75 +136,137 @@ function switchView(viewName) {
 }
 
 function initBottomNav() {
-    const navItems = document.querySelectorAll('.bottom-nav-item');
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const view = item.dataset.view;
-            if (view) {
-                switchView(view);
-                closeMobileSidebar();
-            }
-        });
+    if (initBottomNav._bound) return;
+    initBottomNav._bound = true;
+
+    // Delegated handler keeps nav working even if init ordering changes.
+    document.addEventListener('click', (event) => {
+        const item = event.target && event.target.closest
+            ? event.target.closest('.bottom-nav-item[data-view]')
+            : null;
+        if (!item) return;
+
+        const view = item.dataset.view;
+        if (!view) return;
+
+        switchView(view);
+        closeMobileSidebar();
     });
 }
 
+initBottomNav();
+
 // ─── Console Tabs ────────────────────────────────────────────────────────────
 
-function initConsoleTabs() {
-    const tabs = document.querySelectorAll('.console-tab');
-    const bodies = document.querySelectorAll('.console-body');
+// Console last-active-tab persistence
+const _CONSOLE_TAB_KEY = 'tirpan_console_tab';
+function _consoleSavedTab() {
+    try { return localStorage.getItem(_CONSOLE_TAB_KEY) || 'terminal'; } catch { return 'terminal'; }
+}
+function _consoleSaveTab(t) {
+    try { localStorage.setItem(_CONSOLE_TAB_KEY, t); } catch {}
+}
 
-    tabs.forEach(tab => {
+function initConsoleTabs() {
+    if (initConsoleTabs._bound) return;
+    initConsoleTabs._bound = true;
+
+    document.querySelectorAll('#view-console .console-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             const target = tab.dataset.tab;
-
-            tabs.forEach(t => {
-                if (t.dataset.tab === target) {
-                    t.classList.add('bg-black', 'text-primary', 'border-t-2', 'border-t-primary');
-                    t.classList.remove('text-secondary-text', 'hover:bg-white/5');
-                } else {
-                    t.classList.remove('bg-black', 'text-primary', 'border-t-2', 'border-t-primary');
-                    t.classList.add('text-secondary-text', 'hover:bg-white/5');
-                }
-            });
-
-            bodies.forEach(body => {
-                if (body.dataset.tab === target) {
-                    body.classList.remove('hidden');
-                } else {
-                    body.classList.add('hidden');
-                }
-            });
+            if (target) _switchConsoleTab(target);
         });
     });
+
+    // Log filter chips
+    document.querySelectorAll('.log-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.log-filter-btn').forEach(b => {
+                b.classList.remove('active', 'border-primary', 'text-primary');
+                b.classList.add('border-border-color', 'text-secondary-text');
+            });
+            btn.classList.add('active', 'border-primary', 'text-primary');
+            btn.classList.remove('border-border-color', 'text-secondary-text');
+            _logsApplyFilter(btn.dataset.filter || 'all');
+        });
+    });
+
+    // Clear logs button
+    document.getElementById('logs-clear-btn')?.addEventListener('click', () => {
+        const out = document.getElementById('console-logs-output');
+        if (out) {
+            out.innerHTML = '<div id="console-logs-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none"><span class="material-symbols-outlined text-3xl opacity-40">list_alt</span><span class="text-[11px] tracking-widest uppercase opacity-60">No logs yet — start a mission</span></div>';
+        }
+    });
+
+    // Restore last active tab
+    _switchConsoleTab(_consoleSavedTab(), true);
+}
+
+let _logsActiveFilter = 'all';
+function _logsApplyFilter(filter) {
+    _logsActiveFilter = filter;
+    const out = document.getElementById('console-logs-output');
+    if (!out) return;
+    out.querySelectorAll('.log-entry').forEach(el => {
+        const cat = el.dataset.cat || 'bash';
+        el.classList.toggle('hidden', filter !== 'all' && cat !== filter);
+    });
+}
+
+function _appendToLogs(html, category) {
+    const out = document.getElementById('console-logs-output');
+    if (!out) return;
+    const empty = document.getElementById('console-logs-empty');
+    if (empty) empty.remove();
+
+    const wrap = document.createElement('div');
+    wrap.className = 'log-entry';
+    wrap.dataset.cat = category || 'bash';
+    if (_logsActiveFilter !== 'all' && wrap.dataset.cat !== _logsActiveFilter) {
+        wrap.classList.add('hidden');
+    }
+    wrap.innerHTML = html;
+    out.appendChild(wrap);
+    out.scrollTop = out.scrollHeight;
+
+    // Badge notification when logs tab not active
+    if (_consoleSavedTab() !== 'logs') {
+        const badge = document.getElementById('logs-new-badge');
+        if (badge) badge.classList.remove('hidden');
+    }
 }
 
 // ─── Pentest / Defense Mode Toggle ──────────────────────────────────────────
 
 function initModeToggle() {
-    const pentestBtn = document.getElementById('mode-pentest');
-    const defenseBtn = document.getElementById('mode-defense');
+    // Manual mode removed — Auto is always active
+}
 
-    function setMode(mode) {
-        if (mode === 'pentest') {
-            pentestBtn.classList.add('bg-primary', 'text-black');
-            pentestBtn.classList.remove('text-secondary-text', 'hover:text-white');
-            defenseBtn.classList.remove('bg-primary', 'text-black');
-            defenseBtn.classList.add('text-secondary-text', 'hover:text-white');
-        } else {
-            defenseBtn.classList.add('bg-primary', 'text-black');
-            defenseBtn.classList.remove('text-secondary-text', 'hover:text-white');
-            pentestBtn.classList.remove('bg-primary', 'text-black');
-            pentestBtn.classList.add('text-secondary-text', 'hover:text-white');
-        }
-        _updateShieldVisibility(mode === 'defense');
+function _switchMainDashboard(mode) {
+    // All pentest views
+    const pentestViews = document.querySelectorAll(
+        '#view-agent, #view-chat, #view-console, #view-audit, ' +
+        '#view-config, #view-report, #view-intel, #view-mission, #view-outputs'
+    );
+    const defenseDash = document.getElementById('defense-dashboard');
+
+    if (mode === 'defense') {
+        // Hide all pentest views
+        pentestViews.forEach(v => {
+            if (v) { v._prev_display = v.classList.contains('hidden') ? 'hidden' : 'flex'; v.classList.add('hidden'); }
+        });
+        // Show defense dashboard
+        if (defenseDash) defenseDash.classList.remove('hidden');
+        // Load defense sessions
+        if (typeof defenseInit === 'function') defenseInit();
+    } else {
+        // Restore pentest views
+        if (defenseDash) defenseDash.classList.add('hidden');
+        // Restore previously active view (default: agent)
+        const activeView = document.getElementById('view-agent');
+        if (activeView) activeView.classList.remove('hidden');
     }
-
-    pentestBtn.addEventListener('click', () => setMode('pentest'));
-    defenseBtn.addEventListener('click', () => setMode('defense'));
-
-    // Initialize: shield hidden on pentest (default)
-    _updateShieldVisibility(false);
 }
 
 function _updateShieldVisibility(show) {
@@ -225,9 +287,9 @@ function _updateShieldVisibility(show) {
     } else {
         if (shieldTabBtn)  shieldTabBtn.style.display  = 'none';
         if (shieldNavItem) shieldNavItem.style.display = 'none';
-        // If the shield panel is currently visible, switch to analysis first
+        // If the shield panel is currently visible, switch to live first
         if (shieldPanel && !shieldPanel.classList.contains('hidden')) {
-            switchIntelPanel('analysis');
+            switchIntelPanel('live');
         }
         if (shieldPanel) shieldPanel.classList.add('hidden');
         if (shieldTabBody && !shieldTabBody.classList.contains('hidden')) {
@@ -238,7 +300,7 @@ function _updateShieldVisibility(show) {
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
 
-const ALL_INTEL_PANELS = ['analysis', 'network', 'shield', 'history', 'nodes', 'kb'];
+const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'shield', 'history', 'nodes', 'kb'];
 
 function _setIntelNavActive(panelName) {
     const items = document.querySelectorAll('.intel-nav-item');
@@ -250,20 +312,30 @@ function _setIntelNavActive(panelName) {
 }
 
 function switchIntelPanel(panelName) {
-    // Hide all panels
-    ALL_INTEL_PANELS.forEach(p => {
+    const secondary = document.getElementById('rsb-secondary-panel');
+
+    if (panelName === 'live' || !panelName) {
+        // Live: just hide the secondary panel, live section is always visible
+        if (secondary) secondary.classList.add('hidden');
+        _setIntelNavActive('live');
+        return;
+    }
+
+    // Non-live: show secondary panel, hide all panels inside it, show target
+    if (secondary) secondary.classList.remove('hidden');
+
+    ALL_INTEL_PANELS.filter(p => p !== 'live').forEach(p => {
         const el = document.getElementById(`intel-panel-${p}`);
         if (el) el.classList.add('hidden');
     });
-    // Show target
+
     const target = document.getElementById(`intel-panel-${panelName}`);
     if (target) {
         target.classList.remove('hidden');
         _setIntelNavActive(panelName);
     } else {
-        const fallback = document.getElementById('intel-panel-analysis');
-        if (fallback) fallback.classList.remove('hidden');
-        _setIntelNavActive('analysis');
+        if (secondary) secondary.classList.add('hidden');
+        _setIntelNavActive('live');
     }
 
     const sid = viewingSessionId || activeMissionId || (_intelSessionsCache[0] ? _intelSessionsCache[0].id : null);
@@ -1437,8 +1509,19 @@ function wsConnect() {
             || msg.type === 'terminal_resized'
         ) {
             _handleNativeTerminalMessage(msg);
+        } else if (msg.type && msg.type.startsWith('defense_') || msg.type === 'attacker_profile' || msg.type === 'honeypot_hit' || msg.type === 'canary_triggered') {
+            // Route to defense module handler
+            if (typeof defenseHandleWsEvent === 'function') {
+                defenseHandleWsEvent(msg.type, msg);
+            }
         }
     };
+}
+
+// Subscribe to defense session events via WebSocket
+function wsSubscribeDefense(sessionId) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({type: 'subscribe_defense', session_id: sessionId}));
 }
 
 function setConnectionBadge(online) {
@@ -2491,8 +2574,14 @@ function _updatePickerSidebarActive() {
 }
 
 const _AGENT_DISPLAY_NAMES = {
-    brain: 'Brain', scanner: 'Scanner / Exploit', postexploit: 'Post-Exploit / Lateral',
-    reporting: 'Reporting', osint: 'OSINT',
+    brain: 'Brain',
+    scanner: 'Scanner',
+    exploit: 'Exploit',
+    webapp: 'WebApp',
+    postexploit: 'Post-Exploit',
+    lateral: 'Lateral',
+    reporting: 'Reporting',
+    osint: 'OSINT',
 };
 
 function openModelPicker(context = null) {
@@ -2756,7 +2845,7 @@ async function loadPersistedSettings() {
         if (data.agent_models) {
             try {
                 const am = typeof data.agent_models === 'string' ? JSON.parse(data.agent_models) : data.agent_models;
-                _applyAgentModelsToConfigUI(am);
+                _applyAgentModelsToConfigUI(_normalizeAgentModels(am));
             } catch { /* ignore */ }
         }
     } catch { /* ignore */ }
@@ -2766,10 +2855,41 @@ async function loadPersistedSettings() {
 //
 // Context key format:  "{scope}_agent_{agentKey}"
 //   scope    = "cfg"  (Configuration page)  or "adv" (Mission Config tab)
-//   agentKey = brain | scanner | postexploit | reporting | osint
+//   agentKey = brain | scanner | exploit | webapp | postexploit | lateral | osint | reporting
 
-const _CFG_AGENT_KEYS = ['brain', 'scanner', 'reporting', 'osint'];
-const _ADV_AGENT_KEYS = ['brain', 'scanner', 'postexploit', 'reporting', 'osint'];
+const _CANONICAL_AGENT_MODEL_KEYS = [
+    'brain', 'scanner', 'exploit', 'webapp',
+    'postexploit', 'lateral', 'osint', 'reporting',
+];
+const _LEGACY_AGENT_MODEL_KEY_ALIASES = { post_exploit: 'postexploit' };
+
+const _CFG_AGENT_KEYS = [..._CANONICAL_AGENT_MODEL_KEYS];
+const _ADV_AGENT_KEYS = [..._CANONICAL_AGENT_MODEL_KEYS];
+
+function _normalizeAgentModels(rawModels) {
+    if (!rawModels || typeof rawModels !== 'object') return {};
+
+    const normalized = {};
+    for (const [rawKey, rawCfg] of Object.entries(rawModels)) {
+        const key = _LEGACY_AGENT_MODEL_KEY_ALIASES[rawKey] || rawKey;
+        if (!_CANONICAL_AGENT_MODEL_KEYS.includes(key)) continue;
+        if (!rawCfg || typeof rawCfg !== 'object') continue;
+
+        const provider = String(rawCfg.provider || '').trim();
+        const model = String(rawCfg.model || '').trim();
+        if (!provider && !model) continue;
+        normalized[key] = { provider, model };
+    }
+
+    if (normalized.scanner) {
+        normalized.exploit ||= { ...normalized.scanner };
+        normalized.webapp ||= { ...normalized.scanner };
+    }
+    if (normalized.osint) {
+        normalized.lateral ||= { ...normalized.osint };
+    }
+    return normalized;
+}
 
 /** Open the shared model picker for a specific per-agent row. */
 function openAgentModelPicker(contextKey) {
@@ -2832,15 +2952,15 @@ function _collectAgentModelsFromConfigUI() {
         const model    = document.getElementById(`cfg-agent-model-${key}-model`)?.value?.trim()    || '';
         if (provider || model) result[key] = { provider, model };
     }
-    return result;
+    const normalized = _normalizeAgentModels(result);
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 /** Load per-agent model defaults from Configuration page into Mission Config "07 Models" tab. */
 function advLoadAgentModelDefaults() {
-    const am = _collectAgentModelsFromConfigUI();
+    const am = _collectAgentModelsFromConfigUI() || {};
     for (const key of _ADV_AGENT_KEYS) {
-        const srcKey = key === 'postexploit' ? 'scanner' : key;
-        const src = am[srcKey] || {};
+        const src = am[key] || {};
         if (src.provider || src.model) {
             _setAgentModelRow(`adv_agent_${key}`, src.model || '', src.provider || '');
         } else {
@@ -2857,7 +2977,33 @@ function _collectAgentModelsFromMissionUI() {
         const model    = document.getElementById(`adv-agent-model-${key}-model`)?.value?.trim()    || '';
         if (provider || model) result[key] = { provider, model };
     }
-    return Object.keys(result).length > 0 ? result : undefined;
+    const normalized = _normalizeAgentModels(result);
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function advToolPreset(preset) {
+    const all       = document.querySelectorAll('#adv-tab-tools .tool-permission');
+    const scanOnly  = ['nmap', 'masscan'];
+    const noExploit = ['nmap', 'masscan', 'ffuf', 'nikto', 'wpscan', 'searchsploit'];
+
+    all.forEach(btn => {
+        const tool = btn.dataset.tool || '';
+        let enable;
+        if (preset === 'all')        enable = true;
+        else if (preset === 'scan_only')  enable = scanOnly.includes(tool);
+        else if (preset === 'no_exploit') enable = noExploit.includes(tool);
+        else enable = true;
+        btn.classList.toggle('active', enable);
+        btn.setAttribute('aria-checked', String(enable));
+    });
+}
+
+function _collectToolPermissionsFromMissionUI() {
+    const disabled = [];
+    document.querySelectorAll('#adv-tab-tools .tool-permission').forEach(btn => {
+        if (!btn.classList.contains('active')) disabled.push(btn.dataset.tool);
+    });
+    return disabled.length > 0 ? disabled : undefined;
 }
 
 async function saveConfig() {
@@ -2893,7 +3039,7 @@ async function saveConfig() {
         });
         await saveBrandingConfig();
         // Save per-agent models
-        const agentModels = _collectAgentModelsFromConfigUI();
+        const agentModels = _collectAgentModelsFromConfigUI() || {};
         fetch('/api/v1/settings/agent_models', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -2961,6 +3107,14 @@ document.addEventListener('DOMContentLoaded', () => {
     initIntelNav();
     initIntelTabs();
     initIntelPanelControls();
+    initRightSidebar();
+    // Wire tool toggle buttons
+    document.querySelectorAll('#adv-tab-tools .tool-permission').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const active = btn.classList.toggle('active');
+            btn.setAttribute('aria-checked', String(active));
+        });
+    });
     initExpandButtons();
     initNodeToggles();
     initClock();
@@ -3229,6 +3383,10 @@ function handleSessionEvent(msg) {
         stopMissionUptime();
         showToast('Emergency stop activated');
         updateMissionStatusHeader('stopped', msg.session_id);
+        setAgentStatus('stopped', 'emergency stop');
+        showPauseMissionBtn();
+        missionPaused = true;
+        updatePauseButton();
         appendConsoleLine('[KILL_SWITCH] Emergency stop triggered', 'text-danger');
 
     } else if (event === 'max_iterations') {
@@ -3262,11 +3420,13 @@ function handleSessionEvent(msg) {
         const agId   = data.agent_id   || '';
         const agType = data.agent_type || '';
         appendConsoleLine(`[AGENT START] ${agId} (${agType}) — mission: ${data.mission_id || ''}`, 'text-cyan-400');
+        rsbUpdateAgent(agId, agType, 'running', data.target || '');
 
     } else if (event === 'child_agent_done') {
         const agId = data.agent_id   || '';
         const cnt  = data.findings   || 0;
         appendConsoleLine(`[AGENT DONE] ${agId} — ${cnt} finding(s)`, 'text-green-400');
+        rsbRemoveAgent(agId);
 
     } else if (event === 'agent_done') {
         const agId   = data.agent_id   || '';
@@ -3278,6 +3438,7 @@ function handleSessionEvent(msg) {
         if (data.error) {
             appendConsoleLine(`             error: ${data.error}`, 'text-danger');
         }
+        rsbUpdateAgent(agId, agType, status || 'done', '');
 
     } else if (event === 'debug_log') {
         // ── TIRPAN Debug Logger → UI console-bash ─────────────────────────
@@ -3443,12 +3604,7 @@ async function startMission() {
     const notesInput = document.getElementById('mission-notes');
     const portRange = portRangeInput ? (portRangeInput.value.trim() || '1-65535') : '1-65535';
     const notes = notesInput ? notesInput.value.trim() : '';
-
-    if (!target) {
-        showToast('Enter a target IP, CIDR range, or domain');
-        if (targetInput) targetInput.focus();
-        return;
-    }
+    const displayTarget = target || 'AUTO-DISCOVERY (LOCAL SCOPE)';
 
     if (startBtn) { startBtn.textContent = 'Starting...'; startBtn.disabled = true; }
 
@@ -3456,7 +3612,15 @@ async function startMission() {
         const res = await fetch('/api/v1/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target, mode, port_range: portRange, notes, provider: activeProvider, model: activeModel }),
+            body: JSON.stringify({
+                target,
+                mode,
+                port_range: portRange,
+                notes,
+                provider: activeProvider,
+                model: activeModel,
+                agent_models: _collectAgentModelsFromConfigUI() || undefined,
+            }),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -3470,7 +3634,7 @@ async function startMission() {
         hideResumeFromSessionBtn();
 
         // Update UI
-        updateMissionStatusHeader('running', activeMissionId, target);
+        updateMissionStatusHeader('running', activeMissionId, displayTarget);
         resetMissionStats();
         resetPhaseBar();
         setPhaseActive(1);
@@ -3478,11 +3642,11 @@ async function startMission() {
         clearMissionFeed();
         agentAutoScroll = true;
         _updateScrollBtn();
-        resetAnalysisPanel(target);
-        resetNetworkPanel(target);
-        renderMissionStart(target, mode);
+        resetAnalysisPanel(displayTarget);
+        resetNetworkPanel(displayTarget);
+        renderMissionStart(displayTarget, mode);
         appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
-        appendConsoleLine(`[TARGET]  ${target}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
+        appendConsoleLine(`[TARGET]  ${displayTarget}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
         showPauseMissionBtn();
         updatePauseButton();
         setAgentStatus('reasoning');
@@ -3501,7 +3665,7 @@ async function startMission() {
 
         // Switch to agent view so user sees the live feed immediately
         switchView('agent');
-        showToast('Mission started');
+        showToast(target ? 'Mission started' : 'Mission started (auto-discovery enabled)');
 
     } catch (err) {
         showToast('Error: ' + err.message, true);
@@ -3653,12 +3817,13 @@ async function killMission() {
                     throw new Error(data.message || 'Kill request failed');
                 }
                 if (data.killed === true) {
-                    setAgentStatus('error', 'emergency stop');
+                    setAgentStatus('stopped', 'emergency stop');
                     updateMissionStatusHeader('stopped', activeMissionId);
                     stopMissionPoll();
                     stopMissionUptime();
-                    hidePauseMissionBtn();
-                    missionPaused = false;
+                    showPauseMissionBtn();
+                    missionPaused = true;
+                    updatePauseButton();
                     syncInputMode();
                     const killedMs = Number(data.killed_in_ms || 0);
                     const childCancelled = Number(data.child_agents_cancelled || 0);
@@ -3780,6 +3945,8 @@ function resetMissionStats() {
     _v2Vulns  = 0;
     _v2Ports  = 0;
     _v2Shells = 0;
+    // Reset right sidebar
+    rsbResetMission();
 }
 
 // ── V2 live finding counters (updated via "finding" WebSocket events) ──────────
@@ -3799,6 +3966,8 @@ function _rememberV2OpenPorts(hostIp, ports) {
         if (!Number.isFinite(num) || num <= 0) return;
         const proto = String((p && p.protocol) || 'tcp').toLowerCase();
         _v2OpenPortKeys.add(`${ip}:${num}/${proto}`);
+        // Feed right sidebar services section
+        rsbAddService(num, proto, (p && p.service) || '', (p && p.version) || '', ip);
     });
     _v2Ports = Math.max(_v2Ports, _v2OpenPortKeys.size);
 }
@@ -4326,6 +4495,162 @@ function initIntelPanelControls() {
             switchToSession(sid);
         });
     }
+}
+
+// ─── Right Sidebar (Mission Intel) ────────────────────────────────────────────
+
+const _rsbAgents  = {};   // agentId → {type, status, task}
+const _rsbServices = [];  // {port, proto, service, version, host}
+const _rsbFlags   = [];   // {content, method, host, ts}
+
+function initRightSidebar() {
+    document.querySelectorAll('.rsb-section-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const section = btn.dataset.section;
+            const bodyId = `rsb-${section}-body`;
+            const body = document.getElementById(bodyId);
+            const chevron = btn.querySelector('.rsb-chevron');
+            if (!body) return;
+            const isHidden = body.classList.toggle('hidden');
+            if (chevron) chevron.textContent = isHidden ? 'expand_more' : 'expand_less';
+        });
+    });
+}
+
+function rsbSetMissionStatus(label) {
+    const el = document.getElementById('rsb-mission-status');
+    if (el) el.textContent = label || 'Idle';
+}
+
+function rsbResetMission() {
+    Object.keys(_rsbAgents).forEach(k => delete _rsbAgents[k]);
+    _rsbServices.length = 0;
+    _rsbFlags.length = 0;
+    _rsbRenderAgents();
+    _rsbRenderServices();
+    _rsbRenderFlags();
+    rsbSetMissionStatus('Active');
+}
+
+function rsbUpdateAgent(agentId, agentType, status, task) {
+    _rsbAgents[agentId] = { type: agentType || 'agent', status: status || 'running', task: task || '' };
+    _rsbRenderAgents();
+}
+
+function rsbRemoveAgent(agentId) {
+    delete _rsbAgents[agentId];
+    _rsbRenderAgents();
+}
+
+function rsbAddService(port, proto, service, version, host) {
+    const key = `${host}:${port}/${proto}`;
+    if (!_rsbServices.find(s => `${s.host}:${s.port}/${s.proto}` === key)) {
+        _rsbServices.push({ port, proto: proto || 'tcp', service: service || '?', version: version || '', host: host || '' });
+        _rsbRenderServices();
+    }
+}
+
+function rsbAddFlag(content, method, host) {
+    _rsbFlags.unshift({ content: content || '', method: method || '', host: host || '', ts: new Date().toLocaleTimeString() });
+    _rsbRenderFlags();
+}
+
+function _rsbAgentIcon(type) {
+    const icons = { brain: 'psychology', scanner: 'search', exploit: 'bolt', webapp: 'language', post_exploit: 'manage_accounts', lateral: 'alt_route', reporting: 'summarize' };
+    return icons[type] || 'smart_toy';
+}
+function _rsbAgentColor(status) {
+    if (status === 'running' || status === 'spawning') return 'text-primary';
+    if (status === 'success') return 'text-green-400';
+    if (status === 'failed' || status === 'error') return 'text-danger';
+    return 'text-secondary-text';
+}
+
+function _rsbRenderAgents() {
+    const list = document.getElementById('rsb-agents-list');
+    const empty = document.getElementById('rsb-agents-empty');
+    const count = document.getElementById('rsb-agent-count');
+    if (!list) return;
+    const entries = Object.entries(_rsbAgents);
+    const active = entries.filter(([,a]) => a.status === 'running' || a.status === 'spawning').length;
+    if (count) count.textContent = `${active} active`;
+    if (!entries.length) {
+        list.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    list.innerHTML = entries.map(([id, a]) => `
+        <div class="flex items-center gap-2 py-1 border-b border-border-color/30 last:border-0">
+            <span class="material-symbols-outlined text-[13px] ${_rsbAgentColor(a.status)}" style="font-variation-settings:'FILL' 1;">${_rsbAgentIcon(a.type)}</span>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px] font-bold uppercase ${_rsbAgentColor(a.status)}">${_esc(a.type)}</span>
+                    <span class="text-[9px] text-secondary-text/60 mono-text truncate">${_esc(id.slice(0,8))}</span>
+                </div>
+                ${a.task ? `<div class="text-[9px] text-secondary-text truncate mono-text">${_esc(a.task)}</div>` : ''}
+            </div>
+            <span class="text-[8px] uppercase font-bold mono-text ${_rsbAgentColor(a.status)} shrink-0">${_esc(a.status)}</span>
+        </div>`).join('');
+}
+
+function _rsbRenderServices() {
+    const list = document.getElementById('rsb-services-list');
+    const empty = document.getElementById('rsb-services-empty');
+    const count = document.getElementById('rsb-svc-count');
+    if (!list) return;
+    if (count) count.textContent = `${_rsbServices.length} open`;
+    if (!_rsbServices.length) {
+        list.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    const sorted = [..._rsbServices].sort((a,b) => Number(a.port) - Number(b.port));
+    list.innerHTML = sorted.map(s => {
+        const svcColor = ['http','https','ftp','smtp','telnet','ssh','smb','mysql','vnc'].includes((s.service||'').toLowerCase()) ? 'text-yellow-400' : 'text-slate-300';
+        return `<div class="flex items-center gap-2 py-1 border-b border-border-color/30 last:border-0 font-mono">
+            <span class="text-[10px] font-bold text-primary w-10 shrink-0">${_esc(String(s.port))}</span>
+            <span class="text-[9px] text-secondary-text w-7 shrink-0">${_esc(s.proto)}</span>
+            <span class="text-[10px] ${svcColor} truncate flex-1">${_esc(s.service)}</span>
+            ${s.version ? `<span class="text-[9px] text-secondary-text/70 truncate max-w-[80px]" title="${_esc(s.version)}">${_esc(s.version.slice(0,20))}</span>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function _rsbRenderFlags() {
+    const list = document.getElementById('rsb-flags-list');
+    const empty = document.getElementById('rsb-flags-empty');
+    const count = document.getElementById('rsb-flags-count');
+    if (!list) return;
+    if (count) count.textContent = `${_rsbFlags.length} found`;
+    if (!_rsbFlags.length) {
+        list.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    // Open the flags section when a flag is found
+    const body = document.getElementById('rsb-flags-body');
+    const chevron = document.querySelector('.rsb-section-toggle[data-section="flags"] .rsb-chevron');
+    if (body) body.classList.remove('hidden');
+    if (chevron) chevron.textContent = 'expand_less';
+    // Update section header color
+    const hdr = document.querySelector('.rsb-section-toggle[data-section="flags"] .font-bold');
+    if (hdr) { hdr.classList.remove('text-secondary-text'); hdr.classList.add('text-danger'); }
+    const icon = document.querySelector('.rsb-section-toggle[data-section="flags"] .material-symbols-outlined');
+    if (icon) { icon.classList.remove('text-secondary-text'); icon.classList.add('text-danger'); }
+
+    list.innerHTML = _rsbFlags.map(f => `
+        <div class="border border-danger/30 bg-danger/5 p-2">
+            <div class="flex items-center gap-1 mb-0.5">
+                <span class="material-symbols-outlined text-[11px] text-danger" style="font-variation-settings:'FILL' 1;">flag</span>
+                <span class="text-[9px] font-bold text-danger uppercase tracking-wider">Flag</span>
+                <span class="text-[9px] text-secondary-text/60 mono-text ml-auto">${_esc(f.ts)}</span>
+            </div>
+            <div class="text-[10px] text-primary font-bold mono-text break-all">${_esc(f.content)}</div>
+            ${f.method ? `<div class="text-[9px] text-secondary-text mono-text mt-0.5">${_esc(f.method)}</div>` : ''}
+        </div>`).join('');
 }
 
 function _intelGetTabBody(tabName) {
@@ -5808,24 +6133,15 @@ function updateMissionStatusHeader(status, sessionId, missionName) {
 // ─── Console output helpers ───────────────────────────────────────────────────
 
 function clearConsoleOutput() {
+    // Clear the unified logs panel
+    const out = document.getElementById('console-logs-output');
+    if (out) {
+        out.innerHTML = '<div id="console-logs-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none"><span class="material-symbols-outlined text-3xl opacity-40">list_alt</span><span class="text-[11px] tracking-widest uppercase opacity-60">No logs yet — start a mission</span></div>';
+    }
+    // Also clear legacy hidden containers
     ['console-bash', 'console-nmap', 'console-msf'].forEach(id => {
         const el = document.getElementById(id);
-        if (!el) return;
-        el.innerHTML = '';
-        // Restore empty state placeholder
-        const emptyId = id + '-empty';
-        const empty = document.createElement('div');
-        empty.id = emptyId;
-        empty.className = 'flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none';
-        const labels = {
-            'console-bash': ['terminal', 'No active session \u2014 start a mission to see live output'],
-            'console-nmap': ['search', 'No nmap results yet'],
-            'console-msf':  ['bolt', 'No Metasploit activity yet'],
-        };
-        const [icon, label] = labels[id];
-        empty.innerHTML = `<span class="material-symbols-outlined text-3xl opacity-40">${icon}</span>
-<span class="text-[11px] tracking-widest uppercase opacity-60">${label}</span>`;
-        el.appendChild(empty);
+        if (el) el.innerHTML = '';
     });
 }
 
@@ -5835,15 +6151,13 @@ function _consoleEnsureActive(panelId) {
     if (emptyEl) emptyEl.remove();
 }
 
+const _PANEL_TO_CAT = { 'console-bash': 'bash', 'console-nmap': 'nmap', 'console-msf': 'msf' };
+
 function _consoleAppend(panelId, text, colorClass = 'text-primary') {
-    const el = document.getElementById(panelId);
-    if (!el) return;
-    _consoleEnsureActive(panelId);
-    const line = document.createElement('div');
-    line.className = colorClass;
-    line.textContent = text;
-    el.appendChild(line);
-    el.scrollTop = el.scrollHeight;
+    // Route to unified logs panel
+    const category = _PANEL_TO_CAT[panelId] || 'bash';
+    const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    _appendToLogs(`<span class="${colorClass}">${escaped}</span>`, category);
 }
 
 function appendConsoleLine(text, colorClass = 'text-primary') {
@@ -6866,6 +7180,7 @@ function renderMissionDone(data) {
     const objective = data.objective_result || data.objective || '';
     const findings  = Array.isArray(data.findings) ? data.findings : [];
     if (flags.length > 0) {
+        flags.forEach(f => rsbAddFlag(String(f), '', ''));
         findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
             <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Flags Found</div>
             ${flags.map(f => `<div class="flex items-center gap-2 mb-1">
@@ -8487,14 +8802,20 @@ const _advModeDesc = {
     v2_auto: 'V2 Multi-Agent: BrainAgent coordinates specialized sub-agents (scanner, exploit, post-exploit, webapp, osint, lateral, reporting).',
 };
 
-function _advInitModeButtons() {
-    document.querySelectorAll('.adv-mode-btn').forEach(btn => {
+function _advInitExclusiveButtons(selector, onSelect) {
+    document.querySelectorAll(selector).forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.adv-mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll(selector).forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            const desc = document.getElementById('adv-mode-desc');
-            if (desc) desc.textContent = _advModeDesc[btn.dataset.mode] || '';
+            if (typeof onSelect === 'function') onSelect(btn);
         });
+    });
+}
+
+function _advInitModeButtons() {
+    _advInitExclusiveButtons('.adv-mode-btn', (btn) => {
+        const desc = document.getElementById('adv-mode-desc');
+        if (desc) desc.textContent = _advModeDesc[btn.dataset.mode] || '';
     });
 }
 
@@ -8506,12 +8827,7 @@ function _advGetMode() {
 // ── Speed profile buttons ──────────────────────────────────────────────────────
 
 function _advInitSpeedButtons() {
-    document.querySelectorAll('.adv-speed-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.adv-speed-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
-    });
+    _advInitExclusiveButtons('.adv-speed-btn');
 }
 
 function _advGetSpeedProfile() {
@@ -8522,12 +8838,7 @@ function _advGetSpeedProfile() {
 // ── Scan type buttons ──────────────────────────────────────────────────────────
 
 function _advInitScanTypeButtons() {
-    document.querySelectorAll('.adv-scan-type-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.adv-scan-type-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
-    });
+    _advInitExclusiveButtons('.adv-scan-type-btn');
 }
 
 function _advGetScanType() {
@@ -9140,13 +9451,7 @@ async function advRefreshToolStatus() {
 
 async function launchAdvancedMission() {
     const primaryTarget = document.getElementById('adv-primary-target').value.trim();
-
-    if (!primaryTarget) {
-        showToast('Enter a primary target first', true);
-        _advSwitchTab('targets');
-        document.getElementById('adv-primary-target').focus();
-        return;
-    }
+    const displayTarget = primaryTarget || 'AUTO-DISCOVERY (LOCAL SCOPE)';
 
     // Collect additional targets
     const additionalTargets = [];
@@ -9237,6 +9542,7 @@ async function launchAdvancedMission() {
         credential_ids: newCredIds.length > 0 ? newCredIds : undefined,
         confirm_every_step: cfg.confirm_every_step || false,
         agent_models: _collectAgentModelsFromMissionUI() || undefined,
+        disabled_tools: _collectToolPermissionsFromMissionUI() || undefined,
     };
 
     // Sync primary target back to sidebar quick-launch field
@@ -9281,16 +9587,16 @@ async function launchAdvancedMission() {
         missionPaused = false;
         hideResumeFromSessionBtn();
 
-        updateMissionStatusHeader('running', activeMissionId, primaryTarget);
+        updateMissionStatusHeader('running', activeMissionId, displayTarget);
         resetMissionStats();
         resetPhaseBar();
         setPhaseActive(1);
         clearConsoleOutput();
         clearMissionFeed();
-        renderMissionStart(primaryTarget, cfg.mode);
+        renderMissionStart(displayTarget, cfg.mode);
         appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
         appendConsoleLine(
-            `[TARGET] ${primaryTarget}  [PROFILE] ${cfg.speed_profile.toUpperCase()}  [SCAN] ${cfg.scan_type.toUpperCase()}`,
+            `[TARGET] ${displayTarget}  [PROFILE] ${cfg.speed_profile.toUpperCase()}  [SCAN] ${cfg.scan_type.toUpperCase()}`,
             'text-secondary-text'
         );
         showPauseMissionBtn();
@@ -9306,7 +9612,7 @@ async function launchAdvancedMission() {
         startMissionPoll(activeMissionId);
         startMissionUptime();
         switchView('agent');
-        showToast('Mission launched');
+        showToast(primaryTarget ? 'Mission launched' : 'Mission launched (auto-discovery enabled)');
 
     } catch (err) {
         showToast('Launch failed: ' + err.message, true);
@@ -9327,12 +9633,22 @@ function _escHtml(str) {
 // ─── Console Tab Switching ─────────────────────────────────────────────────────
 
 function _initConsoleTabs() {
-    document.querySelectorAll('#view-console .console-tab').forEach(tab => {
-        tab.addEventListener('click', () => _switchConsoleTab(tab.dataset.tab));
-    });
+    initConsoleTabs();
 }
 
-function _switchConsoleTab(tabName) {
+function _switchConsoleTab(tabName, silent) {
+    // Map legacy tab names to new ones
+    if (tabName === 'bash' || tabName === 'nmap' || tabName === 'msf') tabName = 'logs';
+    if (!tabName || !['terminal', 'shells', 'logs'].includes(tabName)) tabName = 'terminal';
+
+    if (!silent) _consoleSaveTab(tabName);
+
+    // Clear new-badge when logs tab opened
+    if (tabName === 'logs') {
+        const badge = document.getElementById('logs-new-badge');
+        if (badge) badge.classList.add('hidden');
+    }
+
     document.querySelectorAll('#view-console .console-tab').forEach(t => {
         const isActive = t.dataset.tab === tabName;
         t.classList.toggle('bg-black', isActive);
@@ -9340,9 +9656,14 @@ function _switchConsoleTab(tabName) {
         t.classList.toggle('border-t-2', isActive);
         t.classList.toggle('border-t-primary', isActive);
         t.classList.toggle('text-secondary-text', !isActive);
+        t.classList.toggle('hover:bg-white/5', !isActive);
     });
     document.querySelectorAll('#view-console .console-body').forEach(body => {
-        body.classList.toggle('hidden', body.dataset.tab !== tabName);
+        const tab = body.dataset.tab;
+        // only show real body divs for the 3 new tabs
+        if (['terminal', 'shells', 'logs'].includes(tab)) {
+            body.classList.toggle('hidden', tab !== tabName);
+        }
     });
 
     if (tabName === 'terminal' && _nativeFitAddon) {
@@ -10130,22 +10451,25 @@ function _agScheduleRender() {
     _agRenderTimer = setTimeout(() => {
         if (_agView === 'graph') _agRender();
         else if (_agView === 'timeline') _agRenderTimeline();
+        else if (_agView === 'simple') _agRenderSimple();
     }, 60);
 }
 
 // ── View switch ────────────────────────────────────────────────────────────────
 
 function switchAgentView(v) {
-    if (v !== 'feed' && v !== 'graph' && v !== 'timeline') v = 'feed';
+    if (!['feed','graph','timeline','simple'].includes(v)) v = 'feed';
     _agView = v;
     _agSaveViewPreference(v, _agCurrentSessionPrefId());
-    const feedArea  = document.getElementById('agent-scroll-area');
-    const minimap   = document.getElementById('ag-minimap-col');
-    const graphView = document.getElementById('ag-graph-view');
-    const timelineView = document.getElementById('ag-timeline-view');
-    const btnFeed   = document.getElementById('ag-view-btn-feed');
-    const btnGraph  = document.getElementById('ag-view-btn-graph');
+    const feedArea    = document.getElementById('agent-scroll-area');
+    const minimap     = document.getElementById('ag-minimap-col');
+    const graphView   = document.getElementById('ag-graph-view');
+    const timelineView= document.getElementById('ag-timeline-view');
+    const simpleView  = document.getElementById('ag-simple-view');
+    const btnFeed     = document.getElementById('ag-view-btn-feed');
+    const btnGraph    = document.getElementById('ag-view-btn-graph');
     const btnTimeline = document.getElementById('ag-view-btn-timeline');
+    const btnSimple   = document.getElementById('ag-view-btn-simple');
 
     const isLight = _agIsLight();
     const limePrimary = isLight ? '#4a7c00' : '#ccff00';
@@ -10153,13 +10477,15 @@ function switchAgentView(v) {
     const inactiveS = 'border-color:#333;color:#444;background:transparent;';
 
     // Hide all panels first
-    if (feedArea)       feedArea.style.display  = 'none';
-    if (minimap)        minimap.style.display   = 'none';
-    if (graphView)      graphView.style.display = 'none';
-    if (timelineView)   timelineView.style.display = 'none';
-    if (btnFeed)        btnFeed.setAttribute('style',       inactiveS);
-    if (btnGraph)       btnGraph.setAttribute('style',      inactiveS);
-    if (btnTimeline)    btnTimeline.setAttribute('style',   inactiveS);
+    if (feedArea)       feedArea.style.display    = 'none';
+    if (minimap)        minimap.style.display     = 'none';
+    if (graphView)      graphView.style.display   = 'none';
+    if (timelineView)   timelineView.style.display= 'none';
+    if (simpleView)     simpleView.style.display  = 'none';
+    if (btnFeed)        btnFeed.setAttribute('style',     inactiveS);
+    if (btnGraph)       btnGraph.setAttribute('style',    inactiveS);
+    if (btnTimeline)    btnTimeline.setAttribute('style', inactiveS);
+    if (btnSimple)      btnSimple.setAttribute('style',   inactiveS);
 
     if (v === 'graph') {
         if (graphView)  { graphView.style.display = 'flex'; graphView.style.flex = '1'; }
@@ -10174,6 +10500,13 @@ function switchAgentView(v) {
         }
         if (btnTimeline) btnTimeline.setAttribute('style', activeS);
         _agRenderTimeline();
+    } else if (v === 'simple') {
+        if (simpleView) {
+            simpleView.style.display = 'flex';
+            simpleView.style.flex = '1';
+        }
+        if (btnSimple) btnSimple.setAttribute('style', activeS);
+        _agRenderSimple();
     } else {
         // feed (default)
         if (feedArea)  feedArea.style.display  = '';
@@ -10201,15 +10534,16 @@ function _agTimelineWalk(node, depth, rows, maxDepth) {
 
 function _agRenderTimeline() {
     const timelineView = document.getElementById('ag-timeline-view');
-    const container = document.getElementById('ag-timeline-container');
-    const empty = document.getElementById('ag-timeline-empty');
+    const container   = document.getElementById('ag-timeline-container');
+    const empty       = document.getElementById('ag-timeline-empty');
     if (!timelineView || !container || !empty) return;
 
-    const thinkingNodes = _agNodes
-        .filter((node) => node.type === 'thinking')
+    // All nodes except the root tirpan/target anchors, sorted by insertion id
+    const allNodes = _agNodes
+        .filter((n) => n.type !== 'tirpan' && n.type !== 'target')
         .sort((a, b) => a.id - b.id);
 
-    if (!thinkingNodes.length) {
+    if (!allNodes.length) {
         container.classList.add('hidden');
         container.innerHTML = '';
         empty.classList.remove('hidden');
@@ -10220,60 +10554,221 @@ function _agRenderTimeline() {
     container.classList.remove('hidden');
     container.innerHTML = '';
 
-    thinkingNodes.forEach((thinkingNode, colIndex) => {
-        const style = _agS(thinkingNode.type);
-        const col = document.createElement('section');
-        col.className = 'ag-timeline-col flex-shrink-0 w-[300px] max-w-[85vw] bg-black/70 border border-border-color p-3 flex flex-col gap-2';
+    // Walk nodes: group under the nearest "thinking" ancestor as a Step
+    let stepIdx = 0;
+    let currentGroup = null; // { el, listEl, stepNum }
 
-        const header = document.createElement('div');
-        header.className = 'ag-timeline-col-head flex items-center gap-2 pb-2 border-b border-border-color/70';
-        header.innerHTML = `
-            <span class="material-symbols-outlined text-[14px]" style="color:${style.color};font-variation-settings:'FILL' 1;">${style.icon}</span>
-            <span class="text-[10px] mono-text font-bold uppercase tracking-widest text-slate-200">Step ${colIndex + 1}</span>
+    function _ensureGroup(thinkingNode) {
+        stepIdx++;
+        const st = _agS('thinking');
+        const groupEl = document.createElement('div');
+        groupEl.className = 'tl-group w-full mb-1';
+
+        // Step header — clickable to expand/collapse
+        const hdr = document.createElement('button');
+        hdr.type = 'button';
+        hdr.className = 'tl-step-hdr w-full flex items-center gap-2 px-3 py-2 bg-surface border border-border-color/60 hover:border-primary/30 text-left transition-colors';
+        const stepLabel = thinkingNode.detail?.action || thinkingNode.label || 'Reasoning';
+        hdr.innerHTML = `
+            <span class="material-symbols-outlined text-[13px] shrink-0" style="color:${st.color};font-variation-settings:'FILL' 1;">${st.icon}</span>
+            <span class="text-[9px] mono-text font-bold text-secondary-text shrink-0 w-[44px]">STEP ${stepIdx}</span>
+            <span class="text-[11px] mono-text text-yellow-300 truncate flex-1">${_esc(stepLabel)}</span>
+            <span class="material-symbols-outlined text-[13px] shrink-0 tl-chevron text-secondary-text" style="transition:transform .15s;">expand_more</span>
         `;
-        col.appendChild(header);
+        groupEl.appendChild(hdr);
 
-        const title = document.createElement('button');
-        title.type = 'button';
-        title.className = 'ag-timeline-node text-left text-[11px] font-bold mono-text text-yellow-400 truncate';
-        title.textContent = thinkingNode.detail?.action || thinkingNode.label || 'THINKING';
-        title.addEventListener('click', () => agShowDetail(thinkingNode));
-        col.appendChild(title);
+        const listEl = document.createElement('div');
+        listEl.className = 'tl-step-body flex flex-col';
+        groupEl.appendChild(listEl);
 
-        const rows = [];
-        _agTimelineWalk(thinkingNode, 0, rows, 4);
-
-        if (!rows.length) {
-            const noData = document.createElement('div');
-            noData.className = 'text-[10px] mono-text text-secondary-text';
-            noData.textContent = 'No child events in this step.';
-            col.appendChild(noData);
-            container.appendChild(col);
-            return;
-        }
-
-        rows.forEach((row) => {
-            const node = row.node;
-            const nodeStyle = _agS(node.type);
-            const line = document.createElement('button');
-            line.type = 'button';
-            line.className = 'ag-timeline-row w-full text-left border border-border-color/60 bg-black/40 hover:border-primary/40 transition-colors px-2 py-1.5';
-            line.style.marginLeft = `${Math.min(row.depth, 3) * 12}px`;
-            line.style.maxWidth = `calc(100% - ${Math.min(row.depth, 3) * 12}px)`;
-            const resultFlag = node.type === 'result_ok' ? 'OK' : (node.type === 'result_fail' ? 'FAILED' : '');
-            line.innerHTML = `
-                <div class="flex items-center gap-1.5 min-w-0">
-                    <span class="material-symbols-outlined text-[12px] shrink-0" style="color:${nodeStyle.color};font-variation-settings:'FILL' 1;">${nodeStyle.icon}</span>
-                    <span class="text-[10px] mono-text text-slate-200 truncate">${_esc(node.label || node.type)}</span>
-                    ${resultFlag ? `<span class="ml-auto text-[9px] mono-text ${resultFlag === 'OK' ? 'text-primary' : 'text-danger'}">${resultFlag}</span>` : ''}
-                </div>
-            `;
-            line.addEventListener('click', () => agShowDetail(node));
-            col.appendChild(line);
+        hdr.addEventListener('click', (e) => {
+            const collapsed = listEl.style.display === 'none';
+            listEl.style.display = collapsed ? '' : 'none';
+            const chev = hdr.querySelector('.tl-chevron');
+            if (chev) chev.style.transform = collapsed ? '' : 'rotate(-90deg)';
+            // also show detail on the thinking node
+            if (!e.defaultPrevented) agShowDetail(thinkingNode);
+            e.preventDefault();
         });
 
-        container.appendChild(col);
-    });
+        container.appendChild(groupEl);
+        currentGroup = { el: groupEl, listEl, stepNum: stepIdx };
+        return currentGroup;
+    }
+
+    function _appendRow(node, depth) {
+        const ns   = _agS(node.type);
+        const isOk   = node.type === 'result_ok';
+        const isFail = node.type === 'result_fail';
+        const indent = Math.min(depth, 4) * 14;
+
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'tl-row w-full text-left flex items-center gap-2 px-3 py-1.5 border-b border-border-color/20 hover:bg-white/5 transition-colors group';
+
+        // Left colored accent line
+        const accent = document.createElement('span');
+        accent.className = 'tl-accent shrink-0 self-stretch w-[3px] rounded-full';
+        accent.style.background = ns.color;
+        accent.style.opacity = '0.7';
+        row.appendChild(accent);
+
+        // Icon
+        const icon = document.createElement('span');
+        icon.className = 'material-symbols-outlined text-[13px] shrink-0';
+        icon.style.cssText = `color:${ns.color};font-variation-settings:'FILL' 1;`;
+        icon.textContent = ns.icon;
+        row.appendChild(icon);
+
+        // Label + type sublabel
+        const labelWrap = document.createElement('span');
+        labelWrap.className = 'flex-1 min-w-0 flex flex-col';
+        labelWrap.style.paddingLeft = `${indent}px`;
+
+        const labelEl = document.createElement('span');
+        labelEl.className = `text-[11px] mono-text truncate ${isOk ? 'text-primary' : isFail ? 'text-danger' : 'text-slate-200'}`;
+        labelEl.textContent = node.label || _agFriendlyType(node.type);
+        labelWrap.appendChild(labelEl);
+
+        const subEl = document.createElement('span');
+        subEl.className = 'text-[9px] mono-text text-secondary-text';
+        subEl.textContent = _agFriendlyType(node.type);
+        labelWrap.appendChild(subEl);
+
+        row.appendChild(labelWrap);
+
+        // Status badge
+        if (isOk || isFail) {
+            const badge = document.createElement('span');
+            badge.className = `shrink-0 text-[9px] mono-text font-bold px-1.5 py-0.5 rounded ${isOk ? 'bg-primary/20 text-primary' : 'bg-danger/20 text-danger'}`;
+            badge.textContent = isOk ? 'OK' : 'FAIL';
+            row.appendChild(badge);
+        }
+
+        row.addEventListener('click', () => agShowDetail(node));
+
+        if (currentGroup) {
+            currentGroup.listEl.appendChild(row);
+        } else {
+            container.appendChild(row);
+        }
+    }
+
+    function _walkNode(node, depth) {
+        if (!node) return;
+
+        if (node.type === 'thinking') {
+            _ensureGroup(node);
+            // walk children of this thinking node
+            const children = Array.isArray(node._children)
+                ? node._children.map((id) => _agNodes.find((n) => n.id === id)).filter(Boolean).sort((a, b) => a.id - b.id)
+                : [];
+            children.forEach((c) => _walkNode(c, 0));
+        } else if (node.type === 'parallel') {
+            // Parallel group: show a compact header row then each child
+            const ns = _agS('parallel');
+            const children = Array.isArray(node._children)
+                ? node._children.map((id) => _agNodes.find((n) => n.id === id)).filter(Boolean).sort((a, b) => a.id - b.id)
+                : [];
+            const parRow = document.createElement('div');
+            parRow.className = 'tl-parallel-hdr flex items-center gap-2 px-3 py-1 bg-black/30 border-b border-border-color/20';
+            parRow.innerHTML = `
+                <span class="material-symbols-outlined text-[12px]" style="color:${ns.color};font-variation-settings:'FILL' 1;">${ns.icon}</span>
+                <span class="text-[9px] mono-text text-secondary-text flex-1">Parallel actions (${children.length})</span>
+            `;
+            if (currentGroup) currentGroup.listEl.appendChild(parRow);
+            else container.appendChild(parRow);
+
+            children.forEach((c) => _walkNode(c, depth + 1));
+        } else {
+            _appendRow(node, depth);
+            // recurse into children (e.g. result nodes)
+            const children = Array.isArray(node._children)
+                ? node._children.map((id) => _agNodes.find((n) => n.id === id)).filter(Boolean).sort((a, b) => a.id - b.id)
+                : [];
+            children.forEach((c) => _walkNode(c, depth + 1));
+        }
+    }
+
+    // Top-level nodes: children of tirpan/target roots
+    const rootChildren = _agNodes
+        .filter((n) => {
+            const parent = _agNodes.find((p) => p.id === n.parentId);
+            return !parent || parent.type === 'tirpan' || parent.type === 'target';
+        })
+        .sort((a, b) => a.id - b.id);
+
+    rootChildren.forEach((n) => _walkNode(n, 0));
+}
+
+// ── Simple View ───────────────────────────────────────────────────────────────
+
+function _agRenderSimple() {
+    const view = document.getElementById('ag-simple-view');
+    if (!view) return;
+
+    // Update stat counters from right-sidebar state
+    const hostsEl    = document.getElementById('sv-hosts-count');
+    const portsEl    = document.getElementById('sv-ports-count');
+    const findingsEl = document.getElementById('sv-findings-count');
+
+    // Count unique hosts from services list
+    const uniqueHosts = new Set(_rsbServices.map(s => s.host).filter(Boolean));
+    if (hostsEl)    hostsEl.textContent    = String(uniqueHosts.size || 0);
+    if (portsEl)    portsEl.textContent    = String(_rsbServices.length || 0);
+    if (findingsEl) findingsEl.textContent = String(_rsbFlags.length || 0);
+
+    // Active agents
+    const agentsList = document.getElementById('sv-agents-list');
+    if (agentsList) {
+        agentsList.innerHTML = '';
+        const agents = Object.values(_rsbAgents).filter(a => a.status !== 'done');
+        if (!agents.length) {
+            agentsList.innerHTML = '<div class="text-[11px] text-secondary-text mono-text text-center py-4 opacity-50">No agents active. Start a mission.</div>';
+        } else {
+            agents.forEach(ag => {
+                const card = document.createElement('div');
+                card.className = 'flex items-center gap-3 bg-surface border border-border-color px-3 py-2';
+                const icon = ag.type === 'scanner' ? 'radar' : ag.type === 'exploit' ? 'bug_report' : ag.type === 'webapp' ? 'language' : 'smart_toy';
+                const color = ag.status === 'running' ? '#ccff00' : '#666';
+                card.innerHTML = `
+                    <span class="material-symbols-outlined text-[16px]" style="color:${color};font-variation-settings:'FILL' 1;">${icon}</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-[11px] font-bold text-slate-200 capitalize">${ag.type || 'Agent'}</div>
+                        <div class="text-[10px] text-secondary-text truncate">${ag.task || 'Working…'}</div>
+                    </div>
+                    <span class="w-1.5 h-1.5 rounded-full shrink-0 ${ag.status === 'running' ? 'bg-primary animate-pulse' : 'bg-border-color'}"></span>
+                `;
+                agentsList.appendChild(card);
+            });
+        }
+    }
+
+    // Recent events from _agNodes (last 12, readable)
+    const eventsEl = document.getElementById('sv-events-list');
+    if (eventsEl) {
+        eventsEl.innerHTML = '';
+        const recent = [..._agNodes]
+            .filter(n => n.type !== 'tirpan' && n.type !== 'target')
+            .sort((a, b) => b.id - a.id)
+            .slice(0, 12);
+        if (!recent.length) {
+            eventsEl.innerHTML = '<div class="text-[10px] text-secondary-text mono-text text-center py-3 opacity-50">No activity yet</div>';
+        } else {
+            recent.forEach(node => {
+                const ns = _agS(node.type);
+                const isOk   = node.type === 'result_ok';
+                const isFail = node.type === 'result_fail';
+                const row = document.createElement('div');
+                row.className = 'flex items-start gap-2 text-[10px] mono-text';
+                row.innerHTML = `
+                    <span class="material-symbols-outlined text-[12px] shrink-0 mt-0.5" style="color:${ns.color};font-variation-settings:'FILL' 1;">${ns.icon}</span>
+                    <span class="${isOk ? 'text-primary' : isFail ? 'text-danger' : 'text-slate-300'} truncate">${_esc(node.label || _agFriendlyType(node.type))}</span>
+                `;
+                eventsEl.appendChild(row);
+            });
+        }
+    }
 }
 
 // ── Layout ────────────────────────────────────────────────────────────────────
@@ -10449,11 +10944,15 @@ function _agRender() {
         .style('font-family','Material Symbols Outlined')
         .style('font-variation-settings',"'FILL' 1,'wght' 300")
         .style('pointer-events','none');
-    // Label
+    // Label (main)
     nodeEnter.append('text').attr('class','ag-label')
         .attr('text-anchor','middle')
         .style('font-family','JetBrains Mono, monospace')
-        .style('text-transform','uppercase').style('letter-spacing','0.07em')
+        .style('pointer-events','none');
+    // Sub-label (type hint)
+    nodeEnter.append('text').attr('class','ag-sublabel')
+        .attr('text-anchor','middle')
+        .style('font-family','JetBrains Mono, monospace')
         .style('pointer-events','none');
     // Expand hint for parallel nodes
     nodeEnter.append('text').attr('class','ag-expand-hint')
@@ -10488,16 +10987,22 @@ function _agRender() {
         .attr('fill',      function(d){ return _agS(d.type).color; })
         .text(function(d){ return _agS(d.type).icon; });
     nodeMerge.select('.ag-label')
-        .attr('y',         function(d){ return _agS(d.type).r + 15; })
-        .attr('font-size', 9)
-        .attr('fill',      function(d){ return _agS(d.type).color; })
-        .attr('opacity',   isLight ? 0.8 : 0.7)
-        .text(function(d){ return d.label.length > 12 ? d.label.slice(0,11)+'...' : d.label; });
-    nodeMerge.select('.ag-expand-hint')
-        .attr('y',         function(d){ return _agS(d.type).r + 27; })
+        .attr('y',         function(d){ return _agS(d.type).r + 14; })
         .attr('font-size', 10)
         .attr('fill',      function(d){ return _agS(d.type).color; })
-        .attr('opacity',   function(d){ return d.type==='parallel' ? 0.45 : 0; })
+        .attr('opacity',   isLight ? 0.9 : 0.85)
+        .text(function(d){ return d.label.length > 22 ? d.label.slice(0,20)+'…' : d.label; });
+    nodeMerge.select('.ag-sublabel')
+        .attr('y',         function(d){ return _agS(d.type).r + 26; })
+        .attr('font-size', 8)
+        .attr('fill',      function(d){ return _agS(d.type).color; })
+        .attr('opacity',   0.4)
+        .text(function(d){ return _agFriendlyType(d.type).slice(0,18); });
+    nodeMerge.select('.ag-expand-hint')
+        .attr('y',         function(d){ return _agS(d.type).r + 40; })
+        .attr('font-size', 11)
+        .attr('fill',      function(d){ return _agS(d.type).color; })
+        .attr('opacity',   function(d){ return d.type==='parallel' ? 0.55 : 0; })
         .text(function(d){ return d.type==='parallel' ? (d._expanded ? 'unfold_less' : 'unfold_more') : ''; });
 
     // Hover effects
