@@ -14,6 +14,14 @@ class OllamaConfig(BaseSettings):
     timeout: float = Field(default=120.0)
 
 
+class OpenCodeGoConfig(BaseSettings):
+    model_config = _ENV
+    api_key: str = Field(default="", alias="OPENCODE_GO_API_KEY")
+    model: str = Field(default="opencode-go/deepseek-v4-pro", alias="OPENCODE_GO_MODEL")
+    base_url: str = Field(default="https://opencode.ai/zen/go/v1", alias="OPENCODE_GO_BASE_URL")
+    timeout: float = Field(default=120.0)
+
+
 class LMStudioConfig(BaseSettings):
     model_config = _ENV
     base_url: str = Field(default="http://127.0.0.1:1234", alias="LMSTUDIO_BASE_URL")
@@ -23,7 +31,7 @@ class LMStudioConfig(BaseSettings):
 
 class LLMConfig(BaseSettings):
     model_config = _ENV
-    provider: str = Field(default="ollama", alias="LLM_PROVIDER")  # "ollama" | "openrouter"
+    provider: str = Field(default="ollama", alias="LLM_PROVIDER")  # "ollama" | "openrouter" | "opencode_go"
     api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
     cloud_model: str = Field(default="anthropic/claude-sonnet-4-6", alias="CLOUD_MODEL")
     use_local_for_classification: bool = Field(default=True)
@@ -138,6 +146,7 @@ class AppConfig(BaseSettings):
 
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     lmstudio: LMStudioConfig = Field(default_factory=LMStudioConfig)
+    opencode_go: OpenCodeGoConfig = Field(default_factory=OpenCodeGoConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     msf: MetasploitConfig = Field(default_factory=MetasploitConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)

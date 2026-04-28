@@ -34,6 +34,14 @@ def _get_openrouter_key_sync(saved: dict) -> str:
     return re.sub(r"[\s\x00-\x1f\x7f]", "", key or "")
 
 
+def _get_opencode_go_key_sync(saved: dict) -> str:
+    """Resolve OpenCode Go key: keychain → DB → settings. Strips control chars."""
+    key = get_secret("opencode_go_api_key")
+    if not key:
+        key = saved.get("opencode_go_api_key", "") or settings.opencode_go.api_key
+    return re.sub(r"[\s\x00-\x1f\x7f]", "", key or "")
+
+
 async def stream_ollama(
     websocket: WebSocket,
     user_message: str,
@@ -758,6 +766,18 @@ async def handle_websocket(websocket: WebSocket) -> None:
                         api_key = _get_openrouter_key_sync(saved)
                         if api_key:
                             settings.llm.api_key = api_key
+                elif provider == "opencode_go":
+                    settings.llm.provider = "opencode_go"
+                    if model_override:
+                        settings.opencode_go.model = model_override
+                    else:
+                        saved = await database.get_all_settings()
+                        ocg_model = saved.get("opencode_go_model", settings.opencode_go.model)
+                        if ocg_model:
+                            settings.opencode_go.model = ocg_model
+                        api_key = _get_opencode_go_key_sync(saved)
+                        if api_key:
+                            settings.opencode_go.api_key = api_key
                 elif provider == "lmstudio":
                     settings.llm.provider = "lmstudio"
                     if model_override:
@@ -775,8 +795,12 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     _hint = ""
                     if provider == "lmstudio":
                         _hint = f" (configured URL: {settings.lmstudio.base_url})"
+                    elif provider == "opencode_go":
+                        _hint = " — check your API key and subscription status at https://opencode.ai/auth"
                     elif provider == "ollama":
                         _hint = f" (configured URL: {settings.ollama.base_url})"
+                    elif provider == "openrouter":
+                        _hint = " — check your API key and network connectivity"
                     await websocket.send_json({
                         "type": "error",
                         "content": (

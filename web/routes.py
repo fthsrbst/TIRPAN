@@ -712,6 +712,67 @@ async def openrouter_models():
         return {"models": [], "error": str(e)}
 
 
+# ── OpenCode Go Config ──────────────────────────────────────────────────────────
+
+class OpenCodeGoSettings(BaseModel):
+    api_key: str = ""
+    model: str = ""
+
+
+def _resolve_opencode_go_key(saved: dict) -> str:
+    """Resolve OpenCode Go API key: keychain → DB fallback → env/settings."""
+    key = get_secret("opencode_go_api_key")
+    if not key:
+        key = saved.get("opencode_go_api_key", "") or settings.opencode_go.api_key
+    return _sanitize_api_key(key)
+
+
+@router.get("/config/opencode-go")
+async def get_opencode_go_config():
+    saved = await database.get_all_settings()
+    api_key = _resolve_opencode_go_key(saved)
+    return {
+        "model": saved.get("opencode_go_model", settings.opencode_go.model),
+        "has_api_key": bool(api_key),
+    }
+
+
+@router.post("/config/opencode-go")
+async def save_opencode_go_config(body: OpenCodeGoSettings):
+    if body.api_key:
+        clean_key = _sanitize_api_key(body.api_key)
+        if clean_key:
+            await async_set_secret("opencode_go_api_key", clean_key)
+            await database.set_setting("opencode_go_api_key", clean_key)
+            settings.opencode_go.api_key = clean_key
+    if body.model:
+        await database.set_setting("opencode_go_model", body.model)
+        settings.opencode_go.model = body.model
+    return {"ok": True}
+
+
+@router.get("/opencode-go/models")
+async def opencode_go_models():
+    """Fetch available models from OpenCode Go API."""
+    saved = await database.get_all_settings()
+    key = _resolve_opencode_go_key(saved)
+    if not key or key.startswith("oc-go-..."):
+        return {"models": [], "error": "No API key configured"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{settings.opencode_go.base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            models = sorted(m.get("id", m if isinstance(m, str) else "") for m in data.get("data", []))
+            models = [m for m in models if m]
+            return {"models": models}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+
 # ── Nmap Config ────────────────────────────────────────────────────────────────
 
 @router.get("/config/nmap")
@@ -1305,12 +1366,12 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     )
 
     # Apply LLM provider/model overrides
-    # Supported: ollama | openrouter | lmstudio | anthropic (direct Anthropic API)
+    # Supported: ollama | openrouter | opencode_go | lmstudio | anthropic (direct Anthropic API)
     _provider = body.provider.lower() if body.provider else ""
-    if _provider in ("ollama", "openrouter", "lmstudio", "anthropic"):
+    if _provider in ("ollama", "openrouter", "opencode_go", "lmstudio", "anthropic"):
         settings.llm.provider = _provider
     if body.model:
-        if _provider in ("openrouter", "anthropic"):
+        if _provider in ("openrouter", "anthropic", "opencode_go"):
             settings.llm.cloud_model = body.model
         elif _provider == "ollama":
             settings.ollama.model = body.model

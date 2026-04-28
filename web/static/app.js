@@ -497,6 +497,14 @@ function initApiKeyToggle() {
             else { input.type = 'password'; btn.textContent = 'visibility'; }
         });
     }
+    const ocgBtn = document.getElementById('toggle-ocg-api-key');
+    if (ocgBtn) {
+        ocgBtn.addEventListener('click', () => {
+            const input = ocgBtn.closest('div').querySelector('input');
+            if (input.type === 'password') { input.type = 'text'; ocgBtn.textContent = 'visibility_off'; }
+            else { input.type = 'password'; ocgBtn.textContent = 'visibility'; }
+        });
+    }
     const sudoBtn = document.getElementById('toggle-sudo-pass');
     if (sudoBtn) {
         sudoBtn.addEventListener('click', () => {
@@ -2021,10 +2029,15 @@ function initChatViewInput() {
 
 let availableModels = [];
 let activeModel = '';
-let activeProvider = 'ollama';  // 'ollama' | 'lmstudio' | 'openrouter'
+let activeProvider = 'ollama';  // 'ollama' | 'lmstudio' | 'openrouter' | 'opencode_go'
 let ollamaBaseUrl = 'http://127.0.0.1:11434';
 let openRouterModels = [];
 let cloudModel = 'anthropic/claude-sonnet-4-6';
+
+// ─── OpenCode Go State ─────────────────────────────────────────────────────────
+
+let openCodeGoModels = [];
+let openCodeGoModel = 'opencode-go/deepseek-v4-pro';
 
 // ─── LM Studio Status & Model Selector ───────────────────────────────────────
 
@@ -2375,6 +2388,7 @@ function updateModelLabel() {
     let prefix = '';
     if (activeProvider === 'lmstudio') prefix = '[LMS] ';
     else if (activeProvider === 'openrouter') prefix = '[OR] ';
+    else if (activeProvider === 'opencode_go') prefix = '[OCG] ';
     if (lbl) lbl.textContent = activeModel ? prefix + activeModel : '—';
 }
 
@@ -2503,6 +2517,94 @@ function initCloudModelDropdown() {
     });
 }
 
+// ─── OpenCode Go Model Fetcher & Dropdown ─────────────────────────────────
+
+async function fetchOpenCodeGoModels() {
+    try {
+        const res = await fetch('/api/v1/opencode-go/models');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.error && !data.models?.length) {
+            const list = document.getElementById('cfg-ocg-model-list');
+            if (list) list.innerHTML = `<div class="px-3 py-2 text-[10px] mono-text text-danger">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+        openCodeGoModels = data.models || [];
+        populateCfgOcgModelDropdown();
+        populateModelDropdown();
+    } catch { /* ignore */ }
+}
+
+function populateCfgOcgModelDropdown() {
+    const list = document.getElementById('cfg-ocg-model-list');
+    const label = document.getElementById('cfg-ocg-model-label');
+    const hidden = document.getElementById('cfg-ocg-model');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    if (!openCodeGoModels.length) {
+        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">Enter API key and click Fetch Models</div>';
+        return;
+    }
+
+    const current = (hidden?.value || openCodeGoModel || '').trim();
+    if (label) label.textContent = current || openCodeGoModels[0] || '—';
+
+    openCodeGoModels.forEach(model => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = [
+            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
+            'hover:bg-primary/10 hover:text-primary transition-colors',
+            model === current ? 'text-primary' : 'text-slate-300',
+        ].join(' ');
+        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === current ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
+        item.addEventListener('click', () => {
+            openCodeGoModel = model;
+            if (label) label.textContent = model;
+            if (hidden) hidden.value = model;
+            document.getElementById('cfg-ocg-model-dropdown')?.classList.add('hidden');
+            document.getElementById('cfg-ocg-model-chevron')?.textContent === 'expand_less' &&
+                (document.getElementById('cfg-ocg-model-chevron').textContent = 'expand_more');
+            populateCfgOcgModelDropdown();
+            selectModel(model, 'opencode_go');
+        });
+        list.appendChild(item);
+    });
+}
+
+function initOpenCodeGoModelDropdown() {
+    const btn = document.getElementById('cfg-ocg-model-btn');
+    const dropdown = document.getElementById('cfg-ocg-model-dropdown');
+    const chevron = document.getElementById('cfg-ocg-model-chevron');
+
+    btn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const hidden = dropdown?.classList.contains('hidden');
+        dropdown?.classList.toggle('hidden');
+        if (chevron) chevron.textContent = hidden ? 'expand_less' : 'expand_more';
+        if (!hidden) return;
+        populateCfgOcgModelDropdown();
+    });
+
+    document.getElementById('fetch-ocg-models-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('fetch-ocg-models-btn');
+        if (btn) { btn.textContent = 'Fetching...'; btn.disabled = true; }
+        await fetchOpenCodeGoModels();
+        if (btn) { btn.innerHTML = '<span class="material-symbols-outlined text-[13px]">refresh</span> Fetch Models'; btn.disabled = false; }
+        dropdown?.classList.remove('hidden');
+        if (chevron) chevron.textContent = 'expand_less';
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!document.getElementById('cfg-ocg-model-wrapper')?.contains(e.target)) {
+            dropdown?.classList.add('hidden');
+            if (chevron) chevron.textContent = 'expand_more';
+        }
+    });
+}
+
 function selectModel(model, provider = 'ollama') {
     activeModel = model;
     activeProvider = provider;
@@ -2534,6 +2636,17 @@ function selectModel(model, provider = 'ollama') {
         const cfgLabel = document.getElementById('cfg-cloud-model-label');
         if (cfgLabel) cfgLabel.textContent = model;
         const cfgHidden = document.getElementById('cfg-cloud-model');
+        if (cfgHidden) cfgHidden.value = model;
+    } else if (provider === 'opencode_go') {
+        openCodeGoModel = model;
+        fetch('/api/v1/config/opencode-go', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model }),
+        });
+        const cfgLabel = document.getElementById('cfg-ocg-model-label');
+        if (cfgLabel) cfgLabel.textContent = model;
+        const cfgHidden = document.getElementById('cfg-ocg-model');
         if (cfgHidden) cfgHidden.value = model;
     } else {
         fetch('/api/v1/config/ollama', {
@@ -2568,9 +2681,11 @@ function _updatePickerSidebarActive() {
     const ollamaDot = document.getElementById('picker-sidebar-ollama-dot');
     const lmsDot   = document.getElementById('picker-sidebar-lmstudio-dot');
     const orDot    = document.getElementById('picker-sidebar-or-dot');
+    const ocgDot   = document.getElementById('picker-sidebar-ocg-dot');
     if (ollamaDot) ollamaDot.className = `w-1.5 h-1.5 rounded-full mt-0.5 ${availableModels.length ? 'bg-primary' : 'bg-border-color'}`;
     if (lmsDot)   lmsDot.className   = `w-1.5 h-1.5 rounded-full mt-0.5 ${lmStudioModels.length ? 'bg-primary' : 'bg-border-color'}`;
     if (orDot)    orDot.className    = `w-1.5 h-1.5 rounded-full mt-0.5 ${openRouterModels.length ? 'bg-primary' : 'bg-border-color'}`;
+    if (ocgDot)   ocgDot.className   = `w-1.5 h-1.5 rounded-full mt-0.5 ${openCodeGoModels.length ? 'bg-primary' : 'bg-border-color'}`;
 }
 
 const _AGENT_DISPLAY_NAMES = {
@@ -2629,6 +2744,9 @@ function renderModelPickerList(query) {
     const orModels = [...openRouterModels];
     if (cloudModel && !orModels.includes(cloudModel)) orModels.unshift(cloudModel);
     const orFiltered = orModels.filter(m => !q || m.toLowerCase().includes(q));
+    const ocgModels = [...openCodeGoModels];
+    if (openCodeGoModel && !ocgModels.includes(openCodeGoModel)) ocgModels.unshift(openCodeGoModel);
+    const ocgFiltered = ocgModels.filter(m => !q || m.toLowerCase().includes(q));
 
     if (_pickerContext === 'ollama') {
         if (ollamaFiltered.length) sections.push({ provider: 'ollama', label: 'Ollama', models: ollamaFiltered });
@@ -2636,10 +2754,13 @@ function renderModelPickerList(query) {
         if (lmsFiltered.length) sections.push({ provider: 'lmstudio', label: 'LM Studio', models: lmsFiltered });
     } else if (_pickerContext === 'openrouter') {
         if (orFiltered.length) sections.push({ provider: 'openrouter', label: 'OpenRouter', models: orFiltered });
+    } else if (_pickerContext === 'opencode_go') {
+        if (ocgFiltered.length) sections.push({ provider: 'opencode_go', label: 'OpenCode Go', models: ocgFiltered });
     } else {
         if (ollamaFiltered.length) sections.push({ provider: 'ollama', label: 'Ollama', models: ollamaFiltered });
         if (lmsFiltered.length) sections.push({ provider: 'lmstudio', label: 'LM Studio', models: lmsFiltered });
         if (orFiltered.length) sections.push({ provider: 'openrouter', label: 'OpenRouter', models: orFiltered });
+        if (ocgFiltered.length) sections.push({ provider: 'opencode_go', label: 'OpenCode Go', models: ocgFiltered });
     }
     _updatePickerSidebarActive();
 
@@ -2660,7 +2781,7 @@ function renderModelPickerList(query) {
         // Section header
         const sep = document.createElement('div');
         sep.className = 'px-6 py-2 flex items-center gap-2 text-[9px] mono-text text-secondary-text uppercase tracking-[0.2em] border-b border-border-color bg-[#080808] sticky top-0';
-        const onlineColor = (provider === 'ollama' && availableModels.length) || (provider === 'lmstudio' && lmStudioModels.length) || provider === 'openrouter'
+        const onlineColor = (provider === 'ollama' && availableModels.length) || (provider === 'lmstudio' && lmStudioModels.length) || provider === 'openrouter' || provider === 'opencode_go'
             ? 'bg-primary' : 'bg-danger';
         sep.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${onlineColor} shrink-0"></span><span>${escapeHtml(label)}</span><span class="ml-auto text-[9px] opacity-50">${models.length} model${models.length !== 1 ? 's' : ''}</span>`;
         list.appendChild(sep);
@@ -2691,10 +2812,11 @@ function renderModelPickerList(query) {
         if (availableModels.length) parts.push(`Ollama: ${availableModels.length} model${availableModels.length !== 1 ? 's' : ''}`);
         if (lmStudioModels.length) parts.push(`LM Studio: ${lmStudioModels.length}`);
         if (openRouterModels.length) parts.push(`OpenRouter: ${openRouterModels.length}`);
+        if (openCodeGoModels.length) parts.push(`OpenCode Go: ${openCodeGoModels.length}`);
         statusText.textContent = parts.length ? parts.join(' · ') : 'No providers online';
     }
     if (statusDot) {
-        const anyOnline = availableModels.length || lmStudioModels.length || openRouterModels.length;
+        const anyOnline = availableModels.length || lmStudioModels.length || openRouterModels.length || openCodeGoModels.length;
         statusDot.className = `w-2 h-2 rounded-full transition-colors ${anyOnline ? 'bg-primary' : 'bg-danger'}`;
     }
 }
@@ -2829,6 +2951,24 @@ async function loadPersistedSettings() {
             if (cfgLabel) cfgLabel.textContent = cloudModel;
             const cfgHidden = document.getElementById('cfg-cloud-model');
             if (cfgHidden) cfgHidden.value = cloudModel;
+        }
+        // Restore OpenCode Go API key and fetch models if key exists
+        if (data.opencode_go_api_key) {
+            const keyInput = document.getElementById('cfg-opencodego-key');
+            if (keyInput) keyInput.value = data.opencode_go_api_key;
+            fetchOpenCodeGoModels();
+        } else {
+            fetch('/api/v1/config/opencode-go')
+                .then(r => r.json())
+                .then(ocgCfg => { if (ocgCfg.has_api_key) fetchOpenCodeGoModels(); })
+                .catch(() => {});
+        }
+        if (data.opencode_go_model) {
+            openCodeGoModel = data.opencode_go_model;
+            const cfgLabel = document.getElementById('cfg-ocg-model-label');
+            if (cfgLabel) cfgLabel.textContent = openCodeGoModel;
+            const cfgHidden = document.getElementById('cfg-ocg-model');
+            if (cfgHidden) cfgHidden.value = openCodeGoModel;
         }
         if (data.lmstudio_base_url) {
             lmStudioBaseUrl = data.lmstudio_base_url;
@@ -3018,6 +3158,8 @@ async function saveConfig() {
     const orModel    = document.getElementById('cfg-cloud-model')?.value?.trim()      || cloudModel;
     const lmsUrl     = document.getElementById('cfg-lmstudio-url')?.value?.trim()     || lmStudioBaseUrl;
     const lmsModel   = document.getElementById('cfg-lmstudio-model')?.value?.trim()   || lmStudioModel;
+    const ocgKey     = document.getElementById('cfg-opencodego-key')?.value?.trim()   || '';
+    const ocgModel   = document.getElementById('cfg-ocg-model')?.value?.trim()        || openCodeGoModel;
 
     btns.forEach(b => { b.textContent = 'Saving...'; b.disabled = true; });
 
@@ -3037,6 +3179,11 @@ async function saveConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: apiKey, cloud_model: orModel }),
         });
+        await fetch('/api/v1/config/opencode-go', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: ocgKey, model: ocgModel }),
+        });
         await saveBrandingConfig();
         // Save per-agent models
         const agentModels = _collectAgentModelsFromConfigUI() || {};
@@ -3049,8 +3196,10 @@ async function saveConfig() {
         ollamaBaseUrl = url;
         lmStudioBaseUrl = lmsUrl;
         lmStudioModel = lmsModel;
+        openCodeGoModel = ocgModel;
         if (activeProvider === 'ollama') activeModel = model;
         else if (activeProvider === 'openrouter') activeModel = orModel;
+        else if (activeProvider === 'opencode_go') activeModel = ocgModel;
         updateModelLabel();
         // Persist active selection
         fetch('/api/v1/settings/active_provider', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: activeProvider }) });
@@ -3128,6 +3277,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initCfgModelDropdown();
     initLMStudioModelDropdown();
     initCloudModelDropdown();
+    initOpenCodeGoModelDropdown();
     initModelPicker();
     initConfigSave();
     initBrandingConfig();

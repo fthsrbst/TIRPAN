@@ -136,6 +136,11 @@ async def lifespan(app: FastAPI):
     if _or_key:
         settings.llm.api_key = _or_key
 
+    # Load OpenCode Go API key
+    _ocg_key = _re.sub(r"[\s\x00-\x1f\x7f]", "", _load_secret_sync("opencode_go_api_key"))
+    if _ocg_key:
+        settings.opencode_go.api_key = _ocg_key
+
     # Restore cloud model saved via the configure page (not loaded by default on startup)
     _cloud_model = _all_settings.get("cloud_model", "")
     if _cloud_model:
@@ -159,7 +164,7 @@ async def lifespan(app: FastAPI):
 
     # Restore active LLM provider
     _provider = _all_settings.get("active_provider", "")
-    if _provider in ("ollama", "lmstudio", "openrouter", "anthropic"):
+    if _provider in ("ollama", "lmstudio", "openrouter", "opencode_go", "anthropic"):
         settings.llm.provider = _provider
 
     _msf_pw = _load_secret_sync("msf_password")
