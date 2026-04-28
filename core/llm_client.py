@@ -323,6 +323,193 @@ class OpenRouterClient(LLMClient):
             return False
 
 
+# ── OpenCode Go ────────────────────────────────────────────────────────────────
+
+class OpenCodeGoClient(LLMClient):
+    """OpenCode Go subscription — low cost open coding models.
+    OpenAI-compatible API at https://opencode.ai/zen/go/v1/chat/completions
+    """
+
+    _MAX_RETRIES = 3
+    _RETRY_BASE_DELAY = 1.0
+
+    @property
+    def _base_url(self) -> str:
+        return settings.opencode_go.base_url.rstrip("/")
+
+    @property
+    def _api_key(self) -> str:
+        import re
+        key = settings.opencode_go.api_key or ""
+        return re.sub(r"[\s\x00-\x1f\x7f]", "", key)
+
+    @property
+    def _model(self) -> str:
+        override = getattr(self, "_model_override", None)
+        if override:
+            return override
+        return settings.opencode_go.model
+
+    @property
+    def _timeout(self) -> float:
+        return settings.opencode_go.timeout
+
+    def _has_valid_key(self) -> bool:
+        key = self._api_key
+        return bool(key) and not key.startswith("oc-go-...")
+
+    def _headers(self) -> dict:
+        headers: dict = {
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/tirpan-pentest",
+            "X-Title": "TIRPAN",
+        }
+        key = self._api_key
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        return headers
+
+    async def chat(self, messages: list[dict], stream: bool = False) -> str:
+        if stream:
+            result = []
+            async for token in self.stream_chat(messages):
+                result.append(token)
+            return "".join(result)
+
+        last_error: Exception | None = None
+
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(
+                        f"{self._base_url}/chat/completions",
+                        headers=self._headers(),
+                        json={
+                            "model": self._model,
+                            "messages": messages,
+                            "max_tokens": 8192,
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    choices = data.get("choices") or []
+                    if not choices:
+                        raise ValueError(f"OpenCode Go returned empty choices: {data}")
+                    return choices[0]["message"]["content"]
+
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                try:
+                    body = e.response.json()
+                except Exception:
+                    body = e.response.text
+                logger.error(
+                    "OpenCode Go HTTP %d on attempt %d/%d — model=%r body=%s",
+                    e.response.status_code, attempt + 1, self._MAX_RETRIES,
+                    self._model, body,
+                )
+                if e.response.status_code in (400, 401, 403):
+                    raise RuntimeError(f"OpenCode Go {e.response.status_code}: {body}") from e
+                if attempt < self._MAX_RETRIES - 1:
+                    delay = self._RETRY_BASE_DELAY * (2 ** attempt)
+                    await asyncio.sleep(delay)
+            except httpx.TimeoutException as e:
+                last_error = e
+                if attempt < self._MAX_RETRIES - 1:
+                    delay = self._RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "OpenCode Go timeout attempt %d/%d — retrying in %.1fs",
+                        attempt + 1, self._MAX_RETRIES, delay,
+                    )
+                    await asyncio.sleep(delay)
+
+        raise RuntimeError(
+            f"OpenCode Go failed after {self._MAX_RETRIES} attempts: {last_error}"
+        )
+
+    async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
+        last_error: Exception | None = None
+
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client, client.stream(
+                    "POST",
+                    f"{self._base_url}/chat/completions",
+                    headers=self._headers(),
+                    json={
+                        "model": self._model,
+                        "messages": messages,
+                        "stream": True,
+                        "max_tokens": 8192,
+                    },
+                ) as resp:
+                    if resp.status_code >= 400:
+                        await resp.aread()
+                        body = resp.text
+                        logger.error(
+                            "OpenCode Go stream_chat HTTP %d — model=%r body=%s",
+                            resp.status_code, self._model, body[:1000],
+                        )
+                        if resp.status_code in (400, 401, 403):
+                            raise RuntimeError(f"OpenCode Go stream {resp.status_code}: {body[:500]}")
+                        resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        raw = line[6:]
+                        if raw == "[DONE]":
+                            return
+                        try:
+                            data = json.loads(raw)
+                            choices = data.get("choices")
+                            if not choices:
+                                continue
+                            token = choices[0].get("delta", {}).get("content", "")
+                            if token:
+                                yield token
+                        except (json.JSONDecodeError, IndexError):
+                            continue
+                    return
+
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                last_error = e
+                if attempt < self._MAX_RETRIES - 1:
+                    delay = self._RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "OpenCode Go stream connect/network error attempt %d/%d — retrying in %.1fs: %s",
+                        attempt + 1, self._MAX_RETRIES, delay, e,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        "OpenCode Go stream failed after %d attempts: %s",
+                        self._MAX_RETRIES, e,
+                    )
+            except RuntimeError:
+                raise
+            except Exception as e:
+                last_error = e
+                logger.error("OpenCode Go stream unexpected error: %s", e)
+                break
+
+        raise RuntimeError(
+            f"OpenCode Go stream failed after {self._MAX_RETRIES} attempts: {last_error}"
+        )
+
+    async def is_available(self) -> bool:
+        if not self._has_valid_key():
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{self._base_url}/models",
+                    headers=self._headers(),
+                )
+                return resp.status_code == 200
+        except Exception:
+            return False
+
+
 # ── LM Studio ─────────────────────────────────────────────────────────────────
 
 class LMStudioClient(LLMClient):
@@ -410,18 +597,23 @@ class LLMRouter:
         self._ollama = OllamaClient()
         self._openrouter = OpenRouterClient()
         self._lmstudio = LMStudioClient()
+        self._opencode_go = OpenCodeGoClient()
 
     def _primary(self) -> LLMClient:
         # _forced_provider is set by make_agent_llm() for per-agent overrides
         forced = getattr(self, "_forced_provider", None)
         if forced == "openrouter":
             return self._openrouter
+        if forced == "opencode_go":
+            return self._opencode_go
         if forced == "lmstudio":
             return self._lmstudio
         if forced == "ollama":
             return self._ollama
         if settings.llm.provider == "openrouter":
             return self._openrouter
+        if settings.llm.provider == "opencode_go":
+            return self._opencode_go
         if settings.llm.provider == "lmstudio":
             return self._lmstudio
         return self._ollama
@@ -498,6 +690,8 @@ def make_agent_llm(provider: str, model: str) -> LLMRouter:
     if model:
         if provider == "openrouter":
             router._openrouter._forced_model = model
+        elif provider == "opencode_go":
+            router._opencode_go._model_override = model
         elif provider == "lmstudio":
             router._lmstudio._model_override = model
         else:  # ollama
