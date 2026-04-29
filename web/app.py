@@ -22,6 +22,7 @@ from core.pty_manager import PTYManager
 from core.registry_builder import build_tool_registry
 from web.routes import router
 from web.defense_routes import defense_router
+from web.ddos_routes import ddos_router
 from web.websocket_handler import handle_websocket
 from database.db import init_db
 
@@ -301,6 +302,7 @@ def create_app() -> FastAPI:
 
     application.include_router(router)
     application.include_router(defense_router)
+    application.include_router(ddos_router)
 
     @application.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):

@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TIRPAN</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+
+  <!-- highlight.js theme (swapped on theme change) -->
+  <link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- SaaS styles -->
+  <link rel="stylesheet" href="css/saas.css?v=1">
+
+  <!-- xterm.js -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.9.0/lib/xterm-addon-fit.min.js"></script>
+
+  <!-- marked (markdown) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- highlight.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+
+<body>
+<!-- Toast notifications -->
+<div id="toast-container"></div>
+
+<!-- Offline banner -->
+<div id="s-offline-banner" class="hidden">
+  <span class="material-symbols-outlined" style="font-size:16px">wifi_off</span>
+  Connection lost — reconnecting…
+</div>
+
+<!-- Approval modal -->
+<div id="approval-modal" class="hidden">
+  <div class="approval-box">
+    <div class="approval-icon">
+      <span class="material-symbols-outlined">security</span>
+    </div>
+    <div class="approval-title">Action Requires Your Approval</div>
+    <div id="approval-desc" class="approval-desc">The AI wants to run an action. Allow?</div>
+    <div id="approval-detail" class="approval-detail"></div>
+    <div class="approval-actions">
+      <button id="approval-stop-btn" class="saas-btn saas-btn-ghost saas-btn-sm">Stop Mission</button>
+      <button id="approval-skip-btn" class="saas-btn saas-btn-ghost saas-btn-sm">Skip</button>
+      <button id="approval-allow-btn" class="saas-btn saas-btn-primary saas-btn-sm">Allow</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mobile overlay -->
+<div id="s-mobile-overlay" class="hidden"></div>
+
+<!-- Main layout -->
+<div id="s-layout">
+
+  <!-- ── Sidebar ──────────────────────────────────────── -->
+  <nav id="s-sidebar" class="sidebar-expanded">
+
+    <!-- Logo -->
+    <div class="sidebar-logo">
+      <img src="/scythe.png" alt="TIRPAN logo">
+      <span class="sidebar-wordmark">TIRPAN</span>
+    </div>
+
+    <!-- Nav items -->
+    <div class="sidebar-nav">
+      <a class="nav-item" data-nav="new-scan" href="#new-scan" title="New Scan">
+        <span class="material-symbols-outlined">rocket_launch</span>
+        <span class="nav-label sidebar-label">New Scan</span>
+      </a>
+
+      <a class="nav-item" data-nav="mission-live" href="#mission-live" title="Mission Live">
+        <span class="material-symbols-outlined">monitoring</span>
+        <span class="nav-label sidebar-label">Mission Live</span>
+      </a>
+
+      <a class="nav-item" data-nav="ai-assistant" href="#ai-assistant" title="AI Assistant">
+        <span class="material-symbols-outlined">smart_toy</span>
+        <span class="nav-label sidebar-label">AI Assistant</span>
+      </a>
+
+      <a class="nav-item" data-nav="terminal" href="#terminal" title="Terminal">
+        <span class="material-symbols-outlined">terminal</span>
+        <span class="nav-label sidebar-label">Terminal</span>
+      </a>
+
+      <a class="nav-item" data-nav="activity" href="#activity" title="Activity">
+        <span class="material-symbols-outlined">history</span>
+        <span class="nav-label sidebar-label">Activity</span>
+      </a>
+
+      <a class="nav-item" data-nav="reports" href="#reports" title="Reports">
+        <span class="material-symbols-outlined">summarize</span>
+        <span class="nav-label sidebar-label">Reports</span>
+      </a>
+
+      <a class="nav-item" data-nav="files" href="#files" title="Files">
+        <span class="material-symbols-outlined">folder_open</span>
+        <span class="nav-label sidebar-label">Files</span>
+      </a>
+
+      <a class="nav-item" data-nav="settings" href="#settings" title="Settings">
+        <span class="material-symbols-outlined">settings</span>
+        <span class="nav-label sidebar-label">Settings</span>
+      </a>
+    </div>
+
+    <!-- Footer -->
+    <div class="sidebar-footer">
+      <!-- Expert Mode switch -->
+      <a href="/" class="expert-mode-btn" title="Switch to Expert Mode">
+        <span class="material-symbols-outlined">code</span>
+        <span class="sidebar-label">Expert Mode</span>
+      </a>
+
+      <!-- Sidebar collapse toggle -->
+      <button id="s-sidebar-toggle" class="sidebar-toggle-btn" title="Toggle sidebar">
+        <span class="material-symbols-outlined" id="s-sidebar-toggle-icon">chevron_left</span>
+      </button>
+    </div>
+  </nav>
+  <!-- ── /Sidebar ─────────────────────────────────────── -->
+
+  <!-- ── Main ─────────────────────────────────────────── -->
+  <div id="s-main">
+
+    <!-- Header -->
+    <header id="s-header">
+      <!-- Mobile menu -->
+      <button id="s-mobile-menu-btn" class="saas-btn-icon md:hidden">
+        <span class="material-symbols-outlined">menu</span>
+      </button>
+
+      <!-- Breadcrumb -->
+      <div class="header-breadcrumb">
+        <span class="material-symbols-outlined" style="font-size:14px;color:var(--c-muted-txt)">home</span>
+        <span>›</span>
+        <span id="s-breadcrumb">New Scan</span>
+      </div>
+
+      <!-- Header actions -->
+      <div class="header-actions">
+        <!-- System stats -->
+        <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:var(--c-muted-txt)">
+          <span id="s-cpu" class="hidden md:inline"></span>
+          <span id="s-ram" class="hidden md:inline"></span>
+        </div>
+
+        <!-- WS connection indicator -->
+        <div style="display:flex;align-items:center;gap:5px" title="Server connection">
+          <div id="s-ws-dot"></div>
+          <span id="s-ws-text" style="font-size:11px;color:var(--c-muted-txt)" class="hidden md:inline">Connecting…</span>
+        </div>
+
+        <!-- Mission controls (shown when on Mission Live) -->
+        <button id="ml-pause-btn"  class="saas-btn saas-btn-ghost saas-btn-sm hidden" style="border-color:var(--c-warning);color:var(--c-warning)">
+          <span class="material-symbols-outlined" style="font-size:15px">pause</span>
+          <span class="hidden md:inline">Pause</span>
+        </button>
+        <button id="ml-resume-btn" class="saas-btn saas-btn-ghost saas-btn-sm hidden" style="border-color:var(--c-success);color:var(--c-success)">
+          <span class="material-symbols-outlined" style="font-size:15px">play_arrow</span>
+          <span class="hidden md:inline">Resume</span>
+        </button>
+        <button id="ml-stop-btn"   class="saas-btn saas-btn-danger saas-btn-sm hidden">
+          <span class="material-symbols-outlined" style="font-size:15px">stop</span>
+          <span class="hidden md:inline">Stop</span>
+        </button>
+
+        <!-- Theme toggle -->
+        <button id="s-theme-btn" class="saas-btn-icon" title="Toggle theme">
+          <span class="material-symbols-outlined" id="s-theme-icon">dark_mode</span>
+        </button>
+      </div>
+    </header>
+    <!-- /Header -->
+
+    <!-- Page content -->
+    <div id="s-content">
+
+      <!-- ── PAGE: New Scan ──────────────────────────── -->
+      <div id="page-new-scan" class="s-page hidden">
+        <div class="page-title">New Scan</div>
+        <div class="page-subtitle">Choose a profile and enter your target to start an automated security assessment.</div>
+
+        <form id="new-scan-form">
+          <!-- Target input -->
+          <div class="saas-card" style="margin-bottom:20px">
+            <div class="saas-card-title">Target</div>
+            <input id="s-target" type="text" class="saas-input"
+              placeholder="192.168.1.0/24   or   10.0.0.1   or   example.com"
+              autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+              style="font-family:'JetBrains Mono',monospace;font-size:13px">
+          </div>
+
+          <!-- Profile grid -->
+          <div class="saas-card-title" style="margin-bottom:12px">Choose a Scan Profile</div>
+          <div id="profile-grid"></div>
+
+          <!-- Advanced options -->
+          <div class="saas-card" style="margin-bottom:20px">
+            <details class="adv-options">
+              <summary>
+                <span class="material-symbols-outlined" style="font-size:16px">tune</span>
+                Advanced Options
+                <span class="material-symbols-outlined adv-chevron">expand_more</span>
+              </summary>
+              <div class="adv-content">
+                <div class="saas-field">
+                  <label class="saas-label" for="s-mission-name">Mission Name</label>
+                  <input id="s-mission-name" type="text" class="saas-input" placeholder="e.g. Q3 Internal Audit">
+                </div>
+                <div class="saas-field">
+                  <label class="saas-label" for="s-time-limit">Time Limit</label>
+                  <select id="s-time-limit" class="saas-select">
+                    <option value="">No limit</option>
+                    <option value="1800">30 minutes</option>
+                    <option value="3600" selected>1 hour</option>
+                    <option value="7200">2 hours</option>
+                    <option value="14400">4 hours</option>
+                  </select>
+                </div>
+                <div class="saas-field" style="grid-column:1/-1">
+                  <label class="saas-label" for="s-objectives">Objectives (one per line)</label>
+                  <textarea id="s-objectives" class="saas-input" rows="3"
+                    placeholder="Find flag.txt&#10;Achieve root access&#10;Enumerate all services"></textarea>
+                </div>
+                <div class="saas-field" style="grid-column:1/-1">
+                  <label class="saas-label" for="s-notes">Context / Notes</label>
+                  <textarea id="s-notes" class="saas-input" rows="2"
+                    placeholder="Any relevant context for the AI agent…"></textarea>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <!-- Launch button -->
+          <button id="s-launch-btn" type="submit" class="saas-btn saas-btn-primary"
+            style="width:100%;justify-content:center;padding:12px;font-size:15px">
+            <span class="material-symbols-outlined" style="font-size:16px">rocket_launch</span>
+            Start Scan
+          </button>
+        </form>
+      </div>
+      <!-- /New Scan -->
+
+      <!-- ── PAGE: Mission Live ──────────────────────── -->
+      <div id="page-mission-live" class="s-page hidden">
+        <div class="page-title">Mission Live</div>
+
+        <!-- Status bar -->
+        <div class="ml-status-bar">
+          <span id="ml-status-dot" class="saas-status-dot saas-dot-idle"></span>
+          <span id="ml-status-text" style="font-size:13px;font-weight:600">Idle</span>
+          <span style="color:var(--c-border)">·</span>
+          <span id="ml-target" class="ml-target-text">—</span>
+          <span id="ml-profile" class="ml-profile-text"></span>
+          <span style="color:var(--c-border)">·</span>
+          <span id="ml-elapsed" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--c-muted-txt)">00:00</span>
+        </div>
+
+        <!-- Phase stepper -->
+        <div class="phase-stepper saas-card" style="padding:16px 12px;margin-bottom:20px">
+          <div class="phase-step pending" data-phase="1">
+            <div class="phase-circle">1</div>
+            <span class="phase-name">Discovery</span>
+          </div>
+          <div class="phase-step pending" data-phase="2">
+            <div class="phase-circle">2</div>
+            <span class="phase-name">Port Scan</span>
+          </div>
+          <div class="phase-step pending" data-phase="3">
+            <div class="phase-circle">3</div>
+            <span class="phase-name">Analysis</span>
+          </div>
+          <div class="phase-step pending" data-phase="4">
+            <div class="phase-circle">4</div>
+            <span class="phase-name">Exploitation</span>
+          </div>
+          <div class="phase-step pending" data-phase="5">
+            <div class="phase-circle">5</div>
+            <span class="phase-name">Reporting</span>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="ml-stats">
+          <div class="stat-card">
+            <div class="stat-value" id="ml-hosts">0</div>
+            <div class="stat-label">Hosts Found</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="ml-ports">0</div>
+            <div class="stat-label">Open Ports</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="ml-vulns" style="color:var(--c-danger)">0</div>
+            <div class="stat-label">Vulnerabilities</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="ml-shells">0</div>
+            <div class="stat-label">Active Shells</div>
+          </div>
+        </div>
+
+        <!-- Done bar (hidden until done) -->
+        <div id="ml-done-bar" class="hidden" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">
+            <span class="material-symbols-outlined" style="color:var(--c-success);font-size:24px">task_alt</span>
+            <span style="font-size:15px;font-weight:600;color:var(--c-success)">Mission Completed</span>
+            <a data-nav="reports" href="#reports" class="saas-btn saas-btn-primary saas-btn-sm" style="margin-left:8px">
+              <span class="material-symbols-outlined" style="font-size:15px">summarize</span>View Report
+            </a>
+            <a data-nav="new-scan" href="#new-scan" class="saas-btn saas-btn-ghost saas-btn-sm">
+              <span class="material-symbols-outlined" style="font-size:15px">add</span>New Scan
+            </a>
+          </div>
+        </div>
+
+        <!-- Main grid: summary + feed -->
+        <div class="ml-grid">
+          <!-- Summary column -->
+          <div>
+            <div class="saas-card" style="margin-bottom:16px">
+              <div class="saas-card-title">
+                <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">psychology</span>
+                What the AI is doing
+              </div>
+              <p id="ml-summary" class="opacity-0" style="min-height:60px;font-size:14px;line-height:1.7;color:var(--c-txt)">
+                Waiting for mission to start…
+              </p>
+            </div>
+          </div>
+
+          <!-- Feed column -->
+          <div class="saas-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+            <div style="padding:12px 14px;border-bottom:1px solid var(--c-border);font-size:12px;font-weight:600;color:var(--c-muted-txt);text-transform:uppercase;letter-spacing:.05em">
+              Activity Feed
+            </div>
+            <div id="ml-feed" style="height:360px;overflow-y:auto;padding:8px"></div>
+          </div>
+        </div>
+
+        <!-- Empty state when no session -->
+        <div id="ml-empty" style="text-align:center;padding:60px 20px;color:var(--c-muted-txt)">
+          <span class="material-symbols-outlined" style="font-size:48px;color:var(--c-border);display:block;margin-bottom:12px">radar</span>
+          <p style="font-size:15px;margin-bottom:16px">No active mission</p>
+          <a data-nav="new-scan" href="#new-scan" class="saas-btn saas-btn-primary">
+            <span class="material-symbols-outlined" style="font-size:16px">rocket_launch</span>Start a Scan
+          </a>
+        </div>
+      </div>
+      <!-- /Mission Live -->
+
+      <!-- ── PAGE: AI Assistant ──────────────────────── -->
+      <div id="page-ai-assistant" class="s-page hidden" style="padding-bottom:0;max-width:860px">
+        <div class="page-title">AI Assistant</div>
+        <div class="page-subtitle">Ask questions about your scans, get explanations, or analyze findings.</div>
+
+        <div class="ai-layout">
+          <div id="ai-feed">
+            <div class="ai-msg ai-msg-assistant">
+              <div class="ai-msg-avatar">
+                <span class="material-symbols-outlined">smart_toy</span>
+              </div>
+              <div class="ai-msg-body">
+                <p>Hello! I'm the TIRPAN AI assistant. I can help you:</p>
+                <ul style="margin-left:16px;list-style:disc;margin-top:4px">
+                  <li>Explain vulnerabilities and attack vectors</li>
+                  <li>Analyze scan results and findings</li>
+                  <li>Suggest next steps and remediations</li>
+                  <li>Answer security questions in plain language</li>
+                </ul>
+                <p style="margin-top:8px">What would you like to know?</p>
+              </div>
+            </div>
+          </div>
+
+          <form id="ai-form" class="ai-input-bar">
+            <textarea id="ai-input" placeholder="Ask anything about your security scan…" rows="1"></textarea>
+            <button type="submit" class="saas-btn saas-btn-primary" style="align-self:flex-end">
+              <span class="material-symbols-outlined" style="font-size:16px">send</span>
+            </button>
+          </form>
+        </div>
+      </div>
+      <!-- /AI Assistant -->
+
+      <!-- ── PAGE: Terminal ──────────────────────────── -->
+      <div id="page-terminal" class="s-page hidden" style="padding-bottom:0">
+        <div class="page-title">Terminal</div>
+        <div class="page-subtitle">Direct shell access to your active session.</div>
+
+        <div class="terminal-container">
+          <div class="terminal-bar">
+            <span class="material-symbols-outlined" style="font-size:14px;color:var(--c-muted-txt)">terminal</span>
+            <span style="font-size:12px;color:var(--c-muted-txt)">Shell</span>
+            <span style="flex:1"></span>
+            <span id="term-status" style="font-size:11px;color:var(--c-muted-txt)">Disconnected</span>
+            <button id="term-connect-btn" class="saas-btn saas-btn-ghost saas-btn-sm">Reconnect</button>
+          </div>
+          <div id="saas-terminal" style="flex:1"></div>
+        </div>
+      </div>
+      <!-- /Terminal -->
+
+      <!-- ── PAGE: Activity ─────────────────────────── -->
+      <div id="page-activity" class="s-page hidden">
+        <div class="page-title">Activity</div>
+        <div class="page-subtitle">Browse past scans and review the audit trail.</div>
+
+        <div class="activity-tabs">
+          <div class="activity-tab active" data-tab="sessions">Scans</div>
+          <div class="activity-tab" data-tab="audit">Audit Log</div>
+        </div>
+
+        <div id="activity-panel-sessions" class="activity-panel">
+          <div id="activity-sessions">
+            <div class="saas-loading">Loading scans…</div>
+          </div>
+        </div>
+
+        <div id="activity-panel-audit" class="activity-panel hidden">
+          <div id="activity-audit">
+            <div class="saas-empty-state">
+              <span class="material-symbols-outlined">receipt_long</span>
+              <p>Click the Audit Log tab to load events.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /Activity -->
+
+      <!-- ── PAGE: Reports ──────────────────────────── -->
+      <div id="page-reports" class="s-page hidden">
+        <div class="page-title">Reports</div>
+        <div class="page-subtitle">View and download full security assessment reports.</div>
+
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <select id="report-session-sel" class="saas-select">
+              <option value="">— Select a completed scan —</option>
+            </select>
+          </div>
+          <button id="report-pdf-btn" class="saas-btn saas-btn-ghost">
+            <span class="material-symbols-outlined" style="font-size:16px">download</span>
+            Download PDF
+          </button>
+        </div>
+
+        <div id="report-empty" class="saas-empty-state">
+          <span class="material-symbols-outlined">summarize</span>
+          <p>Select a completed scan above to view its report.</p>
+        </div>
+
+        <iframe id="report-frame" class="hidden" frameborder="0" title="Security Report"></iframe>
+      </div>
+      <!-- /Reports -->
+
+      <!-- ── PAGE: Files ────────────────────────────── -->
+      <div id="page-files" class="s-page hidden">
+        <div class="page-title">Files</div>
+        <div class="page-subtitle">Download scan artifacts, nmap outputs, and captured data.</div>
+
+        <div style="margin-bottom:20px">
+          <select id="files-session-sel" class="saas-select" style="max-width:400px">
+            <option value="">— Select a scan —</option>
+          </select>
+        </div>
+
+        <div id="files-list">
+          <div class="saas-empty-state">
+            <span class="material-symbols-outlined">folder_open</span>
+            <p>Select a scan to browse its files.</p>
+          </div>
+        </div>
+      </div>
+      <!-- /Files -->
+
+      <!-- ── PAGE: Settings ─────────────────────────── -->
+      <div id="page-settings" class="s-page hidden" style="max-width:640px">
+        <div class="page-title">Settings</div>
+        <div class="page-subtitle">Configure your scanning preferences and appearance.</div>
+
+        <form id="settings-form">
+          <!-- Safety -->
+          <div class="saas-card settings-section" style="margin-bottom:20px">
+            <div class="settings-section-title">Safety & Permissions</div>
+
+            <div class="settings-row">
+              <div>
+                <div class="settings-row-label">Block Exploitation</div>
+                <div class="settings-row-desc">Prevent the AI from running any exploit modules</div>
+              </div>
+              <input id="settings-block-exploit" type="checkbox" class="saas-toggle">
+            </div>
+
+            <div class="settings-row">
+              <div>
+                <div class="settings-row-label">Maximum Severity</div>
+                <div class="settings-row-desc">Only attempt exploits up to this CVSS severity</div>
+              </div>
+              <select id="settings-max-severity" class="saas-select" style="width:120px">
+                <option value="CRITICAL">Critical</option>
+                <option value="HIGH">High</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="LOW">Low</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Scan Speed -->
+          <div class="saas-card settings-section" style="margin-bottom:20px">
+            <div class="settings-section-title">Default Scan Speed</div>
+            <div class="speed-options" style="margin-top:4px">
+              <input type="radio" name="speed" id="speed-quiet"  value="stealth"    class="speed-option">
+              <label for="speed-quiet"  class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">volume_off</span>Quiet</label>
+
+              <input type="radio" name="speed" id="speed-normal" value="normal" class="speed-option" checked>
+              <label for="speed-normal" class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">tune</span>Normal</label>
+
+              <input type="radio" name="speed" id="speed-fast"   value="aggressive"   class="speed-option">
+              <label for="speed-fast"   class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">bolt</span>Fast</label>
+            </div>
+          </div>
+
+          <!-- Appearance -->
+          <div class="saas-card settings-section" style="margin-bottom:20px">
+            <div class="settings-section-title">Appearance</div>
+
+            <div class="settings-row">
+              <div>
+                <div class="settings-row-label">Color Theme</div>
+                <div class="settings-row-desc">Toggle between light and dark mode</div>
+              </div>
+              <button type="button" id="settings-theme-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+                <span class="material-symbols-outlined" style="font-size:16px">dark_mode</span>
+                Toggle Theme
+              </button>
+            </div>
+
+            <div class="settings-row">
+              <div>
+                <div class="settings-row-label">Expert Interface</div>
+                <div class="settings-row-desc">Switch to the advanced technical interface</div>
+              </div>
+              <a href="/" class="saas-btn saas-btn-ghost saas-btn-sm">
+                <span class="material-symbols-outlined" style="font-size:15px">code</span>
+                Expert Mode
+              </a>
+            </div>
+          </div>
+
+          <button id="settings-save-btn" type="submit" class="saas-btn saas-btn-primary">
+            <span class="material-symbols-outlined" style="font-size:16px">save</span>
+            Save Settings
+          </button>
+        </form>
+      </div>
+      <!-- /Settings -->
+
+    </div>
+    <!-- /Page content -->
+
+  </div>
+  <!-- /Main -->
+
+</div>
+<!-- /Layout -->
+
+<!-- Scripts -->
+<script src="js/saas-api.js?v=1"></script>
+<script src="js/saas-ws.js?v=1"></script>
+<script src="js/saas-pages.js?v=1"></script>
+<script src="js/saas-app.js?v=1"></script>
+
+<script>
+  // Wire settings theme button
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('settings-theme-btn')?.addEventListener('click', () => {
+      applyTheme(saasState.theme === 'dark' ? 'light' : 'dark');
+    });
+
+    // Wire mission control buttons to current page
+    const origNavigate = router.navigate.bind(router);
+    // Mission Live controls wire themselves in mount()
+    document.getElementById('ml-pause-btn')?.addEventListener('click', () => {
+      if (window._missionPage) window._missionPage.pauseMission();
+    });
+    document.getElementById('ml-resume-btn')?.addEventListener('click', () => {
+      if (window._missionPage) window._missionPage.resumeMission();
+    });
+    document.getElementById('ml-stop-btn')?.addEventListener('click', () => {
+      if (window._missionPage) window._missionPage.stopMission();
+    });
+
+    // Done bar nav links
+    document.querySelectorAll('[data-nav]').forEach(el => {
+      if (el.tagName === 'A' && !el.classList.contains('nav-item') && !el.classList.contains('expert-mode-btn')) {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          router.navigate(el.dataset.nav);
+        });
+      }
+    });
+  });
+</script>
+</body>
+</html>

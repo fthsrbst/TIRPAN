@@ -74,6 +74,7 @@ def build_tool_registry(
         from tools.john_tool import JohnTool
         from tools.gobuster_tool import GobusterTool
         from tools.arjun_tool import ArjunTool
+        from tools.ddos_tool import DDoSTool
 
         for tool in (
             MasscanTool(),
@@ -102,6 +103,7 @@ def build_tool_registry(
             JohnTool(),
             GobusterTool(),
             ArjunTool(),
+            DDoSTool(),
         ):
             registry.register(tool)
 

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tirpan-dev",
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-e", "/home/fatih-root/TIRPAN/venv/bin/python", "/home/fatih-root/TIRPAN/main.py", "--no-reload"],
+      "port": 8000
+    }
+  ]
+}
