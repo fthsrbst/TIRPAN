@@ -90,7 +90,8 @@
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\")",
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\.claude\")",
       "mcp__Claude_Preview__preview_start",
-      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\venv\\\\bin\\\\\" 2>/dev/null | head -5)"
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\venv\\\\bin\\\\\" 2>/dev/null | head -5)",
+      "Read(//c/Users/fatih/**)"
     ]
   }
 }
