@@ -81,7 +81,16 @@
       "Bash(ssh-keygen -t ed25519 -C \"fatihxserbest@gmail.com\" -f ~/.ssh/id_ed25519 -N \"\")",
       "Read(//home/fatih-root/.ssh/**)",
       "Bash(wc -l /home/fatih-root/TIRPAN/tools/*.py)",
-      "Bash(xargs cat:*)"
+      "Bash(xargs cat:*)",
+      "Bash(ssh -T git@github.com)",
+      "Read(//c/Users/fatih/.ssh/**)",
+      "Bash(ssh -vT git@github.com)",
+      "Bash(ssh-keygen -t ed25519 -C \"fatihxserbest@gmail.com\" -f ~/.ssh/id_ed25519_tirpan -N \"\")",
+      "Bash(git checkout *)",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\")",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\.claude\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\venv\\\\bin\\\\\" 2>/dev/null | head -5)"
     ]
   }
 }
