@@ -5,51 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TIRPAN</title>
 
-  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
-
-  <!-- highlight.js theme (swapped on theme change) -->
   <link id="hljs-theme" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 
-  <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
   <script id="tailwind-config">
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
-        },
-      },
-    };
+    tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter','system-ui','sans-serif'], mono: ['JetBrains Mono','monospace'] } } } };
   </script>
 
-  <!-- SaaS styles -->
-  <link rel="stylesheet" href="css/saas.css?v=1">
+  <link rel="stylesheet" href="css/saas.css?v=2">
 
-  <!-- xterm.js -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.min.css">
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.9.0/lib/xterm-addon-fit.min.js"></script>
-
-  <!-- marked (markdown) -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-  <!-- highlight.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 
 <body>
-<!-- Toast notifications -->
 <div id="toast-container"></div>
 
-<!-- Offline banner -->
 <div id="s-offline-banner" class="hidden">
   <span class="material-symbols-outlined" style="font-size:16px">wifi_off</span>
   Connection lost — reconnecting…
@@ -58,10 +36,8 @@
 <!-- Approval modal -->
 <div id="approval-modal" class="hidden">
   <div class="approval-box">
-    <div class="approval-icon">
-      <span class="material-symbols-outlined">security</span>
-    </div>
-    <div class="approval-title">Action Requires Your Approval</div>
+    <div class="approval-icon"><span class="material-symbols-outlined">security</span></div>
+    <div class="approval-title">Action Requires Approval</div>
     <div id="approval-desc" class="approval-desc">The AI wants to run an action. Allow?</div>
     <div id="approval-detail" class="approval-detail"></div>
     <div class="approval-actions">
@@ -72,57 +48,57 @@
   </div>
 </div>
 
-<!-- Mobile overlay -->
 <div id="s-mobile-overlay" class="hidden"></div>
 
-<!-- Main layout -->
+<!-- ── Layout ──────────────────────────────────────────────── -->
 <div id="s-layout">
 
-  <!-- ── Sidebar ──────────────────────────────────────── -->
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
   <nav id="s-sidebar" class="sidebar-expanded">
 
-    <!-- Logo -->
     <div class="sidebar-logo">
-      <img src="/scythe.png" alt="TIRPAN logo">
+      <img src="/scythe.png" alt="TIRPAN">
       <span class="sidebar-wordmark">TIRPAN</span>
     </div>
 
-    <!-- Nav items -->
     <div class="sidebar-nav">
+      <div class="sidebar-section-label">Operations</div>
+
       <a class="nav-item" data-nav="new-scan" href="#new-scan" title="New Scan">
         <span class="material-symbols-outlined">rocket_launch</span>
         <span class="nav-label sidebar-label">New Scan</span>
       </a>
-
       <a class="nav-item" data-nav="mission-live" href="#mission-live" title="Mission Live">
         <span class="material-symbols-outlined">monitoring</span>
         <span class="nav-label sidebar-label">Mission Live</span>
       </a>
-
-      <a class="nav-item" data-nav="ai-assistant" href="#ai-assistant" title="AI Assistant">
-        <span class="material-symbols-outlined">smart_toy</span>
-        <span class="nav-label sidebar-label">AI Assistant</span>
-      </a>
-
       <a class="nav-item" data-nav="terminal" href="#terminal" title="Terminal">
         <span class="material-symbols-outlined">terminal</span>
         <span class="nav-label sidebar-label">Terminal</span>
       </a>
 
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">Intelligence</div>
+
       <a class="nav-item" data-nav="activity" href="#activity" title="Activity">
         <span class="material-symbols-outlined">history</span>
-        <span class="nav-label sidebar-label">Activity</span>
+        <span class="nav-label sidebar-label">Scans &amp; Activity</span>
       </a>
-
       <a class="nav-item" data-nav="reports" href="#reports" title="Reports">
         <span class="material-symbols-outlined">summarize</span>
         <span class="nav-label sidebar-label">Reports</span>
       </a>
-
       <a class="nav-item" data-nav="files" href="#files" title="Files">
         <span class="material-symbols-outlined">folder_open</span>
         <span class="nav-label sidebar-label">Files</span>
       </a>
+      <a class="nav-item" data-nav="ai-assistant" href="#ai-assistant" title="AI Assistant">
+        <span class="material-symbols-outlined">smart_toy</span>
+        <span class="nav-label sidebar-label">AI Assistant</span>
+      </a>
+
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-section-label">Config</div>
 
       <a class="nav-item" data-nav="settings" href="#settings" title="Settings">
         <span class="material-symbols-outlined">settings</span>
@@ -130,244 +106,403 @@
       </a>
     </div>
 
-    <!-- Footer -->
     <div class="sidebar-footer">
-      <!-- Expert Mode switch -->
-      <a href="/" class="expert-mode-btn" title="Switch to Expert Mode">
+      <a href="/" class="expert-mode-btn" title="Expert Mode">
         <span class="material-symbols-outlined">code</span>
         <span class="sidebar-label">Expert Mode</span>
       </a>
-
-      <!-- Sidebar collapse toggle -->
       <button id="s-sidebar-toggle" class="sidebar-toggle-btn" title="Toggle sidebar">
         <span class="material-symbols-outlined" id="s-sidebar-toggle-icon">chevron_left</span>
       </button>
     </div>
   </nav>
-  <!-- ── /Sidebar ─────────────────────────────────────── -->
 
-  <!-- ── Main ─────────────────────────────────────────── -->
+  <!-- ── Main ───────────────────────────────────────────── -->
   <div id="s-main">
 
-    <!-- Header -->
     <header id="s-header">
-      <!-- Mobile menu -->
       <button id="s-mobile-menu-btn" class="saas-btn-icon md:hidden">
         <span class="material-symbols-outlined">menu</span>
       </button>
 
-      <!-- Breadcrumb -->
       <div class="header-breadcrumb">
-        <span class="material-symbols-outlined" style="font-size:14px;color:var(--c-muted-txt)">home</span>
+        <span class="material-symbols-outlined" style="font-size:14px">home</span>
         <span>›</span>
         <span id="s-breadcrumb">New Scan</span>
       </div>
 
-      <!-- Header actions -->
       <div class="header-actions">
-        <!-- System stats -->
         <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:var(--c-muted-txt)">
           <span id="s-cpu" class="hidden md:inline"></span>
           <span id="s-ram" class="hidden md:inline"></span>
         </div>
-
-        <!-- WS connection indicator -->
         <div style="display:flex;align-items:center;gap:5px" title="Server connection">
           <div id="s-ws-dot"></div>
           <span id="s-ws-text" style="font-size:11px;color:var(--c-muted-txt)" class="hidden md:inline">Connecting…</span>
         </div>
-
-        <!-- Mission controls (shown when on Mission Live) -->
         <button id="ml-pause-btn"  class="saas-btn saas-btn-ghost saas-btn-sm hidden" style="border-color:var(--c-warning);color:var(--c-warning)">
-          <span class="material-symbols-outlined" style="font-size:15px">pause</span>
-          <span class="hidden md:inline">Pause</span>
+          <span class="material-symbols-outlined" style="font-size:14px">pause</span><span class="hidden md:inline">Pause</span>
         </button>
         <button id="ml-resume-btn" class="saas-btn saas-btn-ghost saas-btn-sm hidden" style="border-color:var(--c-success);color:var(--c-success)">
-          <span class="material-symbols-outlined" style="font-size:15px">play_arrow</span>
-          <span class="hidden md:inline">Resume</span>
+          <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span><span class="hidden md:inline">Resume</span>
         </button>
-        <button id="ml-stop-btn"   class="saas-btn saas-btn-danger saas-btn-sm hidden">
-          <span class="material-symbols-outlined" style="font-size:15px">stop</span>
-          <span class="hidden md:inline">Stop</span>
+        <button id="ml-stop-btn" class="saas-btn saas-btn-danger saas-btn-sm hidden">
+          <span class="material-symbols-outlined" style="font-size:14px">stop</span><span class="hidden md:inline">Stop</span>
         </button>
-
-        <!-- Theme toggle -->
         <button id="s-theme-btn" class="saas-btn-icon" title="Toggle theme">
           <span class="material-symbols-outlined" id="s-theme-icon">dark_mode</span>
         </button>
       </div>
     </header>
-    <!-- /Header -->
 
-    <!-- Page content -->
     <div id="s-content">
 
-      <!-- ── PAGE: New Scan ──────────────────────────── -->
+      <!-- ══════════════════════════════════════════════════
+           PAGE: New Scan
+           ══════════════════════════════════════════════════ -->
       <div id="page-new-scan" class="s-page hidden">
         <div class="page-title">New Scan</div>
-        <div class="page-subtitle">Choose a profile and enter your target to start an automated security assessment.</div>
+        <div class="page-subtitle">Select a profile, configure your target and options, then launch the AI agent.</div>
 
         <form id="new-scan-form">
-          <!-- Target input -->
+          <!-- Target -->
           <div class="saas-card" style="margin-bottom:20px">
-            <div class="saas-card-title">Target</div>
-            <input id="s-target" type="text" class="saas-input"
-              placeholder="192.168.1.0/24   or   10.0.0.1   or   example.com"
-              autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-              style="font-family:'JetBrains Mono',monospace;font-size:13px">
+            <div class="saas-card-title">
+              <span class="material-symbols-outlined">my_location</span>Target
+            </div>
+            <div class="saas-field-row" style="margin-bottom:0">
+              <div class="saas-field" style="margin-bottom:0;flex:2">
+                <label class="saas-label" for="s-target">IP / CIDR / Hostname</label>
+                <input id="s-target" type="text" class="saas-input saas-input-mono"
+                  placeholder="192.168.1.0/24  ·  10.0.0.1  ·  example.com"
+                  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+              </div>
+              <div class="saas-field" style="margin-bottom:0;flex:1">
+                <label class="saas-label" for="s-mission-name-quick">Mission Name</label>
+                <input id="s-mission-name-quick" type="text" class="saas-input" placeholder="Optional label">
+              </div>
+            </div>
           </div>
 
-          <!-- Profile grid -->
-          <div class="saas-card-title" style="margin-bottom:12px">Choose a Scan Profile</div>
+          <!-- Profiles -->
+          <div class="saas-card-title" style="margin-bottom:14px">
+            <span class="material-symbols-outlined" style="font-size:16px">tune</span>
+            Scan Profile
+          </div>
           <div id="profile-grid"></div>
 
-          <!-- Advanced options -->
+          <!-- Advanced Options -->
           <div class="saas-card" style="margin-bottom:20px">
-            <details class="adv-options">
+            <details class="adv-options" id="adv-options-details">
               <summary>
-                <span class="material-symbols-outlined" style="font-size:16px">tune</span>
-                Advanced Options
-                <span class="material-symbols-outlined adv-chevron">expand_more</span>
+                <span class="material-symbols-outlined" style="font-size:17px;color:var(--c-accent)">settings_suggest</span>
+                Advanced Configuration
+                <span style="font-size:12px;color:var(--c-muted-txt);margin-left:4px">(override profile defaults)</span>
+                <span class="material-symbols-outlined adv-chevron" style="margin-left:auto">expand_more</span>
               </summary>
+
               <div class="adv-content">
-                <div class="saas-field">
-                  <label class="saas-label" for="s-mission-name">Mission Name</label>
-                  <input id="s-mission-name" type="text" class="saas-input" placeholder="e.g. Q3 Internal Audit">
+
+                <!-- Scan Configuration -->
+                <div class="adv-section">
+                  <div class="adv-section-title">
+                    <span class="material-symbols-outlined">radar</span>Scan Configuration
+                  </div>
+                  <div class="adv-grid">
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-port-range">Port Range</label>
+                      <input id="adv-port-range" type="text" class="saas-input saas-input-mono" placeholder="1-65535 or 22,80,443">
+                      <div class="saas-help">Leave blank to use profile default</div>
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-scan-type">Scan Type</label>
+                      <select id="adv-scan-type" class="saas-select">
+                        <option value="">— Profile default —</option>
+                        <option value="syn">SYN Stealth (-sS)</option>
+                        <option value="connect">TCP Connect (-sT)</option>
+                        <option value="udp">UDP (-sU)</option>
+                        <option value="syn_udp">SYN + UDP (-sSU)</option>
+                      </select>
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-timing">Timing Template</label>
+                      <select id="adv-timing" class="saas-select">
+                        <option value="">— Profile default —</option>
+                        <option value="T0">T0 — Paranoid</option>
+                        <option value="T1">T1 — Sneaky</option>
+                        <option value="T2">T2 — Polite</option>
+                        <option value="T3">T3 — Normal</option>
+                        <option value="T4">T4 — Aggressive</option>
+                        <option value="T5">T5 — Insane</option>
+                      </select>
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-max-hosts">Max Parallel Hosts</label>
+                      <input id="adv-max-hosts" type="number" class="saas-input" min="1" max="256" placeholder="5">
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-rate-limit">Rate Limit (pkts/sec)</label>
+                      <input id="adv-rate-limit" type="number" class="saas-input" min="1" placeholder="Unlimited">
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-time-limit">Time Limit</label>
+                      <select id="adv-time-limit" class="saas-select">
+                        <option value="">No limit</option>
+                        <option value="900">15 minutes</option>
+                        <option value="1800">30 minutes</option>
+                        <option value="3600" selected>1 hour</option>
+                        <option value="7200">2 hours</option>
+                        <option value="14400">4 hours</option>
+                        <option value="28800">8 hours</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                <div class="saas-field">
-                  <label class="saas-label" for="s-time-limit">Time Limit</label>
-                  <select id="s-time-limit" class="saas-select">
-                    <option value="">No limit</option>
-                    <option value="1800">30 minutes</option>
-                    <option value="3600" selected>1 hour</option>
-                    <option value="7200">2 hours</option>
-                    <option value="14400">4 hours</option>
-                  </select>
+
+                <!-- Detection -->
+                <div class="adv-section">
+                  <div class="adv-section-title">
+                    <span class="material-symbols-outlined">search</span>Detection
+                  </div>
+                  <div class="settings-row" style="padding:10px 0">
+                    <div><div class="settings-row-label">OS Detection</div><div class="settings-row-desc">Attempt to fingerprint the target OS</div></div>
+                    <input id="adv-os-detect" type="checkbox" class="saas-toggle">
+                  </div>
+                  <div class="settings-row" style="padding:10px 0">
+                    <div><div class="settings-row-label">Version Detection</div><div class="settings-row-desc">Probe open ports for service/version info</div></div>
+                    <input id="adv-version-detect" type="checkbox" class="saas-toggle" checked>
+                  </div>
+                  <div class="settings-row" style="padding:10px 0">
+                    <div><div class="settings-row-label">Script Scan (NSE)</div><div class="settings-row-desc">Run Nmap Scripting Engine scripts</div></div>
+                    <input id="adv-nse-enable" type="checkbox" class="saas-toggle" checked>
+                  </div>
+                  <div class="saas-field" style="margin-top:14px;margin-bottom:0" id="adv-nse-cats-wrap">
+                    <label class="saas-label">NSE Categories</label>
+                    <div class="nse-grid" id="adv-nse-cats">
+                      <span class="nse-chip active" data-cat="default">default</span>
+                      <span class="nse-chip" data-cat="vuln">vuln</span>
+                      <span class="nse-chip" data-cat="auth">auth</span>
+                      <span class="nse-chip" data-cat="safe">safe</span>
+                      <span class="nse-chip" data-cat="http">http</span>
+                      <span class="nse-chip" data-cat="brute">brute</span>
+                      <span class="nse-chip" data-cat="exploit">exploit</span>
+                      <span class="nse-chip" data-cat="discovery">discovery</span>
+                      <span class="nse-chip" data-cat="dos">dos</span>
+                      <span class="nse-chip" data-cat="intrusive">intrusive</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="saas-field" style="grid-column:1/-1">
-                  <label class="saas-label" for="s-objectives">Objectives (one per line)</label>
-                  <textarea id="s-objectives" class="saas-input" rows="3"
-                    placeholder="Find flag.txt&#10;Achieve root access&#10;Enumerate all services"></textarea>
+
+                <!-- Exploitation -->
+                <div class="adv-section">
+                  <div class="adv-section-title">
+                    <span class="material-symbols-outlined">bug_report</span>Exploitation
+                  </div>
+                  <div class="settings-row" style="padding:10px 0">
+                    <div><div class="settings-row-label">Allow Exploitation</div><div class="settings-row-desc">Let the AI run exploit modules after discovery</div></div>
+                    <input id="adv-allow-exploit" type="checkbox" class="saas-toggle">
+                  </div>
+                  <div class="settings-row" style="padding:10px 0">
+                    <div><div class="settings-row-label">Post-Exploitation</div><div class="settings-row-desc">Privilege escalation, persistence, loot after shell</div></div>
+                    <input id="adv-allow-post" type="checkbox" class="saas-toggle">
+                  </div>
+                  <div class="settings-row" style="padding:10px 0">
+                    <div><div class="settings-row-label">Lateral Movement</div><div class="settings-row-desc">Pivot to adjacent hosts after first compromise</div></div>
+                    <input id="adv-allow-lateral" type="checkbox" class="saas-toggle">
+                  </div>
+                  <div class="settings-row" style="padding:10px 0">
+                    <div><div class="settings-row-label">Browser Recon</div><div class="settings-row-desc">Use headless browser for web application analysis</div></div>
+                    <input id="adv-browser-recon" type="checkbox" class="saas-toggle">
+                  </div>
+                  <div class="saas-field" style="margin-top:14px;margin-bottom:0">
+                    <label class="saas-label" for="adv-max-cvss">Maximum Exploit Severity (CVSS)</label>
+                    <div style="display:flex;align-items:center;gap:14px">
+                      <input id="adv-max-cvss" type="range" class="saas-range" min="0" max="10" step="0.1" value="10">
+                      <span id="adv-cvss-val" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--c-accent);width:30px;flex-shrink:0">10.0</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="saas-field" style="grid-column:1/-1">
-                  <label class="saas-label" for="s-notes">Context / Notes</label>
-                  <textarea id="s-notes" class="saas-input" rows="2"
-                    placeholder="Any relevant context for the AI agent…"></textarea>
+
+                <!-- Output & Objectives -->
+                <div class="adv-section">
+                  <div class="adv-section-title">
+                    <span class="material-symbols-outlined">flag</span>Objectives &amp; Output
+                  </div>
+                  <div class="adv-grid">
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-output-format">Verbosity</label>
+                      <select id="adv-output-format" class="saas-select">
+                        <option value="normal">Normal</option>
+                        <option value="verbose">Verbose</option>
+                        <option value="debug">Debug</option>
+                      </select>
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-operator">Operator Tag</label>
+                      <input id="adv-operator" type="text" class="saas-input" placeholder="Your name or team">
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0;grid-column:1/-1">
+                      <label class="saas-label" for="adv-objectives">Objectives (one per line)</label>
+                      <textarea id="adv-objectives" class="saas-input" rows="3"
+                        placeholder="Find flag.txt&#10;Achieve root access&#10;Enumerate all services"></textarea>
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0;grid-column:1/-1">
+                      <label class="saas-label" for="adv-notes">Context / Notes for Agent</label>
+                      <textarea id="adv-notes" class="saas-input" rows="2"
+                        placeholder="Any context, hints, or constraints for the AI agent…"></textarea>
+                    </div>
+                  </div>
                 </div>
-              </div>
+
+                <!-- Exclusions -->
+                <div class="adv-section" style="margin-bottom:0">
+                  <div class="adv-section-title">
+                    <span class="material-symbols-outlined">block</span>Exclusions
+                  </div>
+                  <div class="adv-grid">
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-exclude-ips">Exclude IPs / CIDRs</label>
+                      <textarea id="adv-exclude-ips" class="saas-input" rows="2" placeholder="10.0.0.1&#10;192.168.1.0/24"></textarea>
+                      <div class="saas-help">One per line</div>
+                    </div>
+                    <div class="saas-field" style="margin-bottom:0">
+                      <label class="saas-label" for="adv-exclude-ports">Exclude Ports</label>
+                      <input id="adv-exclude-ports" type="text" class="saas-input saas-input-mono" placeholder="22,3389,5900">
+                      <div class="saas-help">Comma-separated</div>
+                    </div>
+                  </div>
+                </div>
+
+              </div><!-- /adv-content -->
             </details>
           </div>
 
-          <!-- Launch button -->
-          <button id="s-launch-btn" type="submit" class="saas-btn saas-btn-primary"
-            style="width:100%;justify-content:center;padding:12px;font-size:15px">
-            <span class="material-symbols-outlined" style="font-size:16px">rocket_launch</span>
-            Start Scan
+          <button id="s-launch-btn" type="submit" class="saas-btn saas-btn-primary saas-btn-lg"
+            style="width:100%;justify-content:center">
+            <span class="material-symbols-outlined" style="font-size:18px">rocket_launch</span>
+            Launch Scan
           </button>
         </form>
       </div>
       <!-- /New Scan -->
 
-      <!-- ── PAGE: Mission Live ──────────────────────── -->
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Mission Live
+           ══════════════════════════════════════════════════ -->
       <div id="page-mission-live" class="s-page hidden">
         <div class="page-title">Mission Live</div>
 
         <!-- Status bar -->
         <div class="ml-status-bar">
           <span id="ml-status-dot" class="saas-status-dot saas-dot-idle"></span>
-          <span id="ml-status-text" style="font-size:13px;font-weight:600">Idle</span>
+          <span id="ml-status-text" style="font-size:13px;font-weight:700">Idle</span>
           <span style="color:var(--c-border)">·</span>
           <span id="ml-target" class="ml-target-text">—</span>
           <span id="ml-profile" class="ml-profile-text"></span>
           <span style="color:var(--c-border)">·</span>
-          <span id="ml-elapsed" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--c-muted-txt)">00:00</span>
+          <span id="ml-elapsed"></span>
+          <div style="flex:1"></div>
+          <span id="ml-session-id" style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--c-muted-txt)"></span>
         </div>
 
         <!-- Phase stepper -->
-        <div class="phase-stepper saas-card" style="padding:16px 12px;margin-bottom:20px">
-          <div class="phase-step pending" data-phase="1">
-            <div class="phase-circle">1</div>
-            <span class="phase-name">Discovery</span>
-          </div>
-          <div class="phase-step pending" data-phase="2">
-            <div class="phase-circle">2</div>
-            <span class="phase-name">Port Scan</span>
-          </div>
-          <div class="phase-step pending" data-phase="3">
-            <div class="phase-circle">3</div>
-            <span class="phase-name">Analysis</span>
-          </div>
-          <div class="phase-step pending" data-phase="4">
-            <div class="phase-circle">4</div>
-            <span class="phase-name">Exploitation</span>
-          </div>
-          <div class="phase-step pending" data-phase="5">
-            <div class="phase-circle">5</div>
-            <span class="phase-name">Reporting</span>
-          </div>
+        <div class="phase-stepper">
+          <div class="phase-step pending" data-phase="1"><div class="phase-circle">1</div><span class="phase-name">Discovery</span></div>
+          <div class="phase-step pending" data-phase="2"><div class="phase-circle">2</div><span class="phase-name">Port Scan</span></div>
+          <div class="phase-step pending" data-phase="3"><div class="phase-circle">3</div><span class="phase-name">Analysis</span></div>
+          <div class="phase-step pending" data-phase="4"><div class="phase-circle">4</div><span class="phase-name">Exploitation</span></div>
+          <div class="phase-step pending" data-phase="5"><div class="phase-circle">5</div><span class="phase-name">Reporting</span></div>
         </div>
 
         <!-- Stats row -->
         <div class="ml-stats">
           <div class="stat-card">
+            <span class="material-symbols-outlined stat-icon">dns</span>
             <div class="stat-value" id="ml-hosts">0</div>
             <div class="stat-label">Hosts Found</div>
           </div>
           <div class="stat-card">
+            <span class="material-symbols-outlined stat-icon">lan</span>
             <div class="stat-value" id="ml-ports">0</div>
             <div class="stat-label">Open Ports</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value" id="ml-vulns" style="color:var(--c-danger)">0</div>
+            <span class="material-symbols-outlined stat-icon">warning</span>
+            <div class="stat-value" id="ml-vulns">0</div>
             <div class="stat-label">Vulnerabilities</div>
           </div>
           <div class="stat-card">
+            <span class="material-symbols-outlined stat-icon">terminal</span>
             <div class="stat-value" id="ml-shells">0</div>
             <div class="stat-label">Active Shells</div>
           </div>
         </div>
 
-        <!-- Done bar (hidden until done) -->
-        <div id="ml-done-bar" class="hidden" style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">
-            <span class="material-symbols-outlined" style="color:var(--c-success);font-size:24px">task_alt</span>
-            <span style="font-size:15px;font-weight:600;color:var(--c-success)">Mission Completed</span>
-            <a data-nav="reports" href="#reports" class="saas-btn saas-btn-primary saas-btn-sm" style="margin-left:8px">
-              <span class="material-symbols-outlined" style="font-size:15px">summarize</span>View Report
+        <!-- Done bar -->
+        <div id="ml-done-bar" class="hidden">
+          <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap">
+            <span class="material-symbols-outlined" style="color:var(--c-success);font-size:26px">task_alt</span>
+            <span style="font-size:15px;font-weight:700;color:var(--c-success)">Mission Completed</span>
+            <a data-nav="reports" href="#reports" class="saas-btn saas-btn-primary saas-btn-sm">
+              <span class="material-symbols-outlined" style="font-size:14px">summarize</span>View Report
             </a>
             <a data-nav="new-scan" href="#new-scan" class="saas-btn saas-btn-ghost saas-btn-sm">
-              <span class="material-symbols-outlined" style="font-size:15px">add</span>New Scan
+              <span class="material-symbols-outlined" style="font-size:14px">add</span>New Scan
             </a>
           </div>
         </div>
 
-        <!-- Main grid: summary + feed -->
-        <div class="ml-grid">
-          <!-- Summary column -->
+        <!-- Main grid -->
+        <div class="ml-grid" style="margin-bottom:20px">
+          <!-- Summary -->
           <div>
             <div class="saas-card" style="margin-bottom:16px">
               <div class="saas-card-title">
-                <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">psychology</span>
-                What the AI is doing
+                <span class="material-symbols-outlined">psychology</span>AI Reasoning
               </div>
-              <p id="ml-summary" class="opacity-0" style="min-height:60px;font-size:14px;line-height:1.7;color:var(--c-txt)">
-                Waiting for mission to start…
-              </p>
+              <p id="ml-summary" class="opacity-0">Waiting for mission to start…</p>
+            </div>
+
+            <!-- Findings panel -->
+            <div class="saas-card" style="padding:0;overflow:hidden">
+              <div class="ml-findings-header">
+                <div class="ml-findings-title">
+                  <span class="material-symbols-outlined" style="font-size:15px">warning</span>
+                  Findings
+                  <span id="ml-findings-count" class="saas-badge saas-badge-idle" style="margin-left:4px">0</span>
+                </div>
+                <div style="display:flex;gap:6px">
+                  <button class="view-btn active" id="ml-findings-list-btn" title="List view">
+                    <span class="material-symbols-outlined">list</span>
+                  </button>
+                  <button class="view-btn" id="ml-findings-card-btn" title="Card view">
+                    <span class="material-symbols-outlined">grid_view</span>
+                  </button>
+                </div>
+              </div>
+              <div id="ml-findings-body" class="ml-findings-body" style="max-height:300px;overflow-y:auto">
+                <div style="padding:24px;text-align:center;color:var(--c-muted-txt);font-size:13px">
+                  <span class="material-symbols-outlined" style="display:block;font-size:36px;margin-bottom:8px;opacity:0.3">shield</span>
+                  No findings yet
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- Feed column -->
-          <div class="saas-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
-            <div style="padding:12px 14px;border-bottom:1px solid var(--c-border);font-size:12px;font-weight:600;color:var(--c-muted-txt);text-transform:uppercase;letter-spacing:.05em">
+          <!-- Feed -->
+          <div class="saas-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;min-height:400px">
+            <div style="padding:10px 14px;border-bottom:1px solid var(--c-border);font-size:11px;font-weight:700;color:var(--c-muted-txt);text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:6px">
+              <span class="material-symbols-outlined" style="font-size:15px">stream</span>
               Activity Feed
+              <span id="ml-feed-count" style="margin-left:auto;background:var(--c-bg);border:1px solid var(--c-border);border-radius:9999px;padding:1px 7px;font-size:10px;color:var(--c-muted-txt)">0</span>
             </div>
-            <div id="ml-feed" style="height:360px;overflow-y:auto;padding:8px"></div>
+            <div id="ml-feed" style="flex:1;overflow-y:auto"></div>
           </div>
         </div>
 
-        <!-- Empty state when no session -->
+        <!-- Empty state -->
         <div id="ml-empty" style="text-align:center;padding:60px 20px;color:var(--c-muted-txt)">
-          <span class="material-symbols-outlined" style="font-size:48px;color:var(--c-border);display:block;margin-bottom:12px">radar</span>
+          <span class="material-symbols-outlined" style="font-size:52px;color:var(--c-border);display:block;margin-bottom:14px">radar</span>
           <p style="font-size:15px;margin-bottom:16px">No active mission</p>
           <a data-nav="new-scan" href="#new-scan" class="saas-btn saas-btn-primary">
             <span class="material-symbols-outlined" style="font-size:16px">rocket_launch</span>Start a Scan
@@ -376,26 +511,45 @@
       </div>
       <!-- /Mission Live -->
 
-      <!-- ── PAGE: AI Assistant ──────────────────────── -->
-      <div id="page-ai-assistant" class="s-page hidden" style="padding-bottom:0;max-width:860px">
-        <div class="page-title">AI Assistant</div>
-        <div class="page-subtitle">Ask questions about your scans, get explanations, or analyze findings.</div>
+      <!-- ══════════════════════════════════════════════════
+           PAGE: AI Assistant
+           ══════════════════════════════════════════════════ -->
+      <div id="page-ai-assistant" class="s-page hidden" style="max-width:900px">
+        <div class="page-header-row">
+          <div>
+            <div class="page-title">AI Assistant</div>
+            <div class="page-subtitle">Ask anything about your scans, vulnerabilities, or security concepts.</div>
+          </div>
+          <div class="page-header-actions">
+            <button id="ai-clear-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+              <span class="material-symbols-outlined" style="font-size:15px">refresh</span>New Chat
+            </button>
+          </div>
+        </div>
 
         <div class="ai-layout">
+          <div class="ai-chat-header">
+            <span class="material-symbols-outlined" style="font-size:16px;color:var(--c-accent)">smart_toy</span>
+            <span class="ai-chat-model">
+              TIRPAN AI Agent
+              <span id="ai-provider-label" style="background:var(--c-muted);border-radius:4px;padding:1px 6px;font-size:10px;margin-left:4px">—</span>
+            </span>
+            <div style="flex:1"></div>
+            <span id="ai-session-info" style="font-size:11px;color:var(--c-muted-txt)"></span>
+          </div>
+
           <div id="ai-feed">
             <div class="ai-msg ai-msg-assistant">
-              <div class="ai-msg-avatar">
-                <span class="material-symbols-outlined">smart_toy</span>
-              </div>
+              <div class="ai-msg-avatar"><span class="material-symbols-outlined">smart_toy</span></div>
               <div class="ai-msg-body">
                 <p>Hello! I'm the TIRPAN AI assistant. I can help you:</p>
-                <ul style="margin-left:16px;list-style:disc;margin-top:4px">
+                <ul style="margin-left:16px;list-style:disc;margin-top:6px;line-height:1.8">
                   <li>Explain vulnerabilities and attack vectors</li>
                   <li>Analyze scan results and findings</li>
-                  <li>Suggest next steps and remediations</li>
+                  <li>Suggest remediation and next steps</li>
                   <li>Answer security questions in plain language</li>
+                  <li>Execute tools and run active scans (if authorized)</li>
                 </ul>
-                <p style="margin-top:8px">What would you like to know?</p>
               </div>
             </div>
           </div>
@@ -410,11 +564,12 @@
       </div>
       <!-- /AI Assistant -->
 
-      <!-- ── PAGE: Terminal ──────────────────────────── -->
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Terminal
+           ══════════════════════════════════════════════════ -->
       <div id="page-terminal" class="s-page hidden" style="padding-bottom:0">
         <div class="page-title">Terminal</div>
         <div class="page-subtitle">Direct shell access to your active session.</div>
-
         <div class="terminal-container">
           <div class="terminal-bar">
             <span class="material-symbols-outlined" style="font-size:14px;color:var(--c-muted-txt)">terminal</span>
@@ -422,29 +577,87 @@
             <span style="flex:1"></span>
             <span id="term-status" style="font-size:11px;color:var(--c-muted-txt)">Disconnected</span>
             <button id="term-connect-btn" class="saas-btn saas-btn-ghost saas-btn-sm">Reconnect</button>
+            <button id="term-clear-btn" class="saas-btn saas-btn-ghost saas-btn-sm">Clear</button>
           </div>
           <div id="saas-terminal" style="flex:1"></div>
         </div>
       </div>
       <!-- /Terminal -->
 
-      <!-- ── PAGE: Activity ─────────────────────────── -->
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Activity
+           ══════════════════════════════════════════════════ -->
       <div id="page-activity" class="s-page hidden">
-        <div class="page-title">Activity</div>
-        <div class="page-subtitle">Browse past scans and review the audit trail.</div>
+        <div class="page-header-row">
+          <div>
+            <div class="page-title">Scans &amp; Activity</div>
+            <div class="page-subtitle" style="margin-bottom:0">Browse past scans and review the audit trail.</div>
+          </div>
+          <div class="page-header-actions">
+            <div class="view-toggle">
+              <button class="view-btn active" id="act-view-list" title="List view">
+                <span class="material-symbols-outlined">list</span>
+              </button>
+              <button class="view-btn" id="act-view-card" title="Card view">
+                <span class="material-symbols-outlined">grid_view</span>
+              </button>
+            </div>
+          </div>
+        </div>
 
-        <div class="activity-tabs">
+        <div class="activity-tabs" style="margin-top:20px">
           <div class="activity-tab active" data-tab="sessions">Scans</div>
           <div class="activity-tab" data-tab="audit">Audit Log</div>
         </div>
 
+        <!-- Scans panel -->
         <div id="activity-panel-sessions" class="activity-panel">
+          <!-- Filter bar -->
+          <div class="filter-bar">
+            <div class="filter-search">
+              <span class="filter-search-icon"><span class="material-symbols-outlined">search</span></span>
+              <input id="act-search" type="text" placeholder="Search by target or name…">
+            </div>
+            <select id="act-status-filter" class="filter-select">
+              <option value="">All Statuses</option>
+              <option value="running">Running</option>
+              <option value="done">Completed</option>
+              <option value="error">Error</option>
+              <option value="stopped">Stopped</option>
+              <option value="paused">Paused</option>
+            </select>
+            <select id="act-sort" class="filter-select">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="target">By target</option>
+              <option value="vulns">Most vulns</option>
+            </select>
+            <button id="act-refresh-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+              <span class="material-symbols-outlined" style="font-size:15px">refresh</span>
+            </button>
+          </div>
+
           <div id="activity-sessions">
-            <div class="saas-loading">Loading scans…</div>
+            <div class="saas-loading">
+              <span class="saas-spinner saas-spinner-dark"></span>Loading scans…
+            </div>
           </div>
         </div>
 
+        <!-- Audit log panel -->
         <div id="activity-panel-audit" class="activity-panel hidden">
+          <div class="filter-bar">
+            <div class="filter-search">
+              <span class="filter-search-icon"><span class="material-symbols-outlined">search</span></span>
+              <input id="audit-search" type="text" placeholder="Search events…">
+            </div>
+            <select id="audit-filter" class="filter-select">
+              <option value="">All Events</option>
+              <option value="tool_call">Tool Calls</option>
+              <option value="vuln_found">Vulnerabilities</option>
+              <option value="error">Errors</option>
+            </select>
+          </div>
           <div id="activity-audit">
             <div class="saas-empty-state">
               <span class="material-symbols-outlined">receipt_long</span>
@@ -455,39 +668,108 @@
       </div>
       <!-- /Activity -->
 
-      <!-- ── PAGE: Reports ──────────────────────────── -->
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Reports
+           ══════════════════════════════════════════════════ -->
       <div id="page-reports" class="s-page hidden">
-        <div class="page-title">Reports</div>
-        <div class="page-subtitle">View and download full security assessment reports.</div>
-
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
-          <div style="flex:1;min-width:200px">
-            <select id="report-session-sel" class="saas-select">
-              <option value="">— Select a completed scan —</option>
-            </select>
+        <div class="page-header-row">
+          <div>
+            <div class="page-title">Reports</div>
+            <div class="page-subtitle" style="margin-bottom:0">View and download full security assessment reports.</div>
           </div>
-          <button id="report-pdf-btn" class="saas-btn saas-btn-ghost">
-            <span class="material-symbols-outlined" style="font-size:16px">download</span>
-            Download PDF
+          <div class="page-header-actions">
+            <div class="view-toggle">
+              <button class="view-btn active" id="rpt-view-card" title="Card view">
+                <span class="material-symbols-outlined">grid_view</span>
+              </button>
+              <button class="view-btn" id="rpt-view-list" title="List view">
+                <span class="material-symbols-outlined">list</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Severity summary -->
+        <div class="report-sev-summary" id="rpt-sev-summary" style="margin-top:20px">
+          <div class="sev-card sev-card-c">
+            <div><div class="sev-card-num" id="rpt-total-c">—</div><div class="sev-card-label">Critical</div></div>
+          </div>
+          <div class="sev-card sev-card-h">
+            <div><div class="sev-card-num" id="rpt-total-h">—</div><div class="sev-card-label">High</div></div>
+          </div>
+          <div class="sev-card sev-card-m">
+            <div><div class="sev-card-num" id="rpt-total-m">—</div><div class="sev-card-label">Medium</div></div>
+          </div>
+          <div class="sev-card sev-card-l">
+            <div><div class="sev-card-num" id="rpt-total-l">—</div><div class="sev-card-label">Low</div></div>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="filter-bar" style="margin-top:20px">
+          <div class="filter-search">
+            <span class="filter-search-icon"><span class="material-symbols-outlined">search</span></span>
+            <input id="rpt-search" type="text" placeholder="Search by target or name…">
+          </div>
+          <select id="rpt-sort" class="filter-select">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="target">By target</option>
+            <option value="vulns">Most vulns</option>
+          </select>
+          <button id="report-refresh-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+            <span class="material-symbols-outlined" style="font-size:15px">refresh</span>
           </button>
         </div>
 
-        <div id="report-empty" class="saas-empty-state">
-          <span class="material-symbols-outlined">summarize</span>
-          <p>Select a completed scan above to view its report.</p>
+        <!-- Content -->
+        <div id="rpt-content">
+          <div class="saas-loading">
+            <span class="saas-spinner saas-spinner-dark"></span>Loading reports…
+          </div>
         </div>
 
-        <iframe id="report-frame" class="hidden" frameborder="0" title="Security Report"></iframe>
+        <!-- Full report viewer -->
+        <div id="rpt-viewer" class="hidden" style="margin-top:24px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+            <button id="rpt-back-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+              <span class="material-symbols-outlined" style="font-size:15px">arrow_back</span>Back to Reports
+            </button>
+            <span id="rpt-viewer-title" style="font-size:14px;font-weight:600;color:var(--c-txt)"></span>
+            <div style="flex:1"></div>
+            <button id="report-pdf-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+              <span class="material-symbols-outlined" style="font-size:15px">download</span>PDF
+            </button>
+          </div>
+          <iframe id="report-frame" frameborder="0" title="Security Report"
+            style="width:100%;height:70vh;border:1px solid var(--c-border);border-radius:var(--radius-lg);background:var(--c-surface)"></iframe>
+        </div>
       </div>
       <!-- /Reports -->
 
-      <!-- ── PAGE: Files ────────────────────────────── -->
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Files
+           ══════════════════════════════════════════════════ -->
       <div id="page-files" class="s-page hidden">
-        <div class="page-title">Files</div>
-        <div class="page-subtitle">Download scan artifacts, nmap outputs, and captured data.</div>
+        <div class="page-header-row">
+          <div>
+            <div class="page-title">Files</div>
+            <div class="page-subtitle" style="margin-bottom:0">Download scan artifacts, outputs, and captured data.</div>
+          </div>
+          <div class="page-header-actions">
+            <div class="view-toggle">
+              <button class="view-btn active" id="files-view-list" title="List view">
+                <span class="material-symbols-outlined">list</span>
+              </button>
+              <button class="view-btn" id="files-view-card" title="Card view">
+                <span class="material-symbols-outlined">grid_view</span>
+              </button>
+            </div>
+          </div>
+        </div>
 
-        <div style="margin-bottom:20px">
-          <select id="files-session-sel" class="saas-select" style="max-width:400px">
+        <div style="margin-top:20px;margin-bottom:20px">
+          <select id="files-session-sel" class="saas-select" style="max-width:420px">
             <option value="">— Select a scan —</option>
           </select>
         </div>
@@ -501,133 +783,567 @@
       </div>
       <!-- /Files -->
 
-      <!-- ── PAGE: Settings ─────────────────────────── -->
-      <div id="page-settings" class="s-page hidden" style="max-width:640px">
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Settings
+           ══════════════════════════════════════════════════ -->
+      <div id="page-settings" class="s-page hidden" style="max-width:860px">
         <div class="page-title">Settings</div>
-        <div class="page-subtitle">Configure your scanning preferences and appearance.</div>
+        <div class="page-subtitle">Configure every aspect of TIRPAN — AI provider, scan engine, safety, and appearance.</div>
+
+        <!-- Tab bar -->
+        <div class="settings-tab-bar">
+          <button class="settings-tab-btn active" data-stab="appearance">
+            <span class="material-symbols-outlined">palette</span>Appearance
+          </button>
+          <button class="settings-tab-btn" data-stab="ai-model">
+            <span class="material-symbols-outlined">smart_toy</span>AI Model
+          </button>
+          <button class="settings-tab-btn" data-stab="scan-engine">
+            <span class="material-symbols-outlined">radar</span>Scan Engine
+          </button>
+          <button class="settings-tab-btn" data-stab="network">
+            <span class="material-symbols-outlined">lan</span>Network
+          </button>
+          <button class="settings-tab-btn" data-stab="safety">
+            <span class="material-symbols-outlined">security</span>Safety
+          </button>
+          <button class="settings-tab-btn" data-stab="data">
+            <span class="material-symbols-outlined">database</span>Data
+          </button>
+        </div>
 
         <form id="settings-form">
-          <!-- Safety -->
-          <div class="saas-card settings-section" style="margin-bottom:20px">
-            <div class="settings-section-title">Safety & Permissions</div>
 
-            <div class="settings-row">
-              <div>
-                <div class="settings-row-label">Block Exploitation</div>
-                <div class="settings-row-desc">Prevent the AI from running any exploit modules</div>
+          <!-- ── Panel: Appearance ──────────────────────── -->
+          <div class="settings-panel active" data-spanel="appearance">
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">Theme &amp; Display</div>
+              <div class="settings-section-subtitle">Visual preferences for the TIRPAN interface.</div>
+
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Color Theme</div>
+                  <div class="settings-row-desc">Toggle between light and dark mode</div>
+                </div>
+                <div class="settings-row-right">
+                  <button type="button" id="settings-theme-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+                    <span class="material-symbols-outlined" style="font-size:15px">dark_mode</span>Toggle Theme
+                  </button>
+                </div>
               </div>
-              <input id="settings-block-exploit" type="checkbox" class="saas-toggle">
+
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Interface Density</div>
+                  <div class="settings-row-desc">Compact mode reduces padding for more content</div>
+                </div>
+                <div class="settings-row-right">
+                  <select id="settings-density" class="saas-select" style="width:130px">
+                    <option value="normal">Normal</option>
+                    <option value="compact">Compact</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Animate Feed Items</div>
+                  <div class="settings-row-desc">Slide-in animation for new activity feed entries</div>
+                </div>
+                <input id="settings-animate-feed" type="checkbox" class="saas-toggle" checked>
+              </div>
+
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Expert Interface</div>
+                  <div class="settings-row-desc">Switch to the advanced technical interface</div>
+                </div>
+                <a href="/" class="saas-btn saas-btn-ghost saas-btn-sm">
+                  <span class="material-symbols-outlined" style="font-size:14px">code</span>Expert Mode
+                </a>
+              </div>
             </div>
 
-            <div class="settings-row">
-              <div>
-                <div class="settings-row-label">Maximum Severity</div>
-                <div class="settings-row-desc">Only attempt exploits up to this CVSS severity</div>
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">Default Views</div>
+              <div class="settings-section-subtitle">Choose how scan lists and reports are displayed by default.</div>
+
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Scans Default View</div>
+                  <div class="settings-row-desc">Card grid or compact list</div>
+                </div>
+                <select id="settings-scan-view" class="saas-select" style="width:110px">
+                  <option value="list">List</option>
+                  <option value="card">Card</option>
+                </select>
               </div>
-              <select id="settings-max-severity" class="saas-select" style="width:120px">
-                <option value="CRITICAL">Critical</option>
-                <option value="HIGH">High</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="LOW">Low</option>
-              </select>
+
+              <div class="settings-row">
+                <div>
+                  <div class="settings-row-label">Reports Default View</div>
+                  <div class="settings-row-desc">Card grid or compact list</div>
+                </div>
+                <select id="settings-report-view" class="saas-select" style="width:110px">
+                  <option value="card">Card</option>
+                  <option value="list">List</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <!-- Scan Speed -->
-          <div class="saas-card settings-section" style="margin-bottom:20px">
-            <div class="settings-section-title">Default Scan Speed</div>
-            <div class="speed-options" style="margin-top:4px">
-              <input type="radio" name="speed" id="speed-quiet"  value="stealth"    class="speed-option">
-              <label for="speed-quiet"  class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">volume_off</span>Quiet</label>
+          <!-- ── Panel: AI Model ────────────────────────── -->
+          <div class="settings-panel" data-spanel="ai-model">
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">AI Provider</div>
+              <div class="settings-section-subtitle">Select which LLM powers the TIRPAN agent and AI assistant.</div>
 
-              <input type="radio" name="speed" id="speed-normal" value="normal" class="speed-option" checked>
-              <label for="speed-normal" class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">tune</span>Normal</label>
+              <div class="provider-grid" id="provider-grid">
+                <label class="provider-card selected" data-provider="ollama">
+                  <input type="radio" name="ai-provider" value="ollama" checked>
+                  <div class="provider-card-name">Ollama</div>
+                  <div class="provider-card-desc">Local LLM, no internet, full privacy</div>
+                  <span class="provider-card-badge">Local</span>
+                </label>
+                <label class="provider-card" data-provider="openrouter">
+                  <input type="radio" name="ai-provider" value="openrouter">
+                  <div class="provider-card-name">OpenRouter</div>
+                  <div class="provider-card-desc">Cloud models: Claude, GPT-4, Llama</div>
+                </label>
+                <label class="provider-card" data-provider="opencode_go">
+                  <input type="radio" name="ai-provider" value="opencode_go">
+                  <div class="provider-card-name">OpenCode Go</div>
+                  <div class="provider-card-desc">Low-cost subscription coding models</div>
+                </label>
+                <label class="provider-card" data-provider="lmstudio">
+                  <input type="radio" name="ai-provider" value="lmstudio">
+                  <div class="provider-card-name">LM Studio</div>
+                  <div class="provider-card-desc">Local OpenAI-compatible API</div>
+                </label>
+              </div>
+            </div>
 
-              <input type="radio" name="speed" id="speed-fast"   value="aggressive"   class="speed-option">
-              <label for="speed-fast"   class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">bolt</span>Fast</label>
+            <!-- Ollama config -->
+            <div class="saas-card settings-section" id="cfg-ollama">
+              <div class="settings-section-title">Ollama Configuration</div>
+              <div class="saas-field-row">
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="cfg-ollama-url">Base URL</label>
+                  <input id="cfg-ollama-url" type="text" class="saas-input saas-input-mono" placeholder="http://127.0.0.1:11434">
+                </div>
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="cfg-ollama-model">Model</label>
+                  <input id="cfg-ollama-model" type="text" class="saas-input saas-input-mono" placeholder="llama3:8b">
+                </div>
+              </div>
+              <div style="margin-top:12px;display:flex;gap:8px">
+                <button type="button" id="test-ollama-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+                  <span class="material-symbols-outlined" style="font-size:14px">wifi_tethering</span>Test Connection
+                </button>
+                <span id="test-ollama-result" style="font-size:12px;color:var(--c-muted-txt);align-self:center"></span>
+              </div>
+            </div>
+
+            <!-- OpenRouter config -->
+            <div class="saas-card settings-section" id="cfg-openrouter" style="display:none">
+              <div class="settings-section-title">OpenRouter Configuration</div>
+              <div class="saas-field">
+                <label class="saas-label" for="cfg-or-key">API Key</label>
+                <div class="saas-key-wrap">
+                  <input id="cfg-or-key" type="password" class="saas-input saas-input-mono" placeholder="sk-or-…">
+                  <button type="button" class="saas-key-toggle" data-target="cfg-or-key">
+                    <span class="material-symbols-outlined">visibility</span>
+                  </button>
+                </div>
+                <div class="saas-help">Get your key at <span style="color:var(--c-accent)">openrouter.ai/keys</span></div>
+              </div>
+              <div class="saas-field" style="margin-bottom:0">
+                <label class="saas-label" for="cfg-or-model">Model ID</label>
+                <input id="cfg-or-model" type="text" class="saas-input saas-input-mono" placeholder="anthropic/claude-sonnet-4-6">
+                <div class="saas-help">Examples: anthropic/claude-opus-4-7 · openai/gpt-4o · meta-llama/llama-3.3-70b-instruct</div>
+              </div>
+              <div style="margin-top:14px;display:flex;gap:8px">
+                <button type="button" id="test-or-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+                  <span class="material-symbols-outlined" style="font-size:14px">wifi_tethering</span>Test Connection
+                </button>
+                <span id="test-or-result" style="font-size:12px;color:var(--c-muted-txt);align-self:center"></span>
+              </div>
+            </div>
+
+            <!-- OpenCode Go config -->
+            <div class="saas-card settings-section" id="cfg-opencode-go" style="display:none">
+              <div class="settings-section-title">OpenCode Go Configuration</div>
+              <div class="saas-field">
+                <label class="saas-label" for="cfg-ocg-key">API Key</label>
+                <div class="saas-key-wrap">
+                  <input id="cfg-ocg-key" type="password" class="saas-input saas-input-mono" placeholder="oc-go-…">
+                  <button type="button" class="saas-key-toggle" data-target="cfg-ocg-key">
+                    <span class="material-symbols-outlined">visibility</span>
+                  </button>
+                </div>
+              </div>
+              <div class="saas-field-row" style="margin-bottom:0">
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="cfg-ocg-model">Model</label>
+                  <input id="cfg-ocg-model" type="text" class="saas-input saas-input-mono" placeholder="deepseek-r1">
+                  <div class="saas-help">Check opencode.ai for available model IDs</div>
+                </div>
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="cfg-ocg-url">Base URL</label>
+                  <input id="cfg-ocg-url" type="text" class="saas-input saas-input-mono" placeholder="https://opencode.ai/zen/go/v1">
+                </div>
+              </div>
+            </div>
+
+            <!-- LM Studio config -->
+            <div class="saas-card settings-section" id="cfg-lmstudio" style="display:none">
+              <div class="settings-section-title">LM Studio Configuration</div>
+              <div class="saas-field-row" style="margin-bottom:0">
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="cfg-lms-url">Base URL</label>
+                  <input id="cfg-lms-url" type="text" class="saas-input saas-input-mono" placeholder="http://127.0.0.1:1234">
+                </div>
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="cfg-lms-model">Model</label>
+                  <input id="cfg-lms-model" type="text" class="saas-input saas-input-mono" placeholder="local-model">
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- Appearance -->
-          <div class="saas-card settings-section" style="margin-bottom:20px">
-            <div class="settings-section-title">Appearance</div>
-
-            <div class="settings-row">
-              <div>
-                <div class="settings-row-label">Color Theme</div>
-                <div class="settings-row-desc">Toggle between light and dark mode</div>
+          <!-- ── Panel: Scan Engine ──────────────────────── -->
+          <div class="settings-panel" data-spanel="scan-engine">
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">Default Scan Speed</div>
+              <div class="settings-section-subtitle">Applied when creating a new scan without overriding the profile.</div>
+              <div class="speed-options" style="margin-bottom:0">
+                <input type="radio" name="speed" id="speed-quiet"  value="stealth" class="speed-option">
+                <label for="speed-quiet"  class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">volume_off</span>Stealth</label>
+                <input type="radio" name="speed" id="speed-normal" value="normal" class="speed-option" checked>
+                <label for="speed-normal" class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">tune</span>Normal</label>
+                <input type="radio" name="speed" id="speed-fast"   value="aggressive" class="speed-option">
+                <label for="speed-fast"   class="speed-label"><span class="material-symbols-outlined" style="font-size:14px">bolt</span>Aggressive</label>
               </div>
-              <button type="button" id="settings-theme-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
-                <span class="material-symbols-outlined" style="font-size:16px">dark_mode</span>
-                Toggle Theme
-              </button>
             </div>
 
-            <div class="settings-row">
-              <div>
-                <div class="settings-row-label">Expert Interface</div>
-                <div class="settings-row-desc">Switch to the advanced technical interface</div>
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">Nmap Defaults</div>
+              <div class="saas-field-row">
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="set-default-ports">Default Port Range</label>
+                  <input id="set-default-ports" type="text" class="saas-input saas-input-mono" placeholder="1-1000">
+                </div>
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="set-timing">Timing Template</label>
+                  <select id="set-timing" class="saas-select">
+                    <option value="T1">T1 — Sneaky</option>
+                    <option value="T2">T2 — Polite</option>
+                    <option value="T3" selected>T3 — Normal</option>
+                    <option value="T4">T4 — Aggressive</option>
+                    <option value="T5">T5 — Insane</option>
+                  </select>
+                </div>
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="set-parallel">Max Parallel Hosts</label>
+                  <input id="set-parallel" type="number" class="saas-input" min="1" max="256" placeholder="5">
+                </div>
+                <div class="saas-field" style="margin-bottom:0">
+                  <label class="saas-label" for="set-rate">Packet Rate (pps)</label>
+                  <input id="set-rate" type="number" class="saas-input" min="1" placeholder="Unlimited">
+                </div>
               </div>
-              <a href="/" class="saas-btn saas-btn-ghost saas-btn-sm">
-                <span class="material-symbols-outlined" style="font-size:15px">code</span>
-                Expert Mode
-              </a>
+            </div>
+
+            <div class="saas-card settings-section" style="margin-bottom:0">
+              <div class="settings-section-title">Detection Defaults</div>
+
+              <div class="settings-row">
+                <div><div class="settings-row-label">OS Detection</div><div class="settings-row-desc">Fingerprint operating systems by default</div></div>
+                <input id="set-os-detect" type="checkbox" class="saas-toggle">
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">Version Detection</div><div class="settings-row-desc">Probe services for version banners</div></div>
+                <input id="set-version-detect" type="checkbox" class="saas-toggle" checked>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">Vulnerability Scripts (NSE)</div><div class="settings-row-desc">Run vuln category NSE scripts automatically</div></div>
+                <input id="set-vuln-scripts" type="checkbox" class="saas-toggle" checked>
+              </div>
+              <div class="settings-row" style="border-bottom:none">
+                <div><div class="settings-row-label">Max Session Duration</div><div class="settings-row-desc">Hard limit per scan</div></div>
+                <select id="set-session-max" class="saas-select" style="width:150px">
+                  <option value="0">No limit</option>
+                  <option value="1800">30 minutes</option>
+                  <option value="3600" selected>1 hour</option>
+                  <option value="7200">2 hours</option>
+                  <option value="14400">4 hours</option>
+                  <option value="28800">8 hours</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <button id="settings-save-btn" type="submit" class="saas-btn saas-btn-primary">
-            <span class="material-symbols-outlined" style="font-size:16px">save</span>
-            Save Settings
-          </button>
+          <!-- ── Panel: Network ─────────────────────────── -->
+          <div class="settings-panel" data-spanel="network">
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">Proxy &amp; Routing</div>
+              <div class="settings-section-subtitle">Route tool traffic through a proxy or specific interface.</div>
+
+              <div class="settings-row">
+                <div><div class="settings-row-label">HTTP Proxy</div><div class="settings-row-desc">Proxy URL for browser recon and HTTP tools</div></div>
+                <input id="set-proxy" type="checkbox" class="saas-toggle">
+              </div>
+              <div id="proxy-url-wrap" class="saas-field" style="margin-top:10px;margin-bottom:10px;display:none">
+                <label class="saas-label" for="set-proxy-url">Proxy URL</label>
+                <input id="set-proxy-url" type="text" class="saas-input saas-input-mono" placeholder="http://127.0.0.1:8080">
+              </div>
+
+              <div class="settings-row" style="border-bottom:none">
+                <div><div class="settings-row-label">Network Interface</div><div class="settings-row-desc">Bind scans to a specific interface (e.g. tun0)</div></div>
+                <div class="settings-row-right">
+                  <input id="set-interface" type="text" class="saas-input saas-input-mono" placeholder="auto" style="width:120px">
+                </div>
+              </div>
+            </div>
+
+            <div class="saas-card settings-section" style="margin-bottom:0">
+              <div class="settings-section-title">Rate Limiting</div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">Max Requests / Second</div><div class="settings-row-desc">Throttle all outbound tool requests</div></div>
+                <input id="set-max-rps" type="number" class="saas-input" min="1" max="1000" placeholder="50" style="width:80px">
+              </div>
+              <div class="settings-row" style="border-bottom:none">
+                <div><div class="settings-row-label">Inter-Request Delay (ms)</div><div class="settings-row-desc">Minimum delay between HTTP requests in web tools</div></div>
+                <input id="set-delay" type="number" class="saas-input" min="0" placeholder="200" style="width:80px">
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Panel: Safety ──────────────────────────── -->
+          <div class="settings-panel" data-spanel="safety">
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">Safety &amp; Permissions</div>
+              <div class="settings-section-subtitle">Hard limits that override all profile and per-scan settings.</div>
+
+              <div class="settings-row">
+                <div><div class="settings-row-label">Block All Exploitation</div><div class="settings-row-desc">Prevent the AI from running any exploit modules globally</div></div>
+                <input id="settings-block-exploit" type="checkbox" class="saas-toggle">
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">Block DoS Exploits</div><div class="settings-row-desc">Refuse denial-of-service style payloads</div></div>
+                <input id="settings-block-dos" type="checkbox" class="saas-toggle" checked>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">Block Destructive Actions</div><div class="settings-row-desc">Refuse rm -rf, DROP TABLE, etc.</div></div>
+                <input id="settings-block-destruct" type="checkbox" class="saas-toggle" checked>
+              </div>
+              <div class="settings-row" style="border-bottom:none">
+                <div><div class="settings-row-label">Maximum Exploit Severity (CVSS)</div><div class="settings-row-desc">Only attempt exploits up to this severity score</div></div>
+                <div class="settings-row-right" style="gap:12px">
+                  <input id="settings-max-cvss" type="range" class="saas-range" min="0" max="10" step="0.5" value="10" style="width:120px">
+                  <span id="settings-cvss-val" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--c-accent);width:30px">10.0</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="saas-card settings-section" style="margin-bottom:0">
+              <div class="settings-section-title">Target Exclusions</div>
+              <div class="saas-field">
+                <label class="saas-label" for="set-excluded-ips">Excluded IPs / CIDRs</label>
+                <textarea id="set-excluded-ips" class="saas-input" rows="3" placeholder="192.168.1.1&#10;10.0.0.0/8"></textarea>
+                <div class="saas-help">Always excluded from scanning, regardless of target</div>
+              </div>
+              <div class="saas-field" style="margin-bottom:0">
+                <label class="saas-label" for="set-excluded-ports">Excluded Ports</label>
+                <input id="set-excluded-ports" type="text" class="saas-input saas-input-mono" placeholder="22,3389,5900">
+                <div class="saas-help">Comma-separated port numbers to never scan</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Panel: Data ────────────────────────────── -->
+          <div class="settings-panel" data-spanel="data">
+            <div class="saas-card settings-section">
+              <div class="settings-section-title">Training Data Collection</div>
+              <div class="settings-section-subtitle">TIRPAN can log session interactions to help fine-tune future models.</div>
+
+              <div class="settings-row">
+                <div><div class="settings-row-label">Collect Training Data</div><div class="settings-row-desc">Write per-session JSONL files to data/training/</div></div>
+                <input id="set-collect-training" type="checkbox" class="saas-toggle" checked>
+              </div>
+              <div class="settings-row" style="border-bottom:none">
+                <div><div class="settings-row-label">WS Buffer TTL</div><div class="settings-row-desc">Seconds to hold event buffer in memory</div></div>
+                <input id="set-ws-ttl" type="number" class="saas-input" min="60" max="3600" placeholder="300" style="width:80px">
+              </div>
+            </div>
+
+            <div class="saas-card settings-section" style="margin-bottom:0">
+              <div class="settings-section-title">Data Management</div>
+
+              <div class="settings-row" style="border-bottom:none">
+                <div><div class="settings-row-label">Clear Session Cache</div><div class="settings-row-desc">Remove all cached reports and temporary data</div></div>
+                <button type="button" id="clear-cache-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+                  <span class="material-symbols-outlined" style="font-size:14px">delete_sweep</span>Clear Cache
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Save -->
+          <div style="display:flex;gap:12px;margin-top:24px">
+            <button id="settings-save-btn" type="submit" class="saas-btn saas-btn-primary">
+              <span class="material-symbols-outlined" style="font-size:15px">save</span>Save Settings
+            </button>
+            <button type="button" id="settings-reset-btn" class="saas-btn saas-btn-ghost">
+              <span class="material-symbols-outlined" style="font-size:15px">restart_alt</span>Reset to Defaults
+            </button>
+          </div>
         </form>
       </div>
       <!-- /Settings -->
 
-    </div>
-    <!-- /Page content -->
+    </div><!-- /s-content -->
+  </div><!-- /s-main -->
+</div><!-- /s-layout -->
 
-  </div>
-  <!-- /Main -->
-
-</div>
-<!-- /Layout -->
-
-<!-- Scripts -->
-<script src="js/saas-api.js?v=1"></script>
-<script src="js/saas-ws.js?v=1"></script>
-<script src="js/saas-pages.js?v=1"></script>
-<script src="js/saas-app.js?v=1"></script>
+<script src="js/saas-api.js?v=2"></script>
+<script src="js/saas-ws.js?v=2"></script>
+<script src="js/saas-pages.js?v=2"></script>
+<script src="js/saas-app.js?v=2"></script>
 
 <script>
-  // Wire settings theme button
-  document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('settings-theme-btn')?.addEventListener('click', () => {
-      applyTheme(saasState.theme === 'dark' ? 'light' : 'dark');
-    });
-
-    // Wire mission control buttons to current page
-    const origNavigate = router.navigate.bind(router);
-    // Mission Live controls wire themselves in mount()
-    document.getElementById('ml-pause-btn')?.addEventListener('click', () => {
-      if (window._missionPage) window._missionPage.pauseMission();
-    });
-    document.getElementById('ml-resume-btn')?.addEventListener('click', () => {
-      if (window._missionPage) window._missionPage.resumeMission();
-    });
-    document.getElementById('ml-stop-btn')?.addEventListener('click', () => {
-      if (window._missionPage) window._missionPage.stopMission();
-    });
-
-    // Done bar nav links
-    document.querySelectorAll('[data-nav]').forEach(el => {
-      if (el.tagName === 'A' && !el.classList.contains('nav-item') && !el.classList.contains('expert-mode-btn')) {
-        el.addEventListener('click', (e) => {
-          e.preventDefault();
-          router.navigate(el.dataset.nav);
-        });
-      }
+document.addEventListener('DOMContentLoaded', () => {
+  // Settings theme button
+  document.getElementById('settings-theme-btn')?.addEventListener('click', () => {
+    applyTheme(saasState.theme === 'dark' ? 'light' : 'dark');
+  });
+  // Mission control buttons
+  document.getElementById('ml-pause-btn')?.addEventListener('click', () => window._missionPage?.pauseMission());
+  document.getElementById('ml-resume-btn')?.addEventListener('click', () => window._missionPage?.resumeMission());
+  document.getElementById('ml-stop-btn')?.addEventListener('click', () => window._missionPage?.stopMission());
+  // Done bar nav links & any data-nav inside pages
+  document.querySelectorAll('[data-nav]').forEach(el => {
+    if (el.tagName === 'A' && !el.classList.contains('nav-item') && !el.classList.contains('expert-mode-btn')) {
+      el.addEventListener('click', e => { e.preventDefault(); router.navigate(el.dataset.nav); });
+    }
+  });
+  // CVSS range display (new scan)
+  const cvssRange = document.getElementById('adv-max-cvss');
+  const cvssVal   = document.getElementById('adv-cvss-val');
+  if (cvssRange && cvssVal) cvssRange.addEventListener('input', () => { cvssVal.textContent = parseFloat(cvssRange.value).toFixed(1); });
+  // Settings CVSS range
+  const sCvss = document.getElementById('settings-max-cvss');
+  const sCvssV = document.getElementById('settings-cvss-val');
+  if (sCvss && sCvssV) sCvss.addEventListener('input', () => { sCvssV.textContent = parseFloat(sCvss.value).toFixed(1); });
+  // Proxy toggle
+  document.getElementById('set-proxy')?.addEventListener('change', e => {
+    document.getElementById('proxy-url-wrap').style.display = e.target.checked ? 'block' : 'none';
+  });
+  // API key reveal buttons
+  document.querySelectorAll('.saas-key-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inp = document.getElementById(btn.dataset.target);
+      if (!inp) return;
+      if (inp.type === 'password') { inp.type = 'text'; btn.querySelector('.material-symbols-outlined').textContent = 'visibility_off'; }
+      else { inp.type = 'password'; btn.querySelector('.material-symbols-outlined').textContent = 'visibility'; }
     });
   });
+  // NSE chips (new scan page)
+  document.getElementById('adv-nse-cats')?.querySelectorAll('.nse-chip').forEach(chip => {
+    chip.addEventListener('click', () => chip.classList.toggle('active'));
+  });
+  // Settings tabs
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      const panel = document.querySelector(`.settings-panel[data-spanel="${btn.dataset.stab}"]`);
+      if (panel) panel.classList.add('active');
+    });
+  });
+  // Provider cards
+  document.querySelectorAll('.provider-card').forEach(card => {
+    const radio = card.querySelector('input[type=radio]');
+    if (!radio) return;
+    const updateCfgPanels = (val) => {
+      ['cfg-ollama','cfg-openrouter','cfg-opencode-go','cfg-lmstudio'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+      const map = { ollama:'cfg-ollama', openrouter:'cfg-openrouter', opencode_go:'cfg-opencode-go', lmstudio:'cfg-lmstudio' };
+      const el = document.getElementById(map[val]);
+      if (el) el.style.display = 'block';
+    };
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.provider-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      radio.checked = true;
+      updateCfgPanels(radio.value);
+    });
+    if (radio.checked) updateCfgPanels(radio.value);
+  });
+  // Test connection buttons
+  const testConn = (id, resultId, fn) => {
+    document.getElementById(id)?.addEventListener('click', async () => {
+      const el = document.getElementById(resultId);
+      if (el) { el.textContent = 'Testing…'; el.style.color = 'var(--c-muted-txt)'; }
+      try {
+        await fn();
+        if (el) { el.textContent = '✓ Connected'; el.style.color = 'var(--c-success)'; }
+      } catch(e) {
+        if (el) { el.textContent = '✗ ' + (e.message || 'Failed'); el.style.color = 'var(--c-danger)'; }
+      }
+    });
+  };
+  testConn('test-ollama-btn', 'test-ollama-result', () => API.testProvider('ollama'));
+  testConn('test-or-btn', 'test-or-result', () => API.testProvider('openrouter'));
+  // Clear cache
+  document.getElementById('clear-cache-btn')?.addEventListener('click', () => {
+    try { API.clearCache?.(); } catch {}
+    showToast('Cache cleared.', 'success');
+  });
+  // AI clear chat
+  document.getElementById('ai-clear-btn')?.addEventListener('click', () => {
+    if (window._aiPage) window._aiPage.clearChat();
+  });
+  // Terminal clear
+  document.getElementById('term-clear-btn')?.addEventListener('click', () => {
+    if (window._termPage) window._termPage.clearTerminal();
+  });
+  // Files view toggle
+  document.getElementById('files-view-list')?.addEventListener('click', () => {
+    document.getElementById('files-view-list').classList.add('active');
+    document.getElementById('files-view-card').classList.remove('active');
+    if (window._filesPage) window._filesPage.setView('list');
+  });
+  document.getElementById('files-view-card')?.addEventListener('click', () => {
+    document.getElementById('files-view-card').classList.add('active');
+    document.getElementById('files-view-list').classList.remove('active');
+    if (window._filesPage) window._filesPage.setView('card');
+  });
+  // ML findings view
+  document.getElementById('ml-findings-list-btn')?.addEventListener('click', () => {
+    document.getElementById('ml-findings-list-btn').classList.add('active');
+    document.getElementById('ml-findings-card-btn').classList.remove('active');
+  });
+  document.getElementById('ml-findings-card-btn')?.addEventListener('click', () => {
+    document.getElementById('ml-findings-card-btn').classList.add('active');
+    document.getElementById('ml-findings-list-btn').classList.remove('active');
+  });
+  // Settings reset
+  document.getElementById('settings-reset-btn')?.addEventListener('click', () => {
+    if (confirm('Reset all settings to defaults?')) {
+      localStorage.clear();
+      showToast('Settings reset.', 'info');
+    }
+  });
+  // Reports back button
+  document.getElementById('rpt-back-btn')?.addEventListener('click', () => {
+    document.getElementById('rpt-viewer').classList.add('hidden');
+    document.getElementById('rpt-content').classList.remove('hidden');
+  });
+});
 </script>
 </body>
 </html>
