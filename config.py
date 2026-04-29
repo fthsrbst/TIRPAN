@@ -17,7 +17,7 @@ class OllamaConfig(BaseSettings):
 class OpenCodeGoConfig(BaseSettings):
     model_config = _ENV
     api_key: str = Field(default="", alias="OPENCODE_GO_API_KEY")
-    model: str = Field(default="opencode-go/deepseek-v4-pro", alias="OPENCODE_GO_MODEL")
+    model: str = Field(default="deepseek-r1", alias="OPENCODE_GO_MODEL")
     base_url: str = Field(default="https://opencode.ai/zen/go/v1", alias="OPENCODE_GO_BASE_URL")
     timeout: float = Field(default=120.0)
 
