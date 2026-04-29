@@ -261,6 +261,12 @@
         <button id="emergency-stop-btn-mobile" class="md:hidden border border-danger text-danger font-display font-bold text-[9px] py-1 px-2.5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
           Stop
         </button>
+        <a href="/saas/"
+           class="hidden md:flex items-center gap-1.5 border border-border-color text-secondary-text font-display font-bold text-[10px] py-1.5 px-3 rounded-full uppercase tracking-tighter hover:border-primary hover:text-primary transition-all"
+           title="Switch to Simple View">
+          <span class="material-symbols-outlined text-[13px]">open_in_new</span>
+          Simple View
+        </a>
         <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
           <span id="theme-toggle-icon" class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors">dark_mode</span>
         </button>
@@ -1587,7 +1593,7 @@
         <div class="flex border border-border-color">
           <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase bg-primary text-black" data-intel-tab="analysis">Analysis</button>
           <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="network">Network</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="shield">Shield</button>
+          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="ddos">DDoS</button>
           <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="history">History</button>
           <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="nodes">Nodes</button>
           <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="kb">Knowledge Base</button>
@@ -1801,76 +1807,59 @@
 
         </div>
 
-        <!-- ── Shield expanded ────────────────────────────────────────────── -->
-        <div class="intel-tab-body hidden p-8" data-intel-tab="shield">
+        <!-- ── DDoS expanded ────────────────────────────────────────────────── -->
+        <div class="intel-tab-body hidden p-8" data-intel-tab="ddos">
           <div class="max-w-6xl mx-auto flex flex-col gap-8">
 
             <div class="grid grid-cols-4 gap-4">
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Alerts Today</p><p class="mono-text text-3xl font-bold text-danger">7</p></div>
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Blocked IPs</p><p class="mono-text text-3xl font-bold text-primary">3</p></div>
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Detectors</p><p class="mono-text text-3xl font-bold">4</p></div>
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Packets/s</p><p class="mono-text text-3xl font-bold text-primary">1.2K</p></div>
+              <div class="bg-card border border-border-color p-4" id="ddos-exp-stat-req"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Requests</p><p class="mono-text text-3xl font-bold text-danger">0</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Bandwidth</p><p id="ddos-exp-stat-bw" class="mono-text text-3xl font-bold">0 MB</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Active Workers</p><p id="ddos-exp-stat-w" class="mono-text text-3xl font-bold text-primary">0</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Success Rate</p><p id="ddos-exp-stat-sr" class="mono-text text-3xl font-bold text-primary">—%</p></div>
             </div>
 
             <div class="grid grid-cols-[260px_1fr] gap-6">
               <div class="flex flex-col gap-4">
                 <div class="bg-card border border-border-color p-4">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Detector Status</p>
-                  <div class="flex flex-col gap-2">
-                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">Port Scan</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
-                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">ARP Spoof</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
-                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">DoS / DDoS</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
-                    <div class="flex items-center justify-between py-2"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full" style="background:#555"></div><span class="text-xs mono-text text-secondary-text">Brute Force</span></div><span class="text-[8px] text-secondary-text uppercase font-bold">Idle</span></div>
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Target Config</p>
+                  <div class="flex flex-col gap-2 text-[10px] mono-text">
+                    <div class="flex justify-between"><span class="text-secondary-text">Target</span><span id="ddos-exp-target" class="text-slate-300">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Vector</span><span id="ddos-exp-vector" class="text-primary font-bold uppercase">HTTP Flood</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Workers</span><span id="ddos-exp-workers" class="text-slate-300">100</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Duration</span><span id="ddos-exp-duration" class="text-slate-300">30s</span></div>
                   </div>
                 </div>
                 <div class="bg-card border border-border-color p-4">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Blocked Connections</p>
-                  <div class="flex flex-col gap-2 mono-text text-[10px]">
-                    <div class="flex justify-between py-1 border-b border-border-color"><span class="text-secondary-text">10.0.0.1</span><span class="text-danger">iptables DROP</span></div>
-                    <div class="flex justify-between py-1 border-b border-border-color"><span class="text-secondary-text">172.16.0.5</span><span class="text-danger">iptables DROP</span></div>
-                    <div class="flex justify-between py-1"><span class="text-secondary-text">192.168.5.99</span><span class="text-orange-400">REDIRECT</span></div>
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Response Breakdown</p>
+                  <div class="flex flex-col gap-2 text-[10px] mono-text">
+                    <div class="flex justify-between"><span class="text-green-400">2XX Success</span><span id="ddos-exp-resp-2xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-orange-400">3XX Redirect</span><span id="ddos-exp-resp-3xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-danger">4XX Client Err</span><span id="ddos-exp-resp-4xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">5XX Server Err</span><span id="ddos-exp-resp-5xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Timeout</span><span id="ddos-exp-resp-err">0</span></div>
                   </div>
                 </div>
               </div>
 
-              <div class="bg-card border border-border-color">
+              <div class="bg-card border border-border-color flex flex-col">
                 <div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Alert Log</p>
-                  <span class="mono-text text-[9px] text-danger">7 alerts</span>
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Attack Log</p>
+                  <span id="ddos-exp-log-count" class="mono-text text-[9px] text-secondary-text">0 entries</span>
                 </div>
-                <table class="w-full border-collapse">
-                  <thead>
-                    <tr class="border-b border-border-color">
-                      <th class="text-left px-5 py-2 text-[8px] font-bold text-secondary-text uppercase">Time</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Type</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Source</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Target</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody class="mono-text text-xs">
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors bg-danger/5">
-                      <td class="px-5 py-2.5 text-secondary-text">14:42:01</td><td class="px-4 py-2.5 text-danger font-bold">PORT_SCAN</td><td class="px-4 py-2.5 text-slate-300">192.168.1.55</td><td class="px-4 py-2.5 text-slate-400">192.168.1.102</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
-                    </tr>
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:40:33</td><td class="px-4 py-2.5 text-orange-400 font-bold">BRUTE_FORCE</td><td class="px-4 py-2.5 text-slate-300">10.0.0.1</td><td class="px-4 py-2.5 text-slate-400">192.168.1.55:22</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
-                    </tr>
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:38:44</td><td class="px-4 py-2.5 text-orange-400 font-bold">BRUTE_FORCE</td><td class="px-4 py-2.5 text-slate-300">172.16.0.5</td><td class="px-4 py-2.5 text-slate-400">192.168.1.1:80</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
-                    </tr>
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:35:12</td><td class="px-4 py-2.5 text-secondary-text font-bold">ARP_SPOOF</td><td class="px-4 py-2.5 text-slate-300">192.168.5.99</td><td class="px-4 py-2.5 text-slate-400">Broadcast</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-orange-400 uppercase px-1.5 py-0.5 border border-orange-400/30">ALERT</span></td>
-                    </tr>
-                    <tr class="hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:32:08</td><td class="px-4 py-2.5 text-secondary-text font-bold">PORT_SCAN</td><td class="px-4 py-2.5 text-slate-300">192.168.1.55</td><td class="px-4 py-2.5 text-slate-400">192.168.1.0/24</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30">LOG</span></td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div class="overflow-auto flex-1">
+                  <table class="w-full border-collapse">
+                    <thead>
+                      <tr class="border-b border-border-color">
+                        <th class="text-left px-5 py-2 text-[8px] font-bold text-secondary-text uppercase">Time</th>
+                        <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Event</th>
+                        <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ddos-exp-log-tbody" class="mono-text text-xs">
+                      <tr><td class="px-5 py-4 text-secondary-text text-center" colspan="3">No attack launched yet</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -3241,9 +3230,9 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
             <span class="material-symbols-outlined text-[22px]">hub</span>
             <span class="text-[13px] font-medium uppercase tracking-wider">Network</span>
           </div>
-          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="shield">
-            <span class="material-symbols-outlined text-[22px]">security</span>
-            <span class="text-[13px] font-medium uppercase tracking-wider">Shield</span>
+          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="ddos">
+            <span class="material-symbols-outlined text-[22px]">bolt</span>
+            <span class="text-[13px] font-medium uppercase tracking-wider">DDoS</span>
           </div>
           <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="history">
             <span class="material-symbols-outlined text-[22px]">history</span>
@@ -3325,7 +3314,7 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
       <!-- ── Secondary panel — shown when a non-live tab is clicked ── -->
       <div id="rsb-secondary-panel" class="hidden flex flex-col">
 
-      <!-- ─── PANELS: Analysis, Network, Shield, History, Nodes, KB ────────── -->
+      <!-- ─── PANELS: Analysis, Network, DDoS, History, Nodes, KB ────────── -->
       <!-- intel-panel-live kept as hidden dummy for JS compat -->
       <div id="intel-panel-live" class="intel-panel hidden"></div>
       <div id="intel-panel-analysis" class="intel-panel hidden p-5 flex flex-col gap-6">
@@ -3531,61 +3520,91 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 
       </div>
 
-      <!-- ─── PANEL: SHIELD ──────────────────────────────────────────────── -->
-      <div id="intel-panel-shield" class="intel-panel hidden p-5 flex flex-col gap-4">
+      <!-- ─── PANEL: DDOS ─────────────────────────────────────────────────── -->
+      <div id="intel-panel-ddos" class="intel-panel hidden p-5 flex flex-col gap-4">
 
         <div class="flex items-center justify-between -mt-1">
-          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Shield</span>
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">DDoS</span>
         </div>
 
         <!-- Status header -->
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 border border-primary flex items-center justify-center shrink-0">
-            <span class="material-symbols-outlined text-primary text-[20px]">security</span>
+          <div class="w-10 h-10 border border-danger flex items-center justify-center shrink-0" id="ddos-status-icon-box">
+            <span class="material-symbols-outlined text-danger text-[20px]">bolt</span>
           </div>
           <div>
-            <p class="text-xs font-bold uppercase tracking-wider">Defense Module</p>
-            <p class="text-[9px] text-secondary-text mt-0.5">Optional — separate process</p>
+            <p class="text-xs font-bold uppercase tracking-wider" id="ddos-status-label">DDoS Engine</p>
+            <p class="text-[9px] text-secondary-text mt-0.5" id="ddos-status-sub">Idle — Ready</p>
           </div>
         </div>
 
-        <!-- Detectors -->
+        <!-- Target input -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Target URL</label>
+          <div class="flex gap-2">
+            <input id="ddos-target-input" type="text" placeholder="https://target.com:443" class="flex-1 bg-card border border-border-color px-3 py-2 text-xs mono-text focus:border-primary outline-none transition-colors">
+            <button id="ddos-analyze-btn" class="bg-card border border-primary/30 text-primary text-[9px] font-bold uppercase tracking-wider px-3 py-2 hover:bg-primary/10 transition-colors flex items-center gap-1" title="AI Analyze Target">
+              <span class="material-symbols-outlined text-[14px]">psychology</span>
+              AI
+            </button>
+          </div>
+        </div>
+
+        <!-- Attack vector selector -->
         <div class="flex flex-col gap-2">
-          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Detectors</p>
+          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Attack Vector</p>
+          <div class="grid grid-cols-2 gap-1.5" id="ddos-vector-btns">
+            <button data-vector="http-flood" class="ddos-vector-btn bg-card border border-primary/30 text-primary text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase font-bold">HTTP Flood</button>
+            <button data-vector="slowloris" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">Slowloris</button>
+            <button data-vector="udp-flood" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">UDP Flood</button>
+            <button data-vector="syn-flood" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">SYN Flood</button>
+            <button data-vector="http-post" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">HTTP POST</button>
+            <button data-vector="mixed" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">Mixed Mode</button>
+          </div>
+        </div>
+
+        <!-- Workers + Duration -->
+        <div class="grid grid-cols-2 gap-3">
           <div class="flex flex-col gap-1.5">
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">Port Scan</span>
-              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
-            </div>
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">ARP Spoof</span>
-              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
-            </div>
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">DoS / DDoS</span>
-              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
-            </div>
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">Brute Force</span>
-              <span class="px-1.5 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Idle</span>
-            </div>
+            <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Workers</label>
+            <input id="ddos-workers-input" type="number" value="100" min="1" max="1000" class="bg-card border border-border-color px-3 py-2 text-xs mono-text focus:border-primary outline-none transition-colors">
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Duration (s)</label>
+            <input id="ddos-duration-input" type="number" value="30" min="1" max="3600" class="bg-card border border-border-color px-3 py-2 text-xs mono-text focus:border-primary outline-none transition-colors">
           </div>
         </div>
 
-        <!-- Recent alerts -->
-        <div class="flex flex-col gap-2">
-          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Recent Alerts</p>
-          <p class="text-[10px] text-secondary-text mono-text text-center py-3">No alerts</p>
+        <!-- Action buttons -->
+        <div class="flex gap-2">
+          <button id="ddos-start-btn" class="flex-1 bg-danger text-black text-[10px] font-bold uppercase tracking-wider py-2.5 hover:bg-danger/80 transition-colors flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-[16px]">play_arrow</span>
+            Launch
+          </button>
+          <button id="ddos-stop-btn" class="flex-1 bg-card border border-border-color text-secondary-text text-[10px] font-bold uppercase tracking-wider py-2.5 hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed" disabled>
+            <span class="material-symbols-outlined text-[16px]">stop</span>
+            Stop
+          </button>
         </div>
 
-        <!-- Blocked connections -->
-        <div class="bg-card border border-border-color p-3">
-          <div class="flex justify-between mb-3">
-            <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Blocked</p>
-            <span class="mono-text text-[9px] text-secondary-text">0 total</span>
+        <!-- Live stats -->
+        <div id="ddos-stats" class="hidden grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Packets/s</span>
+            <span id="ddos-stat-pps" class="mono-text text-sm font-bold text-danger">0</span>
           </div>
-          <p class="text-[10px] text-secondary-text mono-text text-center py-2">No blocked connections</p>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">MB/s</span>
+            <span id="ddos-stat-mbps" class="mono-text text-sm font-bold text-danger">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Status</span>
+            <span id="ddos-stat-status" class="mono-text text-sm font-bold text-primary">4XX</span>
+          </div>
         </div>
+
+        <!-- Error / message area -->
+        <div id="ddos-msg" class="hidden text-[10px] text-danger mono-text bg-danger/5 border border-danger/20 px-3 py-2"></div>
 
       </div>
 
@@ -3953,5 +3972,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="app.js?v=23"></script>
 <script src="defense.js?v=1"></script>
+<script src="ddos.js?v=1"></script>
 </body>
 </html>

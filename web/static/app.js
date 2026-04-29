@@ -269,38 +269,33 @@ function _switchMainDashboard(mode) {
     }
 }
 
-function _updateShieldVisibility(show) {
-    // Tab button in expanded intel view
-    const shieldTabBtn = document.querySelector('.intel-tab[data-intel-tab="shield"]');
-    // Nav item in right sidebar
-    const shieldNavItem = document.querySelector('.intel-nav-item[data-panel="shield"]');
-    // Right sidebar panel content
-    const shieldPanel = document.getElementById('intel-panel-shield');
-    // Expanded-view tab body
-    const shieldTabBody = document.querySelector('.intel-tab-body[data-intel-tab="shield"]');
+function _updateDdosVisibility(show) {
+    const ddosTabBtn = document.querySelector('.intel-tab[data-intel-tab="ddos"]');
+    const ddosNavItem = document.querySelector('.intel-nav-item[data-panel="ddos"]');
+    const ddosPanel = document.getElementById('intel-panel-ddos');
+    const ddosTabBody = document.querySelector('.intel-tab-body[data-intel-tab="ddos"]');
 
     if (show) {
-        if (shieldTabBtn)  shieldTabBtn.style.display  = '';
-        if (shieldNavItem) shieldNavItem.style.display = '';
-        if (shieldPanel)   shieldPanel.classList.remove('hidden');
-        if (shieldTabBody) shieldTabBody.classList.remove('hidden');
+        if (ddosTabBtn)  ddosTabBtn.style.display  = '';
+        if (ddosNavItem) ddosNavItem.style.display = '';
+        if (ddosPanel)   ddosPanel.classList.remove('hidden');
+        if (ddosTabBody) ddosTabBody.classList.remove('hidden');
     } else {
-        if (shieldTabBtn)  shieldTabBtn.style.display  = 'none';
-        if (shieldNavItem) shieldNavItem.style.display = 'none';
-        // If the shield panel is currently visible, switch to live first
-        if (shieldPanel && !shieldPanel.classList.contains('hidden')) {
+        if (ddosTabBtn)  ddosTabBtn.style.display  = 'none';
+        if (ddosNavItem) ddosNavItem.style.display = 'none';
+        if (ddosPanel && !ddosPanel.classList.contains('hidden')) {
             switchIntelPanel('live');
         }
-        if (shieldPanel) shieldPanel.classList.add('hidden');
-        if (shieldTabBody && !shieldTabBody.classList.contains('hidden')) {
-            shieldTabBody.classList.add('hidden');
+        if (ddosPanel) ddosPanel.classList.add('hidden');
+        if (ddosTabBody && !ddosTabBody.classList.contains('hidden')) {
+            ddosTabBody.classList.add('hidden');
         }
     }
 }
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
 
-const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'shield', 'history', 'nodes', 'kb'];
+const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'ddos', 'history', 'nodes', 'kb'];
 
 function _setIntelNavActive(panelName) {
     const items = document.querySelectorAll('.intel-nav-item');
@@ -355,6 +350,12 @@ function switchIntelPanel(panelName) {
             refreshIntelPanelsForSession(sid);
         }
     }
+
+    if (panelName === 'ddos') {
+        if (typeof refreshDDoSPanelForSession === 'function') {
+            refreshDDoSPanelForSession(sid);
+        }
+    }
 }
 
 function initIntelNav() {
@@ -376,7 +377,7 @@ function initIntelNav() {
 const INTEL_TAB_ICONS = {
     analysis: 'monitoring',
     network: 'hub',
-    shield: 'security',
+    ddos: 'bolt',
     history: 'history',
     nodes: 'account_tree',
     kb: 'auto_stories',
@@ -401,11 +402,14 @@ function switchIntelTab(tabName) {
     // When switching to network tab: force fresh render + fit
     if (tabName === 'network') {
         setTimeout(() => {
-            // Reset fitted flag so _topoFitView always runs when tab is now visible
             if (_topoD3State['topo-d3-svg']) _topoD3State['topo-d3-svg'].fitted = false;
             _topoD3Render('topo-d3-svg', 'topo-tooltip', _topoLastHosts, _topoLastExploits, false);
             _topoUpdateTimeline();
         }, 60);
+    }
+
+    if (tabName === 'ddos' && typeof DDOS !== 'undefined' && DDOS._refreshExpanded) {
+        setTimeout(() => DDOS._refreshExpanded(), 50);
     }
 }
 
