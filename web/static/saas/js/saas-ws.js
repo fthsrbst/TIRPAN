@@ -58,6 +58,14 @@ class SaasWebSocket {
     }
   }
 
+  disconnect() {
+    clearTimeout(this._reconnectTimer);
+    this._stopPing();
+    if (this._ws) { this._ws.onclose = null; this._ws.close(); this._ws = null; }
+    this.connected = false;
+    this._subscribedSession = null;
+  }
+
   unsubscribe() {
     this._subscribedSession = null;
   }

@@ -1186,3 +1186,156 @@ h1, h2, h3, h4, h5, h6, .font-heading {
 
 /* Spinner */
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ══════════════════════════════════════════════════════════
+   DASHBOARD PAGE
+   ══════════════════════════════════════════════════════════ */
+.dash-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+@media (max-width: 900px) { .dash-stats-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 600px) { .dash-stats-grid { grid-template-columns: repeat(2, 1fr); } }
+
+.dash-stat-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  box-shadow: var(--c-shadow-sm);
+  transition: box-shadow .15s;
+}
+.dash-stat-card:hover { box-shadow: var(--c-shadow); }
+.dash-stat-icon { font-size: 22px; margin-bottom: 2px; }
+.dash-stat-value { font-size: 26px; font-weight: 700; color: var(--c-txt); line-height: 1; }
+.dash-stat-label { font-size: 11px; color: var(--c-muted-txt); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; }
+
+.dash-mission-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background .12s;
+  border-bottom: 1px solid var(--c-border);
+}
+.dash-mission-row:last-child { border-bottom: none; }
+.dash-mission-row:hover { background: var(--c-surface-hover); }
+
+/* ══════════════════════════════════════════════════════════
+   MISSIONS PAGE
+   ══════════════════════════════════════════════════════════ */
+.missions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.mission-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  cursor: pointer;
+  transition: box-shadow .15s, transform .12s, border-color .15s;
+  box-shadow: var(--c-shadow-sm);
+}
+.mission-card:hover {
+  box-shadow: var(--c-shadow-md);
+  transform: translateY(-2px);
+  border-color: var(--c-accent);
+}
+.mission-card-header { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.mission-card-stats  { display: flex; gap: 14px; font-size: 12px; color: var(--c-muted-txt); }
+.mission-card-stats span { display: flex; align-items: center; gap: 3px; }
+
+/* ══════════════════════════════════════════════════════════
+   FILTER BAR IMPROVEMENTS
+   ══════════════════════════════════════════════════════════ */
+.filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filter-bar-left  { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
+.filter-bar-right { display: flex; align-items: center; gap: 8px; }
+.search-input-wrap { position: relative; flex: 1; min-width: 160px; }
+.search-icon { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); font-size: 16px; color: var(--c-muted-txt); pointer-events: none; }
+.search-input { padding-left: 32px; width: 100%; }
+
+/* ══════════════════════════════════════════════════════════
+   MISSION LIVE — TABS & FEED CONTROLS
+   ══════════════════════════════════════════════════════════ */
+.ml-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-muted-txt);
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  margin-bottom: -1px;
+}
+.ml-view-tab:hover { color: var(--c-txt); }
+.ml-view-tab.active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
+
+.feed-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--c-border);
+  background: transparent;
+  color: var(--c-muted-txt);
+  cursor: pointer;
+  font-size: 11px;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.feed-filter-btn:hover { background: var(--c-surface-hover); color: var(--c-txt); }
+.feed-filter-btn.active { background: var(--c-accent-light); border-color: var(--c-accent); color: var(--c-accent); }
+
+/* Dark mode */
+.dark .feed-filter-btn { border-color: var(--c-border); color: var(--c-muted-txt); }
+.dark .feed-filter-btn.active { background: rgba(99,102,241,.2); border-color: var(--c-accent); color: var(--c-accent); }
+
+/* ══════════════════════════════════════════════════════════
+   SETTINGS — KEY VISIBILITY TOGGLE (fix layout)
+   ══════════════════════════════════════════════════════════ */
+.saas-key-wrap { display: flex; gap: 6px; align-items: center; }
+.saas-key-wrap .saas-input { flex: 1; }
+.saas-key-toggle {
+  flex-shrink: 0;
+  padding: 6px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  cursor: pointer;
+  color: var(--c-muted-txt);
+  transition: background .12s;
+}
+.saas-key-toggle:hover { background: var(--c-surface-hover); }
+.saas-key-toggle .material-symbols-outlined { font-size: 16px; display: block; }
+
+/* ══════════════════════════════════════════════════════════
+   SAAS SELECT (add if missing)
+   ══════════════════════════════════════════════════════════ */
+.saas-select {
+  padding: 6px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-txt);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.saas-select:focus { outline: none; border-color: var(--c-accent); }
+.dark .saas-select { background: var(--c-surface); border-color: var(--c-border); color: var(--c-txt); }

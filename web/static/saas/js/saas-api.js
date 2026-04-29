@@ -62,10 +62,26 @@ const API = (() => {
     },
 
     /* Config */
-    getSettings:         ()       => req('GET',  '/settings'),
-    setSetting:          (k, v)   => req('PUT',  `/settings/${k}`, { value: v }),
-    getOllamaStatus:     (url)    => req('GET',  `/ollama/status?base_url=${encodeURIComponent(url)}`),
-    getOpenRouterModels: ()       => req('GET',  '/openrouter/models'),
+    getSettings:            ()    => req('GET',  '/settings'),
+    setSetting:             (k, v)=> req('PUT',  `/settings/${k}`, { value: v }),
+    getOllamaStatus:        (url) => req('GET',  `/ollama/status${url ? '?base_url=' + encodeURIComponent(url) : ''}`),
+    getOpenRouterModels:    ()    => req('GET',  '/openrouter/models'),
+    getLmStudioStatus:      (url) => req('GET',  `/lmstudio/status${url ? '?base_url=' + encodeURIComponent(url) : ''}`),
+    getOllamaConfig:        ()    => req('GET',  '/config/ollama'),
+    saveOllamaConfig:       (b)   => req('POST', '/config/ollama', b),
+    getOpenRouterConfig:    ()    => req('GET',  '/config/openrouter'),
+    saveOpenRouterConfig:   (b)   => req('POST', '/config/openrouter', b),
+    getLmStudioConfig:      ()    => req('GET',  '/config/lmstudio'),
+    saveLmStudioConfig:     (b)   => req('POST', '/config/lmstudio', b),
+    getAttackGraph:         (id)  => req('GET',  `/sessions/${id}/attack-graph`),
+
+    saveSettings: async (payload) => {
+      const p = payload.provider;
+      if (p === 'ollama') return req('POST', '/config/ollama', { base_url: payload.ollama_url, model: payload.ollama_model });
+      if (p === 'openrouter') return req('POST', '/config/openrouter', { api_key: payload.openrouter_key, model: payload.openrouter_model });
+      if (p === 'lmstudio') return req('POST', '/config/lmstudio', { base_url: payload.lmstudio_url, model: payload.lmstudio_model });
+      if (p === 'opencode_go') return req('POST', '/config/opencode-go', { api_key: payload.opencode_go_key, model: payload.opencode_go_model, base_url: payload.opencode_go_url });
+    },
 
     /* Reports */
     downloadPdf: (id) => `/api/v1/sessions/${id}/report/pdf`,
