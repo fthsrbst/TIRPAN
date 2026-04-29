@@ -466,6 +466,19 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v10 applied: defense module tables")
 
+        if version < 12:
+            # Ensure indexes on the users table (table already exists from v11)
+            await db.executescript("""
+                CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+                CREATE INDEX IF NOT EXISTS idx_users_role  ON users(role);
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (12, time.time(), "users table indexes"),
+            )
+            await db.commit()
+            logger.info("DB migration v12 applied: users indexes")
+
     logger.info("Database ready: %s", path)
 
 

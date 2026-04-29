@@ -1,6 +1,121 @@
 /* saas-app.js — Bootstrap, router, theme, nav, global state */
 
 /* ──────────────────────────────────────────────────────────
+   Auth module
+   ────────────────────────────────────────────────────────── */
+const Auth = (() => {
+  const TOKEN_KEY = 'tirpan-jwt';
+  const USER_KEY  = 'tirpan-user';
+
+  function getToken() { return localStorage.getItem(TOKEN_KEY); }
+  function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
+
+  function getUser() {
+    try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { return null; }
+  }
+  function setUser(u) { localStorage.setItem(USER_KEY, JSON.stringify(u)); }
+
+  function clear() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
+
+  function logout() { clear(); showAuthScreen(); }
+
+  return { getToken, setToken, getUser, setUser, clear, logout };
+})();
+
+/* ──────────────────────────────────────────────────────────
+   Auth screen helpers
+   ────────────────────────────────────────────────────────── */
+function showAuthScreen() {
+  document.getElementById('s-layout')?.classList.add('hidden');
+  document.getElementById('auth-screen')?.classList.remove('hidden');
+  showAuthPanel('login');
+}
+
+function hideAuthScreen() {
+  document.getElementById('auth-screen')?.classList.add('hidden');
+  document.getElementById('s-layout')?.classList.remove('hidden');
+}
+
+function showAuthPanel(panel) {
+  const isLogin = panel === 'login';
+  document.getElementById('auth-login-panel')?.classList.toggle('hidden', !isLogin);
+  document.getElementById('auth-register-panel')?.classList.toggle('hidden', isLogin);
+  document.getElementById('auth-tab-login')?.classList.toggle('auth-tab-active', isLogin);
+  document.getElementById('auth-tab-register')?.classList.toggle('auth-tab-active', !isLogin);
+}
+
+function initAuthForms() {
+  document.getElementById('auth-tab-login')?.addEventListener('click', () => showAuthPanel('login'));
+  document.getElementById('auth-tab-register')?.addEventListener('click', () => showAuthPanel('register'));
+
+  /* Password visibility toggles */
+  document.querySelectorAll('.auth-eye-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inp = document.getElementById(btn.dataset.target);
+      const icon = btn.querySelector('.material-symbols-outlined');
+      if (!inp) return;
+      if (inp.type === 'password') { inp.type = 'text'; icon.textContent = 'visibility_off'; }
+      else                         { inp.type = 'password'; icon.textContent = 'visibility'; }
+    });
+  });
+
+  /* Login */
+  document.getElementById('auth-login-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email      = document.getElementById('auth-email').value.trim();
+    const password   = document.getElementById('auth-password').value;
+    const rememberMe = document.getElementById('auth-remember')?.checked || false;
+    const btn        = document.getElementById('auth-login-btn');
+    const errEl      = document.getElementById('auth-error');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined" style="animation:spin .6s linear infinite">progress_activity</span> Giriş yapılıyor…';
+    try {
+      const resp = await API.login({ email, password, remember_me: rememberMe });
+      Auth.setToken(resp.access_token);
+      Auth.setUser(resp.user);
+      document.getElementById('auth-password').value = '';
+      bootMainApp();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">login</span> Giriş Yap';
+    }
+  });
+
+  /* Register */
+  document.getElementById('auth-register-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email    = document.getElementById('reg-email').value.trim();
+    const fullName = document.getElementById('reg-fullname').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const btn      = document.getElementById('auth-register-btn');
+    const errEl    = document.getElementById('reg-error');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined" style="animation:spin .6s linear infinite">progress_activity</span> Kaydediliyor…';
+    try {
+      const resp = await API.register({ email, full_name: fullName, password });
+      Auth.setToken(resp.access_token);
+      Auth.setUser(resp.user);
+      document.getElementById('reg-password').value = '';
+      bootMainApp();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">person_add</span> Hesap Oluştur';
+    }
+  });
+}
+
+/* ──────────────────────────────────────────────────────────
    Global state
    ────────────────────────────────────────────────────────── */
 const saasState = {
@@ -43,7 +158,6 @@ function applyTheme(theme) {
   if (icon) icon.textContent = theme === 'dark' ? 'light_mode' : 'dark_mode';
   localStorage.setItem('tirpan-theme', theme);
 
-  // update highlight.js theme
   const hljsLink = document.getElementById('hljs-theme');
   if (hljsLink) {
     hljsLink.href = theme === 'dark'
@@ -74,7 +188,6 @@ function initSidebar() {
     localStorage.setItem('saas-sidebar', saasState.sidebarExpanded ? 'expanded' : 'collapsed');
   });
 
-  // Mobile overlay
   document.getElementById('s-mobile-menu-btn')?.addEventListener('click', () => {
     document.getElementById('s-sidebar')?.classList.toggle('mobile-open');
     document.getElementById('s-mobile-overlay')?.classList.toggle('hidden');
@@ -106,7 +219,10 @@ const PAGE_CLASSES = {
   'reports':       ReportsPage,
   'files':         FilesPage,
   'settings':      SettingsPage,
+  'users':         UsersPage,
 };
+
+const _ADMIN_PAGES = ['users'];
 
 const router = (() => {
   let currentPage = null;
@@ -114,6 +230,12 @@ const router = (() => {
 
   function navigate(page, params = {}) {
     if (!PAGE_CLASSES[page]) page = 'new-scan';
+
+    const user = Auth.getUser();
+    if (_ADMIN_PAGES.includes(page) && user?.role !== 'admin') {
+      showToast('Access denied: admin only', 'error');
+      page = 'new-scan';
+    }
 
     if (currentPage) {
       try { currentPage.unmount(); } catch {}
@@ -135,7 +257,6 @@ const router = (() => {
       history.pushState({ page, params }, '', '#' + page);
     }
 
-    // close mobile sidebar
     document.getElementById('s-sidebar')?.classList.remove('mobile-open');
     document.getElementById('s-mobile-overlay')?.classList.add('hidden');
   }
@@ -156,6 +277,7 @@ const router = (() => {
       'reports':      'Reports',
       'files':        'Files',
       'settings':     'Settings',
+      'users':        'User Management',
     };
     const el = document.getElementById('s-breadcrumb');
     if (el) el.textContent = labels[page] || page;
@@ -173,6 +295,19 @@ function initNav() {
       e.preventDefault();
       router.navigate(item.dataset.nav);
     });
+  });
+}
+
+/* ──────────────────────────────────────────────────────────
+   User badge & role-based UI
+   ────────────────────────────────────────────────────────── */
+function renderUserBadge(user) {
+  const badge = document.getElementById('s-user-badge');
+  if (badge) badge.textContent = `${user.full_name || user.email} · ${user.role}`;
+
+  document.querySelectorAll('[data-role-required]').forEach(el => {
+    const required = el.dataset.roleRequired.split(',').map(r => r.trim());
+    el.classList.toggle('hidden', !required.includes(user.role));
   });
 }
 
@@ -230,16 +365,24 @@ function initMissionControls() {
 }
 
 /* ──────────────────────────────────────────────────────────
-   Bootstrap
+   Boot main app (called after auth)
    ────────────────────────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', () => {
+function bootMainApp() {
+  hideAuthScreen();
+
+  const user = Auth.getUser();
+  if (user) renderUserBadge(user);
+
   initTheme();
   initSidebar();
   initNav();
   initConnectionIndicator();
   pollSystemStats();
-
   saasWs.connect();
+
+  document.getElementById('s-logout-btn')?.addEventListener('click', () => {
+    if (confirm('Sign out?')) Auth.logout();
+  });
 
   window.addEventListener('popstate', (e) => {
     const page = (e.state && e.state.page) || window.location.hash.slice(1) || 'new-scan';
@@ -248,15 +391,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const initPage = window.location.hash.slice(1) || 'new-scan';
   router.navigate(initPage);
+}
 
-  // expose page instance for header controls
-  const _origNavigate = router.navigate;
-  // patch to expose current page instance globally for header button wiring
-  Object.defineProperty(window, '__currentPage', {
-    get: () => {
-      // Access internal currentPage via closure — unavailable directly
-      // Instead we wire controls inside each page's mount
-      return null;
-    }
-  });
+/* ──────────────────────────────────────────────────────────
+   Bootstrap (with auth gate)
+   ────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', async () => {
+  initAuthForms();
+
+  const token = Auth.getToken();
+  if (!token) {
+    showAuthScreen();
+    return;
+  }
+
+  try {
+    const me = await API.getMe();
+    Auth.setUser(me);
+    bootMainApp();
+  } catch {
+    Auth.clear();
+    showAuthScreen();
+  }
 });
