@@ -20,7 +20,7 @@ const Auth = (() => {
     localStorage.removeItem(USER_KEY);
   }
 
-  function logout() { clear(); showAuthScreen(); }
+  function logout() { clear(); _booted = false; saasWs.disconnect(); showAuthScreen(); }
 
   return { getToken, setToken, getUser, setUser, clear, logout };
 })();
@@ -211,6 +211,8 @@ function applySidebar(expanded) {
    Router
    ────────────────────────────────────────────────────────── */
 const PAGE_CLASSES = {
+  'dashboard':     DashboardPage,
+  'missions':      MissionsPage,
   'new-scan':      NewScanPage,
   'mission-live':  MissionLivePage,
   'ai-assistant':  AIAssistantPage,
@@ -229,12 +231,12 @@ const router = (() => {
   let currentKey  = null;
 
   function navigate(page, params = {}) {
-    if (!PAGE_CLASSES[page]) page = 'new-scan';
+    if (!PAGE_CLASSES[page]) page = 'dashboard';
 
     const user = Auth.getUser();
-    if (_ADMIN_PAGES.includes(page) && user?.role !== 'admin') {
+    if (_ADMIN_PAGES.includes(page) && user?.role !== 'admin' && user?.role !== 'owner') {
       showToast('Access denied: admin only', 'error');
-      page = 'new-scan';
+      page = 'dashboard';
     }
 
     if (currentPage) {
@@ -269,6 +271,8 @@ const router = (() => {
 
   function updateBreadcrumb(page) {
     const labels = {
+      'dashboard':    'Dashboard',
+      'missions':     'Missions',
       'new-scan':     'New Scan',
       'mission-live': 'Mission Live',
       'ai-assistant': 'AI Assistant',
@@ -353,31 +357,46 @@ function pollSystemStats() {
    ────────────────────────────────────────────────────────── */
 function initMissionControls() {
   document.getElementById('ml-pause-btn')?.addEventListener('click', () => {
-    const p = router.currentKey() === 'mission-live';
-    if (p && window.__currentPage) window.__currentPage.pauseMission?.();
+    if (router.currentKey() === 'mission-live') window._missionPage?.pauseMission?.();
   });
   document.getElementById('ml-resume-btn')?.addEventListener('click', () => {
-    if (window.__currentPage) window.__currentPage.resumeMission?.();
+    window._missionPage?.resumeMission?.();
   });
   document.getElementById('ml-stop-btn')?.addEventListener('click', () => {
-    if (window.__currentPage) window.__currentPage.stopMission?.();
+    window._missionPage?.stopMission?.();
   });
 }
 
 /* ──────────────────────────────────────────────────────────
    Boot main app (called after auth)
    ────────────────────────────────────────────────────────── */
+let _booted = false;
+let _statsTimer = null;
+
 function bootMainApp() {
   hideAuthScreen();
 
   const user = Auth.getUser();
   if (user) renderUserBadge(user);
 
+  if (_booted) {
+    // Re-login after sign-out: refresh user badge and reconnect WS only
+    saasWs.connect();
+    const initPage = window.location.hash.slice(1) || 'dashboard';
+    router.navigate(initPage);
+    return;
+  }
+  _booted = true;
+
   initTheme();
   initSidebar();
   initNav();
+  initMissionControls();
   initConnectionIndicator();
-  pollSystemStats();
+  if (!_statsTimer) {
+    pollSystemStats();
+    _statsTimer = true;
+  }
   saasWs.connect();
 
   document.getElementById('s-logout-btn')?.addEventListener('click', () => {
@@ -385,11 +404,11 @@ function bootMainApp() {
   });
 
   window.addEventListener('popstate', (e) => {
-    const page = (e.state && e.state.page) || window.location.hash.slice(1) || 'new-scan';
+    const page = (e.state && e.state.page) || window.location.hash.slice(1) || 'dashboard';
     router.navigate(page, (e.state && e.state.params) || {});
   });
 
-  const initPage = window.location.hash.slice(1) || 'new-scan';
+  const initPage = window.location.hash.slice(1) || 'dashboard';
   router.navigate(initPage);
 }
 
