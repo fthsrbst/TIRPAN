@@ -1424,3 +1424,67 @@ function _setVal(id, val) {
   const el = document.getElementById(id);
   if (el && val !== undefined && val !== null) el.value = val;
 }
+
+/* ══════════════════════════════════════════════════════════
+   UsersPage — Admin only: user management
+   ══════════════════════════════════════════════════════════ */
+class UsersPage {
+  mount() {
+    const el = document.getElementById('page-users');
+    if (el) el.classList.remove('hidden');
+    this._load();
+  }
+
+  unmount() {
+    const el = document.getElementById('page-users');
+    if (el) el.classList.add('hidden');
+  }
+
+  async _load() {
+    const tbody = document.getElementById('users-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--c-muted-txt);padding:20px;text-align:center">Loading…</td></tr>`;
+    try {
+      const users = await API.getUsers();
+      const currentUser = Auth.getUser();
+      tbody.innerHTML = users.map(u => `
+        <tr style="border-bottom:1px solid var(--c-border)">
+          <td style="padding:12px 10px;font-weight:500">${u.username}</td>
+          <td style="padding:12px 10px;color:var(--c-muted-txt);font-size:13px">${u.email}</td>
+          <td style="padding:12px 10px">
+            ${u.id === currentUser?.id
+              ? `<span class="saas-badge">${u.role}</span>`
+              : `<select class="saas-select" data-uid="${u.id}" style="width:110px;font-size:13px">
+                   ${['admin','analyst','viewer'].map(r =>
+                     `<option value="${r}" ${u.role===r?'selected':''}>${r}</option>`
+                   ).join('')}
+                 </select>`
+            }
+          </td>
+          <td style="padding:12px 10px">
+            ${u.is_active
+              ? `<span style="color:var(--c-success);font-size:12px;font-weight:600">● Active</span>`
+              : `<span style="color:var(--c-danger);font-size:12px;font-weight:600">● Inactive</span>`}
+          </td>
+          <td style="padding:12px 10px;color:var(--c-muted-txt);font-size:12px">
+            ${new Date(u.created_at * 1000).toLocaleDateString()}
+          </td>
+        </tr>
+      `).join('');
+
+      tbody.querySelectorAll('select[data-uid]').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          try {
+            await API.updateUserRole(sel.dataset.uid, sel.value);
+            showToast('Role updated', 'success');
+          } catch (e) {
+            showToast(e.message, 'error');
+            this._load();
+          }
+        });
+      });
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--c-danger);padding:20px">${e.message}</td></tr>`;
+    }
+  }
+}

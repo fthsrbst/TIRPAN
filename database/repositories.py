@@ -1054,6 +1054,90 @@ class DefenseAlertRepository:
             result.append(d)
         return result
 
+
+# ── UserRepository ─────────────────────────────────────────────────────────────
+# Adapts to the existing users table schema (migration v11):
+#   id, email, full_name, hashed_password, role, is_active, is_verified,
+#   created_at, last_login, org_id, avatar_color, failed_login_attempts, locked_until
+
+class UserRepository:
+    """CRUD for the users table."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        email: str,
+        full_name: str,
+        hashed_password: str,
+        role: str = "viewer",
+    ) -> dict:
+        uid = _uid()
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO users
+                   (id, email, full_name, hashed_password, role, is_active, is_verified, created_at)
+                   VALUES (?,?,?,?,?,1,1,?)""",
+                (uid, email.lower(), full_name, hashed_password, role, now),
+            )
+            await db.commit()
+        return await self.get_by_id(uid)
+
+    async def get_by_id(self, user_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM users WHERE id=?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def get_by_email(self, email: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM users WHERE email=?", (email.lower(),)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_all(self) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM users ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def update_role(self, user_id: str, role: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET role=? WHERE id=?",
+                (role, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_active(self, user_id: str, is_active: bool) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET is_active=? WHERE id=?",
+                (1 if is_active else 0, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_last_login(self, user_id: str) -> None:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET last_login=? WHERE id=?",
+                (_now(), user_id),
+            )
+            await db.commit()
+
+    async def email_exists(self, email: str) -> bool:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT 1 FROM users WHERE email=?", (email.lower(),)
+        ) as cur:
+            return await cur.fetchone() is not None
+
     async def update_status(self, alert_id: str, status: str) -> bool:
         resolved_at = _now() if status == "resolved" else None
         async with _connect(self._path) as db:

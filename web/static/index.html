@@ -4,6 +4,13 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>TIRPAN</title>
+<!-- Auth gate: redirect to SaaS login if no token -->
+<script>
+(function(){
+  var t = localStorage.getItem('tirpan-jwt');
+  if (!t) { window.location.replace('/saas/'); }
+})();
+</script>
 <link rel="icon" type="image/png" href="scythe.png"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
@@ -261,12 +268,19 @@
         <button id="emergency-stop-btn-mobile" class="md:hidden border border-danger text-danger font-display font-bold text-[9px] py-1 px-2.5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
           Stop
         </button>
+        <!-- User badge -->
+        <div id="dev-user-badge" class="hidden md:flex items-center gap-1.5 text-secondary-text text-[11px] font-mono"></div>
         <a href="/saas/"
            class="hidden md:flex items-center gap-1.5 border border-border-color text-secondary-text font-display font-bold text-[10px] py-1.5 px-3 rounded-full uppercase tracking-tighter hover:border-primary hover:text-primary transition-all"
            title="Switch to Simple View">
           <span class="material-symbols-outlined text-[13px]">open_in_new</span>
           Simple View
         </a>
+        <button id="dev-logout-btn"
+           class="hidden md:flex items-center gap-1 border border-border-color text-secondary-text font-display font-bold text-[10px] py-1.5 px-3 rounded-full uppercase tracking-tighter hover:border-danger hover:text-danger transition-all"
+           title="Sign out">
+          <span class="material-symbols-outlined text-[13px]">logout</span>
+        </button>
         <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
           <span id="theme-toggle-icon" class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors">dark_mode</span>
         </button>
@@ -3973,5 +3987,26 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 <script src="app.js?v=23"></script>
 <script src="defense.js?v=1"></script>
 <script src="ddos.js?v=1"></script>
+<script>
+(function () {
+  /* Show user badge and wire logout in dev header */
+  try {
+    var raw = localStorage.getItem('tirpan-user');
+    var user = raw ? JSON.parse(raw) : null;
+    var badge = document.getElementById('dev-user-badge');
+    if (badge && user) {
+      badge.textContent = (user.full_name || user.email) + ' · ' + user.role;
+    }
+  } catch (_) {}
+
+  document.getElementById('dev-logout-btn')?.addEventListener('click', function () {
+    if (confirm('Çıkış yapmak istiyor musunuz?')) {
+      localStorage.removeItem('tirpan-jwt');
+      localStorage.removeItem('tirpan-user');
+      window.location.replace('/saas/');
+    }
+  });
+})();
+</script>
 </body>
 </html>

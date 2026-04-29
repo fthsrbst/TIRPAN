@@ -171,6 +171,10 @@ class AppConfig(BaseSettings):
     ws_buffer_ttl_seconds: int = Field(default=300, alias="WS_BUFFER_TTL_SECONDS")
     cred_encryption_key: str = Field(default="", alias="CRED_ENCRYPTION_KEY")
 
+    # JWT authentication
+    jwt_secret: str = Field(default="CHANGE_ME_IN_PRODUCTION_GENERATE_WITH_secrets_token_hex_32", alias="JWT_SECRET")
+    token_expire_minutes: int = Field(default=480, alias="TOKEN_EXPIRE_MINUTES")
+
     def model_post_init(self, __context):
         self.data_dir.mkdir(exist_ok=True)
 
