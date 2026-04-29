@@ -23,6 +23,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.9.0/lib/xterm-addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -173,8 +174,20 @@
     </div>
 
     <div class="sidebar-nav">
+      <div class="sidebar-section-label">Overview</div>
+
+      <a class="nav-item" data-nav="dashboard" href="#dashboard" title="Dashboard">
+        <span class="material-symbols-outlined">dashboard</span>
+        <span class="nav-label sidebar-label">Dashboard</span>
+      </a>
+
+      <div class="sidebar-divider"></div>
       <div class="sidebar-section-label">Operations</div>
 
+      <a class="nav-item" data-nav="missions" href="#missions" title="Missions">
+        <span class="material-symbols-outlined">my_location</span>
+        <span class="nav-label sidebar-label">Missions</span>
+      </a>
       <a class="nav-item" data-nav="new-scan" href="#new-scan" title="New Scan">
         <span class="material-symbols-outlined">rocket_launch</span>
         <span class="nav-label sidebar-label">New Scan</span>
@@ -278,6 +291,157 @@
     </header>
 
     <div id="s-content">
+
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Dashboard
+           ══════════════════════════════════════════════════ -->
+      <div id="page-dashboard" class="s-page hidden">
+        <div class="page-title">Dashboard</div>
+        <div class="page-subtitle">Genel bakış — aktif ve geçmiş mission'lar, sistem durumu.</div>
+
+        <!-- Stats grid -->
+        <div class="dash-stats-grid" style="margin-bottom:20px">
+          <div class="dash-stat-card">
+            <span class="material-symbols-outlined dash-stat-icon" style="color:#6366f1">my_location</span>
+            <div class="dash-stat-value" id="dash-total">—</div>
+            <div class="dash-stat-label">Toplam Mission</div>
+          </div>
+          <div class="dash-stat-card">
+            <span class="material-symbols-outlined dash-stat-icon" style="color:#10b981">play_circle</span>
+            <div class="dash-stat-value" id="dash-active">—</div>
+            <div class="dash-stat-label">Aktif</div>
+          </div>
+          <div class="dash-stat-card">
+            <span class="material-symbols-outlined dash-stat-icon" style="color:#3b82f6">check_circle</span>
+            <div class="dash-stat-value" id="dash-done">—</div>
+            <div class="dash-stat-label">Tamamlanan</div>
+          </div>
+          <div class="dash-stat-card">
+            <span class="material-symbols-outlined dash-stat-icon" style="color:#f59e0b">warning</span>
+            <div class="dash-stat-value" id="dash-vulns">—</div>
+            <div class="dash-stat-label">Toplam Zafiyet</div>
+          </div>
+          <div class="dash-stat-card">
+            <span class="material-symbols-outlined dash-stat-icon" style="color:#ef4444">skull</span>
+            <div class="dash-stat-value" id="dash-critical">—</div>
+            <div class="dash-stat-label">Kritik</div>
+          </div>
+        </div>
+
+        <!-- Main row -->
+        <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;margin-bottom:20px">
+          <!-- Recent missions -->
+          <div class="saas-card" style="padding:0;overflow:hidden">
+            <div style="padding:12px 16px;border-bottom:1px solid var(--c-border);display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px">
+                <span class="material-symbols-outlined" style="font-size:16px">history</span>Son Mission'lar
+              </div>
+              <button class="saas-btn saas-btn-ghost saas-btn-sm" data-nav="missions" onclick="router.navigate('missions')">Tümünü Gör</button>
+            </div>
+            <div id="dash-recent-missions" style="overflow-y:auto;max-height:340px">
+              <div style="padding:32px;text-align:center;color:var(--c-muted-txt)">
+                <span class="material-symbols-outlined" style="font-size:36px;display:block;opacity:0.3">my_location</span>
+                <p style="font-size:13px;margin-top:8px">Henüz mission yok</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right column -->
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <!-- System status -->
+            <div class="saas-card">
+              <div class="saas-card-title"><span class="material-symbols-outlined">monitor_heart</span>Sistem Durumu</div>
+              <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="color:var(--c-muted-txt)">CPU</span>
+                  <span id="dash-cpu" style="font-weight:600">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="color:var(--c-muted-txt)">RAM</span>
+                  <span id="dash-ram" style="font-weight:600">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="color:var(--c-muted-txt)">WebSocket</span>
+                  <span id="dash-ws" style="font-weight:600">—</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick actions -->
+            <div class="saas-card">
+              <div class="saas-card-title"><span class="material-symbols-outlined">bolt</span>Hızlı İşlemler</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <button class="saas-btn saas-btn-primary" onclick="router.navigate('new-scan')">
+                  <span class="material-symbols-outlined" style="font-size:15px">rocket_launch</span>Yeni Mission Başlat
+                </button>
+                <button class="saas-btn saas-btn-ghost" onclick="router.navigate('missions')">
+                  <span class="material-symbols-outlined" style="font-size:15px">my_location</span>Tüm Missions
+                </button>
+                <button class="saas-btn saas-btn-ghost" onclick="router.navigate('reports')">
+                  <span class="material-symbols-outlined" style="font-size:15px">summarize</span>Raporlar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /Dashboard -->
+
+      <!-- ══════════════════════════════════════════════════
+           PAGE: Missions
+           ══════════════════════════════════════════════════ -->
+      <div id="page-missions" class="s-page hidden">
+        <div class="page-header-row">
+          <div>
+            <div class="page-title">Missions</div>
+            <div class="page-subtitle">Tüm pentest mission'ları — izle, yönet veya yenisini başlat.</div>
+          </div>
+          <button class="saas-btn saas-btn-primary" onclick="router.navigate('new-scan')">
+            <span class="material-symbols-outlined" style="font-size:15px">rocket_launch</span>Yeni Mission
+          </button>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="filter-bar" style="margin-bottom:16px">
+          <div class="filter-bar-left">
+            <div class="search-input-wrap">
+              <span class="material-symbols-outlined search-icon">search</span>
+              <input id="ms-search" type="text" placeholder="Target veya isim ara…" class="saas-input search-input">
+            </div>
+            <select id="ms-status-filter" class="saas-select">
+              <option value="">Tüm Durumlar</option>
+              <option value="running">Çalışıyor</option>
+              <option value="done">Tamamlandı</option>
+              <option value="paused">Duraklatıldı</option>
+              <option value="error">Hatalı</option>
+              <option value="stopped">Durduruldu</option>
+            </select>
+            <select id="ms-date-filter" class="saas-select">
+              <option value="">Tüm Zamanlar</option>
+              <option value="today">Bugün</option>
+              <option value="week">Bu Hafta</option>
+              <option value="month">Bu Ay</option>
+            </select>
+          </div>
+          <div class="filter-bar-right">
+            <select id="ms-sort" class="saas-select">
+              <option value="newest">En Yeni</option>
+              <option value="oldest">En Eski</option>
+              <option value="target">Hedefe Göre</option>
+              <option value="vulns">Zafiyet Sayısı</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Mission cards grid -->
+        <div id="ms-cards-grid" class="missions-grid">
+          <div style="grid-column:1/-1;padding:48px;text-align:center;color:var(--c-muted-txt)">
+            <span class="material-symbols-outlined" style="font-size:52px;display:block;opacity:0.3;margin-bottom:12px">my_location</span>
+            <p>Henüz mission yok. İlk mission'ı başlatmak için "Yeni Mission" butonuna bas.</p>
+          </div>
+        </div>
+      </div>
+      <!-- /Missions -->
 
       <!-- ══════════════════════════════════════════════════
            PAGE: New Scan
@@ -574,7 +738,18 @@
           </div>
         </div>
 
-        <!-- Main grid -->
+        <!-- Feed/Graph tab toggle -->
+        <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid var(--c-border);padding-bottom:0">
+          <button class="ml-view-tab active" id="ml-tab-feed" data-tab="feed">
+            <span class="material-symbols-outlined" style="font-size:14px">stream</span>Feed &amp; Bulgular
+          </button>
+          <button class="ml-view-tab" id="ml-tab-graph" data-tab="graph">
+            <span class="material-symbols-outlined" style="font-size:14px">bar_chart</span>Grafikler
+          </button>
+        </div>
+
+        <!-- Main grid (feed+findings) -->
+        <div id="ml-grid-wrapper">
         <div class="ml-grid" style="margin-bottom:20px">
           <!-- Summary -->
           <div>
@@ -613,12 +788,54 @@
 
           <!-- Feed -->
           <div class="saas-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;min-height:400px">
-            <div style="padding:10px 14px;border-bottom:1px solid var(--c-border);font-size:11px;font-weight:700;color:var(--c-muted-txt);text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:6px">
-              <span class="material-symbols-outlined" style="font-size:15px">stream</span>
-              Activity Feed
-              <span id="ml-feed-count" style="margin-left:auto;background:var(--c-bg);border:1px solid var(--c-border);border-radius:9999px;padding:1px 7px;font-size:10px;color:var(--c-muted-txt)">0</span>
+            <div style="padding:8px 14px;border-bottom:1px solid var(--c-border);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span class="material-symbols-outlined" style="font-size:15px;color:var(--c-muted-txt)">stream</span>
+              <span style="font-size:11px;font-weight:700;color:var(--c-muted-txt);text-transform:uppercase;letter-spacing:.07em">Activity Feed</span>
+              <span id="ml-feed-count" style="background:var(--c-bg);border:1px solid var(--c-border);border-radius:9999px;padding:1px 7px;font-size:10px;color:var(--c-muted-txt)">0</span>
+              <div style="flex:1"></div>
+              <!-- Feed type filter buttons -->
+              <div style="display:flex;gap:3px">
+                <button class="feed-filter-btn active" data-feed-type="all" title="Hepsi" style="font-size:10px;padding:2px 7px">Hepsi</button>
+                <button class="feed-filter-btn" data-feed-type="vuln" title="Zafiyet">
+                  <span class="material-symbols-outlined" style="font-size:12px">warning</span>
+                </button>
+                <button class="feed-filter-btn" data-feed-type="tool" title="Araçlar">
+                  <span class="material-symbols-outlined" style="font-size:12px">build</span>
+                </button>
+                <button class="feed-filter-btn" data-feed-type="think" title="Düşünce">
+                  <span class="material-symbols-outlined" style="font-size:12px">psychology</span>
+                </button>
+                <button class="feed-filter-btn" data-feed-type="phase" title="Faz">
+                  <span class="material-symbols-outlined" style="font-size:12px">flag</span>
+                </button>
+              </div>
+              <!-- Auto-scroll toggle -->
+              <button id="ml-autoscroll-btn" class="feed-filter-btn active" title="Otomatik kaydırma">
+                <span class="material-symbols-outlined" style="font-size:12px">vertical_align_bottom</span>
+              </button>
+              <!-- Clear feed -->
+              <button id="ml-feed-clear-btn" class="feed-filter-btn" title="Feed'i temizle">
+                <span class="material-symbols-outlined" style="font-size:12px">delete_sweep</span>
+              </button>
             </div>
             <div id="ml-feed" style="flex:1;overflow-y:auto"></div>
+          </div>
+        </div>
+        </div><!-- /ml-grid-wrapper -->
+
+        <!-- Graph section (shown when Grafikler tab active) -->
+        <div id="ml-graph-section" class="saas-card hidden" style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin-bottom:20px">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--c-muted-txt);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Zafiyet Dağılımı</div>
+            <div style="position:relative;height:220px;display:flex;align-items:center;justify-content:center">
+              <canvas id="ml-chart-severity"></canvas>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--c-muted-txt);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Faz İlerlemesi</div>
+            <div style="position:relative;height:220px">
+              <canvas id="ml-chart-phases"></canvas>
+            </div>
           </div>
         </div>
 
@@ -738,21 +955,27 @@
           <div class="filter-bar">
             <div class="filter-search">
               <span class="filter-search-icon"><span class="material-symbols-outlined">search</span></span>
-              <input id="act-search" type="text" placeholder="Search by target or name…">
+              <input id="act-search" type="text" placeholder="Target veya isim ara…">
             </div>
             <select id="act-status-filter" class="filter-select">
-              <option value="">All Statuses</option>
-              <option value="running">Running</option>
-              <option value="done">Completed</option>
-              <option value="error">Error</option>
-              <option value="stopped">Stopped</option>
-              <option value="paused">Paused</option>
+              <option value="">Tüm Durumlar</option>
+              <option value="running">Çalışıyor</option>
+              <option value="done">Tamamlandı</option>
+              <option value="error">Hatalı</option>
+              <option value="stopped">Durduruldu</option>
+              <option value="paused">Duraklatıldı</option>
+            </select>
+            <select id="act-date-filter" class="filter-select">
+              <option value="">Tüm Zamanlar</option>
+              <option value="today">Bugün</option>
+              <option value="week">Bu Hafta</option>
+              <option value="month">Bu Ay</option>
             </select>
             <select id="act-sort" class="filter-select">
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="target">By target</option>
-              <option value="vulns">Most vulns</option>
+              <option value="newest">En Yeni</option>
+              <option value="oldest">En Eski</option>
+              <option value="target">Hedefe Göre</option>
+              <option value="vulns">Zafiyet Sayısı</option>
             </select>
             <button id="act-refresh-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
               <span class="material-symbols-outlined" style="font-size:15px">refresh</span>
@@ -831,13 +1054,25 @@
         <div class="filter-bar" style="margin-top:20px">
           <div class="filter-search">
             <span class="filter-search-icon"><span class="material-symbols-outlined">search</span></span>
-            <input id="rpt-search" type="text" placeholder="Search by target or name…">
+            <input id="rpt-search" type="text" placeholder="Target veya isim ara…">
           </div>
+          <select id="rpt-severity-filter" class="filter-select">
+            <option value="">Tüm Severity</option>
+            <option value="critical">Kritik var</option>
+            <option value="high">Yüksek var</option>
+            <option value="medium">Orta var</option>
+          </select>
+          <select id="rpt-date-filter" class="filter-select">
+            <option value="">Tüm Zamanlar</option>
+            <option value="today">Bugün</option>
+            <option value="week">Bu Hafta</option>
+            <option value="month">Bu Ay</option>
+          </select>
           <select id="rpt-sort" class="filter-select">
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-            <option value="target">By target</option>
-            <option value="vulns">Most vulns</option>
+            <option value="newest">En Yeni</option>
+            <option value="oldest">En Eski</option>
+            <option value="target">Hedefe Göre</option>
+            <option value="vulns">Zafiyet Sayısı</option>
           </select>
           <button id="report-refresh-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
             <span class="material-symbols-outlined" style="font-size:15px">refresh</span>
@@ -1055,14 +1290,20 @@
                 </div>
                 <div class="saas-field" style="margin-bottom:0">
                   <label class="saas-label" for="cfg-ollama-model">Model</label>
-                  <input id="cfg-ollama-model" type="text" class="saas-input saas-input-mono" placeholder="llama3:8b">
+                  <div style="display:flex;gap:6px">
+                    <input id="cfg-ollama-model" type="text" list="ollama-models-list" class="saas-input saas-input-mono" placeholder="llama3:8b" style="flex:1">
+                    <datalist id="ollama-models-list"></datalist>
+                    <button type="button" id="fetch-ollama-models-btn" class="saas-btn saas-btn-ghost saas-btn-sm" title="Modelleri çek">
+                      <span class="material-symbols-outlined" style="font-size:14px">refresh</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div style="margin-top:12px;display:flex;gap:8px">
+              <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
                 <button type="button" id="test-ollama-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
                   <span class="material-symbols-outlined" style="font-size:14px">wifi_tethering</span>Test Connection
                 </button>
-                <span id="test-ollama-result" style="font-size:12px;color:var(--c-muted-txt);align-self:center"></span>
+                <span id="test-ollama-result" style="font-size:12px;color:var(--c-muted-txt)"></span>
               </div>
             </div>
 
@@ -1081,14 +1322,20 @@
               </div>
               <div class="saas-field" style="margin-bottom:0">
                 <label class="saas-label" for="cfg-or-model">Model ID</label>
-                <input id="cfg-or-model" type="text" class="saas-input saas-input-mono" placeholder="anthropic/claude-sonnet-4-6">
-                <div class="saas-help">Examples: anthropic/claude-opus-4-7 · openai/gpt-4o · meta-llama/llama-3.3-70b-instruct</div>
+                <div style="display:flex;gap:6px">
+                  <input id="cfg-or-model" type="text" list="or-models-list" class="saas-input saas-input-mono" placeholder="anthropic/claude-sonnet-4-6" style="flex:1">
+                  <datalist id="or-models-list"></datalist>
+                  <button type="button" id="fetch-or-models-btn" class="saas-btn saas-btn-ghost saas-btn-sm" title="Modelleri çek">
+                    <span class="material-symbols-outlined" style="font-size:14px">refresh</span>
+                  </button>
+                </div>
+                <div class="saas-help">Örnekler: anthropic/claude-opus-4-7 · openai/gpt-4o · meta-llama/llama-3.3-70b-instruct</div>
               </div>
-              <div style="margin-top:14px;display:flex;gap:8px">
+              <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
                 <button type="button" id="test-or-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
                   <span class="material-symbols-outlined" style="font-size:14px">wifi_tethering</span>Test Connection
                 </button>
-                <span id="test-or-result" style="font-size:12px;color:var(--c-muted-txt);align-self:center"></span>
+                <span id="test-or-result" style="font-size:12px;color:var(--c-muted-txt)"></span>
               </div>
             </div>
 
@@ -1108,7 +1355,7 @@
                 <div class="saas-field" style="margin-bottom:0">
                   <label class="saas-label" for="cfg-ocg-model">Model</label>
                   <input id="cfg-ocg-model" type="text" class="saas-input saas-input-mono" placeholder="deepseek-r1">
-                  <div class="saas-help">Check opencode.ai for available model IDs</div>
+                  <div class="saas-help">opencode.ai'den model ID'lerini kontrol edin</div>
                 </div>
                 <div class="saas-field" style="margin-bottom:0">
                   <label class="saas-label" for="cfg-ocg-url">Base URL</label>
@@ -1127,8 +1374,20 @@
                 </div>
                 <div class="saas-field" style="margin-bottom:0">
                   <label class="saas-label" for="cfg-lms-model">Model</label>
-                  <input id="cfg-lms-model" type="text" class="saas-input saas-input-mono" placeholder="local-model">
+                  <div style="display:flex;gap:6px">
+                    <input id="cfg-lms-model" type="text" list="lms-models-list" class="saas-input saas-input-mono" placeholder="local-model" style="flex:1">
+                    <datalist id="lms-models-list"></datalist>
+                    <button type="button" id="fetch-lms-models-btn" class="saas-btn saas-btn-ghost saas-btn-sm" title="Modelleri çek">
+                      <span class="material-symbols-outlined" style="font-size:14px">refresh</span>
+                    </button>
+                  </div>
                 </div>
+              </div>
+              <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+                <button type="button" id="test-lms-btn" class="saas-btn saas-btn-ghost saas-btn-sm">
+                  <span class="material-symbols-outlined" style="font-size:14px">wifi_tethering</span>Test Connection
+                </button>
+                <span id="test-lms-result" style="font-size:12px;color:var(--c-muted-txt)"></span>
               </div>
             </div>
           </div>
