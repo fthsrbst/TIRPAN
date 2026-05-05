@@ -317,11 +317,16 @@ def create_app() -> FastAPI:
     async def normal_mode_redirect():
         return RedirectResponse(url="/normal/")
 
-    application.mount(
-        "/normal",
-        StaticFiles(directory=str(settings.static_dir / "normal"), html=True),
-        name="normal",
-    )
+    normal_dir = settings.static_dir / "normal"
+
+    @application.get("/normal/{full_path:path}")
+    async def normal_spa_fallback(full_path: str):
+        file_path = (normal_dir / full_path).resolve()
+        if not str(file_path).startswith(str(normal_dir.resolve())):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(normal_dir / "index.html")
 
     application.mount(
         "/",
