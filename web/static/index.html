@@ -4,13 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>TIRPAN</title>
-<!-- Auth gate: redirect to SaaS login if no token -->
-<script>
-(function(){
-  var t = localStorage.getItem('tirpan-jwt');
-  if (!t) { window.location.replace('/saas/'); }
-})();
-</script>
+
 <link rel="icon" type="image/png" href="scythe.png"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
@@ -55,8 +49,8 @@
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      MAIN LAYOUT
-════════════════════════════════════════════════════════════════════════════ -->
-<div class="flex flex-1 overflow-hidden relative">
+═════════════════════════════════════════════════════════════════════════════ -->
+<div id="main-app" class="flex flex-1 overflow-hidden relative">
 
 <div id="mobile-overlay" onclick="closeMobileSidebar()"></div>
 
@@ -177,6 +171,12 @@
         <span class="material-symbols-outlined text-sm">settings</span>
         <span class="text-xs font-medium uppercase tracking-wider">Configuration</span>
       </div>
+      <div class="mt-2 pt-3 border-t border-border-color">
+        <a href="/normal/" class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" title="Switch to Normal Mode">
+          <span class="material-symbols-outlined text-sm">dashboard</span>
+          <span class="text-xs font-medium uppercase tracking-wider">Normal Mode</span>
+        </a>
+      </div>
     </div>
   </aside>
 
@@ -270,12 +270,7 @@
         </button>
         <!-- User badge -->
         <div id="dev-user-badge" class="hidden md:flex items-center gap-1.5 text-secondary-text text-[11px] font-mono"></div>
-        <a href="/saas/"
-           class="hidden md:flex items-center gap-1.5 border border-border-color text-secondary-text font-display font-bold text-[10px] py-1.5 px-3 rounded-full uppercase tracking-tighter hover:border-primary hover:text-primary transition-all"
-           title="Switch to Simple View">
-          <span class="material-symbols-outlined text-[13px]">open_in_new</span>
-          Simple View
-        </a>
+        
         <button id="dev-logout-btn"
            class="hidden md:flex items-center gap-1 border border-border-color text-secondary-text font-display font-bold text-[10px] py-1.5 px-3 rounded-full uppercase tracking-tighter hover:border-danger hover:text-danger transition-all"
            title="Sign out">
@@ -3989,23 +3984,28 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 <script src="ddos.js?v=1"></script>
 <script>
 (function () {
-  /* Show user badge and wire logout in dev header */
-  try {
-    var raw = localStorage.getItem('tirpan-user');
-    var user = raw ? JSON.parse(raw) : null;
-    var badge = document.getElementById('dev-user-badge');
-    if (badge && user) {
-      badge.textContent = (user.full_name || user.email) + ' · ' + user.role;
-    }
-  } catch (_) {}
+  function _updateBadge() {
+    try {
+      var raw = localStorage.getItem('tirpan_user');
+      var user = raw ? JSON.parse(raw) : null;
+      var badge = document.getElementById('dev-user-badge');
+      if (badge && user) {
+        badge.textContent = (user.full_name || user.email) + ' · ' + user.role;
+        badge.classList.remove('hidden');
+        badge.classList.add('md:flex');
+      }
+    } catch (_) {}
+  }
+  _updateBadge();
 
   document.getElementById('dev-logout-btn')?.addEventListener('click', function () {
     if (confirm('Çıkış yapmak istiyor musunuz?')) {
-      localStorage.removeItem('tirpan-jwt');
-      localStorage.removeItem('tirpan-user');
-      window.location.replace('/saas/');
+      localStorage.removeItem('tirpan_token');
+      localStorage.removeItem('tirpan_user');
+      window.location.reload();
     }
   });
+  window._updateAuthBadge = _updateBadge;
 })();
 </script>
 </body>
