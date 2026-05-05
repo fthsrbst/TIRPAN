@@ -1,3 +1,55 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUTH — redirect to Normal Mode login if no valid token
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _getToken() {
+    try { return localStorage.getItem('tirpan_token'); } catch { return null; }
+}
+function _clearAuth() {
+    try { localStorage.removeItem('tirpan_token'); localStorage.removeItem('tirpan_user'); } catch {}
+}
+
+// ── Patch fetch to always send auth header for /api/ requests ─────────────────
+const _origFetch = window.fetch;
+window.fetch = function(url, options) {
+    const urlStr = typeof url === 'string' ? url : (url instanceof Request ? url.url : String(url));
+    if (urlStr.startsWith('/api/') || urlStr.includes('/api/v1/')) {
+        const token = _getToken();
+        const headers = new Headers(options?.headers || {});
+        if (token) headers.set('Authorization', 'Bearer ' + token);
+        const newOpts = { ...options, headers };
+        return _origFetch(url, newOpts).then(function(res) {
+            if (res.status === 401) {
+                _clearAuth();
+                window.location.href = '/normal/login';
+                throw new Error('Session expired');
+            }
+            return res;
+        });
+    }
+    return _origFetch(url, options);
+};
+
+// ── Auth guard: on page load, verify token or redirect to login ──────────────
+(function() {
+    var token = _getToken();
+    if (!token) {
+        window.location.replace('/normal/login');
+        return;
+    }
+    // Validate token with server
+    _origFetch('/api/v1/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(function(res) {
+            if (!res.ok) {
+                _clearAuth();
+                window.location.replace('/normal/login');
+            }
+        })
+        .catch(function() {
+            // Network error — let page load, user can still use cached data
+        });
+})();
+
 // ─── Mobile Sidebar ──────────────────────────────────────────────────────────
 
 function toggleMobileSidebar() {

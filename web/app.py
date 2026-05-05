@@ -311,6 +311,18 @@ def create_app() -> FastAPI:
     async def websocket_endpoint(websocket: WebSocket):
         await handle_websocket(websocket)
 
+    from starlette.responses import RedirectResponse
+
+    @application.get("/normal")
+    async def normal_mode_redirect():
+        return RedirectResponse(url="/normal/")
+
+    application.mount(
+        "/normal",
+        StaticFiles(directory=str(settings.static_dir / "normal"), html=True),
+        name="normal",
+    )
+
     application.mount(
         "/",
         StaticFiles(directory=str(settings.static_dir), html=True),
