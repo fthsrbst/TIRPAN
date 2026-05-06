@@ -16,7 +16,7 @@ import httpx
 import psutil
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from config import SafetyConfig, settings
 from core.agent_model_config import normalize_agent_models
@@ -29,8 +29,13 @@ from core.secure_store import async_get_secret, async_set_secret, get_secret
 from core.targeting import infer_local_scope_targets, normalize_targets
 from database import db as database
 from database.repositories import (
+    AgentInstanceRepository,
     AuditLogRepository,
     ExploitResultRepository,
+    HarvestedCredentialRepository,
+    LootRepository,
+    MissionContextRepository,
+    NetworkGraphRepository,
     ScanResultRepository,
     SessionEventRepository,
     SessionRepository,
@@ -49,6 +54,11 @@ _scan_repo = ScanResultRepository()
 _vuln_repo = VulnerabilityRepository()
 _exploit_repo = ExploitResultRepository()
 _event_repo = SessionEventRepository()
+_agent_instance_repo = AgentInstanceRepository()
+_harvested_cred_repo = HarvestedCredentialRepository()
+_loot_repo = LootRepository()
+_network_graph_repo = NetworkGraphRepository()
+_mission_ctx_repo = MissionContextRepository()
 
 _REPORT_CACHE_TTL_SECONDS = 900.0
 _REPORT_CACHE_MAX_ITEMS = 48
@@ -326,6 +336,26 @@ async def delete_conversation(cid: str):
 
 # ── Persistent Settings ────────────────────────────────────────────────────────
 
+# Keys writable via the generic PUT /settings/{key} endpoint.
+# Dedicated config endpoints (safety, nmap, MSF, LLM, branding) use set_setting
+# internally but are not listed here — they have their own validation.
+_ALLOWED_SETTINGS_KEYS: frozenset[str] = frozenset({
+    "active_provider",
+    "active_model",
+    "agent_models",
+    "cloud_model",
+    "collect_training_data",
+    "last_mission_config",
+    "lmstudio_base_url",
+    "lmstudio_model",
+    "ollama_base_url",
+    "ollama_model",
+    "opencode_go_api_key",
+    "opencode_go_model",
+    "openrouter_api_key",
+})
+
+
 @router.get("/settings")
 async def get_settings():
     return await database.get_all_settings()
@@ -333,6 +363,8 @@ async def get_settings():
 
 @router.put("/settings/{key}")
 async def set_setting(key: str, body: dict):
+    if key not in _ALLOWED_SETTINGS_KEYS:
+        raise HTTPException(400, f"Unknown setting key: '{key}'")
     await database.set_setting(key, body.get("value"))
     return {"ok": True}
 
@@ -531,18 +563,24 @@ _SEVERITY_TO_CVSS = {"LOW": 3.9, "MEDIUM": 6.9, "HIGH": 8.9, "CRITICAL": 10.0}
 @router.get("/config/safety")
 async def get_safety_config():
     saved = await database.get_all_settings()
+    def _safe_int(val, default: int) -> int:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
     return {
         "allowed_cidr": saved.get("safety_allowed_cidr", settings.safety.allowed_cidr),
-        "allowed_port_min": int(saved.get("safety_port_min", settings.safety.allowed_port_min)),
-        "allowed_port_max": int(saved.get("safety_port_max", settings.safety.allowed_port_max)),
+        "allowed_port_min": _safe_int(saved.get("safety_port_min"), settings.safety.allowed_port_min),
+        "allowed_port_max": _safe_int(saved.get("safety_port_max"), settings.safety.allowed_port_max),
         "excluded_ips": saved.get("safety_excluded_ips", ""),
         "excluded_ports": saved.get("safety_excluded_ports", ""),
         "allow_exploit": saved.get("safety_allow_exploit", "true") == "true",
         "block_dos_exploits": saved.get("safety_block_dos", "true") == "true",
         "block_destructive": saved.get("safety_block_destructive", "true") == "true",
         "max_severity": saved.get("safety_max_severity", "CRITICAL"),
-        "session_max_seconds": int(saved.get("safety_time_limit", 7200)),
-        "max_requests_per_second": int(saved.get("safety_rate_limit", 50)),
+        "session_max_seconds": _safe_int(saved.get("safety_time_limit"), 7200),
+        "max_requests_per_second": _safe_int(saved.get("safety_rate_limit"), 50),
     }
 
 
@@ -786,11 +824,14 @@ async def get_nmap_config():
     }
 
 
+class NmapConfigRequest(BaseModel):
+    nmap_sudo: bool = False
+
+
 @router.post("/config/nmap")
-async def save_nmap_config(body: dict):
-    nmap_sudo = bool(body.get("nmap_sudo", False))
-    await database.set_setting("nmap_sudo", "true" if nmap_sudo else "false")
-    settings.nmap_sudo = nmap_sudo
+async def save_nmap_config(body: NmapConfigRequest):
+    await database.set_setting("nmap_sudo", "true" if body.nmap_sudo else "false")
+    settings.nmap_sudo = "true" if body.nmap_sudo else "false"
     return {"ok": True}
 
 
@@ -814,7 +855,7 @@ def _cred_fernet():
     try:
         return Fernet(key.encode() if isinstance(key, str) else key)
     except Exception as exc:
-        raise RuntimeError(f"Invalid credential encryption key: {exc}") from exc
+        raise RuntimeError("Invalid credential encryption key format") from exc
 
 
 def encrypt_cred_data(data: str) -> str:
@@ -1056,10 +1097,34 @@ class StartSessionRequest(BaseModel):
 
     # Per-agent model overrides — keyed by agent_type
     # e.g. {"brain": {"provider": "openrouter", "model": "..."}, "reporting": {...}}
-    agent_models: dict = {}
+    agent_models: dict = Field(default_factory=dict)
 
     # Profile load
     profile_id: Optional[str] = None
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, v: str) -> str:
+        allowed = {"full_auto", "ask_before_exploit", "scan_only", "v2_auto"}
+        if v not in allowed:
+            raise ValueError(f"mode must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator("speed_profile")
+    @classmethod
+    def _validate_speed_profile(cls, v: str) -> str:
+        allowed = {"stealth", "normal", "aggressive"}
+        if v not in allowed:
+            raise ValueError(f"speed_profile must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator("scan_type")
+    @classmethod
+    def _validate_scan_type(cls, v: str) -> str:
+        allowed = {"syn", "connect", "udp", "full"}
+        if v not in allowed:
+            raise ValueError(f"scan_type must be one of {sorted(allowed)}")
+        return v
 
 
 async def _run_v2_agent_task(
@@ -2024,20 +2089,6 @@ async def get_audit_log(
 # ── V2 Multi-Agent Endpoints ───────────────────────────────────────────────────
 # These endpoints expose V2-only data: agent instances, mission context,
 # attack graph, harvested credentials, loot, and shell sessions.
-
-from database.repositories import (
-    AgentInstanceRepository,
-    HarvestedCredentialRepository,
-    LootRepository,
-    NetworkGraphRepository,
-    MissionContextRepository,
-)
-
-_agent_instance_repo = AgentInstanceRepository()
-_harvested_cred_repo = HarvestedCredentialRepository()
-_loot_repo = LootRepository()
-_network_graph_repo = NetworkGraphRepository()
-_mission_ctx_repo = MissionContextRepository()
 
 
 @router.get("/sessions/{sid}/agents")

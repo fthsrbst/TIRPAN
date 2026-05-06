@@ -104,7 +104,29 @@
       "Bash(cd \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\attack-graph-canvas\")",
       "Read(///wsl.localhost/kali-linux/mnt/**)",
       "Bash(wslpath -w /home)",
-      "PowerShell(wsl -d kali-linux -- bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npm run build 2>&1\")"
+      "PowerShell(wsl -d kali-linux -- bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npm run build 2>&1\")",
+      "Bash(ls \"/mnt/c/Users/fatih\" 2>/dev/null; ls /home/fatih-root/TIRPAN 2>/dev/null; ls ~/TIRPAN 2>/dev/null; pwd)",
+      "Bash(ls \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/\")",
+      "Bash(grep -n \"update_status\\\\|update_mitre\\\\|class UserRepository\\\\|class.*Repository\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/database/repositories.py\" | head -50)",
+      "Bash(grep -n \"websocket\\\\|handle_websocket\\\\|/ws\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/app.py\" | head -20)",
+      "Bash(grep -rn \"UserRepository\\\\\\(\\\\\\).*update_status\\\\|UserRepository.*\\\\.update_status\\\\|UserRepository.*\\\\.update_mitre\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/\" --include=\"*.py\" 2>/dev/null | grep -v venv | grep -v __pycache__)",
+      "Bash(grep -rn \"\\\\.update_status\\\\|\\\\.update_mitre\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/\" --include=\"*.py\" 2>/dev/null | grep -v venv | grep -v __pycache__ | head -30)",
+      "Bash(grep -n \"_alert_repo\\\\|_session_repo\\\\|DefenseAlertRepository\\\\|UserRepository\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/defense_routes.py\" | head -20)",
+      "Bash(grep -rn \"update_mitre\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/\" --include=\"*.py\" 2>/dev/null | grep -v venv | grep -v __pycache__)",
+      "Read(///wsl.localhost/kali-linux/home/fatih-root/**)",
+      "Bash(python -m py_compile config.py main.py models/session.py core/agent.py core/safety.py core/base_agent.py core/memory.py core/targeting.py core/registry_builder.py manage.py)",
+      "Bash(python -m py_compile web/auth/models.py web/auth/dependencies.py web/auth/router.py web/routes.py web/websocket_handler.py database/db.py database/repositories.py core/prompts.py core/llm_client.py)",
+      "Bash(grep -n \"^from pydantic\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/routes.py\" | head -5)",
+      "Bash(cd \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN\" && git diff --stat 2>&1 | head -30)",
+      "Bash(cd \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN\" && git diff --stat 2>&1 | tail -20)",
+      "Bash(cd /mnt/c/path_or_wsl && pwd && ls -la 2>&1 | head -5)",
+      "Bash(ls -la /home/ 2>&1)",
+      "Bash(grep -E \"get.*body\\\\.|get\\\\\\(.*\\\\\\)$\")",
+      "Bash(grep -n \"time\\\\.sleep\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/tools/metasploit_tool.py\" | head -20)",
+      "Bash(grep -n \"def _poll_for_session\\\\|async def\\\\|def \" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/tools/metasploit_tool.py\" | head -40)",
+      "Bash(grep -n \"def _blocking_session_exec\\\\|def _run_post\\\\|def _blocking\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/tools/metasploit_tool.py\" | head -10)",
+      "Bash(grep -n \"MissionContextRepository\\\\|AgentInstanceRepository\\\\|HarvestedCredential\\\\|LootRepository\\\\|NetworkGraph\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/routes.py\" | head -10)",
+      "Bash(grep -oP \"settings/[a-z_]+\" \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\kali-linux\\\\\\\\home\\\\\\\\fatih-root\\\\\\\\TIRPAN\\\\\\\\web\\\\\\\\static\\\\\\\\normal\\\\\\\\assets\\\\\\\\index-DrKhumog.js\" 2>/dev/null | sort -u | head -30)"
     ]
   }
 }
