@@ -1530,9 +1530,10 @@ async def get_session(sid: str):
     vulns = await _vuln_repo.get_for_session(sid)
     exploits = await _exploit_repo.get_for_session(sid)
 
-    # Historical sessions can end with empty normalized tables even though
-    # event logs contain real findings. Recover once at read-time.
-    needs_recovery = (not is_running) and (
+    # For running V2 sessions, normalized tables may be empty because agents emit
+    # findings via events rather than writing directly to tables. Derive live data
+    # from the event stream so the attack graph can display current progress.
+    needs_recovery = (
         not scan_results
         or not vulns
         or not exploits
@@ -1551,12 +1552,16 @@ async def get_session(sid: str):
                 vuln_repo=_vuln_repo,
                 exploit_repo=_exploit_repo,
                 event_repo=_event_repo,
-                persist=True,
+                # Only persist when the session is finished; while running we
+                # just derive in-memory so the attack graph stays live without
+                # hammering the DB on every poll.
+                persist=not is_running,
             )
             scan_results = recovered.get("scan_results", scan_results)
             vulns = recovered.get("vulnerabilities", vulns)
             exploits = recovered.get("exploit_results", exploits)
-            session = await _session_repo.get(sid) or session
+            if not is_running:
+                session = await _session_repo.get(sid) or session
         except Exception as exc:
             logger.warning("Session recovery failed for %s: %s", sid, exc)
 
@@ -1564,6 +1569,21 @@ async def get_session(sid: str):
     session["scan_results"] = scan_results
     session["vulnerabilities"] = vulns
     session["exploit_results"] = exploits
+
+    # Attach V2 mission context if available
+    mission_ctx_raw = session.get("mission_context_json")
+    if mission_ctx_raw:
+        try:
+            import json as _json
+            session["mission_context"] = _json.loads(mission_ctx_raw)
+        except Exception:
+            pass
+    else:
+        # Try live in-memory context for running sessions
+        from web import session_manager
+        agent = session_manager.get_agent(sid)
+        if agent and hasattr(agent, "_mission_ctx") and agent._mission_ctx is not None:
+            session["mission_context"] = agent._mission_ctx.to_dict()
 
     return session
 

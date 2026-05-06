@@ -1104,6 +1104,18 @@ class BrainAgent(BaseAgent):
         if not finding_type:
             return
 
+        if finding_type == "subdomain":
+            subdomain = str(self._finding_value(payload, "subdomain", "domain", default="")).strip()
+            if subdomain:
+                await self.ctx.add_subdomain(subdomain)
+            return
+
+        if finding_type == "email":
+            email = str(self._finding_value(payload, "email", default="")).strip()
+            if email:
+                await self.ctx.add_email(email)
+            return
+
         if finding_type in ("host", "host_discovered"):
             ip = str(self._finding_value(payload, "ip", "host_ip", "host", "target_ip", default="")).strip()
             if not ip:
