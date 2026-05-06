@@ -7,15 +7,48 @@ and web mode (web/app.py) so the available tool set is consistent.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from core.tool_registry import ToolRegistry
-from tools.nmap_tool import NmapTool
-from tools.searchsploit_tool import SearchSploitTool
-from tools.metasploit_tool import MetasploitTool
-from tools.ssh_tool import SSHTool
-from tools.shell_session_tool import ShellSessionTool
-from tools.local_exec_tool import LocalExecTool
+
+logger = logging.getLogger(__name__)
+
+try:
+    from tools.nmap_tool import NmapTool
+except ImportError as _e:
+    logger.warning("Core tool NmapTool failed to import: %s", _e)
+    NmapTool = None  # type: ignore[assignment,misc]
+
+try:
+    from tools.searchsploit_tool import SearchSploitTool
+except ImportError as _e:
+    logger.warning("Core tool SearchSploitTool failed to import: %s", _e)
+    SearchSploitTool = None  # type: ignore[assignment,misc]
+
+try:
+    from tools.metasploit_tool import MetasploitTool
+except ImportError as _e:
+    logger.warning("Core tool MetasploitTool failed to import: %s", _e)
+    MetasploitTool = None  # type: ignore[assignment,misc]
+
+try:
+    from tools.ssh_tool import SSHTool
+except ImportError as _e:
+    logger.warning("Core tool SSHTool failed to import: %s", _e)
+    SSHTool = None  # type: ignore[assignment,misc]
+
+try:
+    from tools.shell_session_tool import ShellSessionTool
+except ImportError as _e:
+    logger.warning("Core tool ShellSessionTool failed to import: %s", _e)
+    ShellSessionTool = None  # type: ignore[assignment,misc]
+
+try:
+    from tools.local_exec_tool import LocalExecTool
+except ImportError as _e:
+    logger.warning("Core tool LocalExecTool failed to import: %s", _e)
+    LocalExecTool = None  # type: ignore[assignment,misc]
 
 
 def build_tool_registry(
@@ -39,73 +72,50 @@ def build_tool_registry(
     registry = ToolRegistry()
 
     # Core tools
-    registry.register(NmapTool())
-    registry.register(SearchSploitTool())
-    registry.register(MetasploitTool())
-    registry.register(SSHTool())
-    registry.register(ShellSessionTool())
-    registry.register(LocalExecTool())
+    for _cls in (NmapTool, SearchSploitTool, MetasploitTool, SSHTool, ShellSessionTool, LocalExecTool):
+        if _cls is not None:
+            registry.register(_cls())
 
     if include_extended:
-        from tools.masscan_tool import MasscanTool
-        from tools.nuclei_tool import NucleiTool
-        from tools.ffuf_tool import FfufTool
-        from tools.whatweb_tool import WhatWebTool
-        from tools.nikto_tool import NiktoTool
-        from tools.theharvester_tool import TheHarvesterTool
-        from tools.subfinder_tool import SubfinderTool
-        from tools.whois_tool import WhoisTool
-        from tools.dns_tool import DnsTool
-        from tools.crackmapexec_tool import CrackMapExecTool
-        from tools.impacket_tool import ImpacketTool
-        from tools.report_finding_tool import ReportFindingTool
-        from tools.generate_report_tool import GenerateReportTool
-        from tools.rsh_tool import RshTool
-        from tools.distcc_tool import DistccTool
-        from tools.webdav_tool import WebDavTool
-        from tools.smb_enum_tool import SmbEnumTool
-        from tools.telnet_tool import TelnetTool
-        # Web pentest & brute-force tools
-        from tools.hydra_tool import HydraTool
-        from tools.sqlmap_tool import SqlmapTool
-        from tools.wpscan_tool import WPScanTool
-        from tools.hashcat_tool import HashcatTool
-        from tools.commix_tool import CommixTool
-        from tools.john_tool import JohnTool
-        from tools.gobuster_tool import GobusterTool
-        from tools.arjun_tool import ArjunTool
-        from tools.ddos_tool import DDoSTool
-
-        for tool in (
-            MasscanTool(),
-            NucleiTool(),
-            FfufTool(),
-            WhatWebTool(),
-            NiktoTool(),
-            TheHarvesterTool(),
-            SubfinderTool(),
-            WhoisTool(),
-            DnsTool(),
-            CrackMapExecTool(),
-            ImpacketTool(),
-            ReportFindingTool(),
-            GenerateReportTool(),
-            RshTool(),
-            DistccTool(),
-            WebDavTool(),
-            SmbEnumTool(),
-            TelnetTool(),
-            HydraTool(),
-            SqlmapTool(),
-            WPScanTool(),
-            HashcatTool(),
-            CommixTool(),
-            JohnTool(),
-            GobusterTool(),
-            ArjunTool(),
-            DDoSTool(),
-        ):
-            registry.register(tool)
+        _extended_modules = [
+            ("tools.masscan_tool", "MasscanTool"),
+            ("tools.nuclei_tool", "NucleiTool"),
+            ("tools.ffuf_tool", "FfufTool"),
+            ("tools.whatweb_tool", "WhatWebTool"),
+            ("tools.nikto_tool", "NiktoTool"),
+            ("tools.theharvester_tool", "TheHarvesterTool"),
+            ("tools.subfinder_tool", "SubfinderTool"),
+            ("tools.whois_tool", "WhoisTool"),
+            ("tools.dns_tool", "DnsTool"),
+            ("tools.crackmapexec_tool", "CrackMapExecTool"),
+            ("tools.impacket_tool", "ImpacketTool"),
+            ("tools.report_finding_tool", "ReportFindingTool"),
+            ("tools.generate_report_tool", "GenerateReportTool"),
+            ("tools.rsh_tool", "RshTool"),
+            ("tools.distcc_tool", "DistccTool"),
+            ("tools.webdav_tool", "WebDavTool"),
+            ("tools.smb_enum_tool", "SmbEnumTool"),
+            ("tools.telnet_tool", "TelnetTool"),
+            ("tools.hydra_tool", "HydraTool"),
+            ("tools.sqlmap_tool", "SqlmapTool"),
+            ("tools.wpscan_tool", "WPScanTool"),
+            ("tools.hashcat_tool", "HashcatTool"),
+            ("tools.commix_tool", "CommixTool"),
+            ("tools.john_tool", "JohnTool"),
+            ("tools.gobuster_tool", "GobusterTool"),
+            ("tools.arjun_tool", "ArjunTool"),
+            ("tools.ddos_tool", "DDoSTool"),
+        ]
+        import importlib as _importlib
+        for _mod_name, _cls_name in _extended_modules:
+            try:
+                _mod = _importlib.import_module(_mod_name)
+                _cls = getattr(_mod, _cls_name)
+                registry.register(_cls())
+            except ImportError as _e:
+                logger.warning("Extended tool %s failed to import: %s", _cls_name, _e)
+            except (AttributeError, TypeError, ValueError) as _e:
+                logger.warning("Extended tool %s failed to load: %s", _cls_name, _e)
 
     if load_plugins:
         registry.load_plugins(plugins_dir or Path("plugins/"))

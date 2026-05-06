@@ -34,7 +34,8 @@ def estimate_tokens(text: str) -> int:
         try:
             import tiktoken  # type: ignore
             _ENCODER = tiktoken.get_encoding("cl100k_base")
-        except Exception:
+        except Exception as _e:
+            logger.debug("tiktoken not available, falling back to char/4 estimation: %s", _e)
             _ENCODER = False
 
     if _ENCODER:

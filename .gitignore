@@ -29,3 +29,18 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# Type checking & linting
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+
+# pyenv
+.python-version
