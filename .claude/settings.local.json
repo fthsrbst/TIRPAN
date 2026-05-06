@@ -126,7 +126,9 @@
       "Bash(grep -n \"def _poll_for_session\\\\|async def\\\\|def \" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/tools/metasploit_tool.py\" | head -40)",
       "Bash(grep -n \"def _blocking_session_exec\\\\|def _run_post\\\\|def _blocking\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/tools/metasploit_tool.py\" | head -10)",
       "Bash(grep -n \"MissionContextRepository\\\\|AgentInstanceRepository\\\\|HarvestedCredential\\\\|LootRepository\\\\|NetworkGraph\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/routes.py\" | head -10)",
-      "Bash(grep -oP \"settings/[a-z_]+\" \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\kali-linux\\\\\\\\home\\\\\\\\fatih-root\\\\\\\\TIRPAN\\\\\\\\web\\\\\\\\static\\\\\\\\normal\\\\\\\\assets\\\\\\\\index-DrKhumog.js\" 2>/dev/null | sort -u | head -30)"
+      "Bash(grep -oP \"settings/[a-z_]+\" \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\kali-linux\\\\\\\\home\\\\\\\\fatih-root\\\\\\\\TIRPAN\\\\\\\\web\\\\\\\\static\\\\\\\\normal\\\\\\\\assets\\\\\\\\index-DrKhumog.js\" 2>/dev/null | sort -u | head -30)",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\core\" \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\tools\" \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\souls\")",
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\")"
     ]
   }
 }

@@ -466,6 +466,31 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v10 applied: defense module tables")
 
+        if version < 11:
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id              TEXT PRIMARY KEY,
+                    email           TEXT NOT NULL UNIQUE,
+                    full_name       TEXT NOT NULL DEFAULT '',
+                    hashed_password TEXT NOT NULL,
+                    role            TEXT NOT NULL DEFAULT 'viewer',
+                    is_active       INTEGER NOT NULL DEFAULT 1,
+                    is_verified     INTEGER NOT NULL DEFAULT 0,
+                    created_at      REAL    NOT NULL,
+                    last_login      REAL,
+                    org_id          TEXT,
+                    avatar_color    TEXT,
+                    failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+                    locked_until    REAL
+                );
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (11, time.time(), "users table"),
+            )
+            await db.commit()
+            logger.info("DB migration v11 applied: users table")
+
         if version < 12:
             # Ensure indexes on the users table (table already exists from v11)
             await db.executescript("""
@@ -478,6 +503,18 @@ async def init_db(db_path: Path | None = None) -> None:
             )
             await db.commit()
             logger.info("DB migration v12 applied: users indexes")
+
+        if version < 13:
+            await db.executescript("""
+                CREATE INDEX IF NOT EXISTS idx_audit_log_event_type
+                    ON audit_log(event_type, created_at);
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (13, time.time(), "audit_log event_type index"),
+            )
+            await db.commit()
+            logger.info("DB migration v13 applied: audit_log event_type index")
 
     logger.info("Database ready: %s", path)
 
