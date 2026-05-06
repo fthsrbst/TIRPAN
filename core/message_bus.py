@@ -1,5 +1,5 @@
 """
-V2 — AgentMessageBus
+V2/V3 — AgentMessageBus
 
 asyncio.Queue-based pub/sub inter-agent communication layer.
 Brain and all specialized agents communicate exclusively through this bus.
@@ -7,6 +7,10 @@ Brain and all specialized agents communicate exclusively through this bus.
 Message flow:
   sender.send(msg)  →  recipient queue  →  recipient.receive()
   sender.broadcast(msg)  →  ALL registered agent queues
+
+V3 addition — topic channels (workers communicate without Brain wake-up):
+  bus.publish_topic(Topics.CREDENTIALS, sender_id, payload)
+  bus.subscribe_topic(Topics.CREDENTIALS, async_handler)
 
 Subscriptions allow agents to react to event types without polling.
 wait_for_result() lets Brain block until a specific agent completes.

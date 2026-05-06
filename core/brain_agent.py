@@ -1482,7 +1482,7 @@ class BrainAgent(BaseAgent):
         if str(msf_sid).startswith("msf-"):
             msf_sid = str(msf_sid)[4:]
         try:
-            msf_sid = int(msf_sid) if msf_sid else None
+            msf_sid = int(msf_sid) if msf_sid not in ("", None) else None
         except (ValueError, TypeError):
             msf_sid = None
 

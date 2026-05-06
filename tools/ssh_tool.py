@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
 import shutil
 from typing import Optional
 
@@ -274,20 +275,20 @@ class SSHTool(BaseTool):
             return command
         if escalation == "sudo":
             if escalation_password:
-                return f"echo '{escalation_password}' | sudo -S sh -c '{command}'"
-            return f"sudo sh -c '{command}'"
+                return f"echo {shlex.quote(escalation_password)} | sudo -S sh -c {shlex.quote(command)}"
+            return f"sudo sh -c {shlex.quote(command)}"
         if escalation == "su":
             if escalation_password:
-                return f"echo '{escalation_password}' | su -c '{command}'"
-            return f"su -c '{command}'"
+                return f"echo {shlex.quote(escalation_password)} | su -c {shlex.quote(command)}"
+            return f"su -c {shlex.quote(command)}"
         if escalation == "pbrun":
-            return f"pbrun sh -c '{command}'"
+            return f"pbrun sh -c {shlex.quote(command)}"
         if escalation == "dzdo":
-            return f"dzdo sh -c '{command}'"
+            return f"dzdo sh -c {shlex.quote(command)}"
         if escalation == "pfexec":
-            return f"pfexec sh -c '{command}'"
+            return f"pfexec sh -c {shlex.quote(command)}"
         if escalation == "doas":
-            return f"doas sh -c '{command}'"
+            return f"doas sh -c {shlex.quote(command)}"
         return command
 
     def _exec(self, client, command: str, escalation_password: str = "") -> tuple[str, str, int]:
