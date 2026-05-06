@@ -6,6 +6,12 @@
       "runtimeExecutable": "wsl",
       "runtimeArgs": ["-e", "/home/fatih-root/TIRPAN/venv/bin/python", "/home/fatih-root/TIRPAN/main.py", "--no-reload"],
       "port": 8000
+    },
+    {
+      "name": "attack-graph-vite",
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-d", "kali-linux", "bash", "-c", "cd /home/fatih-root/TIRPAN/attack-graph-canvas && npm run dev -- --port 5173 --host 0.0.0.0"],
+      "port": 5173
     }
   ]
 }
