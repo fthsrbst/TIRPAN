@@ -49,11 +49,16 @@ async def create_admin(email: str, name: str, password: str) -> None:
 
 
 def main() -> None:
+    import re as _re
     p = argparse.ArgumentParser(description="TIRPAN management CLI")
-    p.add_argument("--email",    required=True, help="Admin email")
+    p.add_argument("--email",    required=True, help="Admin email address")
     p.add_argument("--name",     default="TIRPAN Admin", help="Display name")
     p.add_argument("--password", required=True, help="Password (min 8 chars)")
     args = p.parse_args()
+
+    if not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', args.email):
+        print("[!] Invalid email format.")
+        sys.exit(1)
 
     if len(args.password) < 8:
         print("[!] Password must be at least 8 characters.")

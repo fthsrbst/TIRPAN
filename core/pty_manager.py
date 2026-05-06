@@ -65,8 +65,8 @@ class PTYManager:
 
     @staticmethod
     def _set_winsize(fd: int, rows: int, cols: int) -> None:
-        rows = max(12, int(rows))
-        cols = max(40, int(cols))
+        rows = max(12, min(int(rows), 65535))
+        cols = max(40, min(int(cols), 65535))
         packed = struct.pack("HHHH", rows, cols, 0, 0)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, packed)
 
@@ -81,7 +81,10 @@ class PTYManager:
             raise RuntimeError("Native PTY terminal is only supported on POSIX hosts")
 
         if len(self._sessions) >= self._max_sessions:
-            raise RuntimeError("Maximum native terminal sessions reached")
+            raise RuntimeError(
+                f"Terminal limit reached (max {self._max_sessions} concurrent sessions). "
+                "Close an existing terminal first."
+            )
 
         terminal_id = str(uuid.uuid4())
         shell_path = self._resolve_shell(shell)

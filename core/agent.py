@@ -89,15 +89,20 @@ class AgentContext:
 
     def __post_init__(self):
         if self.mission is None:
-            object.__setattr__(self, "mission", MissionBrief())
+            self.mission = MissionBrief()
 
         # If target is a single IP (not CIDR), pre-register it as discovered so
         # the agent can proceed directly to PORT_SCAN without a redundant ping sweep.
-        import re as _re
+        import ipaddress as _ip
+        _is_single_ip = False
+        if self.target and "/" not in self.target:
+            try:
+                _ip.ip_address(self.target)
+                _is_single_ip = True
+            except ValueError:
+                pass
         if (
-            self.target
-            and "/" not in self.target
-            and _re.match(r"^\d{1,3}(\.\d{1,3}){3}$", self.target)
+            _is_single_ip
             and self.target not in self.discovered_hosts
         ):
             self.discovered_hosts.append(self.target)
