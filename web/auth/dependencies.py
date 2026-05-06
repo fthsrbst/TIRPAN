@@ -7,19 +7,13 @@ from jose import JWTError
 from database.repositories import UserRepository
 from web.auth.service import decode_access_token
 
-_bearer = HTTPBearer(auto_error=False)
+_bearer = HTTPBearer(auto_error=True)
 _user_repo = UserRepository()
 
 
 async def get_current_user(
-    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    creds: HTTPAuthorizationCredentials = Depends(_bearer),
 ) -> dict:
-    if not creds:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
     try:
         payload = decode_access_token(creds.credentials)
         user_id: str = payload.get("sub")

@@ -168,6 +168,10 @@ class BaseAgent(ABC):
         self.mission_id: str = mission_id
         # Fallback: treat mission_id as session_id for backward-compat audit calls
         self.session_id: str = session_id or mission_id
+        if not self.session_id:
+            logger.warning(
+                "BaseAgent created with empty session_id — audit logs will have no session reference"
+            )
 
         self.memory = SessionMemory(
             max_messages=memory_max_messages,

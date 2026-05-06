@@ -14,9 +14,9 @@ from typing import Optional
 
 import httpx
 import psutil
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from config import SafetyConfig, settings
 from core.agent_model_config import normalize_agent_models
@@ -29,14 +29,20 @@ from core.secure_store import async_get_secret, async_set_secret, get_secret
 from core.targeting import infer_local_scope_targets, normalize_targets
 from database import db as database
 from database.repositories import (
+    AgentInstanceRepository,
     AuditLogRepository,
     ExploitResultRepository,
+    HarvestedCredentialRepository,
+    LootRepository,
+    MissionContextRepository,
+    NetworkGraphRepository,
     ScanResultRepository,
     SessionEventRepository,
     SessionRepository,
     VulnerabilityRepository,
 )
 from web.stats_state import token_counter
+from web.auth.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +55,11 @@ _scan_repo = ScanResultRepository()
 _vuln_repo = VulnerabilityRepository()
 _exploit_repo = ExploitResultRepository()
 _event_repo = SessionEventRepository()
+_agent_instance_repo = AgentInstanceRepository()
+_harvested_cred_repo = HarvestedCredentialRepository()
+_loot_repo = LootRepository()
+_network_graph_repo = NetworkGraphRepository()
+_mission_ctx_repo = MissionContextRepository()
 
 _REPORT_CACHE_TTL_SECONDS = 900.0
 _REPORT_CACHE_MAX_ITEMS = 48
@@ -64,6 +75,14 @@ _BRANDING_ALLOWED_EXTS = {
 }
 _BRANDING_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
+_TRANSPARENT_PNG = bytes([
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+    0x42, 0x60, 0x82,
+])
+
 
 def _report_cache_version(session: dict) -> str:
     return "|".join(
@@ -77,6 +96,11 @@ def _report_cache_version(session: dict) -> str:
             str(session.get("exploits_run") or 0),
         ]
     )
+
+
+def _should_cache_report(session: dict) -> bool:
+    """Don't cache reports for running sessions — data is still changing."""
+    return session.get("status") != "running"
 
 
 def _report_cache_get(sid: str, fmt: str, version: str) -> str | bytes | None:
@@ -326,13 +350,35 @@ async def delete_conversation(cid: str):
 
 # ── Persistent Settings ────────────────────────────────────────────────────────
 
+# Keys writable via the generic PUT /settings/{key} endpoint.
+# Dedicated config endpoints (safety, nmap, MSF, LLM, branding) use set_setting
+# internally but are not listed here — they have their own validation.
+_ALLOWED_SETTINGS_KEYS: frozenset[str] = frozenset({
+    "active_provider",
+    "active_model",
+    "agent_models",
+    "cloud_model",
+    "collect_training_data",
+    "last_mission_config",
+    "lmstudio_base_url",
+    "lmstudio_model",
+    "ollama_base_url",
+    "ollama_model",
+    "opencode_go_api_key",
+    "opencode_go_model",
+    "openrouter_api_key",
+})
+
+
 @router.get("/settings")
-async def get_settings():
+async def get_settings(current_user: dict = Depends(get_current_user)):
     return await database.get_all_settings()
 
 
 @router.put("/settings/{key}")
 async def set_setting(key: str, body: dict):
+    if key not in _ALLOWED_SETTINGS_KEYS:
+        raise HTTPException(400, f"Unknown setting key: '{key}'")
     await database.set_setting(key, body.get("value"))
     return {"ok": True}
 
@@ -432,7 +478,7 @@ async def get_branding_logo(filename: str):
     if base not in target.parents:
         raise HTTPException(400, "Invalid filename")
     if not target.exists() or not target.is_file():
-        raise HTTPException(404, "Logo not found")
+        return Response(content=_TRANSPARENT_PNG, media_type="image/png")
 
     media_type = _BRANDING_ALLOWED_EXTS.get(target.suffix.lower())
     if not media_type:
@@ -531,18 +577,24 @@ _SEVERITY_TO_CVSS = {"LOW": 3.9, "MEDIUM": 6.9, "HIGH": 8.9, "CRITICAL": 10.0}
 @router.get("/config/safety")
 async def get_safety_config():
     saved = await database.get_all_settings()
+    def _safe_int(val, default: int) -> int:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
     return {
         "allowed_cidr": saved.get("safety_allowed_cidr", settings.safety.allowed_cidr),
-        "allowed_port_min": int(saved.get("safety_port_min", settings.safety.allowed_port_min)),
-        "allowed_port_max": int(saved.get("safety_port_max", settings.safety.allowed_port_max)),
+        "allowed_port_min": _safe_int(saved.get("safety_port_min"), settings.safety.allowed_port_min),
+        "allowed_port_max": _safe_int(saved.get("safety_port_max"), settings.safety.allowed_port_max),
         "excluded_ips": saved.get("safety_excluded_ips", ""),
         "excluded_ports": saved.get("safety_excluded_ports", ""),
         "allow_exploit": saved.get("safety_allow_exploit", "true") == "true",
         "block_dos_exploits": saved.get("safety_block_dos", "true") == "true",
         "block_destructive": saved.get("safety_block_destructive", "true") == "true",
         "max_severity": saved.get("safety_max_severity", "CRITICAL"),
-        "session_max_seconds": int(saved.get("safety_time_limit", 7200)),
-        "max_requests_per_second": int(saved.get("safety_rate_limit", 50)),
+        "session_max_seconds": _safe_int(saved.get("safety_time_limit"), 7200),
+        "max_requests_per_second": _safe_int(saved.get("safety_rate_limit"), 50),
     }
 
 
@@ -743,7 +795,6 @@ async def save_opencode_go_config(body: OpenCodeGoSettings):
         clean_key = _sanitize_api_key(body.api_key)
         if clean_key:
             await async_set_secret("opencode_go_api_key", clean_key)
-            await database.set_setting("opencode_go_api_key", clean_key)
             settings.opencode_go.api_key = clean_key
     if body.model:
         await database.set_setting("opencode_go_model", body.model)
@@ -769,8 +820,9 @@ async def opencode_go_models():
             models = sorted(m.get("id", m if isinstance(m, str) else "") for m in data.get("data", []))
             models = [m for m in models if m]
             return {"models": models}
-    except Exception as e:
-        return {"models": [], "error": str(e)}
+    except Exception:
+        logger.error("Failed to fetch OpenCode Go models", exc_info=True)
+        return {"models": [], "error": "Failed to fetch models"}
 
 
 # ── Nmap Config ────────────────────────────────────────────────────────────────
@@ -786,11 +838,14 @@ async def get_nmap_config():
     }
 
 
+class NmapConfigRequest(BaseModel):
+    nmap_sudo: bool = False
+
+
 @router.post("/config/nmap")
-async def save_nmap_config(body: dict):
-    nmap_sudo = bool(body.get("nmap_sudo", False))
-    await database.set_setting("nmap_sudo", "true" if nmap_sudo else "false")
-    settings.nmap_sudo = nmap_sudo
+async def save_nmap_config(body: NmapConfigRequest):
+    await database.set_setting("nmap_sudo", "true" if body.nmap_sudo else "false")
+    settings.nmap_sudo = "true" if body.nmap_sudo else "false"
     return {"ok": True}
 
 
@@ -814,7 +869,7 @@ def _cred_fernet():
     try:
         return Fernet(key.encode() if isinstance(key, str) else key)
     except Exception as exc:
-        raise RuntimeError(f"Invalid credential encryption key: {exc}") from exc
+        raise RuntimeError("Invalid credential encryption key format") from exc
 
 
 def encrypt_cred_data(data: str) -> str:
@@ -1056,10 +1111,34 @@ class StartSessionRequest(BaseModel):
 
     # Per-agent model overrides — keyed by agent_type
     # e.g. {"brain": {"provider": "openrouter", "model": "..."}, "reporting": {...}}
-    agent_models: dict = {}
+    agent_models: dict = Field(default_factory=dict)
 
     # Profile load
     profile_id: Optional[str] = None
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, v: str) -> str:
+        allowed = {"full_auto", "ask_before_exploit", "scan_only", "v2_auto"}
+        if v not in allowed:
+            raise ValueError(f"mode must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator("speed_profile")
+    @classmethod
+    def _validate_speed_profile(cls, v: str) -> str:
+        allowed = {"stealth", "normal", "aggressive"}
+        if v not in allowed:
+            raise ValueError(f"speed_profile must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator("scan_type")
+    @classmethod
+    def _validate_scan_type(cls, v: str) -> str:
+        allowed = {"syn", "connect", "udp", "full"}
+        if v not in allowed:
+            raise ValueError(f"scan_type must be one of {sorted(allowed)}")
+        return v
 
 
 async def _run_v2_agent_task(
@@ -1879,22 +1958,26 @@ async def get_report_html(sid: str):
         raise HTTPException(404, "Session not found")
 
     version = _report_cache_version(session)
-    cached_html = _report_cache_get(sid, "html", version)
-    if isinstance(cached_html, str):
-        return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+    cacheable = _should_cache_report(session)
+    if cacheable:
+        cached_html = _report_cache_get(sid, "html", version)
+        if isinstance(cached_html, str):
+            return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
 
     try:
         from reporting.report_generator import ReportGenerator
 
         lock = _report_lock(sid, "html")
         async with lock:
-            cached_html = _report_cache_get(sid, "html", version)
-            if isinstance(cached_html, str):
-                return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+            if cacheable:
+                cached_html = _report_cache_get(sid, "html", version)
+                if isinstance(cached_html, str):
+                    return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
 
             generator = ReportGenerator()
             html = await generator.generate_html(sid)
-            _report_cache_put(sid, "html", version, html)
+            if cacheable:
+                _report_cache_put(sid, "html", version, html)
             return HTMLResponse(content=html, headers={"X-Report-Cache": "MISS"})
     except Exception as exc:
         logger.error("Report HTML generation failed: %s", exc)
@@ -1909,32 +1992,35 @@ async def get_report_pdf(sid: str):
         raise HTTPException(404, "Session not found")
 
     version = _report_cache_version(session)
-    cached_pdf = _report_cache_get(sid, "pdf", version)
-    if isinstance(cached_pdf, (bytes, bytearray)):
-        return Response(
-            content=bytes(cached_pdf),
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
-                "X-Report-Cache": "HIT",
-            },
-        )
+    cacheable = _should_cache_report(session)
+    if cacheable:
+        cached_pdf = _report_cache_get(sid, "pdf", version)
+        if isinstance(cached_pdf, (bytes, bytearray)):
+            return Response(
+                content=bytes(cached_pdf),
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                    "X-Report-Cache": "HIT",
+                },
+            )
 
     try:
         from reporting.report_generator import ReportGenerator
 
         lock = _report_lock(sid, "pdf")
         async with lock:
-            cached_pdf = _report_cache_get(sid, "pdf", version)
-            if isinstance(cached_pdf, (bytes, bytearray)):
-                return Response(
-                    content=bytes(cached_pdf),
-                    media_type="application/pdf",
-                    headers={
-                        "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
-                        "X-Report-Cache": "HIT",
-                    },
-                )
+            if cacheable:
+                cached_pdf = _report_cache_get(sid, "pdf", version)
+                if isinstance(cached_pdf, (bytes, bytearray)):
+                    return Response(
+                        content=bytes(cached_pdf),
+                        media_type="application/pdf",
+                        headers={
+                            "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                            "X-Report-Cache": "HIT",
+                        },
+                    )
 
             generator = ReportGenerator()
             cached_html = _report_cache_get(sid, "html", version)
@@ -1943,7 +2029,8 @@ async def get_report_pdf(sid: str):
             else:
                 pdf_bytes = await generator.generate_pdf(sid)
 
-            _report_cache_put(sid, "pdf", version, pdf_bytes)
+            if cacheable:
+                _report_cache_put(sid, "pdf", version, pdf_bytes)
             return Response(
                 content=pdf_bytes,
                 media_type="application/pdf",
@@ -2024,20 +2111,6 @@ async def get_audit_log(
 # ── V2 Multi-Agent Endpoints ───────────────────────────────────────────────────
 # These endpoints expose V2-only data: agent instances, mission context,
 # attack graph, harvested credentials, loot, and shell sessions.
-
-from database.repositories import (
-    AgentInstanceRepository,
-    HarvestedCredentialRepository,
-    LootRepository,
-    NetworkGraphRepository,
-    MissionContextRepository,
-)
-
-_agent_instance_repo = AgentInstanceRepository()
-_harvested_cred_repo = HarvestedCredentialRepository()
-_loot_repo = LootRepository()
-_network_graph_repo = NetworkGraphRepository()
-_mission_ctx_repo = MissionContextRepository()
 
 
 @router.get("/sessions/{sid}/agents")

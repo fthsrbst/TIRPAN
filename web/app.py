@@ -38,7 +38,17 @@ def _resolve_cors_origins() -> list[str]:
     if raw == "*":
         unsafe_env = os.getenv("SERVER_UNSAFE_CORS_WILDCARD", "").strip().lower()
         unsafe = unsafe_env in {"1", "true", "yes", "on"}
-        if settings.server.reload or unsafe:
+        if settings.server.reload:
+            _logger.warning(
+                "CORS wildcard ('*') active because reload/dev mode is enabled. "
+                "Set SERVER_RELOAD=false for production."
+            )
+            return ["*"]
+        if unsafe:
+            _logger.warning(
+                "CORS wildcard ('*') enabled via SERVER_UNSAFE_CORS_WILDCARD. "
+                "All origins accepted — do not use in production."
+            )
             return ["*"]
         _logger.warning(
             "SERVER_ALLOWED_ORIGINS='*' ignored in non-dev mode. "
@@ -206,6 +216,8 @@ async def lifespan(app: FastAPI):
     _agent_repo = AgentInstanceRepository()
     try:
         _orphans = await _repo.list_all()
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except Exception as exc:
         _logger.warning("Startup orphan-session cleanup skipped (DB unavailable/locked): %s", exc)
         _orphans = []
@@ -326,8 +338,9 @@ def create_app() -> FastAPI:
 
     @application.get("/normal/{full_path:path}")
     async def normal_spa_fallback(full_path: str):
-        file_path = (normal_dir / full_path).resolve()
-        if not str(file_path).startswith(str(normal_dir.resolve())):
+        _resolved_base = normal_dir.resolve()
+        file_path = (_resolved_base / full_path).resolve()
+        if not file_path.is_relative_to(_resolved_base):
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
         if file_path.is_file():
             return FileResponse(file_path)

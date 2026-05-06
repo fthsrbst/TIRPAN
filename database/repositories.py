@@ -1054,6 +1054,27 @@ class DefenseAlertRepository:
             result.append(d)
         return result
 
+    async def update_status(self, alert_id: str, status: str) -> bool:
+        resolved_at = _now() if status == "resolved" else None
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_alerts SET status=?, resolved_at=COALESCE(?,resolved_at) WHERE id=?",
+                (status, resolved_at, alert_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_mitre(
+        self, alert_id: str, mitre_tactic: str, mitre_technique: str
+    ) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_alerts SET mitre_tactic=?, mitre_technique=? WHERE id=?",
+                (mitre_tactic, mitre_technique, alert_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
 
 # ── UserRepository ─────────────────────────────────────────────────────────────
 # Adapts to the existing users table schema (migration v11):
@@ -1137,27 +1158,6 @@ class UserRepository:
             "SELECT 1 FROM users WHERE email=?", (email.lower(),)
         ) as cur:
             return await cur.fetchone() is not None
-
-    async def update_status(self, alert_id: str, status: str) -> bool:
-        resolved_at = _now() if status == "resolved" else None
-        async with _connect(self._path) as db:
-            await db.execute(
-                "UPDATE defense_alerts SET status=?, resolved_at=COALESCE(?,resolved_at) WHERE id=?",
-                (status, resolved_at, alert_id),
-            )
-            await db.commit()
-            return db.total_changes > 0
-
-    async def update_mitre(
-        self, alert_id: str, mitre_tactic: str, mitre_technique: str
-    ) -> bool:
-        async with _connect(self._path) as db:
-            await db.execute(
-                "UPDATE defense_alerts SET mitre_tactic=?, mitre_technique=? WHERE id=?",
-                (mitre_tactic, mitre_technique, alert_id),
-            )
-            await db.commit()
-            return db.total_changes > 0
 
 
 # ── DefenseBlockRepository ─────────────────────────────────────────────────────
