@@ -100,7 +100,11 @@
       "Read(///wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/**)",
       "Bash(grep -E \"\\\\.\\(js|html\\)$\")",
       "Bash(xargs grep *)",
-      "PowerShell(wsl -d kali-linux -u fatih-root -- bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npx tsc --noEmit 2>&1 | head -60\")"
+      "PowerShell(wsl -d kali-linux -u fatih-root -- bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npx tsc --noEmit 2>&1 | head -60\")",
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\attack-graph-canvas\")",
+      "Read(///wsl.localhost/kali-linux/mnt/**)",
+      "Bash(wslpath -w /home)",
+      "PowerShell(wsl -d kali-linux -- bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npm run build 2>&1\")"
     ]
   }
 }
