@@ -8,6 +8,7 @@ PDF generation is tested only if WeasyPrint is available.
 
 import pytest
 import pytest_asyncio
+import json
 import tempfile
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from database.repositories import (
     VulnerabilityRepository,
     ExploitResultRepository,
 )
+from database.sqlite_conn import connect as connect_db
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -289,6 +291,14 @@ class TestReportGenerator:
         assert "vsftpd_234_backdoor" in html
 
     @pytest.mark.asyncio
+    async def test_html_uses_real_poc_evidence_only(self, populated_session):
+        session_id, db_path = populated_session
+        rg = ReportGenerator(db_path)
+        html = await rg.generate_html(session_id)
+        assert "uid=0(root) gid=0(root)" in html
+        assert "msf6" not in html
+
+    @pytest.mark.asyncio
     async def test_html_contains_recommendation(self, populated_session):
         session_id, db_path = populated_session
         rg = ReportGenerator(db_path)
@@ -331,6 +341,32 @@ class TestReportGenerator:
         rg = ReportGenerator(db_path)
         html = await rg.generate_html(session_id)
         assert "UTC" in html  # generated_at contains UTC
+
+    @pytest.mark.asyncio
+    async def test_html_contains_branding_logo_and_company(self, populated_session):
+        session_id, db_path = populated_session
+        branding_dir = db_path.parent / "branding"
+        branding_dir.mkdir(exist_ok=True)
+
+        logo_name = "unit_logo.png"
+        logo_bytes = b"\x89PNG\r\n\x1a\n" + (b"\x00" * 48)
+        (branding_dir / logo_name).write_bytes(logo_bytes)
+
+        async with connect_db(db_path) as db:
+            await db.execute(
+                "INSERT INTO app_settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("branding_company_name", json.dumps("Acme Security")),
+            )
+            await db.execute(
+                "INSERT INTO app_settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("branding_logo_file", json.dumps(logo_name)),
+            )
+            await db.commit()
+
+        rg = ReportGenerator(db_path)
+        html = await rg.generate_html(session_id)
+        assert "Acme Security" in html
+        assert "data:image/png;base64," in html
 
     @pytest.mark.asyncio
     async def test_html_down_host_not_in_port_table(self, populated_session):
@@ -377,6 +413,22 @@ class TestReportGenerator:
         raw = [{"title": "EternalBlue", "cvss_score": 9.8, "service": "smb"}]
         enriched = ReportGenerator._enrich_vulns(raw)
         assert "SMB" in enriched[0]["recommendation"] or "EternalBlue" in enriched[0]["recommendation"]
+
+    @pytest.mark.asyncio
+    async def test_enrich_vulns_attaches_real_poc_evidence(self):
+        raw = [{"title": "vsftpd", "cvss_score": 10.0, "service": "ftp", "host_ip": "10.0.0.5"}]
+        exploits = [{"host_ip": "10.0.0.5", "port": 21, "success": True, "output": "uid=0(root)"}]
+        enriched = ReportGenerator._enrich_vulns(raw, exploits)
+        assert enriched[0]["poc_captured"] is True
+        assert "uid=0(root)" in enriched[0]["poc_evidence"]
+
+    @pytest.mark.asyncio
+    async def test_prepare_exploit_rows_normalizes_real_evidence(self):
+        raw_exploits = [{"target_ip": "10.0.0.5", "port": 21, "output": "proof-output"}]
+        rows = ReportGenerator._prepare_exploit_rows(raw_exploits)
+        assert rows[0]["host_ip"] == "10.0.0.5"
+        assert rows[0]["has_real_evidence"] is True
+        assert rows[0]["poc_evidence"] == "proof-output"
 
     # ── 11.8 File saving ───────────────────────────────────────────────────────
 

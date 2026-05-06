@@ -33,6 +33,7 @@ from rich.table import Table
 
 from config import SafetyConfig, settings
 from core.registry_builder import build_tool_registry
+from core.targeting import infer_local_scope_targets
 from core.tool_registry import ToolRegistry
 
 console = Console()
@@ -143,8 +144,11 @@ examples:
         description="Run the TIRPAN pentest agent directly in the terminal.",
     )
     run_p.add_argument(
-        "--target", "-t", required=True,
-        help="target IP address or CIDR range (e.g. 192.168.1.0/24)",
+        "--target", "-t", default="",
+        help=(
+            "target IP/CIDR/domain. If omitted, TIRPAN auto-discovers private "
+            "local subnets and scans full local scope"
+        ),
     )
     run_p.add_argument(
         "--mode", "-m",
@@ -216,6 +220,21 @@ async def run_pentest(args: argparse.Namespace, registry: ToolRegistry) -> int:
         if p.strip().isdigit()
     ]
 
+    target_expr = (args.target or "").strip()
+    if not target_expr:
+        inferred = infer_local_scope_targets()
+        if not inferred:
+            console.print(
+                "[red]No target provided and auto-discovery found no private local subnet.[/red]"
+            )
+            console.print("[dim]Provide --target explicitly (IP/CIDR/domain).[/dim]")
+            return 2
+        target_expr = " ".join(inferred)
+        console.print(
+            "[cyan]Auto-targeting enabled:[/cyan] "
+            + ", ".join(inferred)
+        )
+
     safety_cfg = SafetyConfig(
         allowed_cidr=args.scope,
         excluded_ips=excluded_ips,
@@ -227,19 +246,19 @@ async def run_pentest(args: argparse.Namespace, registry: ToolRegistry) -> int:
         max_requests_per_second=args.rate_limit,
     )
 
-    print_run_config(args.target, args.mode, safety_cfg, registry)
+    print_run_config(target_expr, args.mode, safety_cfg, registry)
     console.print()
 
     session = Session(
         id=str(uuid.uuid4()),
-        target=args.target,
+        target=target_expr,
         mode=args.mode,
     )
 
     safety = SafetyGuard(safety_cfg)
     agent = PentestAgent(
         session=session,
-        target=args.target,
+        target=target_expr,
         mode=args.mode,
         registry=registry,
         safety=safety,
