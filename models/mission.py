@@ -128,6 +128,15 @@ class MissionBrief:
     allow_credential_harvest: bool = False   # /etc/shadow, mimikatz, browser creds
     allow_data_exfil: bool = False           # file download / loot collection
 
+    # ── Execution control ────────────────────────────────────────────────
+    confirm_every_step: bool = False
+    # When True: agent asks for operator approval before every tool call.
+
+    # ── Agent model overrides (keyed by agent_type) ──────────────────────
+    agent_models: dict = field(default_factory=dict)
+    # e.g. {"brain": {"provider": "openrouter", "model": "anthropic/claude-opus-4"},
+    #        "reporting": {"provider": "ollama", "model": "mistral:7b"}}
+
     # ── Scan policy ─────────────────────────────────────────────────────
     port_range: str = "1-65535"
     scan_type: str = "syn"           # syn | connect | udp | full

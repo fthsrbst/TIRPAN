@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Wed May  6 00:31:31 2026 as: /usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 53 192.168.1.1 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 53 192.168.1.1" start="1778016691" startstr="Wed May  6 00:31:31 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1" services="53"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1778016692" endtime="1778016718"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.1.1" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="53"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="domain" extrainfo="generic dns response: NXDOMAIN" servicefp="SF-Port53-TCP:V=7.95%I=7%D=5/6%Time=69FA61C9%P=x86_64-pc-linux-gnu%r(DNS-SD-TCP,7B,&quot;\0y\0\0\x80\x83\0\x01\0\0\0\x01\0\0\t_services\x07_dns-sd\x04_udp\x05local\0\0\x0c\0\x01\0\0\x06\0\x01\0\0\0\x9d\0@\x01a\x0croot-servers\x03net\0\x05nstld\x0cverisign-grs\x03com\0x\xc3\x13\xc5\0\0\x07\x08\0\0\x03\x84\0\t:\x80\0\x01Q\x80&quot;);" method="probed" conf="10"/></port>
+</ports>
+<times srtt="486" rttvar="5000" to="50000"/>
+</host>
+<runstats><finished time="1778016718" timestr="Wed May  6 00:31:58 2026" summary="Nmap done at Wed May  6 00:31:58 2026; 1 IP address (1 host up) scanned in 26.47 seconds" elapsed="26.47" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

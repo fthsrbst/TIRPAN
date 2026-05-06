@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Wed May  6 00:30:46 2026 as: /usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 445 -&#45;script smb-vuln-ms17-010,smb-vuln-cve-2017-7494,smb-vuln-regsvc-dos -&#45;script-timeout 30s 192.168.1.25 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -&#45;privileged -oX - -T5 -&#45;min-rate 5000 -Pn -sV -p 445 -&#45;script smb-vuln-ms17-010,smb-vuln-cve-2017-7494,smb-vuln-regsvc-dos -&#45;script-timeout 30s 192.168.1.25" start="1778016646" startstr="Wed May  6 00:30:46 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1" services="445"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1778016647" endtime="1778016653"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.1.25" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="netbios-ssn" product="Samba smbd" version="4" method="probed" conf="10"><cpe>cpe:/a:samba:samba:4</cpe></service></port>
+</ports>
+<times srtt="485" rttvar="5000" to="50000"/>
+</host>
+<runstats><finished time="1778016653" timestr="Wed May  6 00:30:53 2026" summary="Nmap done at Wed May  6 00:30:53 2026; 1 IP address (1 host up) scanned in 6.48 seconds" elapsed="6.48" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

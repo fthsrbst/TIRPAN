@@ -15,6 +15,7 @@ V2 additions:
 """
 
 import asyncio
+import inspect
 import logging
 import shutil
 import time
@@ -29,6 +30,59 @@ SCAN_TIMEOUT = 1800  # 30 minutes max (full-range vuln scans can take 20+ minute
 
 
 class NmapTool(BaseTool):
+
+    @staticmethod
+    def _normalize_targets(target: str | list[str]) -> list[str]:
+        """Normalize target input into a deduplicated list of target tokens."""
+        raw_items: list[str] = target if isinstance(target, list) else [str(target)]
+        targets: list[str] = []
+        for item in raw_items:
+            text = (item or "").replace(",", " ").strip()
+            if not text:
+                continue
+            for token in text.split():
+                t = token.strip()
+                if t and t not in targets:
+                    targets.append(t)
+        return targets
+
+    @staticmethod
+    def _is_sudo_auth_failure(err: str, out: str) -> bool:
+        text = f"{err}\n{out}".lower()
+        markers = (
+            "password is required",
+            "a password is required",
+            "no password was provided",
+            "incorrect password",
+            "sorry, try again",
+            "incorrect password attempts",
+            "[sudo] password for",
+        )
+        return any(m in text for m in markers)
+
+    @staticmethod
+    def _downgrade_non_root_cmd_from_sudo(cmd: list[str]) -> list[str]:
+        # Drop sudo wrapper and privileged-only scan flags when retrying without root.
+        try:
+            nmap_idx = cmd.index("nmap")
+            plain = cmd[nmap_idx:]
+        except ValueError:
+            plain = ["nmap"] + [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
+
+        filtered: list[str] = []
+        for arg in plain:
+            if arg in ("-sS", "-O", "--osscan-guess"):
+                continue
+            if arg in ("sudo", "-n", "-S", "-k"):
+                continue
+            filtered.append(arg)
+
+        has_mode = any(a in ("-sn", "-sV", "-sT", "-sU", "-A") for a in filtered)
+        if not has_mode:
+            # Ensure command stays meaningful after privileged flags are removed.
+            filtered.insert(1, "-sV")
+
+        return filtered
 
     @property
     def metadata(self) -> ToolMetadata:
@@ -127,6 +181,8 @@ class NmapTool(BaseTool):
     async def validate(self, params: dict) -> tuple[bool, str]:
         if "target" not in params:
             return False, "Missing required parameter: target"
+        if not self._normalize_targets(params.get("target", "")):
+            return False, "Target is empty"
         scan_type = params.get("scan_type", "service")
         if scan_type not in ("ping", "service", "os", "full"):
             return False, f"Invalid scan_type: {scan_type}"
@@ -139,27 +195,31 @@ class NmapTool(BaseTool):
         if not ok:
             return {"success": False, "output": None, "error": err}
 
-        target = params["target"]
+        target_param = params["target"]
+        targets = self._normalize_targets(target_param)
+        if not targets:
+            return {"success": False, "output": None, "error": "Target is empty"}
         scan_type = params.get("scan_type", "service")
         port_range = params.get("port_range") or "1-1024"
         scripts = params.get("scripts") or ""          # LLM may pass null → None
         excluded_ports = params.get("excluded_ports") or ""  # same
         session_id = params.get("_session_id", "")
 
-        cmd = self._build_command(target, scan_type, port_range, scripts, excluded_ports)
+        cmd = self._build_command(targets, scan_type, port_range, scripts, excluded_ports)
 
         try:
             start = time.time()
-            xml_output = await self._run_nmap(cmd)
+            maybe_xml = self._run_nmap(cmd)
+            xml_output = await maybe_xml if inspect.isawaitable(maybe_xml) else maybe_xml
             duration = time.time() - start
 
-            result = self._parse_xml(xml_output, target, scan_type, duration)
+            result = self._parse_xml(xml_output, " ".join(targets), scan_type, duration)
 
             # Save raw XML artifact
             if session_id and xml_output:
                 try:
                     from core.artifact_store import get_store
-                    safe_target = target.replace("/", "_").replace(":", "_")
+                    safe_target = "_".join(targets).replace("/", "_").replace(":", "_")
                     get_store().save(
                         session_id, "nmap",
                         f"nmap_{safe_target}_{scan_type}.xml",
@@ -182,12 +242,16 @@ class NmapTool(BaseTool):
 
     def _build_command(
         self,
-        target: str,
+        targets: str | list[str],
         scan_type: str,
         port_range: str,
         scripts: str = "",
         excluded_ports: str = "",
     ) -> list[str]:
+        normalized_targets = self._normalize_targets(targets)
+        if not normalized_targets:
+            raise ValueError("Target is empty")
+
         from config import settings, SPEED_PROFILES
         from core.platform_utils import IS_WINDOWS, is_elevated
 
@@ -230,7 +294,7 @@ class NmapTool(BaseTool):
         if all_excluded and scan_type != "ping":
             base += ["--exclude-ports", ",".join(all_excluded)]
 
-        base.append(target)
+        base.extend(normalized_targets)
         return base
 
     async def _run_nmap(self, cmd: list[str]) -> str:
@@ -249,14 +313,19 @@ class NmapTool(BaseTool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            communicate_coro = proc.communicate(input=stdin_data)
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(input=stdin_data),
+                    communicate_coro,
                     timeout=SCAN_TIMEOUT,
                 )
             except asyncio.TimeoutError:
+                if inspect.iscoroutine(communicate_coro):
+                    communicate_coro.close()
                 proc.kill()
-                await proc.wait()
+                maybe_wait = proc.wait()
+                if inspect.isawaitable(maybe_wait):
+                    await maybe_wait
                 raise TimeoutError(f"nmap timed out after {SCAN_TIMEOUT}s")
 
         except asyncio.CancelledError:
@@ -264,7 +333,9 @@ class NmapTool(BaseTool):
             if proc is not None:
                 try:
                     proc.kill()
-                    await proc.wait()
+                    maybe_wait = proc.wait()
+                    if inspect.isawaitable(maybe_wait):
+                        await maybe_wait
                 except Exception:
                     pass
             raise
@@ -273,15 +344,10 @@ class NmapTool(BaseTool):
         if returncode != 0:
             err = stderr.decode().strip()
             out = stdout.decode().strip()
-            if cmd[0] == "sudo" and ("password is required" in err or "a password is required" in err):
+            if cmd and cmd[0] == "sudo" and self._is_sudo_auth_failure(err, out):
                 settings.nmap_sudo = False
-                # Strip sudo prefix entirely: ["sudo", "-n", "nmap", ...] → ["nmap", ...]
-                # Find the first "nmap" element (the actual binary) and keep everything from there.
-                try:
-                    nmap_idx = cmd.index("nmap")
-                    cmd_no_sudo = cmd[nmap_idx:]
-                except ValueError:
-                    cmd_no_sudo = ["nmap"] + [c for c in cmd if c not in ("sudo", "-n", "-S", "-k")]
+                cmd_no_sudo = self._downgrade_non_root_cmd_from_sudo(cmd)
+                logger.warning("nmap sudo auth failed; retrying without sudo: %s", " ".join(cmd_no_sudo))
                 return await self._run_nmap(cmd_no_sudo)
             details = err or out or f"exit code {returncode}"
             raise RuntimeError(f"nmap failed (rc={returncode}): {details}")

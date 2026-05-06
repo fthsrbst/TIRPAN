@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Thu Apr  9 10:43:33 2026 as: /usr/lib/nmap/nmap -oX - -T3 -Pn -sS -sV -p 21 192.168.56.101 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -oX - -T3 -Pn -sS -sV -p 21 192.168.56.101" start="1775720613" startstr="Thu Apr  9 10:43:33 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1" services="21"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1775720613" endtime="1775720613"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.56.101" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="21"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ftp" product="vsftpd" version="2.3.4" ostype="Unix" method="probed" conf="10"><cpe>cpe:/a:vsftpd:vsftpd:2.3.4</cpe></service></port>
+</ports>
+<times srtt="546" rttvar="5000" to="100000"/>
+</host>
+<runstats><finished time="1775720613" timestr="Thu Apr  9 10:43:33 2026" summary="Nmap done at Thu Apr  9 10:43:33 2026; 1 IP address (1 host up) scanned in 0.40 seconds" elapsed="0.40" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>
