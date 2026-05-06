@@ -1,0 +1,16 @@
+- Nikto v2.6.0
+---------------------------------------------------------------------------
++ Target IP:          192.168.1.1
++ Target Hostname:    192.168.1.1
++ Target Port:        80
++ Platform:           Windows
++ Start Time:         2026-05-06 00:29:15 (GMT3)
+---------------------------------------------------------------------------
++ Server: Mini web server 1.0 ZTE corp 2005.
++ No CGI Directories found (use '-C all' to force check all possible dirs). CGI tests skipped.
+- STATUS: Completed 220 requests (~3% complete, ~2.1 minutes left): currently in plugin 'Site Files'
+- STATUS: Running average: Not enough data.
++ Scan terminated: 20 errors and 0 items reported on the remote host
++ End Time:           2026-05-06 00:29:17 (GMT3) (2 seconds)
+---------------------------------------------------------------------------
++ 1 host(s) tested

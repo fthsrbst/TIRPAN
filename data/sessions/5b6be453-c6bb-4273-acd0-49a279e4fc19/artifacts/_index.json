@@ -1,0 +1,98 @@
+[
+  {
+    "filename": "nmap_192.168.1.0_24_service.xml",
+    "tool": "nmap",
+    "size_bytes": 147162,
+    "created_at": "2026-05-05T21:25:32.029671+00:00"
+  },
+  {
+    "filename": "nikto_http___192.168.1.1_80_.txt",
+    "tool": "nikto",
+    "size_bytes": 849,
+    "created_at": "2026-05-05T21:29:17.350646+00:00"
+  },
+  {
+    "filename": "nikto_http___192.168.1.25_80_.txt",
+    "tool": "nikto",
+    "size_bytes": 1935,
+    "created_at": "2026-05-05T21:29:18.670068+00:00"
+  },
+  {
+    "filename": "ffuf_http___192.168.1.1_80.json",
+    "tool": "ffuf",
+    "size_bytes": 6712,
+    "created_at": "2026-05-05T21:29:31.419016+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.8_full.xml",
+    "tool": "nmap",
+    "size_bytes": 3619,
+    "created_at": "2026-05-05T21:29:32.547474+00:00"
+  },
+  {
+    "filename": "ffuf_http___192.168.1.25_80_FUZZ.json",
+    "tool": "ffuf",
+    "size_bytes": 6712,
+    "created_at": "2026-05-05T21:29:32.677493+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.8_service.xml",
+    "tool": "nmap",
+    "size_bytes": 1028,
+    "created_at": "2026-05-05T21:29:57.878749+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.19_os.xml",
+    "tool": "nmap",
+    "size_bytes": 4045,
+    "created_at": "2026-05-05T21:30:07.506512+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.19_full.xml",
+    "tool": "nmap",
+    "size_bytes": 6832,
+    "created_at": "2026-05-05T21:30:07.807366+00:00"
+  },
+  {
+    "filename": "ffuf_https___192.168.1.8_443_FUZZ.json",
+    "tool": "ffuf",
+    "size_bytes": 6712,
+    "created_at": "2026-05-05T21:30:33.506875+00:00"
+  },
+  {
+    "filename": "ffuf_http___192.168.1.8_80_FUZZ.json",
+    "tool": "ffuf",
+    "size_bytes": 6712,
+    "created_at": "2026-05-05T21:30:42.788458+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.25_full.xml",
+    "tool": "nmap",
+    "size_bytes": 4142,
+    "created_at": "2026-05-05T21:30:43.209824+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.25_service.xml",
+    "tool": "nmap",
+    "size_bytes": 1549,
+    "created_at": "2026-05-05T21:30:53.251640+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.1_full.xml",
+    "tool": "nmap",
+    "size_bytes": 1388,
+    "created_at": "2026-05-05T21:30:58.255756+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.19_service.xml",
+    "tool": "nmap",
+    "size_bytes": 1586,
+    "created_at": "2026-05-05T21:31:50.968734+00:00"
+  },
+  {
+    "filename": "nmap_192.168.1.1_service.xml",
+    "tool": "nmap",
+    "size_bytes": 1657,
+    "created_at": "2026-05-05T21:31:58.138325+00:00"
+  }
+]

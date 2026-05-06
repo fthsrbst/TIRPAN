@@ -164,6 +164,11 @@ async def lifespan(app: FastAPI):
     if _ollama_model:
         settings.ollama.model = _ollama_model
 
+    # Restore OpenCode Go model saved via the configure page
+    _ocg_model = _all_settings.get("opencode_go_model", "")
+    if _ocg_model:
+        settings.opencode_go.model = _ocg_model
+
     # Restore active LLM provider
     _provider = _all_settings.get("active_provider", "")
     if _provider in ("ollama", "lmstudio", "openrouter", "opencode_go", "anthropic"):

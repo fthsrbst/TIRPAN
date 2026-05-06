@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Wed May  6 00:29:49 2026 as: /usr/lib/nmap/nmap -oX - -T5 -&#45;min-rate 5000 -Pn -O -p 1-1024 192.168.1.19 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -oX - -T5 -&#45;min-rate 5000 -Pn -O -p 1-1024 192.168.1.19" start="1778016589" startstr="Wed May  6 00:29:49 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1024" services="1-1024"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1778016603" endtime="1778016607"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.1.19" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="filtered" count="1021">
+<extrareasons reason="no-response" count="1021" proto="tcp" ports="1-134,136-138,140-444,446-1024"/>
+</extraports>
+<port protocol="tcp" portid="135"><state state="open" reason="syn-ack" reason_ttl="127"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="127"/><service name="netbios-ssn" method="table" conf="3"/></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="127"/><service name="microsoft-ds" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="135"/>
+<portused state="closed" proto="udp" portid="34953"/>
+<osmatch name="Microsoft Windows 11 21H2" accuracy="91" line="75497">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="91"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10" accuracy="88" line="74394">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1607" accuracy="87" line="74770">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="87"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 R2" accuracy="87" line="80137">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="87"><cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1803" accuracy="87" line="75008">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="87"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1903 - 21H1" accuracy="87" line="75123">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="87"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2022" accuracy="87" line="82075">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2022" accuracy="87"><cpe>cpe:/o:microsoft:windows_server_2022</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 SP1" accuracy="86" line="80603">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="86"><cpe>cpe:/o:microsoft:windows_server_2008::sp1</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="12041" lastboot="Tue May  5 21:09:26 2026"/>
+<distance value="1"/>
+<tcpsequence index="260" difficulty="Good luck!" values="EF7D2174,17EB5382,E8EDB06B,60799CD2,8B9E0C44,6867E711"/>
+<ipidsequence class="Incrementing by 2" values="2B31,2B33,2B35,2B3B,2B3D,2B3F"/>
+<tcptssequence class="1000HZ" values="B7B817,B7B87B,B7B8DF,B7B943,B7B9A7,B7BA0B"/>
+<times srtt="324" rttvar="121" to="50000"/>
+</host>
+<runstats><finished time="1778016607" timestr="Wed May  6 00:30:07 2026" summary="Nmap done at Wed May  6 00:30:07 2026; 1 IP address (1 host up) scanned in 17.58 seconds" elapsed="17.58" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

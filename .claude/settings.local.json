@@ -92,7 +92,15 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\venv\\\\bin\\\\\" 2>/dev/null | head -5)",
       "Read(//c/Users/fatih/**)",
-      "Read(///wsl.localhost/kali-linux/home/**)"
+      "Read(///wsl.localhost/kali-linux/home/**)",
+      "PowerShell(wsl -d kali-linux -u root bash -c \"rm -rf /home/fatih-root/TIRPAN/web/static/normal/assets && mkdir -p /home/fatih-root/TIRPAN/web/static/normal/assets && chmod 777 /home/fatih-root/TIRPAN/web/static/normal/assets && echo DONE\")",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Read(///wsl.localhost/kali-linux/home/fatih-root/TIRPAN/**)",
+      "Read(///wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/**)",
+      "Bash(grep -E \"\\\\.\\(js|html\\)$\")",
+      "Bash(xargs grep *)",
+      "PowerShell(wsl -d kali-linux -u fatih-root -- bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npx tsc --noEmit 2>&1 | head -60\")"
     ]
   }
 }

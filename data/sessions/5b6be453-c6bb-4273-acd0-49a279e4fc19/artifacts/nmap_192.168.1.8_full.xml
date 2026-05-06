@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Wed May  6 00:29:28 2026 as: /usr/lib/nmap/nmap -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -O -p 22 192.168.1.8 -->
+<nmaprun scanner="nmap" args="/usr/lib/nmap/nmap -oX - -T5 -&#45;min-rate 5000 -Pn -sS -sV -O -p 22 192.168.1.8" start="1778016568" startstr="Wed May  6 00:29:28 2026" version="7.95" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="1" services="22"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1778016568" endtime="1778016572"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.168.1.8" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="22"><state state="open" reason="syn-ack" reason_ttl="63"/><service name="ssh" product="OpenSSH" version="6.6.0" extrainfo="protocol 2.0" method="probed" conf="10"><cpe>cpe:/a:openbsd:openssh:6.6.0</cpe></service></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="22"/>
+<osmatch name="Canon imageRUNNER C2380 or C2880i or Xerox Phaser 8860MFP printer" accuracy="96" line="14080">
+<osclass type="printer" vendor="Canon" osfamily="embedded" accuracy="96"><cpe>cpe:/h:canon:imagerunner_c2380</cpe><cpe>cpe:/h:canon:imagerunner_c2880i</cpe><cpe>cpe:/h:xerox:phaser_8860mfp</cpe></osclass>
+</osmatch>
+<osmatch name="Apple AirPort Express WAP or AMX NI-3100 controller (VxWorks)" accuracy="91" line="3560">
+<osclass type="WAP" vendor="Apple" osfamily="embedded" accuracy="91"><cpe>cpe:/h:apple:airport_express</cpe></osclass>
+</osmatch>
+<osmatch name="Avaya 4000- or 5000-series Ethernet Routing switch" accuracy="91" line="9915">
+<osclass type="switch" vendor="Avaya" osfamily="embedded" accuracy="91"/>
+</osmatch>
+<osmatch name="Canon imageRUNNER C5185 printer or Mercusys AC12G WAP" accuracy="90" line="14142">
+<osclass type="printer" vendor="Canon" osfamily="embedded" accuracy="90"><cpe>cpe:/h:canon:imagerunner_c5185</cpe></osclass>
+<osclass type="WAP" vendor="Mercusys" osfamily="embedded" accuracy="90"><cpe>cpe:/h:mercusys:ac12g</cpe></osclass>
+</osmatch>
+<osmatch name="VxWorks 5.5.1" accuracy="89" line="112217">
+<osclass type="general purpose" vendor="Wind River" osfamily="VxWorks" osgen="5.X" accuracy="89"><cpe>cpe:/o:windriver:vxworks:5.5.1</cpe></osclass>
+</osmatch>
+<osmatch name="Xerox ApeosPort-IV C3370 printer" accuracy="89" line="113369">
+<osclass type="printer" vendor="Xerox" osfamily="embedded" accuracy="89"><cpe>cpe:/h:xerox:apeosport-iv_c3370</cpe></osclass>
+</osmatch>
+<osmatch name="AirSpan ProST WiMAX access point" accuracy="88" line="1837">
+<osclass type="WAP" vendor="AirSpan" osfamily="embedded" accuracy="88"/>
+</osmatch>
+<osmatch name="ZyXEL GS1910 switch" accuracy="87" line="114495">
+<osclass type="switch" vendor="ZyXEL" osfamily="embedded" accuracy="87"><cpe>cpe:/h:zyxel:gs1910</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="267540" lastboot="Sat May  2 22:10:32 2026"/>
+<tcpsequence index="261" difficulty="Good luck!" values="296C91AD,BA542D2C,E3A0D22A,27DD6419,D7F8C9D,DE2D9D"/>
+<ipidsequence class="Incrementing by 2" values="3021,302F,3033,3041,3045,3053"/>
+<tcptssequence class="other" values="ECC66A,ECC66F,ECC675,ECC67B,ECC681,ECC687"/>
+<times srtt="1894" rttvar="1378" to="50000"/>
+</host>
+<runstats><finished time="1778016572" timestr="Wed May  6 00:29:32 2026" summary="Nmap done at Wed May  6 00:29:32 2026; 1 IP address (1 host up) scanned in 4.49 seconds" elapsed="4.49" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>
