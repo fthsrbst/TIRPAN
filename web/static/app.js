@@ -3,10 +3,10 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function _getToken() {
-    try { return localStorage.getItem('tirpan_token'); } catch { return null; }
+    try { return localStorage.getItem('tirpan_token') || sessionStorage.getItem('tirpan_token'); } catch { return null; }
 }
 function _clearAuth() {
-    try { localStorage.removeItem('tirpan_token'); localStorage.removeItem('tirpan_user'); } catch {}
+    try { [localStorage, sessionStorage].forEach(function(s) { s.removeItem('tirpan_token'); s.removeItem('tirpan_user'); }); } catch {}
 }
 
 // ── Patch fetch to always send auth header for /api/ requests ─────────────────
