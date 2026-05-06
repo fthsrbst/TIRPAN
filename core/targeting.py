@@ -12,7 +12,7 @@ import socket
 
 try:
     import psutil
-except Exception:  # pragma: no cover - optional dependency fallback
+except ImportError:  # pragma: no cover - optional dependency fallback
     psutil = None
 
 logger = logging.getLogger(__name__)

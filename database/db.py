@@ -586,7 +586,10 @@ async def get_setting(key: str, default=None):
             row = await cur.fetchone()
     if row is None:
         return default
-    return json.loads(row[0])
+    try:
+        return json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        return row[0]
 
 
 async def set_setting(key: str, value) -> None:
