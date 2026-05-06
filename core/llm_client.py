@@ -307,7 +307,7 @@ class OpenRouterClient(LLMClient):
 
         raise RuntimeError(
             f"OpenRouter stream failed after {self._MAX_RETRIES} attempts: {last_error}"
-        )
+        ) from last_error
 
     async def is_available(self) -> bool:
         if not self._has_valid_key():

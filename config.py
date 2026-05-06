@@ -175,8 +175,18 @@ class AppConfig(BaseSettings):
     jwt_secret: str = Field(default="CHANGE_ME_IN_PRODUCTION_GENERATE_WITH_secrets_token_hex_32", alias="JWT_SECRET")
     token_expire_minutes: int = Field(default=480, alias="TOKEN_EXPIRE_MINUTES")
 
-    def model_post_init(self, __context):
+    def model_post_init(self, __context) -> None:
         self.data_dir.mkdir(exist_ok=True)
+        _default_secret = "CHANGE_ME_IN_PRODUCTION_GENERATE_WITH_secrets_token_hex_32"
+        if self.jwt_secret == _default_secret:
+            import warnings
+            warnings.warn(
+                "JWT_SECRET is set to the default insecure value. "
+                "Set JWT_SECRET in your .env file before deploying. "
+                "Generate a safe secret with: python -c \"import secrets; print(secrets.token_hex(32))\"",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     def get_speed_profile(self) -> SpeedProfile:
         """Return the active SpeedProfile object."""
@@ -196,10 +206,8 @@ class AppConfig(BaseSettings):
             if not hasattr(_os, "geteuid"):
                 return False  # Windows host process — not relevant
             return _os.geteuid() != 0
-        # Legacy bool support (True/False stored as "True"/"False" string)
-        if isinstance(self.nmap_sudo, str):
-            return self.nmap_sudo.lower() not in ("false", "0", "no")
-        return bool(self.nmap_sudo)
+        # nmap_sudo is always a str (Pydantic field type); accept "true"/"1"/"yes" → True
+        return self.nmap_sudo.lower() not in ("false", "0", "no")
 
 
 # Singleton

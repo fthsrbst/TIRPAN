@@ -628,6 +628,36 @@ async def _run_chat_agent(
 
 async def handle_websocket(websocket: WebSocket) -> None:
     """Main WebSocket connection handler."""
+    # Authenticate via token query parameter (browsers can't set custom WS headers)
+    token = websocket.query_params.get("token")
+    if token:
+        try:
+            from web.auth.service import decode_access_token
+            from database.repositories import UserRepository
+            from jose import JWTError
+            payload = decode_access_token(token)
+            user_id = payload.get("sub")
+            if not user_id:
+                raise ValueError("No subject in token")
+            user = await UserRepository().get_by_id(user_id)
+            if not user or not user.get("is_active"):
+                raise ValueError("User inactive or not found")
+        except Exception as _auth_exc:
+            logger.warning("WebSocket auth failed: %s", _auth_exc)
+            await websocket.close(code=4001)
+            return
+    else:
+        # No token — check if auth is required (users table has at least one user)
+        try:
+            from database.repositories import UserRepository
+            users = await UserRepository().list_all()
+            if users:
+                logger.warning("WebSocket connection rejected: no auth token provided")
+                await websocket.close(code=4001)
+                return
+        except Exception:
+            pass  # DB unavailable — allow unauthenticated access (fresh install)
+
     await websocket.accept()
     conversation_id: str | None = None
     chat_history: list[dict] = []
@@ -712,9 +742,20 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 pass
             await _close_terminal_local(terminal_id, reason="stream_error")
 
+    _PING_INTERVAL = 30.0  # send server→client ping every 30s to keep connection alive
+
     try:
         while True:
-            raw = await websocket.receive_text()
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=_PING_INTERVAL)
+            except asyncio.TimeoutError:
+                # No message from client for 30 s — send a keepalive ping.
+                # If the socket is already dead this will raise and fall through to disconnect.
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except Exception:
+                    break
+                continue
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
