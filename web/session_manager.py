@@ -37,6 +37,9 @@ _guards: Dict[str, SafetyGuard] = {}
 # session_id → PentestAgent (for pause/resume/inject)
 _agents: Dict[str, object] = {}
 
+# session_id values marked as emergency-stopped (task paused, resumable)
+_soft_stopped: set[str] = set()
+
 # session_id → list of async send callables registered by WS connections
 _subscribers: Dict[str, List[Callable]] = {}
 
@@ -92,6 +95,7 @@ def register(session_id: str, task: asyncio.Task, guard: SafetyGuard, agent=None
     _guards[session_id] = guard
     if agent is not None:
         _agents[session_id] = agent
+    _soft_stopped.discard(session_id)
     _subscribers.setdefault(session_id, [])
     _buffers.setdefault(session_id, [])
     logger.info("Session %s registered in manager", session_id)
@@ -102,6 +106,7 @@ def cleanup(session_id: str) -> None:
     _tasks.pop(session_id, None)
     _guards.pop(session_id, None)
     _agents.pop(session_id, None)
+    _soft_stopped.discard(session_id)
     _schedule_cleanup(session_id)
     logger.info("Session %s task cleaned up", session_id)
 
@@ -156,6 +161,16 @@ def kill_with_details(session_id: str) -> dict:
     task = _tasks.get(session_id)
     agent = _agents.get(session_id)
 
+    if session_id in _soft_stopped:
+        return {
+            "killed": False,
+            "message": "Session already stopped",
+            "killed_in_ms": 0,
+            "task_cancelled": False,
+            "child_agents_cancelled": 0,
+            "resumable": True,
+        }
+
     if not guard and (task is None or task.done()) and agent is None:
         return {
             "killed": False,
@@ -163,10 +178,21 @@ def kill_with_details(session_id: str) -> dict:
             "killed_in_ms": 0,
             "task_cancelled": False,
             "child_agents_cancelled": 0,
+            "resumable": False,
         }
 
     child_agents_cancelled = 0
-    if agent is not None:
+    task_soft_stopped = False
+    if agent is not None and task is not None and not task.done():
+        try:
+            agent.pause()
+            _soft_stopped.add(session_id)
+            task_soft_stopped = True
+        except Exception as exc:
+            logger.debug("Agent pause() raised for session %s: %s", session_id, exc)
+
+    # Fallback: if we cannot soft-stop, use the old hard-cancel behavior.
+    if not task_soft_stopped and agent is not None:
         try:
             agent_result = agent.kill()
             if isinstance(agent_result, dict):
@@ -174,20 +200,21 @@ def kill_with_details(session_id: str) -> dict:
         except Exception as exc:
             logger.debug("Agent kill() raised for session %s: %s", session_id, exc)
 
-    if guard:
+    if guard and not task_soft_stopped:
         guard.emergency_stop()
 
     task_cancelled = False
-    if task and not task.done():
+    if task and not task.done() and not task_soft_stopped:
         task.cancel()
         task_cancelled = True
 
     killed_in_ms = int((time.perf_counter() - started) * 1000)
     logger.warning(
-        "Kill switch triggered for session %s (task_cancelled=%s child_agents_cancelled=%d killed_in_ms=%d)",
+        "Kill switch triggered for session %s (task_cancelled=%s child_agents_cancelled=%d resumable=%s killed_in_ms=%d)",
         session_id,
         task_cancelled,
         child_agents_cancelled,
+        task_soft_stopped,
         killed_in_ms,
     )
     return {
@@ -195,6 +222,7 @@ def kill_with_details(session_id: str) -> dict:
         "killed_in_ms": killed_in_ms,
         "task_cancelled": task_cancelled,
         "child_agents_cancelled": child_agents_cancelled,
+        "resumable": task_soft_stopped,
     }
 
 
@@ -202,11 +230,11 @@ def kill_with_details(session_id: str) -> dict:
 
 def is_running(session_id: str) -> bool:
     task = _tasks.get(session_id)
-    return task is not None and not task.done()
+    return task is not None and not task.done() and session_id not in _soft_stopped
 
 
 def list_running() -> list[str]:
-    return [sid for sid, task in _tasks.items() if not task.done()]
+    return [sid for sid, task in _tasks.items() if not task.done() and sid not in _soft_stopped]
 
 
 # ── WebSocket pub/sub ──────────────────────────────────────────────────────────
@@ -274,8 +302,10 @@ def pause_session(session_id: str) -> bool:
 def resume_session(session_id: str) -> bool:
     """Resume a paused agent. Returns True if found."""
     agent = _agents.get(session_id)
-    if agent:
+    task = _tasks.get(session_id)
+    if agent and task is not None and not task.done():
         agent.resume()
+        _soft_stopped.discard(session_id)
         logger.info("Session %s resumed", session_id)
         return True
     return False
