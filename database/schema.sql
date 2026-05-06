@@ -107,4 +107,5 @@ CREATE INDEX IF NOT EXISTS idx_vulns_session         ON vulnerabilities(session_
 CREATE INDEX IF NOT EXISTS idx_vulns_cvss            ON vulnerabilities(cvss_score DESC);
 CREATE INDEX IF NOT EXISTS idx_exploits_session      ON exploit_results(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_session_time    ON audit_log(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type  ON audit_log(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_kb_service_version    ON knowledge_base(service, version);

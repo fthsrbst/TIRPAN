@@ -107,6 +107,8 @@ class GenerateReportTool(BaseTool):
             else:
                 return {"success": False, "error": f"Unknown format: {fmt}"}
 
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            raise
         except Exception as exc:
             logger.error("generate_report error: %s", exc, exc_info=True)
             return {"success": False, "error": str(exc)}

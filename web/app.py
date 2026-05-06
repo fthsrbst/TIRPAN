@@ -216,6 +216,8 @@ async def lifespan(app: FastAPI):
     _agent_repo = AgentInstanceRepository()
     try:
         _orphans = await _repo.list_all()
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except Exception as exc:
         _logger.warning("Startup orphan-session cleanup skipped (DB unavailable/locked): %s", exc)
         _orphans = []

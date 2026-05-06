@@ -529,6 +529,17 @@ def _make_approval_callback(
     async def callback(action: dict) -> bool:
         approval_id = str(uuid.uuid4())[:8]
         fut: asyncio.Future = loop.create_future()
+
+        # Limit pending approvals to prevent resource exhaustion
+        if len(pending_approvals) >= 20:
+            oldest_id = next(iter(pending_approvals))
+            oldest_fut = pending_approvals.pop(oldest_id)
+            if not oldest_fut.done():
+                oldest_fut.set_result(False)
+            await websocket.send_json({
+                "type": "status",
+                "content": "Approval queue full — oldest pending approval cancelled.",
+            })
         pending_approvals[approval_id] = fut
 
         await websocket.send_json({
@@ -648,6 +659,9 @@ async def handle_websocket(websocket: WebSocket) -> None:
             return
     else:
         # No token — check if auth is required (users table has at least one user)
+        # NOTE: On fresh install with empty users table, unauthenticated WS access is
+        # permitted. This trade-off allows the setup wizard to work without auth.
+        # Once the first user is created, auth becomes mandatory.
         try:
             from database.repositories import UserRepository
             users = await UserRepository().list_all()
@@ -882,7 +896,7 @@ async def handle_websocket(websocket: WebSocket) -> None:
                 while not agent_task.done():
                     try:
                         raw2 = await asyncio.wait_for(
-                            websocket.receive_text(), timeout=1.0
+                            websocket.receive_text(), timeout=5.0
                         )
                         inner = json.loads(raw2)
                         inner_type = inner.get("type")

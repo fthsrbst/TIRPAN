@@ -114,7 +114,7 @@ def build_tool_registry(
                 registry.register(_cls())
             except ImportError as _e:
                 logger.warning("Extended tool %s failed to import: %s", _cls_name, _e)
-            except Exception as _e:
+            except (AttributeError, TypeError, ValueError) as _e:
                 logger.warning("Extended tool %s failed to load: %s", _cls_name, _e)
 
     if load_plugins:

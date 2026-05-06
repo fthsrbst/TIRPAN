@@ -14,7 +14,7 @@ from typing import Optional
 
 import httpx
 import psutil
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
@@ -42,6 +42,7 @@ from database.repositories import (
     VulnerabilityRepository,
 )
 from web.stats_state import token_counter
+from web.auth.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,14 @@ _BRANDING_ALLOWED_EXTS = {
 }
 _BRANDING_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
+_TRANSPARENT_PNG = bytes([
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+    0x42, 0x60, 0x82,
+])
+
 
 def _report_cache_version(session: dict) -> str:
     return "|".join(
@@ -87,6 +96,11 @@ def _report_cache_version(session: dict) -> str:
             str(session.get("exploits_run") or 0),
         ]
     )
+
+
+def _should_cache_report(session: dict) -> bool:
+    """Don't cache reports for running sessions — data is still changing."""
+    return session.get("status") != "running"
 
 
 def _report_cache_get(sid: str, fmt: str, version: str) -> str | bytes | None:
@@ -357,7 +371,7 @@ _ALLOWED_SETTINGS_KEYS: frozenset[str] = frozenset({
 
 
 @router.get("/settings")
-async def get_settings():
+async def get_settings(current_user: dict = Depends(get_current_user)):
     return await database.get_all_settings()
 
 
@@ -464,7 +478,7 @@ async def get_branding_logo(filename: str):
     if base not in target.parents:
         raise HTTPException(400, "Invalid filename")
     if not target.exists() or not target.is_file():
-        raise HTTPException(404, "Logo not found")
+        return Response(content=_TRANSPARENT_PNG, media_type="image/png")
 
     media_type = _BRANDING_ALLOWED_EXTS.get(target.suffix.lower())
     if not media_type:
@@ -781,7 +795,6 @@ async def save_opencode_go_config(body: OpenCodeGoSettings):
         clean_key = _sanitize_api_key(body.api_key)
         if clean_key:
             await async_set_secret("opencode_go_api_key", clean_key)
-            await database.set_setting("opencode_go_api_key", clean_key)
             settings.opencode_go.api_key = clean_key
     if body.model:
         await database.set_setting("opencode_go_model", body.model)
@@ -807,8 +820,9 @@ async def opencode_go_models():
             models = sorted(m.get("id", m if isinstance(m, str) else "") for m in data.get("data", []))
             models = [m for m in models if m]
             return {"models": models}
-    except Exception as e:
-        return {"models": [], "error": str(e)}
+    except Exception:
+        logger.error("Failed to fetch OpenCode Go models", exc_info=True)
+        return {"models": [], "error": "Failed to fetch models"}
 
 
 # ── Nmap Config ────────────────────────────────────────────────────────────────
@@ -1944,22 +1958,26 @@ async def get_report_html(sid: str):
         raise HTTPException(404, "Session not found")
 
     version = _report_cache_version(session)
-    cached_html = _report_cache_get(sid, "html", version)
-    if isinstance(cached_html, str):
-        return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+    cacheable = _should_cache_report(session)
+    if cacheable:
+        cached_html = _report_cache_get(sid, "html", version)
+        if isinstance(cached_html, str):
+            return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
 
     try:
         from reporting.report_generator import ReportGenerator
 
         lock = _report_lock(sid, "html")
         async with lock:
-            cached_html = _report_cache_get(sid, "html", version)
-            if isinstance(cached_html, str):
-                return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+            if cacheable:
+                cached_html = _report_cache_get(sid, "html", version)
+                if isinstance(cached_html, str):
+                    return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
 
             generator = ReportGenerator()
             html = await generator.generate_html(sid)
-            _report_cache_put(sid, "html", version, html)
+            if cacheable:
+                _report_cache_put(sid, "html", version, html)
             return HTMLResponse(content=html, headers={"X-Report-Cache": "MISS"})
     except Exception as exc:
         logger.error("Report HTML generation failed: %s", exc)
@@ -1974,32 +1992,35 @@ async def get_report_pdf(sid: str):
         raise HTTPException(404, "Session not found")
 
     version = _report_cache_version(session)
-    cached_pdf = _report_cache_get(sid, "pdf", version)
-    if isinstance(cached_pdf, (bytes, bytearray)):
-        return Response(
-            content=bytes(cached_pdf),
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
-                "X-Report-Cache": "HIT",
-            },
-        )
+    cacheable = _should_cache_report(session)
+    if cacheable:
+        cached_pdf = _report_cache_get(sid, "pdf", version)
+        if isinstance(cached_pdf, (bytes, bytearray)):
+            return Response(
+                content=bytes(cached_pdf),
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                    "X-Report-Cache": "HIT",
+                },
+            )
 
     try:
         from reporting.report_generator import ReportGenerator
 
         lock = _report_lock(sid, "pdf")
         async with lock:
-            cached_pdf = _report_cache_get(sid, "pdf", version)
-            if isinstance(cached_pdf, (bytes, bytearray)):
-                return Response(
-                    content=bytes(cached_pdf),
-                    media_type="application/pdf",
-                    headers={
-                        "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
-                        "X-Report-Cache": "HIT",
-                    },
-                )
+            if cacheable:
+                cached_pdf = _report_cache_get(sid, "pdf", version)
+                if isinstance(cached_pdf, (bytes, bytearray)):
+                    return Response(
+                        content=bytes(cached_pdf),
+                        media_type="application/pdf",
+                        headers={
+                            "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                            "X-Report-Cache": "HIT",
+                        },
+                    )
 
             generator = ReportGenerator()
             cached_html = _report_cache_get(sid, "html", version)
@@ -2008,7 +2029,8 @@ async def get_report_pdf(sid: str):
             else:
                 pdf_bytes = await generator.generate_pdf(sid)
 
-            _report_cache_put(sid, "pdf", version, pdf_bytes)
+            if cacheable:
+                _report_cache_put(sid, "pdf", version, pdf_bytes)
             return Response(
                 content=pdf_bytes,
                 media_type="application/pdf",
