@@ -1496,7 +1496,9 @@ function updateSendBtn() {
 
 function wsConnect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const token = _getToken();
+    const wsUrl = token ? `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}` : `${proto}://${location.host}/ws`;
+    ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
         wsReady = true;
@@ -3712,6 +3714,8 @@ function handleSessionEvent(msg) {
             _shellOutputBuffers[shellKey].push(line);
             if (_activeShellId === shellKey) _shellPrint(`<span class="text-cyan-400 select-none">[agent]# </span>${_escHtml(ioData)}`);
         }
+    } else if (event === 'opsec_alert') {
+        v3PushOpsecAlert(data.payload || data);
     }
 
     if (activeMissionId) {
@@ -3826,6 +3830,8 @@ async function startMission() {
                 provider: activeProvider,
                 model: activeModel,
                 agent_models: _collectAgentModelsFromConfigUI() || undefined,
+                allow_persistence: document.getElementById('pol-allow-persistence')?.checked || false,
+                v3_features: document.getElementById('pol-v3-features')?.checked ?? true,
             }),
         });
         if (!res.ok) {
@@ -3835,6 +3841,7 @@ async function startMission() {
         const data = await res.json();
         activeMissionId = data.session_id;
         viewingSessionId = activeMissionId;
+        window._currentSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
         hideResumeFromSessionBtn();
@@ -3902,6 +3909,7 @@ async function resumeMissionFromSession(sessionId) {
         const data = await res.json();
         activeMissionId = data.session_id;
         viewingSessionId = activeMissionId;
+        window._currentSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
 
@@ -3962,6 +3970,7 @@ async function forkFromIteration(iteration) {
 
                 activeMissionId = sessionId;
                 viewingSessionId = sessionId;
+                window._currentSessionId = sessionId;
                 missionPaused = false;
 
                 updateMissionStatusHeader('running', sessionId);
@@ -7996,6 +8005,7 @@ async function switchToSession(sessionId) {
             hideResumeFromSessionBtn();
             // Live session — subscribe to WS events and restart uptime from session start
             activeMissionId = sessionId;
+            window._currentSessionId = sessionId;
             patchWsSessionHandler();
             if (ws && wsReady) {
                 ws.send(JSON.stringify({ type: 'subscribe_session', session_id: sessionId }));
@@ -9006,6 +9016,7 @@ const _advModeDesc = {
     ask_before_exploit: 'Agent will ask for confirmation before running any exploit.',
     full_auto: 'Agent exploits autonomously within configured safety limits.',
     v2_auto: 'V2 Multi-Agent: BrainAgent coordinates specialized sub-agents (scanner, exploit, post-exploit, webapp, osint, lateral, reporting).',
+    v3_auto: 'V3 HMAS: SquadLeaders coordinate specialist workers with RAG, KnowledgeGraph, Verifier, Critic, and DynamicModelRouter.',
 };
 
 function _advInitExclusiveButtons(selector, onSelect) {
@@ -9527,6 +9538,14 @@ function _advApplyConfig(cfg) {
         const el = document.getElementById('pol-allow-browser');
         if (el) el.checked = cfg.allow_browser_recon;
     }
+    if (typeof cfg.allow_persistence !== 'undefined') {
+        const el = document.getElementById('pol-allow-persistence');
+        if (el) el.checked = cfg.allow_persistence;
+    }
+    if (typeof cfg.v3_features !== 'undefined') {
+        const el = document.getElementById('pol-v3-features');
+        if (el) el.checked = cfg.v3_features;
+    }
     if (cfg.target_type) {
         const el = document.getElementById('adv-target-type');
         if (el) el.value = cfg.target_type;
@@ -9617,6 +9636,8 @@ function _advCollectConfig() {
         version_intensity:      (() => { const el = document.getElementById('adv-version-intensity'); return el ? el.value : '5'; })(),
         confirm_every_step:     _c('adv-step-by-step'),
         mission_briefing:       _v('adv-mission-briefing'),
+        allow_persistence:      _c('pol-allow-persistence'),
+        v3_features:            _c('pol-v3-features'),
     };
 }
 
@@ -9741,6 +9762,8 @@ async function launchAdvancedMission() {
         allow_lateral_movement: cfg.allow_lateral_movement,
         allow_docker_escape: cfg.allow_docker_escape,
         allow_browser_recon: cfg.allow_browser_recon,
+        allow_persistence: cfg.allow_persistence,
+        v3_features: cfg.v3_features,
         known_tech: knownTech ? knownTech.split(',').map(s => s.trim()).filter(Boolean) : undefined,
         scope_notes: scopeNotes || undefined,
         notes: (cfg.notes || cfg.mission_briefing) || undefined,
@@ -9789,6 +9812,7 @@ async function launchAdvancedMission() {
         // Replicate session startup logic from startMission()
         activeMissionId = data.session_id;
         viewingSessionId = activeMissionId;
+        window._currentSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
         hideResumeFromSessionBtn();
@@ -9845,7 +9869,7 @@ function _initConsoleTabs() {
 function _switchConsoleTab(tabName, silent) {
     // Map legacy tab names to new ones
     if (tabName === 'bash' || tabName === 'nmap' || tabName === 'msf') tabName = 'logs';
-    if (!tabName || !['terminal', 'shells', 'logs'].includes(tabName)) tabName = 'terminal';
+    if (!tabName || !['terminal', 'shells', 'logs', 'v3intel'].includes(tabName)) tabName = 'terminal';
 
     if (!silent) _consoleSaveTab(tabName);
 
@@ -9866,10 +9890,8 @@ function _switchConsoleTab(tabName, silent) {
     });
     document.querySelectorAll('#view-console .console-body').forEach(body => {
         const tab = body.dataset.tab;
-        // only show real body divs for the 3 new tabs
-        if (['terminal', 'shells', 'logs'].includes(tab)) {
-            body.classList.toggle('hidden', tab !== tabName);
-        }
+        // show body divs for all valid tabs
+        body.classList.toggle('hidden', tab !== tabName);
     });
 
     if (tabName === 'terminal' && _nativeFitAddon) {
@@ -11423,4 +11445,243 @@ function agOnDone(data) {
     var lastId = _agNodes.length > 0 ? _agNodes[_agNodes.length-1].id : null;
     _agAddNode('done', 'DONE', data, lastId);
     if (_agView === 'graph') setTimeout(agZoomFit, 700);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V3 INTEL PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+
+function v3SwitchPanel(name) {
+    document.querySelectorAll('.v3-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('.v3-panel-btn').forEach(b => b.classList.remove('active'));
+    const panel = document.getElementById(`v3-panel-${name}`);
+    const btn   = document.getElementById(`v3-btn-${name}`);
+    if (panel) panel.classList.remove('hidden');
+    if (btn)   btn.classList.add('active');
+}
+
+function v3RefreshAll() {
+    v3RagStats();
+    v3KgRefresh();
+    v3ReplayStats();
+    v3LessonRefresh();
+}
+
+// ── RAG ───────────────────────────────────────────────────────────────────
+
+async function v3RagStats() {
+    const el = document.getElementById('v3-rag-stats');
+    const st = document.getElementById('v3-rag-status');
+    if (!el) return;
+    try {
+        const r = await fetch('/v3/rag/stats');
+        if (!r.ok) { if (st) st.textContent = 'unavailable'; return; }
+        const d = await r.json();
+        if (st) st.textContent = `v${d.store_version || '?'} · ${d.sqlite_vss_available ? 'vss ✓' : 'fts only'}`;
+        el.innerHTML = '';
+        const cols = [
+            ['Collections', d.total_collections ?? '?'],
+            ['Chunks', d.total_chunks ?? '?'],
+            ['General KB', d.collections?.kb_general ?? '?'],
+        ];
+        cols.forEach(([label, val]) => {
+            const card = document.createElement('div');
+            card.className = 'border border-border-color/40 bg-card p-3 flex flex-col gap-1';
+            card.innerHTML = `<span class="text-[8px] uppercase tracking-widest text-secondary-text/60">${label}</span><span class="text-lg font-bold font-mono text-primary">${val}</span>`;
+            el.appendChild(card);
+        });
+    } catch(e) {
+        if (st) st.textContent = 'error';
+    }
+}
+
+async function v3RagQuery() {
+    const q = document.getElementById('v3-rag-query-input')?.value?.trim();
+    if (!q) return;
+    const res = document.getElementById('v3-rag-results');
+    if (!res) return;
+    res.innerHTML = '<span class="text-secondary-text/50 animate-pulse">Querying…</span>';
+    try {
+        const r = await fetch('/v3/rag/query', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: q, k: 5, scope: 'both'})
+        });
+        const d = await r.json();
+        if (!d.results?.length) { res.innerHTML = '<span class="text-secondary-text/50 italic">No results.</span>'; return; }
+        res.innerHTML = '';
+        d.results.forEach((chunk, i) => {
+            const div = document.createElement('div');
+            div.className = 'border border-border-color/30 bg-black/40 p-2.5 flex flex-col gap-1';
+            div.innerHTML = `
+              <div class="flex items-center gap-2">
+                <span class="text-[8px] text-primary/70 font-bold">#${i+1}</span>
+                <span class="text-[8px] text-secondary-text/60 font-mono">${_escHtml(chunk.source || '')}</span>
+                <span class="ml-auto text-[8px] text-secondary-text/40 font-mono">score ${(chunk.score ?? 0).toFixed(3)}</span>
+              </div>
+              <pre class="text-[10px] whitespace-pre-wrap text-secondary-text/80 leading-relaxed">${_escHtml((chunk.chunk_text || '').slice(0, 300))}${chunk.chunk_text?.length > 300 ? '…' : ''}</pre>`;
+            res.appendChild(div);
+        });
+    } catch(e) {
+        res.innerHTML = `<span class="text-danger text-[10px]">${_escHtml(String(e))}</span>`;
+    }
+}
+
+async function v3RagBootstrap() {
+    if (!confirm('Bootstrap RAG KB from souls + playbook? This may take a minute.')) return;
+    try {
+        const r = await fetch('/v3/rag/bootstrap', {method: 'POST'});
+        const d = await r.json();
+        alert(d.message || JSON.stringify(d));
+        v3RagStats();
+    } catch(e) { alert('Bootstrap failed: ' + e); }
+}
+
+// ── KG ────────────────────────────────────────────────────────────────────
+
+async function v3KgRefresh() {
+    const sid = window._currentSessionId;
+    const summary = document.getElementById('v3-kg-summary');
+    const statsEl = document.getElementById('v3-kg-stats');
+    const nodesEl = document.getElementById('v3-kg-nodes');
+    if (!sid) { if (summary) summary.textContent = 'No active session.'; return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/graph/summary`);
+        if (!r.ok) { if (summary) summary.textContent = 'No KG data yet.'; return; }
+        const d = await r.json();
+        if (summary) summary.textContent = d.summary_text || '(empty)';
+        if (statsEl) statsEl.textContent = `${d.node_count ?? 0} nodes · ${d.edge_count ?? 0} edges`;
+        if (nodesEl && d.nodes) {
+            nodesEl.innerHTML = '';
+            (d.nodes || []).slice(0, 30).forEach(n => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-2 px-2 py-1 border border-border-color/20 bg-black/30';
+                const typeColor = {host:'#3b82f6', credential:'#f97316', vuln:'#ef4444', session:'#ccff00', domain:'#a855f7'}[n.type] || '#6b7280';
+                row.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${typeColor};flex-shrink:0;display:inline-block;"></span>
+                  <span class="text-[9px] font-mono text-secondary-text w-16 shrink-0">${_escHtml(n.type || '')}</span>
+                  <span class="text-[10px] font-mono text-white truncate">${_escHtml(n.id || '')}</span>`;
+                nodesEl.appendChild(row);
+            });
+        }
+    } catch(e) {
+        if (summary) summary.textContent = 'Error: ' + e;
+    }
+}
+
+// ── Replay ────────────────────────────────────────────────────────────────
+
+async function v3ReplayStats() {
+    const sid = window._currentSessionId;
+    const el  = document.getElementById('v3-replay-table');
+    const st  = document.getElementById('v3-replay-stats');
+    if (!el) return;
+    if (!sid) { el.innerHTML = '<span class="text-secondary-text/50 italic">No active session.</span>'; return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/replay`);
+        if (!r.ok) { el.innerHTML = '<span class="text-secondary-text/50 italic">No replay data.</span>'; return; }
+        const d = await r.json();
+        if (st) st.textContent = `${d.total_calls ?? 0} calls · $${(d.total_cost_usd ?? 0).toFixed(4)} · ${d.failure_calls ?? 0} failed`;
+        el.innerHTML = '';
+        if (d.top_tools?.length) {
+            const header = document.createElement('div');
+            header.className = 'flex gap-3 px-2 py-1 text-[8px] uppercase tracking-widest text-secondary-text/50 border-b border-border-color/20';
+            header.innerHTML = '<span class="w-32">Tool</span><span class="w-12">Calls</span><span class="w-20">Avg (s)</span><span>Cost</span>';
+            el.appendChild(header);
+            d.top_tools.forEach(t => {
+                const row = document.createElement('div');
+                row.className = 'flex gap-3 px-2 py-1 border-b border-border-color/10 hover:bg-white/5';
+                row.innerHTML = `<span class="w-32 font-mono text-[10px] text-white truncate">${_escHtml(t.tool_name)}</span>
+                  <span class="w-12 text-[10px] text-secondary-text">${t.call_count}</span>
+                  <span class="w-20 text-[10px] text-secondary-text">${(t.avg_duration ?? 0).toFixed(2)}s</span>
+                  <span class="text-[10px] text-secondary-text">$${(t.total_cost ?? 0).toFixed(4)}</span>`;
+                el.appendChild(row);
+            });
+        } else {
+            el.innerHTML = '<span class="text-secondary-text/50 italic">No tool calls yet.</span>';
+        }
+    } catch(e) {
+        el.innerHTML = `<span class="text-danger text-[10px]">${_escHtml(String(e))}</span>`;
+    }
+}
+
+// ── Reflexion ─────────────────────────────────────────────────────────────
+
+async function v3LessonRefresh() {
+    const sid = window._currentSessionId;
+    const el  = document.getElementById('v3-lesson-content');
+    if (!el) return;
+    if (!sid) { el.textContent = 'No active session.'; return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/lesson`);
+        if (!r.ok) { el.textContent = 'Lesson captured at mission end.'; return; }
+        const d = await r.json();
+        el.textContent = JSON.stringify(d, null, 2);
+    } catch(e) { el.textContent = 'Error: ' + e; }
+}
+
+// ── OPSEC alerts feed ─────────────────────────────────────────────────────
+
+function v3PushOpsecAlert(alert) {
+    const feed  = document.getElementById('v3-opsec-feed');
+    const badge = document.getElementById('v3-opsec-badge');
+    if (!feed) return;
+    feed.querySelectorAll('.italic').forEach(e => e.remove());
+    const row = document.createElement('div');
+    const sev  = alert.severity || 'MEDIUM';
+    const color = sev === 'HIGH' ? '#ef4444' : sev === 'CRITICAL' ? '#ff3b3b' : '#f59e0b';
+    row.className = 'flex flex-col gap-0.5 p-2 border border-border-color/30';
+    row.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span style="color:${color}" class="text-[9px] font-bold uppercase">${_escHtml(sev)}</span>
+        <span class="text-[9px] font-mono text-secondary-text/60">${new Date().toLocaleTimeString()}</span>
+      </div>
+      <span class="text-[10px] text-white">${_escHtml(alert.message || alert.alert_type || '')}</span>
+      ${alert.tool ? `<span class="text-[9px] font-mono text-secondary-text/50">tool: ${_escHtml(alert.tool)}</span>` : ''}`;
+    feed.prepend(row);
+    if (badge) { badge.textContent = parseInt(badge.textContent || '0') + 1; badge.classList.remove('hidden'); }
+}
+
+// ── Shells: enhanced sidebar card with heartbeat ──────────────────────────
+
+async function v3EnrichShellSidebar() {
+    const sid = window._currentSessionId;
+    if (!sid) return;
+    try {
+        const r = await fetch(`/v3/shells?session_id=${sid}`);
+        if (!r.ok) return;
+        const shells = await r.json();
+        shells.forEach(sh => {
+            const card = document.querySelector(`[data-shell-key="${CSS.escape(sh.shell_key)}"]`);
+            if (!card) return;
+            let meta = card.querySelector('.v3-shell-meta');
+            if (!meta) {
+                meta = document.createElement('div');
+                meta.className = 'v3-shell-meta mt-1 flex flex-col gap-0.5';
+                card.appendChild(meta);
+            }
+            const hb = sh.last_heartbeat ? new Date(sh.last_heartbeat * 1000).toLocaleTimeString() : '–';
+            let pvecs = [];
+            try { pvecs = JSON.parse(sh.persistence_vectors_json || '[]'); } catch(_) {}
+            meta.innerHTML = `
+              <span class="text-[8px] font-mono text-secondary-text/50">heartbeat: ${_escHtml(hb)}</span>
+              ${pvecs.length ? `<span class="text-[8px] font-mono text-green-400/70">persist: ${pvecs.length} vector${pvecs.length > 1 ? 's' : ''}</span>` : ''}`;
+        });
+    } catch(_) {}
+}
+
+// ── Attack Graph: load from KG endpoint ──────────────────────────────────
+
+async function agLoadKGData() {
+    const sid = window._currentSessionId;
+    if (!sid) { alert('No active session.'); return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/graph`);
+        if (!r.ok) { alert('No KG graph data for this session yet.'); return; }
+        const d = await r.json();
+        if (typeof agIngestKGGraph === 'function') {
+            agIngestKGGraph(d.nodes || [], d.edges || []);
+        } else {
+            console.warn('[V3] agIngestKGGraph() not defined — raw data:', d);
+        }
+    } catch(e) { alert('KG load error: ' + e); }
 }
