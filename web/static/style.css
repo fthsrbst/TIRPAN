@@ -1731,3 +1731,8 @@ html.light .log-filter-btn.active {
 /* ── Right Sidebar sections ────────────────────────────────────────────────── */
 .rsb-section-toggle:hover .rsb-chevron { color: var(--color-primary, #ccff00); }
 html.light .rsb-section-toggle:hover .rsb-chevron { color: #4a7c00; }
+
+/* ── V3 panel buttons ────────────────────────────────────────────────────── */
+.v3-panel-btn.active { color: #ccff00; border-bottom: 1.5px solid #ccff00; }
+.v3-panel { display: flex; }
+.v3-panel.hidden { display: none; }
