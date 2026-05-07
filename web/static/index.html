@@ -462,6 +462,7 @@
                 <button onclick="agZoom(1.3)" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">add</span></button>
                 <button onclick="agZoomFit()" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">fit_screen</span></button>
                 <button onclick="agZoom(0.77)" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">remove</span></button>
+                <button onclick="agLoadKGData()" class="ag-zoom-btn" title="Load KG data"><span class="material-symbols-outlined" style="font-size:14px;">account_tree</span></button>
               </div>
               <!-- Node count badge -->
               <div id="ag-node-count" style="position:absolute;top:12px;right:14px;font-size:9px;font-family:monospace;text-transform:uppercase;letter-spacing:.1em;opacity:0.4;"></div>
@@ -645,6 +646,12 @@
           <span id="logs-new-badge" class="hidden bg-primary/80 text-black text-[8px] font-bold px-1.5 rounded-full leading-tight">●</span>
         </div>
 
+        <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="v3intel">
+          <span class="material-symbols-outlined text-[14px]">psychology</span>
+          <span class="text-[10px] font-mono font-bold tracking-wider">V3 INTEL</span>
+          <span id="v3-opsec-badge" class="hidden bg-warning text-black text-[8px] font-bold px-1.5 rounded-full leading-tight animate-pulse">!</span>
+        </div>
+
       </div>
 
       <!-- LOGS body — merged bash+nmap+msf with filter chips -->
@@ -710,6 +717,66 @@
             </div>
           </section>
         </div>
+      </div>
+
+      <!-- V3 INTEL body -->
+      <div id="console-v3intel" class="console-body hidden flex-1 flex flex-col min-h-0 bg-black/95" data-tab="v3intel">
+
+        <div class="flex items-center border-b border-border-color/40 bg-black/60 shrink-0">
+          <button onclick="v3SwitchPanel('rag')"    id="v3-btn-rag"    class="v3-panel-btn active px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">RAG</button>
+          <button onclick="v3SwitchPanel('kg')"     id="v3-btn-kg"     class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">KG</button>
+          <button onclick="v3SwitchPanel('replay')" id="v3-btn-replay" class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">REPLAY</button>
+          <button onclick="v3SwitchPanel('lesson')" id="v3-btn-lesson" class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">REFLEXION</button>
+          <button onclick="v3SwitchPanel('opsec')"  id="v3-btn-opsec"  class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-secondary-text hover:text-white transition-colors">OPSEC</button>
+          <button onclick="v3RefreshAll()" class="ml-auto mr-2 text-[9px] text-secondary-text hover:text-primary transition-colors uppercase tracking-wider flex items-center gap-1">
+            <span class="material-symbols-outlined text-[11px]">refresh</span> Refresh
+          </button>
+        </div>
+
+        <div id="v3-panel-rag" class="v3-panel flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <div class="flex items-center gap-3">
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">RAG Store</span>
+            <span id="v3-rag-status" class="text-[9px] text-secondary-text/60 font-mono"></span>
+            <button onclick="v3RagBootstrap()" class="ml-auto px-2.5 py-1 text-[9px] border border-border-color text-secondary-text hover:text-white hover:border-primary transition-colors uppercase tracking-wider">Bootstrap KB</button>
+          </div>
+          <div id="v3-rag-stats" class="grid grid-cols-3 gap-2"></div>
+          <div class="flex gap-2">
+            <input id="v3-rag-query-input" class="flex-1 bg-black/60 border border-border-color text-white text-xs font-mono px-3 py-1.5 outline-none focus:border-primary/60" placeholder="Query RAG store (e.g. vsftpd backdoor)…" type="text"/>
+            <button onclick="v3RagQuery()" class="px-3 py-1.5 text-[9px] border border-primary/60 text-primary hover:bg-primary/10 transition-colors uppercase tracking-wider">Query</button>
+          </div>
+          <div id="v3-rag-results" class="flex flex-col gap-2 font-mono text-[10px] text-secondary-text"></div>
+        </div>
+
+        <div id="v3-panel-kg" class="v3-panel hidden flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Knowledge Graph</span>
+            <span id="v3-kg-stats" class="text-[9px] text-secondary-text/60 font-mono ml-2"></span>
+            <button onclick="v3KgRefresh()" class="ml-auto px-2.5 py-1 text-[9px] border border-border-color text-secondary-text hover:text-white hover:border-primary transition-colors uppercase tracking-wider">Refresh</button>
+          </div>
+          <pre id="v3-kg-summary" class="text-[10px] font-mono text-secondary-text/80 whitespace-pre-wrap bg-black/40 border border-border-color/30 p-3 leading-relaxed min-h-[80px]">No active session.</pre>
+          <div id="v3-kg-nodes" class="flex flex-col gap-1"></div>
+        </div>
+
+        <div id="v3-panel-replay" class="v3-panel hidden flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Replay Log</span>
+            <span id="v3-replay-stats" class="text-[9px] text-secondary-text/60 font-mono ml-2"></span>
+          </div>
+          <div id="v3-replay-table" class="flex flex-col gap-1 font-mono text-[10px]"></div>
+        </div>
+
+        <div id="v3-panel-lesson" class="v3-panel hidden flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Reflexion / Lesson</span>
+          <pre id="v3-lesson-content" class="text-[10px] font-mono text-secondary-text/80 whitespace-pre-wrap bg-black/40 border border-border-color/30 p-3 leading-relaxed min-h-[80px]">Lesson captured at mission end.</pre>
+        </div>
+
+        <div id="v3-panel-opsec" class="v3-panel hidden flex-1 flex flex-col gap-2 p-4 overflow-y-auto scrollbar-hide">
+          <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">OPSEC Alerts</span>
+          <div id="v3-opsec-feed" class="flex flex-col gap-1.5 font-mono text-[10px]">
+            <span class="text-secondary-text/50 italic">No alerts yet.</span>
+          </div>
+        </div>
+
       </div>
 
       <!-- Terminal body: TERMINAL — native bash PTY -->
@@ -2275,6 +2342,7 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
               <button class="adv-mode-btn flex-1" data-mode="ask_before_exploit">Ask Before Exploit</button>
               <button class="adv-mode-btn flex-1" data-mode="full_auto">Full Auto</button>
               <button class="adv-mode-btn flex-1" data-mode="v2_auto" title="V2 multi-agent: BrainAgent coordinates specialized sub-agents">V2 Auto ✦</button>
+              <button class="adv-mode-btn flex-1" data-mode="v3_auto" title="V3 Hierarchical Multi-Agent Swarm: SquadLeaders, Verifier, RAG, KnowledgeGraph">V3 Auto ⚡</button>
             </div>
             <p id="adv-mode-desc" class="text-[9px] text-secondary-text">Scan and identify vulnerabilities — no exploitation.</p>
           </div>
@@ -2529,9 +2597,33 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
                 <input type="checkbox" class="accent-primary" id="pol-allow-docker" disabled/>
                 <div><span class="font-semibold">Allow Docker Escape</span><p class="text-[9px] text-secondary-text">Attempt container escape if containerised environment detected</p></div>
               </label>
+<label class="adv-check-row">
+                 <input type="checkbox" class="accent-primary" id="pol-allow-browser"/>
+                 <div><span class="font-semibold">Allow Browser Recon</span><p class="text-[9px] text-secondary-text">Playwright headless browser for web application recon</p></div>
+               </label>
+             </div>
+
+            <!-- V3: Persistence + Features -->
+            <div class="border-t border-border-color mt-1 pt-3 flex flex-col gap-2.5">
+              <label class="adv-label text-warning">V3 Features</label>
+
               <label class="adv-check-row">
-                <input type="checkbox" class="accent-primary" id="pol-allow-browser"/>
-                <div><span class="font-semibold">Allow Browser Recon</span><p class="text-[9px] text-secondary-text">Playwright headless browser for web application recon</p></div>
+                <input type="checkbox" class="accent-primary" id="pol-v3-features" checked/>
+                <div>
+                  <span class="font-semibold">Enable V3 Architecture</span>
+                  <p class="text-[9px] text-secondary-text">SquadLeaders, VerifierAgent, CriticAgent, RAG, KnowledgeGraph, DynamicModelRouter</p>
+                </div>
+              </label>
+
+              <label class="adv-check-row border border-red-800/50 bg-red-950/20 p-2">
+                <input type="checkbox" class="accent-primary" id="pol-allow-persistence"/>
+                <div>
+                  <span class="font-semibold text-danger">Allow Persistence Installation</span>
+                  <p class="text-[9px] text-secondary-text">
+                    ⚠ Agent installs backdoors (cron, SSH keys, systemd service, registry Run).
+                    Only enable on owned lab systems. Logged in audit trail.
+                  </p>
+                </div>
               </label>
             </div>
           </div>
