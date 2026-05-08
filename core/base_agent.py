@@ -793,6 +793,10 @@ class BaseAgent(ABC):
         except Exception as exc:
             self._log.error("Agent %s reason() failed: %s", self.agent_id, exc)
             self.emit_event("error", {"error": str(exc)})
+            # Rate-limit / quota errors are not recoverable by retrying — propagate up
+            _emsg = str(exc)
+            if "429" in _emsg or "rate limit" in _emsg.lower() or "usage limit" in _emsg.lower() or "quota" in _emsg.lower():
+                raise
             return None
 
     async def act(self, action_dict: dict) -> dict:

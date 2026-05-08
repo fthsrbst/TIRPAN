@@ -711,6 +711,7 @@ async def get_openrouter_config():
     return {
         "cloud_model": saved.get("cloud_model", settings.llm.cloud_model),
         "has_api_key": bool(api_key),
+        "api_key": api_key,
     }
 
 
@@ -772,6 +773,7 @@ async def get_opencode_go_config():
     return {
         "model": saved.get("opencode_go_model", settings.opencode_go.model),
         "has_api_key": bool(api_key),
+        "api_key": api_key,
     }
 
 
@@ -1077,6 +1079,8 @@ class StartSessionRequest(BaseModel):
     allow_lateral_movement: bool = False
     allow_docker_escape: bool = False
     allow_browser_recon: bool = False
+    allow_persistence: bool = False          # install persistence backdoors
+    v3_features: bool = True                 # enable squad leaders + RAG + KG
 
     # Known intelligence
     known_tech: list[str] = []
@@ -1113,17 +1117,21 @@ class StartSessionRequest(BaseModel):
     @field_validator("speed_profile")
     @classmethod
     def _validate_speed_profile(cls, v: str) -> str:
-        allowed = {"stealth", "normal", "aggressive"}
+        allowed = {"stealth", "normal", "aggressive", "fast"}
         if v not in allowed:
             raise ValueError(f"speed_profile must be one of {sorted(allowed)}")
+        if v == "fast":
+            v = "aggressive"
         return v
 
     @field_validator("scan_type")
     @classmethod
     def _validate_scan_type(cls, v: str) -> str:
-        allowed = {"syn", "connect", "udp", "full"}
+        allowed = {"syn", "connect", "udp", "full", "service"}
         if v not in allowed:
             raise ValueError(f"scan_type must be one of {sorted(allowed)}")
+        if v == "service":
+            v = "full"
         return v
 
 
@@ -1176,7 +1184,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     from models.session import Session
 
     # Validate mode
-    _VALID_MODES = ("full_auto", "ask_before_exploit", "scan_only", "v2_auto")
+    _VALID_MODES = ("full_auto", "ask_before_exploit", "scan_only", "v2_auto", "v3_auto")
     if body.mode not in _VALID_MODES:
         raise HTTPException(400, f"Invalid mode: {body.mode}")
 
@@ -1398,6 +1406,8 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         allow_lateral_movement=body.allow_lateral_movement,
         allow_docker_escape=body.allow_docker_escape,
         allow_browser_recon=body.allow_browser_recon,
+        allow_persistence=body.allow_persistence,
+        v3_features=body.v3_features,
         port_range=body.port_range,
         scan_type=body.scan_type,
         nse_categories=body.nse_categories,
@@ -1457,12 +1467,13 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     # Run tool health checks once before the agent starts
     await registry.run_health_checks()
 
-    if body.mode == "v2_auto":
-        # ── V2 BrainAgent path ────────────────────────────────────────────────
+    if body.mode in ("v2_auto", "v3_auto"):
+        # ── V2/V3 BrainAgent path ─────────────────────────────────────────────
         import core.debug_logger as dbg; dbg.print_banner()
         # Register session for UI debug log streaming (unregistered on session end)
         dbg.register_session(session_id, progress_cb)
-        dbg.info("routes", f"V2 session started | target={agent_target_expr} session={session_id[:8]}")
+        mode_label = "V3" if body.mode == "v3_auto" else "V2"
+        dbg.info("routes", f"{mode_label} session started | target={agent_target_expr} session={session_id[:8]}")
         from core.brain_agent import BrainAgent, make_brain
         from core.message_bus import AgentMessageBus
         from core.mission_context import MissionContext

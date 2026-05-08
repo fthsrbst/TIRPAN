@@ -220,8 +220,8 @@ class OpenRouterClient(LLMClient):
                     e.response.status_code, attempt + 1, self._MAX_RETRIES,
                     self._current_model, body,
                 )
-                if e.response.status_code in (400, 401, 403):
-                    # Non-retryable auth/validation errors — fail immediately
+                if e.response.status_code in (400, 401, 403, 429):
+                    # Non-retryable errors — fail immediately (429 = rate limit, no point retrying)
                     raise RuntimeError(f"OpenRouter {e.response.status_code}: {body}") from e
                 if attempt < self._MAX_RETRIES - 1:
                     delay = self._RETRY_BASE_DELAY * (2 ** attempt)
@@ -263,7 +263,7 @@ class OpenRouterClient(LLMClient):
                             "OpenRouter stream_chat HTTP %d — model=%r body=%s",
                             resp.status_code, self._current_model, body[:1000],
                         )
-                        if resp.status_code in (400, 401, 403):
+                        if resp.status_code in (400, 401, 403, 429):
                             raise RuntimeError(f"OpenRouter stream {resp.status_code}: {body[:500]}")
                         resp.raise_for_status()
                     async for line in resp.aiter_lines():
@@ -408,7 +408,7 @@ class OpenCodeGoClient(LLMClient):
                     e.response.status_code, attempt + 1, self._MAX_RETRIES,
                     self._model, body,
                 )
-                if e.response.status_code in (400, 401, 403):
+                if e.response.status_code in (400, 401, 403, 429):
                     raise RuntimeError(f"OpenCode Go {e.response.status_code}: {body}") from e
                 if attempt < self._MAX_RETRIES - 1:
                     delay = self._RETRY_BASE_DELAY * (2 ** attempt)
@@ -450,7 +450,7 @@ class OpenCodeGoClient(LLMClient):
                             "OpenCode Go stream_chat HTTP %d — model=%r body=%s",
                             resp.status_code, self._model, body[:1000],
                         )
-                        if resp.status_code in (400, 401, 403):
+                        if resp.status_code in (400, 401, 403, 429):
                             raise RuntimeError(f"OpenCode Go stream {resp.status_code}: {body[:500]}")
                         resp.raise_for_status()
                     async for line in resp.aiter_lines():

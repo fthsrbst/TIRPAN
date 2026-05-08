@@ -23,6 +23,7 @@ from core.registry_builder import build_tool_registry
 from web.routes import router
 from web.defense_routes import defense_router
 from web.ddos_routes import ddos_router
+from web.v3_routes import router as v3_router
 from web.auth.router import router as auth_router
 from web.websocket_handler import handle_websocket
 from database.db import init_db
@@ -307,7 +308,12 @@ def create_app() -> FastAPI:
         logging.getLogger("tirpan.validation").error(
             "422 on %s: %s", request.url.path, exc.errors()
         )
-        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+        # Serialize errors safely — replace non-serializable objects with their string repr
+        safe_errors = []
+        for e in exc.errors():
+            se = {k: (str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v) for k, v in e.items()}
+            safe_errors.append(se)
+        return JSONResponse(status_code=422, content={"detail": safe_errors})
 
     application.add_middleware(
         CORSMiddleware,
@@ -321,6 +327,7 @@ def create_app() -> FastAPI:
     application.include_router(router)
     application.include_router(defense_router)
     application.include_router(ddos_router)
+    application.include_router(v3_router)
 
     @application.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):

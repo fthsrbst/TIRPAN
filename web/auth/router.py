@@ -10,7 +10,7 @@ from web.auth.dependencies import get_current_user, require_role
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 _repo = UserRepository()
 
-_DUMMY_HASH = "$2b$12$KIXFakeHashToPreventTimingAttackXXXXXXXXXXXXXXXXXXXXXXX"
+_DUMMY_HASH = "$2b$12$KIXFakeHashToPreventTimingAttackXXXXXXXXXXXXXXXXXXXXX"
 
 
 @router.post("/register", response_model=Token, status_code=201)
