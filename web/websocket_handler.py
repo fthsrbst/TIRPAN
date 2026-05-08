@@ -581,7 +581,23 @@ async def _run_chat_agent(
     agent._progress_cb = progress_cb
     agent._approval_cb = _make_approval_callback(websocket, loop, pending_approvals)
 
-    result = await agent.run()
+    try:
+        await agent.run()
+    except asyncio.CancelledError:
+        # Task was aborted by the user — flush pending tasks and re-raise
+        pending = streaming_state["tasks"]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        raise
+    except Exception as exc:
+        # Fatal non-retryable error (e.g. rate limit 429) — report and return
+        pending = streaming_state["tasks"]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        logger.error("_run_chat_agent fatal error: %s", exc)
+        await websocket.send_json({"type": "error", "content": str(exc)})
+        await websocket.send_json({"type": "message_end", "msg_id": msg_id})
+        return "", []
 
     # Flush all pending streaming token tasks before sending message_end
     pending_tasks = streaming_state["tasks"]
@@ -892,6 +908,9 @@ async def handle_websocket(websocket: WebSocket) -> None:
                             fut2 = _pending_approvals.get(aid)
                             if fut2 and not fut2.done():
                                 fut2.set_result(appr)
+                        elif inner_type == "abort":
+                            agent_task.cancel()
+                            break
                         elif inner_type == "ping":
                             await websocket.send_json({"type": "pong"})
                         # Other message types while agent is running are ignored
@@ -900,7 +919,15 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     except json.JSONDecodeError:
                         pass
 
-                assistant_text, tool_logs = await agent_task
+                try:
+                    assistant_text, tool_logs = await agent_task
+                except asyncio.CancelledError:
+                    # User aborted — send message_end so frontend resets streaming state
+                    try:
+                        await websocket.send_json({"type": "message_end", "msg_id": msg_id})
+                    except Exception:
+                        pass
+                    continue
 
                 # Persist the conversation turn to the database
                 if conversation_id:

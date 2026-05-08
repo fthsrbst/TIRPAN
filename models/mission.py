@@ -127,6 +127,8 @@ class MissionBrief:
     allow_persistence: bool = False          # crontab / service / SSH-key backdoors
     allow_credential_harvest: bool = False   # /etc/shadow, mimikatz, browser creds
     allow_data_exfil: bool = False           # file download / loot collection
+    # V3 additions
+    v3_features: bool = True                 # enable squad leaders, RAG, KG, Verifier, Critic
 
     # ── Execution control ────────────────────────────────────────────────
     confirm_every_step: bool = False
