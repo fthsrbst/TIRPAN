@@ -65,22 +65,27 @@ Her adım web arayüzünde gerçek zamanlı görüntülenir. Her eylem denetim k
 
 ---
 
-## Mevcut Yetenekler (V1)
+## Mevcut Yetenekler (V1 + V2 beta)
 
 | Yetenek | Detay |
 |---------|-------|
-| Ağ keşfi | Herhangi bir CIDR aralığında ping sweep |
-| Servis sıralaması | Versiyon ve işletim sistemi tespiti, NSE betikleriyle tam port taraması |
-| Exploit arama | Keşfedilen her servis ve versiyon için SearchSploit / ExploitDB sorguları |
-| Exploitation | Metasploit RPC ve msfconsole yedek modu; otomatik payload seçimi; paralel exploit toplu işlemleri |
-| Sızma sonrası | Inline post-komutlar, kalıcı SSH oturumları, bind ve reverse shell, betik yükleme ve çalıştırma |
-| Raporlama | Her bulgu için CVSS v3.1 puanlamasıyla HTML ve PDF raporlar |
-| Gerçek zamanlı arayüz | Her ajan düşüncesi, eylemi ve sonucunun WebSocket tabanlı akışı |
-| Bilgi tabanı | Hangi exploit'in hangi servis versiyonuna karşı başarılı olduğuna dair oturumlar arası bellek |
-| Denetim kaydı | Zaman damgası, hedef ve sonuçla birlikte her eylemin ekleme-güncellenemez kaydı |
-| Durdurma anahtarı | Bir tıklama veya sinyal ile tüm işlemlerin anında durdurulması |
+| Ağ keşfi | Nmap tabanlı keşif + opsiyonel Masscan hızlı tarama |
+| Servis sıralaması | Port/servis/versiyon tespiti, NSE betikleri, SMB enum yardımcıları |
+| Exploit arama | Servis/versiyon bazlı SearchSploit/ExploitDB sorguları |
+| Exploitation | Metasploit RPC veya msfconsole yedek modu, rsh/distcc/webdav yardımcıları |
+| Web testi (V2) | WhatWeb, Nikto, Nuclei, ffuf/gobuster, Arjun, sqlmap, WPScan, Commix |
+| OSINT (V2) | theHarvester, subfinder, WHOIS, DNS sıralama |
+| Sızma sonrası | `ssh_exec` + `shell_exec` (bind/reverse/ssh), opsiyonel dosya okuma |
+| Yanal hareket (V2) | CrackMapExec/Impacket yardımcıları (kuruluysa) |
+| Raporlama | HTML/PDF raporlar (JSON/markdown rapor aracı ile) |
+| Gerçek zamanlı arayüz | Ajan düşüncesi/eylemi/sonucu WebSocket akışı |
+| Bilgi tabanı | Servis-exploit başarı hafızası + denetim kayıtları |
+| Güvenlik | 10 kural + never-scan listesi + kill switch |
+| Savunma modülü | Blue team izleme, detector engine ve yanit araçları |
 
-**Çalışma zamanında kayıtlı araçlar:** `nmap_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`
+**Çalışma zamanında kayıtlı çekirdek araçlar:** `nmap_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`, `local_exec`
+
+**Genişletilmiş araçlar (binary kuruluysa):** masscan, nuclei, ffuf, whatweb, nikto, theHarvester, subfinder, whois, dns, crackmapexec, impacket, sqlmap, wpscan, commix, gobuster, arjun, hashcat, john, hydra ve daha fazlası. Ortamda hangilerinin hazır olduğunu `/api/v1/tools/status` ile görebilirsiniz.
 
 ---
 
@@ -125,8 +130,10 @@ Her adım web arayüzünde gerçek zamanlı görüntülenir. Her eylem denetim k
 +----------------------------------------------------------+
 ```
 
-**Tasarım ilkesi: küçük çekirdek, geniş eklenti yüzeyi.**
-ReAct döngüsü, güvenlik katmanı ve LLM istemcisi sabittir. Her saldırı yeteneği bir eklenti olarak gelir.
+**Tasarım ilkesi: küçük çekirdek, geniş araç yüzeyi.**
+ReAct döngüsü, güvenlik katmanı ve LLM istemcisi sabittir. Çekirdek + genişletilmiş araçlar `tools/` altında; özel entegrasyonlar `plugins/` ile eklenir.
+
+V2 ile Brain ajan, MissionContext ve uzman ajanlar (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting) gelir. Ayrıntı için [docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md).
 
 ---
 
@@ -151,11 +158,11 @@ cp .env.example .env
 # Metasploit RPC'yi başlat (exploitation için gerekli; yalnızca tarama modunda atla)
 msfrpcd -P sifreniz -S
 
-# Web arayüzünü başlat
+# Web arayüzünü başlat (V1 + V2 destekli)
 python3 main.py
 # http://localhost:8000 adresini aç
 
-# Ya da terminal üzerinden başsız çalıştır
+# Ya da terminal üzerinden başsız çalıştır (V1 tek ajan)
 python3 main.py run --target 192.168.1.0/24 --mode full_auto --scope 192.168.1.0/24
 ```
 
@@ -173,7 +180,7 @@ python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Netwo
 
 ## CLI Referansı
 
-TIRPAN iki modda çalışır: **web arayüzü** (varsayılan) ve **terminal** (başsız).
+TIRPAN iki modda çalışır: **web arayüzü** (varsayılan, V1+V2) ve **terminal** (V1 başsız).
 
 ### Web Arayüzü
 
@@ -229,16 +236,18 @@ TIRPAN her eylemde on yapılandırılabilir güvenlik kısıtlaması uygular. Bu
 
 | Kısıtlama | Varsayılan | Açıklama |
 |-----------|------------|----------|
-| `target_scope` | zorunlu | CIDR sınırı — ajan bu aralık dışındaki IP'leri hedef alamaz |
-| `allow_exploits` | `true` | Yalnızca keşif modu için `false` yapın |
-| `no_dos` | `true` | Tüm hizmet engelleme exploit kategorilerini bloke eder |
-| `no_destructive` | `true` | Veri değiştiren veya silen exploit'leri bloke eder |
-| `max_exploit_severity` | `critical` | CVSS tavanı — bu seviyenin üzerindeki exploit'leri denemez |
-| `max_duration_seconds` | `7200` | N saniye sonra otomatik durdurma |
+| `allowed_cidr` | `0.0.0.0/0` | CIDR sınırı — ajan bu aralık dışındaki IP'leri hedef alamaz |
+| `allow_exploit` | `true` | Yalnızca keşif modu için `false` yapın |
+| `block_dos_exploits` | `true` | DoS exploit kategorilerini bloke eder |
+| `block_destructive` | `true` | Yıkıcı modülleri bloke eder (wipe/encrypt) |
+| `max_cvss_score` | `10.0` | CVSS tavanı |
+| `session_max_seconds` | `0` | N saniye sonra otomatik durdurma (0 = sınırsız) |
 | `max_requests_per_second` | `50` | Ağ aksamasını önlemek için hız sınırı |
 | `excluded_ips` | `[]` | Her zaman atlanan IP'ler |
 | `excluded_ports` | `[]` | Her zaman atlanan portlar |
-| `port_scope` | `1-65535` | Taramayı belirli bir port aralığıyla sınırla |
+| `allowed_port_min/max` | `1-65535` | Port aralığı kısıtı |
+
+**Never-scan listesi:** DB + per-session dışlamalarından gelen sert blok listesi. İhlaller CRITICAL olarak loglanır ve her zaman engellenir.
 
 ---
 
@@ -258,6 +267,9 @@ Yapılandırılmış angajmanlar için TIRPAN, kapsam, izinler, kimlik bilgileri
   "allow_exploitation": true,
   "allow_post_exploitation": true,
   "allow_lateral_movement": false,
+  "allow_persistence": false,
+  "allow_credential_harvest": false,
+  "allow_data_exfil": false,
   "excluded_targets": ["10.0.0.1", "10.0.0.254"]
 }
 ```
@@ -291,7 +303,7 @@ TIRPAN üç aşamada geliştirilmektedir. V1 ağ düzeyinde temelidir — sonrak
 - Hız profilleri: stealth / normal / aggressive
 - Eklenti mimarisi (altyapı hazır)
 
-### V2 — Tam Saldırı Yaşam Döngüsü (planlanıyor)
+### V2 — Çok Ajanli Saldırı Yaşam Döngüsü (beta)
 
 **Pasif Keşif (OSINT)**
 - theHarvester, subfinder, amass, crt.sh sertifika şeffaflığı, Shodan, WHOIS
@@ -364,7 +376,7 @@ TIRPAN üç aşamada geliştirilmektedir. V1 ağ düzeyinde temelidir — sonrak
 
 ## Eklenti Yazma
 
-Her yeni saldırı yeteneği bir eklentidir. Üç dosya gereklidir; çekirdek koda dokunulmaz.
+Eklentiler isteğe bağlıdır. Çekirdek ve genişletilmiş araçlar `tools/` altındadır; özel entegrasyonlar `plugins/` ile eklenir.
 
 **Python sınıfı eklentisi** (karmaşık mantık):
 

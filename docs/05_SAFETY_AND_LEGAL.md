@@ -22,11 +22,11 @@
 
 ## Technical Safety Rules
 
-### 10 Configurable Guardrails (V1 — apply to every tool call)
+### 10 Configurable Guardrails (apply to every tool call)
 
 | # | Rule | Config Key | Default | Description |
 |---|------|-----------|---------|-------------|
-| 1 | Target Scope | `allowed_cidr` | REQUIRED | CIDR range — only these IPs allowed |
+| 1 | Target Scope | `allowed_cidr` | `0.0.0.0/0` | CIDR range — only these IPs allowed |
 | 2 | Port Scope | `allowed_port_min/max` | `1-65535` | Which ports can be scanned |
 | 3 | Excluded IPs | `excluded_ips` | `[]` | IPs to always skip (e.g., routers, DNS) |
 | 4 | Excluded Ports | `excluded_ports` | `[]` | Ports to always skip |
@@ -34,8 +34,10 @@
 | 6 | No DoS | `block_dos_exploits` | `true` | Block all denial-of-service attacks |
 | 7 | No Destructive | `block_destructive` | `true` | Block data-modifying / wipe exploits |
 | 8 | Max Severity | `max_cvss_score` | `10.0` | Maximum CVSS score to attempt |
-| 9 | Time Limit | `session_max_seconds` | `3600` | Auto-stop after N seconds |
-| 10 | Rate Limit | `max_requests_per_second` | `10` | Prevent network flooding |
+| 9 | Time Limit | `session_max_seconds` | `0` | Auto-stop after N seconds (0 = unlimited) |
+| 10 | Rate Limit | `max_requests_per_second` | `50` | Prevent network flooding |
+
+**Never-scan list:** A hard block list loaded from the DB (`never_scan` table) and per-session exclusions. Any match is blocked and logged as CRITICAL.
 
 ### Kill Switch
 
@@ -53,11 +55,14 @@ Operators must explicitly enable each one in the mission configuration.
 
 | Flag | Default | What it enables |
 |------|---------|-----------------|
+| `allow_exploitation` | `false` | Exploit attempts (V2 Brain + agents) |
+| `allow_post_exploitation` | `false` | Post-exploit commands after a shell opens |
+| `allow_lateral_movement` | `false` | Credential spray, PSExec, pass-the-hash |
 | `allow_persistence` | `false` | Crontab, systemd, SSH key, registry backdoors |
-| `allow_credential_harvest` | `false` | /etc/shadow dump, mimikatz, browser credentials |
-| `allow_lateral_movement` | `false` | Credential spray, PSExec, pass-the-hash, pivoting |
-| `allow_data_exfil` | `false` | File download from target systems |
+| `allow_credential_harvest` | `false` | /etc/shadow dump, browser creds, key theft |
+| `allow_data_exfil` | `false` | File download / loot collection |
 | `allow_docker_escape` | `false` | Container escape techniques |
+| `allow_browser_recon` | `false` | Browser-driven recon (future) |
 
 **These flags MUST be explicitly set to `true` in the StartSessionRequest.**
 The safety pipeline checks them before every relevant action — even if an agent attempts

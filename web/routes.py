@@ -1428,6 +1428,10 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     session_data = await _session_repo.create(agent_target_expr, body.mode)
     session_id = session_data["id"]
 
+    mission_label = (body.mission_name or "").strip()
+    if mission_label:
+        await _session_repo.update_name(session_id, mission_label)
+
     # Save the per-session safety config so rollback can restore the exact same settings
     await _session_repo.save_safety_cfg(session_id, json.dumps(safety_cfg.model_dump()))
 
