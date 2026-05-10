@@ -9023,7 +9023,7 @@ const _advModeDesc = {
     scan_only: 'Scan and identify vulnerabilities — no exploitation.',
     ask_before_exploit: 'Agent will ask for confirmation before running any exploit.',
     full_auto: 'Agent exploits autonomously within configured safety limits.',
-    v2_auto: 'V2 Multi-Agent: BrainAgent coordinates specialized sub-agents (scanner, exploit, post-exploit, webapp, osint, lateral, reporting).',
+    v2_auto: 'Multi-agent orchestration: BrainAgent coordinates specialist sub-agents (scanner, exploit, post-exploit, webapp, osint, lateral, reporting).',
     v3_auto: 'V3 HMAS: SquadLeaders coordinate specialist workers with RAG, KnowledgeGraph, Verifier, Critic, and DynamicModelRouter.',
 };
 
@@ -9644,8 +9644,8 @@ function _advCollectConfig() {
         version_intensity:      (() => { const el = document.getElementById('adv-version-intensity'); return el ? el.value : '5'; })(),
         confirm_every_step:     _c('adv-step-by-step'),
         mission_briefing:       _v('adv-mission-briefing'),
-        allow_persistence:      _c('pol-allow-persistence'),
-        v3_features:            _c('pol-v3-features'),
+        allow_persistence:      document.getElementById('pol-allow-persistence')?.checked ?? false,
+        v3_features:            document.getElementById('pol-v3-features')?.checked ?? true,
     };
 }
 
