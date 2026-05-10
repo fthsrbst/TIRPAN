@@ -88,7 +88,7 @@
           <option value="scan_only">SCAN ONLY</option>
           <option value="full_auto">FULL AUTO</option>
           <option value="ask_before_exploit">ASK BEFORE EXPLOIT</option>
-          <option value="v2_auto">V2 AUTO (Multi-Agent)</option>
+          <option value="v2_auto">Multi-agent orchestration</option>
         </select>
         <input id="mission-port-range" type="hidden" value="1-65535"/>
       </div>
@@ -2320,8 +2320,7 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
               <button class="adv-mode-btn active flex-1" data-mode="scan_only">Scan Only</button>
               <button class="adv-mode-btn flex-1" data-mode="ask_before_exploit">Ask Before Exploit</button>
               <button class="adv-mode-btn flex-1" data-mode="full_auto">Full Auto</button>
-              <button class="adv-mode-btn flex-1" data-mode="v2_auto" title="V2 multi-agent: BrainAgent coordinates specialized sub-agents">V2 Auto ✦</button>
-              <button class="adv-mode-btn flex-1" data-mode="v3_auto" title="V3 Hierarchical Multi-Agent Swarm: SquadLeaders, Verifier, RAG, KnowledgeGraph">V3 Auto ⚡</button>
+              <button class="adv-mode-btn flex-1" data-mode="v2_auto" title="Multi-agent orchestration — BrainAgent coordinates specialized sub-agents">Multi-agent orchestration</button>
             </div>
             <p id="adv-mode-desc" class="text-[9px] text-secondary-text">Scan and identify vulnerabilities — no exploitation.</p>
           </div>
@@ -2581,30 +2580,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
                  <div><span class="font-semibold">Allow Browser Recon</span><p class="text-[9px] text-secondary-text">Playwright headless browser for web application recon</p></div>
                </label>
              </div>
-
-            <!-- V3: Persistence + Features -->
-            <div class="border-t border-border-color mt-1 pt-3 flex flex-col gap-2.5">
-              <label class="adv-label text-warning">V3 Features</label>
-
-              <label class="adv-check-row">
-                <input type="checkbox" class="accent-primary" id="pol-v3-features" checked/>
-                <div>
-                  <span class="font-semibold">Enable V3 Architecture</span>
-                  <p class="text-[9px] text-secondary-text">SquadLeaders, VerifierAgent, CriticAgent, RAG, KnowledgeGraph, DynamicModelRouter</p>
-                </div>
-              </label>
-
-              <label class="adv-check-row border border-red-800/50 bg-red-950/20 p-2">
-                <input type="checkbox" class="accent-primary" id="pol-allow-persistence"/>
-                <div>
-                  <span class="font-semibold text-danger">Allow Persistence Installation</span>
-                  <p class="text-[9px] text-secondary-text">
-                    ⚠ Agent installs backdoors (cron, SSH keys, systemd service, registry Run).
-                    Only enable on owned lab systems. Logged in audit trail.
-                  </p>
-                </div>
-              </label>
-            </div>
           </div>
 
           <div class="border-t border-border-color pt-4 grid grid-cols-2 gap-4">
@@ -3813,11 +3788,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
       </div>
     </div>
     <div class="flex items-center gap-6">
-      <div class="flex items-center gap-2">
-        <span class="opacity-50">TOKENS:</span>
-        <span class="text-primary" id="footer-tokens">0</span>
-      </div>
-      <div class="w-px h-2.5 bg-border-color"></div>
       <div class="flex items-center gap-2">
         <span class="material-symbols-outlined text-[12px] opacity-50">schedule</span>
         <span class="text-slate-300" id="footer-clock">00:00</span>
