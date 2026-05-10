@@ -1699,7 +1699,7 @@ html.light #ag-inject-input { color: #444; }
 html.light #ag-inject-input::placeholder { color: #bbb; }
 
 /* View toggle buttons */
-#ag-view-btn-feed, #ag-view-btn-graph, #ag-view-btn-timeline {
+#ag-view-btn-feed, #ag-view-btn-graph, #ag-view-btn-simple {
     display: flex; align-items: center; gap: 4px;
     padding: 2px 8px; font-size: 9px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .12em;

@@ -155,6 +155,10 @@
         <span class="material-symbols-outlined text-sm">terminal</span>
         <span class="text-xs font-medium uppercase tracking-wider">Console</span>
       </div>
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="logs">
+        <span class="material-symbols-outlined text-sm">list_alt</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Logs</span>
+      </div>
       <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="audit">
         <span class="material-symbols-outlined text-sm">description</span>
         <span class="text-xs font-medium uppercase tracking-wider">Audit Logs</span>
@@ -170,12 +174,6 @@
       <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="config">
         <span class="material-symbols-outlined text-sm">settings</span>
         <span class="text-xs font-medium uppercase tracking-wider">Configuration</span>
-      </div>
-      <div class="mt-2 pt-3 border-t border-border-color">
-        <a href="/normal/" class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" title="Switch to Normal Mode">
-          <span class="material-symbols-outlined text-sm">dashboard</span>
-          <span class="text-xs font-medium uppercase tracking-wider">Normal Mode</span>
-        </a>
       </div>
     </div>
   </aside>
@@ -276,7 +274,13 @@
            title="Sign out">
           <span class="material-symbols-outlined text-[13px]">logout</span>
         </button>
-        <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
+        <a href="/normal/" id="normal-mode-link"
+          class="h-9 flex items-center gap-1.5 pl-2 pr-2 sm:pl-2.5 sm:pr-3 bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200 shrink-0"
+          title="Switch to Normal Mode">
+          <span class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors shrink-0">dashboard</span>
+          <span class="hidden sm:inline font-display font-bold text-[10px] uppercase tracking-tighter text-secondary-text group-hover:text-primary">Normal Mode</span>
+        </a>
+        <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200 shrink-0">
           <span id="theme-toggle-icon" class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors">dark_mode</span>
         </button>
       </div>
@@ -350,10 +354,6 @@
           <button onclick="switchAgentView('graph')" id="ag-view-btn-graph"
             class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
             <span class="material-symbols-outlined" style="font-size:11px;">account_tree</span>GRAPH
-          </button>
-          <button onclick="switchAgentView('timeline')" id="ag-view-btn-timeline"
-            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
-            <span class="material-symbols-outlined" style="font-size:11px;">view_timeline</span>TIMELINE
           </button>
           <button onclick="switchAgentView('simple')" id="ag-view-btn-simple"
             class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
@@ -1654,27 +1654,6 @@
 
     <!-- ── VIEW: INTEL (expanded intelligence) ───────────────────────────── -->
     <div id="view-intel" class="hidden flex-1 flex flex-col min-h-0">
-
-      <!-- Intel header -->
-      <div class="px-6 py-3 bg-surface border-b border-border-color flex items-center justify-between shrink-0">
-        <div class="flex items-center gap-4">
-          <button id="intel-back-btn" class="flex items-center gap-1.5 text-secondary-text hover:text-primary transition-colors">
-            <span class="material-symbols-outlined text-[18px]">arrow_back</span>
-            <span class="text-[10px] font-bold uppercase tracking-widest">Back</span>
-          </button>
-          <div class="w-px h-4 bg-border-color"></div>
-          <span class="material-symbols-outlined text-primary text-[18px]" id="intel-view-icon">monitoring</span>
-          <span class="font-display font-bold text-sm tracking-widest uppercase" id="intel-view-title">Analysis</span>
-        </div>
-        <div class="flex border border-border-color">
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase bg-primary text-black" data-intel-tab="analysis">Analysis</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="network">Network</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="ddos">DDoS</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="history">History</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="nodes">Nodes</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="kb">Knowledge Base</button>
-        </div>
-      </div>
 
       <div class="flex-1 overflow-y-auto scrollbar-hide">
 
@@ -3319,10 +3298,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 
         <!-- Intel nav -->
         <div class="flex flex-col gap-6 mb-8">
-          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-primary" data-panel="live">
-            <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1;">sensors</span>
-            <span class="text-[13px] font-medium uppercase tracking-wider">Live</span>
-          </div>
           <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="analysis">
             <span class="material-symbols-outlined text-[22px]">monitoring</span>
             <span class="text-[13px] font-medium uppercase tracking-wider">Analysis</span>
@@ -3331,21 +3306,9 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
             <span class="material-symbols-outlined text-[22px]">hub</span>
             <span class="text-[13px] font-medium uppercase tracking-wider">Network</span>
           </div>
-          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="ddos">
-            <span class="material-symbols-outlined text-[22px]">bolt</span>
-            <span class="text-[13px] font-medium uppercase tracking-wider">DDoS</span>
-          </div>
           <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="history">
             <span class="material-symbols-outlined text-[22px]">history</span>
             <span class="text-[13px] font-medium uppercase tracking-wider">History</span>
-          </div>
-          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="nodes">
-            <span class="material-symbols-outlined text-[22px]">account_tree</span>
-            <span class="text-[13px] font-medium uppercase tracking-wider">Nodes</span>
-          </div>
-          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="kb">
-            <span class="material-symbols-outlined text-[22px]">auto_stories</span>
-            <span class="text-[13px] font-medium uppercase tracking-wider">Knowledge Base</span>
           </div>
         </div>
       </div>
