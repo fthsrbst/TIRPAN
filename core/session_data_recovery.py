@@ -96,6 +96,73 @@ def _service_from_query(query: str) -> str:
     return q.split()[0].lower()
 
 
+def _vulnerability_dedup_key(vuln: dict) -> tuple[str, str, str, str, str]:
+    """Stable identity aligned with derive_session_data_from_events.add_vulnerability."""
+
+    host = _to_text(vuln.get("host_ip")).lower()
+    title = _to_text(vuln.get("title")).lower()
+    cve_id = _to_text(vuln.get("cve_id")).lower()
+    service = _to_text(vuln.get("service")).lower()
+    service_ver = _to_text(vuln.get("service_version")).lower()
+    return (host, title, cve_id, service, service_ver)
+
+
+def merge_vulnerability_lists(primary: list[dict], derived: list[dict]) -> list[dict]:
+    """Union DB + event-derived rows without duplicates."""
+
+    merged: list[dict] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for v in primary or []:
+        if not isinstance(v, dict):
+            continue
+        key = _vulnerability_dedup_key(v)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(v)
+    for v in derived or []:
+        if not isinstance(v, dict):
+            continue
+        key = _vulnerability_dedup_key(v)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(v)
+    return merged
+
+
+def _exploit_dedup_key(row: dict) -> tuple[str, str, int, bool, int]:
+    return (
+        _to_text(row.get("host_ip")).lower(),
+        _to_text(row.get("module")).lower(),
+        _to_int(row.get("port")),
+        bool(row.get("success")),
+        _to_int(row.get("session_opened")),
+    )
+
+
+def merge_exploit_lists(primary: list[dict], derived: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[tuple[str, str, int, bool, int]] = set()
+    for e in primary or []:
+        if not isinstance(e, dict):
+            continue
+        key = _exploit_dedup_key(e)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(e)
+    for e in derived or []:
+        if not isinstance(e, dict):
+            continue
+        key = _exploit_dedup_key(e)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(e)
+    return merged
+
+
 def _ip_of(payload: dict, fallback_target: str = "") -> str:
     for key in ("ip", "host_ip", "host", "target_ip", "target"):
         val = _to_text(payload.get(key))
@@ -582,12 +649,20 @@ async def recover_session_findings_from_events(
     final_vulns = await vuln_repo.get_for_session(session_id) if persist else list(current_vulns)
     final_exploits = await exploit_repo.get_for_session(session_id) if persist else list(current_exploits)
 
-    if not final_scans:
-        final_scans = list(derived["scan_results"])
-    if not final_vulns:
-        final_vulns = list(derived["vulnerabilities"])
-    if not final_exploits:
-        final_exploits = list(derived["exploit_results"])
+    if persist:
+        if not final_scans:
+            final_scans = list(derived["scan_results"])
+        if not final_vulns:
+            final_vulns = list(derived["vulnerabilities"])
+        if not final_exploits:
+            final_exploits = list(derived["exploit_results"])
+    else:
+        # Running session: DB may already have a subset (e.g. exploit rows) while other
+        # findings only exist in the event stream — merge so API consumers see the full set.
+        final_vulns = merge_vulnerability_lists(final_vulns, list(derived["vulnerabilities"]))
+        final_exploits = merge_exploit_lists(final_exploits, list(derived["exploit_results"]))
+        if not final_scans:
+            final_scans = list(derived["scan_results"])
 
     stats = compute_session_stats(
         final_scans,
