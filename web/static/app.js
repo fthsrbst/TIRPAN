@@ -127,9 +127,11 @@ function _agViewStorageKey(sessionId) {
 function _agLoadSavedView(sessionId) {
     try {
         const perSession = localStorage.getItem(_agViewStorageKey(sessionId));
-        if (perSession === 'graph' || perSession === 'feed' || perSession === 'timeline') return perSession;
+        if (perSession === 'graph' || perSession === 'feed') return perSession;
+        if (perSession === 'timeline') return 'feed';
         const fallback = localStorage.getItem('agView');
-        if (fallback === 'graph' || fallback === 'feed' || fallback === 'timeline') return fallback;
+        if (fallback === 'graph' || fallback === 'feed') return fallback;
+        if (fallback === 'timeline') return 'feed';
     } catch (e) {
         // no-op
     }
@@ -149,15 +151,21 @@ function switchView(viewName) {
     if (!viewName) return;
     if (currentView !== 'intel') previousView = currentView;
 
+    const domViewId = viewName === 'logs' ? 'console' : viewName;
+
     // Hide all views, show target
     ALL_VIEWS.forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.classList.add('hidden');
     });
-    const target = document.getElementById(`view-${viewName}`);
+    const target = document.getElementById(`view-${domViewId}`);
     if (target) target.classList.remove('hidden');
 
     currentView = viewName;
+
+    if (viewName === 'logs') {
+        _switchConsoleTab('logs');
+    }
     syncInputMode();
 
     // Restore saved agent sub-view (feed/graph/timeline) when switching to agent
@@ -10086,7 +10094,7 @@ function _onReverseShellReceived(shellId, shellInfo) {
     _activateShell(shellId);
     _switchConsoleTab('shells');
 
-    if (currentView !== 'console') {
+    if (currentView !== 'console' && currentView !== 'logs') {
         showToast(`Reverse shell received: ${hostIp} — Console → SHELLS`);
     }
 }
@@ -10686,7 +10694,8 @@ function _agScheduleRender() {
 // ── View switch ────────────────────────────────────────────────────────────────
 
 function switchAgentView(v) {
-    if (!['feed','graph','timeline','simple'].includes(v)) v = 'feed';
+    if (v === 'timeline') v = 'feed';
+    if (!['feed', 'graph', 'simple'].includes(v)) v = 'feed';
     _agView = v;
     _agSaveViewPreference(v, _agCurrentSessionPrefId());
     const feedArea    = document.getElementById('agent-scroll-area');
@@ -10696,7 +10705,6 @@ function switchAgentView(v) {
     const simpleView  = document.getElementById('ag-simple-view');
     const btnFeed     = document.getElementById('ag-view-btn-feed');
     const btnGraph    = document.getElementById('ag-view-btn-graph');
-    const btnTimeline = document.getElementById('ag-view-btn-timeline');
     const btnSimple   = document.getElementById('ag-view-btn-simple');
 
     const isLight = _agIsLight();
@@ -10712,7 +10720,6 @@ function switchAgentView(v) {
     if (simpleView)     simpleView.style.display  = 'none';
     if (btnFeed)        btnFeed.setAttribute('style',     inactiveS);
     if (btnGraph)       btnGraph.setAttribute('style',    inactiveS);
-    if (btnTimeline)    btnTimeline.setAttribute('style', inactiveS);
     if (btnSimple)      btnSimple.setAttribute('style',   inactiveS);
 
     if (v === 'graph') {
@@ -10721,13 +10728,6 @@ function switchAgentView(v) {
         const svgEl = document.getElementById('ag-graph-svg');
         if (svgEl) svgEl.style.background = _agSvgBg();
         _agRender();
-    } else if (v === 'timeline') {
-        if (timelineView) {
-            timelineView.style.display = 'flex';
-            timelineView.style.flex = '1';
-        }
-        if (btnTimeline) btnTimeline.setAttribute('style', activeS);
-        _agRenderTimeline();
     } else if (v === 'simple') {
         if (simpleView) {
             simpleView.style.display = 'flex';
