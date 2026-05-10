@@ -1644,6 +1644,27 @@ async def get_session(sid: str):
                 session = await _session_repo.get(sid) or session
         except Exception as exc:
             logger.warning("Session recovery failed for %s: %s", sid, exc)
+    elif is_running:
+        # Tables can be non-empty while events still carry additional findings (e.g. scan-only
+        # rows that were never written to vulnerabilities). Merge event-derived view on each poll.
+        try:
+            recovered = await recover_session_findings_from_events(
+                session_id=sid,
+                target=str(session.get("target") or ""),
+                session_repo=_session_repo,
+                scan_repo=_scan_repo,
+                vuln_repo=_vuln_repo,
+                exploit_repo=_exploit_repo,
+                event_repo=_event_repo,
+                persist=False,
+            )
+            vulns = recovered.get("vulnerabilities", vulns)
+            if not scan_results:
+                scan_results = recovered.get("scan_results", scan_results)
+            if not exploits:
+                exploits = recovered.get("exploit_results", exploits)
+        except Exception as exc:
+            logger.warning("Live session merge failed for %s: %s", sid, exc)
 
     session["is_running"] = is_running
     session["scan_results"] = scan_results
