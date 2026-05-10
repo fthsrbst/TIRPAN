@@ -146,3 +146,64 @@ async def test_recover_persists_missing_rows_and_updates_stats(tmp_path) -> None
     assert int(updated["ports_found"]) == 2
     assert int(updated["vulns_found"]) == 1
     assert int(updated["exploits_run"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_recover_running_merges_existing_db_vulns_with_event_derived(tmp_path) -> None:
+    """While running, partial DB rows must not hide event-only vulnerability rows."""
+
+    db_path = tmp_path / "recovery_merge.db"
+    await init_db(db_path)
+
+    session_repo = SessionRepository(db_path)
+    scan_repo = ScanResultRepository(db_path)
+    vuln_repo = VulnerabilityRepository(db_path)
+    exploit_repo = ExploitResultRepository(db_path)
+    event_repo = SessionEventRepository(db_path)
+
+    session = await session_repo.create("10.0.0.1", "v2_auto", session_id="recovery-session-merge")
+    sid = session["id"]
+
+    await vuln_repo.save(
+        session_id=sid,
+        vuln={
+            "title": "Metasploit vuln",
+            "description": "",
+            "cve_id": "",
+            "cvss_score": 8.0,
+            "exploit_path": "",
+            "exploit_type": "remote",
+            "platform": "",
+            "service": "http",
+            "service_version": "",
+            "host_ip": "10.0.0.1",
+        },
+    )
+
+    await event_repo.save(
+        sid,
+        "finding",
+        {
+            "type": "vulnerability",
+            "host_ip": "10.0.0.1",
+            "title": "OpenSSH old",
+            "service": "ssh",
+            "cvss": 4.0,
+            "exploit_type": "",
+        },
+    )
+
+    recovered = await recover_session_findings_from_events(
+        session_id=sid,
+        target="10.0.0.1",
+        session_repo=session_repo,
+        scan_repo=scan_repo,
+        vuln_repo=vuln_repo,
+        exploit_repo=exploit_repo,
+        event_repo=event_repo,
+        persist=False,
+    )
+
+    titles = {v["title"] for v in recovered["vulnerabilities"]}
+    assert "Metasploit vuln" in titles
+    assert "OpenSSH old" in titles
