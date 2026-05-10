@@ -2,405 +2,124 @@
 
 > *Autonomous Ethical Guardrailed Intelligence System*
 
----
+# TIRPAN — Architecture (Updated May 2026)
 
-## Design Principle
-
-> **"A senior pentester thinks before they act — so does TIRPAN."**
->
-> A **Brain Agent** coordinates a team of specialized sub-agents. Each agent is an expert
-> in its domain. The Brain assesses the target, decides strategy, delegates tasks in parallel,
-> collects results, and adapts — exactly like a real red team lead.
+This document reflects the codebase as implemented today.
 
 ---
 
-## Current State (V1 — Implemented)
+## Execution Modes
 
-TIRPAN V1 ships a fully working autonomous pentest platform with a single ReAct agent:
+**V1 (single agent, stable)**
+- `PentestAgent` runs a ReAct loop: Reason → Act → Observe → Reflect.
+- Available via web UI and `main.py run` (headless CLI).
+
+**V2 (multi-agent, beta)**
+- `BrainAgent` orchestrates specialized agents in parallel.
+- Available in web UI/API via `mode=v2_auto`.
+
+**V3 (placeholder)**
+- API routes exist under `/api/v3`, but execution is not implemented.
+
+---
+
+## V1 Runtime Flow (Implemented)
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│                          TIRPAN V1 (current)                           │
-│                                                                       │
-│  ┌──────────┐    ┌────────────────────────────────────────────────┐   │
-│  │  Web UI  │───>│             FastAPI Backend                    │   │
-│  │          │<───│  REST + WebSocket                              │   │
-│  └──────────┘    └──────────────────┬─────────────────────────────┘   │
-│                                     │                                 │
-│                         ┌───────────▼────────────┐                    │
-│                         │    PentestAgent        │                    │
-│                         │    (ReAct Loop)        │                    │
-│                         │                        │                    │
-│                         │  Reason → Act →        │                    │
-│                         │  Observe → Reflect     │                    │
-│                         │                        │                    │
-│                         │  ┌──────────────────┐  │                    │
-│                         │  │  Safety Guard    │  │                    │
-│                         │  │  (every action)  │  │                    │
-│                         │  └──────────────────┘  │                    │
-│                         └───────────┬────────────┘                    │
-│                                     │                                 │
-│                         ┌───────────▼─────────────┐                   │
-│                         │    Tool Registry        │                   │
-│                         │                         │                   │
-│                         │  Core Tools:            │                   │
-│                         │  ├── NmapTool           │                   │
-│                         │  ├── SearchSploitTool   │                   │
-│                         │  └── MetasploitTool     │                   │
-│                         │                         │                   │
-│                         │  Plugin Tools:          │                   │
-│                         │  └── (loaded from       │                   │
-│                         │      /plugins/ dir)     │                   │
-│                         └─────────────────────────┘                   │
-│                                                                       │
-│  ┌──────────────────────────┐   ┌──────────────────────────────────┐  │
-│  │    LLM Layer             │   │       SQLite Database            │  │
-│  │  OpenRouter / Ollama /   │   │  Sessions / Scans / Vulns /      │  │
-│  │  LM Studio               │   │  Exploits / Audit / KB           │  │
-│  └──────────────────────────┘   └──────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────────┘
-```
-
-**V1 Attack Flow (Sequential):**
-```
-DISCOVERY      nmap ping sweep         → host list
-PORT_SCAN      nmap service detect     × each host
-EXPLOIT_SEARCH searchsploit            × each service
-EXPLOITATION   metasploit_run          × each vulnerability
+DISCOVERY      nmap_scan (ping/service) → host list
+PORT_SCAN      nmap_scan (service/full) → open ports
+EXPLOIT_SEARCH searchsploit_search      → candidate exploits
+EXPLOITATION   metasploit_run / helpers → session or failure
 DONE           generate_report
 ```
 
 ---
 
-## Target Architecture (V2 — Multi-Agent)
-
-The V2 architecture replaces the single agent with a hierarchical multi-agent system.
+## V2 Architecture (Implemented, beta)
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│                          TIRPAN V2 (planned)                           │
-│                                                                       │
-│  ┌──────────┐    ┌─────────────────────────────────────────────────┐  │
-│  │  Web UI  │───>│  FastAPI Backend + WebSocket Event Bus          │  │
-│  │          │<───│                                                 │  │
-│  └──────────┘    └──────────────────┬──────────────────────────────┘  │
-│                                     │                                 │
-│                         ┌───────────▼────────────┐                    │
-│                         │      BRAIN AGENT       │                    │
-│                         │    (LLM Coordinator)   │                    │
-│                         │                        │                    │
-│                         │  - Mission planning    │                    │
-│                         │  - Agent orchestration │                    │
-│                         │  - Result aggregation  │                    │
-│                         │  - Adaptive strategy   │                    │
-│                         └──────────┬─────────────┘                    │
-│                                    │ spawns & coordinates             │
-│                ┌───────────────────┼───────────────────────┐          │
-│                │                   │                       │          │
-│   ┌────────────▼───────────────────▼───────────────────────▼───────┐  │
-│   │                 SPECIALIZED AGENTS (run in parallel)           │  │
-│   │                                                                │  │
-│   │  ┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌────────────┐     │  │
-│   │  │  OSINT   │ │ SCANNER  │ │   WEB APP    │ │  EXPLOIT   │     │  │
-│   │  │  Agent   │ │  Agent   │ │   Agent      │ │  Agent     │     │  │
-│   │  └──────────┘ └──────────┘ └──────────────┘ └────────────┘     │  │
-│   │  ┌───────────────────────┐ ┌──────────────────────────────┐    │  │
-│   │  │  POST-EXPLOIT Agent   │ │   LATERAL MOVEMENT Agent     │    │  │
-│   │  └───────────────────────┘ └──────────────────────────────┘    │  │
-│   │  ┌───────────────────────────────────────────────────────┐     │  │
-│   │  │                   REPORTING Agent                     │     │  │
-│   │  └───────────────────────────────────────────────────────┘     │  │
-│   └────────────────────────────────────────────────────────────────┘  │
-│                                                                       │
-│                         ┌────────────────────────┐                    │
-│                         │    SHELL MANAGER       │                    │
-│                         │  (Background Service)  │                    │
-│                         │                        │                    │
-│                         │  - Session registry    │                    │
-│                         │  - Health heartbeat    │                    │
-│                         │  - Auto-reconnect      │                    │
-│                         │  - Pivot/tunnel mgmt   │                    │
-│                         └────────────────────────┘                    │
-│                                                                       │
-│  ┌────────────────────┐   ┌──────────────────┐  ┌─────────────────┐   │
-│  │    Tool Registry   │   │   LLM Layer      │  │ SQLite Database │   │
-│  │  50+ tools across  │   │  Per-agent model │  │ 15+ tables      │   │
-│  │  all categories    │   │  selection       │  │                 │   │
-│  └────────────────────┘   └──────────────────┘  └─────────────────┘   │
-└───────────────────────────────────────────────────────────────────────┘
+Web UI / API
+   │
+   ▼
+BrainAgent (BaseAgent)
+   ├─ MissionContext (shared state, brain writes)
+   ├─ AgentMessageBus (async pub/sub)
+   ├─ Specialized agents (parallel)
+   └─ ToolRegistry (core + extended tools)
 ```
 
----
+**Specialized agents in code:**
+- ScannerAgent
+- ExploitAgent
+- WebAppAgent
+- OSINTAgent
+- PostExploitAgent
+- LateralMovementAgent
+- ReportingAgent
 
-## V2 Attack Flow (Parallel, Adaptive)
-
-```
-Mission Start
-    │
-    ├──[parallel]──────────────────┐
-    │                              │
-  OSINT Agent                 Scanner Agent
-  (if domain given)           (masscan → nmap)
-  theHarvester, subfinder,    host discovery,
-  DNS, GitHub dork            service detect
-    │                              │
-    └──────[merge]─────────────────┘
-                   │
-            Brain Decision Point
-            (all intel evaluated)
-                   │
-    ┌──────────────┼────────────────┐
-    │              │                │
-  Web Agent    Exploit Agent   [additional Scanner]
-  (per HTTP    (per vuln)      if more subnets found
-   service)        │
-               [shell opened]
-                   │
-               Shell Manager registers session
-                   │
-           Post-Exploitation Agent
-           - LinPEAS/WinPEAS
-           - Privilege escalation
-           - Persistence
-           - Credential harvest
-                   │
-           Lateral Movement Agent
-           - Internal scan via pivot
-           - Credential spray
-           - Tunnel setup
-                   │
-           Reporting Agent
-```
+**Shell access:**
+- `shell_exec` (ShellSessionTool) supports bind/reverse/ssh sessions.
+- `ShellManager` exists as a unifying service for multi-agent shell routing.
 
 ---
 
-## Agent Definitions
+## Tool Registry
 
-### Brain Agent (Coordinator)
+Tools are registered from two sources:
+- **Core + extended tools:** `tools/` (auto-registered in `core/registry_builder.py`).
+- **Plugins:** `plugins/` (loaded via `plugin.json` with `enabled: true`).
 
-**Role:** Mission planner, orchestrator, decision maker
-**Model:** Configurable per user (default: most capable available — Opus recommended)
-
-**Responsibilities:**
-- Parse mission parameters (target, scope, mode, environment type)
-- Ask operator clarifying questions if mission is ambiguous
-- Spawn specialized agents with specific task descriptions
-- Receive agent results and update global MissionContext
-- Run agents in parallel or sequentially based on dependency graph
-- Handle agent failures: try differently → alternative vector → ask user
-- Detect production vs staging vs lab from DNS, banners, scope notes
-- Maintain global AttackGraph (nodes=hosts/services, edges=relationships)
-
-**Brain-exclusive meta-tools:**
-```
-spawn_agent(type, task, context, priority)   → agent_id
-wait_for_agent(agent_id, timeout)            → agent_result
-send_to_agent(agent_id, message)             → inject mid-task
-kill_agent(agent_id, reason)                 → stop agent
-ask_user(question, context)                  → operator input
-read_mission_context()                       → full state
-update_mission_context(key, value)           → update state
-write_finding(category, data)                → persist discovery
-```
+Tool availability is health-checked at session start and exposed at:
+- `GET /api/v1/tools/status`
 
 ---
 
-### OSINT Agent
+## MissionContext (V2)
 
-**Role:** Passive and semi-passive intelligence gathering
-**Triggers:** Domain target given, or Brain requests more context
+`MissionContext` is the shared, brain-owned state model used by all agents. It includes:
+- Targets, scope, mode, operator notes
+- Hosts and ports (with service metadata)
+- Vulnerabilities, sessions, credentials, loot
+- Objectives and active agents
+- Attack graph (nodes/edges)
+- Permission flags (exploitation, post-exploit, lateral, persistence, exfil)
 
-**Tools:** theHarvester, subfinder, amass, whois_lookup, dns_lookup, zone_transfer,
-certificate_transparency, google_dork, github_dork, wayback_machine,
-shodan_search *(API key)*, censys_search *(API key)*
-
-**Output:** Subdomains, IPs, emails, tech stack hints, leaked credentials
-
----
-
-### Scanner Agent
-
-**Role:** Network discovery and service enumeration
-**Model:** Lighter model acceptable
-
-**Tools:** masscan, nmap, nmap_scripts, banner_grab, ssl_scan, smb_enum,
-snmp_walk, ldap_enum, udp_scan, dns_bruteforce
-
-**Strategy:** masscan (wide/fast) → nmap targeted on open ports → NSE scripts on interesting ports
+**Access rules:** all agents read; only Brain writes.
 
 ---
 
-### Web Application Agent
+## AgentMessageBus (V2)
 
-**Role:** HTTP service discovery, mapping, vulnerability testing
-**Triggers:** HTTP/HTTPS ports found (80, 443, 8080, 8443, etc.)
-
-**Tools:** whatweb, nikto, ffuf, dirsearch, nuclei, sqlmap, xss_scan,
-ssrf_probe, lfi_scan, wpscan, joomscan, api_fuzz, http_auth_brute
-
-**Strategy:** Technology detect → Directory enum → Nuclei scan → CMS-specific → Deep vuln testing → Authenticated testing if creds available
-
----
-
-### Exploit Agent
-
-**Role:** Vulnerability research and exploitation
-**Model:** Strong reasoning model recommended
-
-**Tools:** searchsploit, cve_lookup, metasploit_search, metasploit_run,
-msf_check, manual_exploit, msfvenom, generate_payload
-
-**Strategy:**
-1. Cross-reference services+versions against CVE database
-2. Prioritize by CVSS and exploit reliability rating
-3. Run MSF `check` before full exploit
-4. Try alternative payloads on failure
-5. After N failures → report to Brain + ask for guidance
-
----
-
-### Shell Manager (Persistent Session Handler)
-
-**Role:** Maintain ALL active shells, route commands, prevent session loss
-**Type:** Background service — no LLM, runs independently of agents
-
-**Session types:** meterpreter, shell, ssh, web_shell
-
-**Behaviors:**
-- Heartbeat every 30s per session
-- Auto-reconnect on session drop (re-exploits using stored exploit info)
-- Privilege level tracking: 0=nobody, 1=user, 2=service, 3=root/SYSTEM
-- Session upgrade: shell → meterpreter
-- Pivot/tunnel registration (ligolo-ng, chisel)
-- Multi-session per host
-
-**Agent API:**
-```
-get_session(host_ip, min_privilege)        → best available session
-execute(session_id, command, timeout)      → run command, return output
-upload_file(session_id, src, dst)          → upload to target
-download_file(session_id, remote_path)     → download from target
-upgrade_session(session_id)               → upgrade to meterpreter
-list_sessions(mission_id)                 → all active sessions
-```
-
-**Key invariant:** All agents route shell commands through Shell Manager.
-No agent interacts directly with Metasploit sessions.
-
----
-
-### Post-Exploitation Agent
-
-**Role:** Everything after initial shell — enumerate, escalate, persist, harvest
-**Triggers:** Shell Manager has an active session
-**Requires:** Active session from Shell Manager
-
-**Phase 1 — Local Enumeration:**
-run_linpeas / run_winpeas, enumerate_users, enumerate_services,
-enumerate_network, enumerate_files, check_sudo, check_suid,
-check_capabilities, process_list
-
-**Phase 2 — Privilege Escalation:**
-kernel_exploit_check, sudo_exploit, suid_exploit, service_exploit,
-cron_exploit, path_hijack, dll_hijack (Win), token_impersonation (Win),
-getsystem (Meterpreter)
-
-**Phase 3 — Persistence** *(requires `allow_persistence=True`):*
-add_cron, add_service, add_ssh_key, add_registry_run (Win), create_backdoor_user
-
-**Phase 4 — Credential Harvesting** *(requires `allow_credential_harvest=True`):*
-dump_hashes, dump_memory_creds, find_credentials, dump_browser_creds,
-dump_ssh_keys, dump_aws_keys
-
----
-
-### Lateral Movement Agent
-
-**Role:** Expand access across network from compromised host
-**Triggers:** Privileged session available + more hosts in scope
-**Requires:** `allow_lateral_movement=True`
-
-**Tools:** arp_scan_from_host, port_scan_from_host, pass_the_hash,
-pass_the_ticket, psexec, winrm_exec, ssh_lateral, smb_exec,
-crackmapexec, setup_pivot, kerberoast, asreproast, dcsync
-
----
-
-### Reporting Agent
-
-**Role:** Aggregate all findings, generate professional pentest report
-
-**Output:** Executive summary, technical findings with evidence,
-attack narrative, CVSS risk matrix, remediation guide,
-HTML + PDF report, attack graph visualization
-
----
-
-## Communication Protocol
-
-### Agent Message Bus
-
-All agents communicate via `AgentMessageBus`:
+Actual message fields in code (see `core/message_bus.py`):
 
 ```python
-class AgentMessage(BaseModel):
-    from_agent: str       # agent_id | "brain" | "user" | "shell_manager"
-    to_agent: str         # agent_id | "brain" | "broadcast"
-    message_type: str     # "task" | "result" | "finding" | "status" | "question" | "answer"
-    priority: str = "normal"
-    payload: dict
-    correlation_id: str | None = None
-    timestamp: float
+AgentMessage(
+  msg_type, sender_id, payload,
+  recipient_id=None, msg_id=uuid,
+  correlation_id=None, timestamp=time.time()
+)
 ```
 
-### Shared Mission Context
-
-Brain maintains `MissionContext` updated in real-time:
-
-```
-MissionContext
-├── mission_id, target, scope, mode, environment_type, operator_notes
-├── domains, subdomains, ip_addresses, emails
-├── hosts: {ip → {ports, services, os, hostname}}
-├── vulnerabilities: [Vulnerability]
-├── active_sessions: [SessionSummary]   ← from Shell Manager
-├── credentials: [Credential]           ← harvested
-├── loot: [Loot]
-├── phase, completed_tasks, active_agents: {id → AgentStatus}
-├── attack_graph: AttackGraph
-└── permission flags: allow_persistence, allow_credential_harvest, ...
-```
-
-**Access rules:** All agents READ. Only Brain WRITES.
+Common message types include:
+- `FINDING`, `AGENT_DONE`, `AGENT_ERROR`, `PHASE_CHANGED`, `ASK_OPERATOR`
 
 ---
 
-## Parallelism Strategy
+## Web + API Integration
 
-Brain uses a dependency graph:
+Key endpoints:
+- `POST /api/v1/sessions` (V1 + V2)
+- `GET /api/v1/sessions/{id}` (status + findings)
+- `GET /api/v1/sessions/{id}/agents` (V2 agents)
+- `GET /api/v1/sessions/{id}/mission-context` (V2 state)
+- `GET /api/v1/sessions/{id}/attack-graph` (V2 graph)
 
-```
-Mission Start
-    ├──[parallel]──────────────────┐
-  OSINT Agent                 Scanner Agent
-    └──────[merge]─────────────────┘
-                   │
-            Brain Decision Point
-                   │
-    ┌──────────────┼──────────────┐
-  Web Agent    Exploit Agent   more Scanners
-                   │
-               Shell Manager
-                   │
-           PostExploit Agent ──[parallel]── Web Agent (other hosts)
-                   │
-           Lateral Movement ──[parallel]── ongoing scanning
-                   │
-           Reporting Agent
-```
+---
 
-**Rules:** Max concurrent agents configurable (default: 8).
-OSINT + Scanner always parallel if domain given.
+## Defense Module (Blue Team)
+
+The defense stack is implemented under `defense/` and exposed via
+`/api/v1/defense/*`. See [07_NETWORK_DEFENSE_MODULE.md](07_NETWORK_DEFENSE_MODULE.md).
 PostExploit only after shell opened. Lateral only after credentials harvested.
 
 ---
