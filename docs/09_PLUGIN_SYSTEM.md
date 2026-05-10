@@ -1,7 +1,7 @@
 # TIRPAN — Plugin System
 
 > **Purpose:** Add new attack capabilities without touching the core.
-> V1 ships with 3 built-in tools. Everything else arrives as plugins.
+> Core + extended tools live in `tools/`. Plugins are optional add-ons.
 > Three plugin types: Python class, CLI wrapper, API wrapper.
 
 ---
@@ -20,11 +20,11 @@
 
 | Category | Examples | Location |
 |---|---|---|
-| **Core Tools** (V1 built-in) | Nmap, SearchSploit, Metasploit | `tools/` |
-| **Plugin Tools** (V2+) | ffuf, nuclei, sqlmap, crackmapexec, theHarvester... | `plugins/<name>/` |
+| **Core Tools** | Nmap, SearchSploit, Metasploit, SSH, Shell | `tools/` |
+| **Extended Tools** | masscan, nuclei, ffuf, whatweb, nikto, sqlmap, wpscan, commix, crackmapexec, impacket, ... | `tools/` |
+| **Plugin Tools** | Custom integrations | `plugins/<name>/` |
 
-**Rule:** A tool that is self-contained and required for basic operation → `tools/` (core).
-A tool that has external dependencies, is optional, or targets a specific domain → `plugins/`.
+**Rule:** Shipping tools live in `tools/`. Use `plugins/` for local/custom integrations that you do not want to vendor into core.
 
 ---
 
@@ -49,7 +49,7 @@ plugins/
 | `cli_wrapper` | Any CLI binary with parseable output | No — JSON config only |
 | `api_wrapper` | REST API endpoints with authentication | No — JSON config only |
 
-If `"type"` is omitted, `"python_class"` is assumed (backward compatible with V1 plugins).
+If `type` is omitted, `python_class` is assumed (backward compatible).
 
 ---
 
@@ -57,22 +57,22 @@ If `"type"` is omitted, `"python_class"` is assumed (backward compatible with V1
 
 Write a Python class inheriting `BaseTool`.
 
-**`plugin.json`:**
+**`plugin.json` required fields:**
+- `name`, `enabled` (must be `true` to load)
+- `type` is optional and defaults to `python_class`
+- `python_class`: `entry_point`, `class_name`
+- `cli_wrapper`: `binary`
+- `api_wrapper`: `base_url` (plus `auth_env` recommended)
+
+**`plugin.json` example:**
 ```json
 {
   "name": "linpeas",
   "type": "python_class",
   "version": "1.0.0",
-  "display_name": "LinPEAS",
-  "description": "Upload and run LinPEAS on target via Shell Manager for privilege escalation enumeration.",
-  "author": "tirpan",
-  "category": "post-exploit",
   "enabled": true,
   "entry_point": "plugins.linpeas.tool",
-  "class_name": "LinPEASTool",
-  "min_core_version": "2.0.0",
-  "safety_level": "high",
-  "target_type": "session"
+  "class_name": "LinPEASTool"
 }
 ```
 
@@ -94,7 +94,6 @@ class LinPEASTool(BaseTool):
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Shell Manager session ID"
                     }
                 },
                 "required": ["session_id"]
@@ -121,7 +120,6 @@ class LinPEASTool(BaseTool):
                 session_id,
                 "bash /tmp/linpeas.sh 2>/dev/null",
                 timeout=300.0
-            )
 
             # Cleanup
             await shell_manager.execute(session_id, "rm -f /tmp/linpeas.sh")
@@ -147,7 +145,6 @@ class LinPEASTool(BaseTool):
         ...
 ```
 
----
 
 ## Type B — `cli_wrapper`
 
@@ -160,7 +157,6 @@ Wrap any CLI binary entirely in `plugin.json`. No `tool.py` needed.
   "name": "ffuf",
   "type": "cli_wrapper",
   "version": "1.0.0",
-  "display_name": "ffuf Web Fuzzer",
   "description": "Fast web fuzzer for directory, file, and vhost discovery. Use after identifying HTTP services.",
   "category": "web",
   "enabled": true,
@@ -230,9 +226,7 @@ Call a REST API entirely through `plugin.json`. No `tool.py` needed.
   "name": "shodan_search",
   "type": "api_wrapper",
   "version": "1.0.0",
-  "display_name": "Shodan Lookup",
   "description": "Query Shodan for a target IP to retrieve known open ports, services, and CVEs without active scanning. Requires SHODAN_API_KEY.",
-  "category": "osint",
   "enabled": false,
   "base_url": "https://api.shodan.io",
   "auth_type": "query_param",
@@ -268,10 +262,9 @@ Call a REST API entirely through `plugin.json`. No `tool.py` needed.
 ```
 
 **Authentication resolution order:**
-1. Environment variable named by `auth_env` (`SHODAN_API_KEY`)
+1. Environment variable named by `auth_env` (e.g. `SHODAN_API_KEY`)
 2. `SecureStore` (OS keychain) key named by `auth_secure_store_key`
-3. Database `app_settings` table
-4. Not found → `health_check()` returns `available=False`, UI shows: "API key not configured. Set SHODAN_API_KEY."
+3. Not found → `health_check()` returns `available=False` with an install hint
 
 **Note:** `health_check()` for `api_wrapper` only checks credential presence — no live API call is made.
 
@@ -281,28 +274,28 @@ Call a REST API entirely through `plugin.json`. No `tool.py` needed.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | Yes | Unique identifier (matches directory name) |
+| `name` | string | Yes | Tool identifier (used as tool name) |
 | `type` | enum | No | `"python_class"` (default) \| `"cli_wrapper"` \| `"api_wrapper"` |
-| `version` | semver | Yes | Plugin version |
-| `display_name` | string | Yes | Human-readable name shown in UI |
-| `description` | string | Yes | LLM reads this to decide when to use the tool |
-| `author` | string | No | Author name |
-| `category` | enum | Yes | `"recon"` \| `"osint"` \| `"web"` \| `"exploit"` \| `"post-exploit"` \| `"lateral"` \| `"pivot"` \| `"brute-force"` \| `"cracking"` |
-| `enabled` | bool | Yes | `false` → not loaded; `true` → loaded at startup |
+| `enabled` | bool | No | Must be `true` to load; missing defaults to `false` |
 | `entry_point` | string | python_class only | Python module path |
 | `class_name` | string | python_class only | Class name in module |
-| `binary` | string | cli_wrapper only | Executable name (verified via `shutil.which`) |
-| `install_hint` | string | No | Shown in UI when binary/key missing |
-| `args_template` | list | cli_wrapper only | CLI argument list with `{param}` placeholders |
-| `output_format` | enum | cli_wrapper | `"json"` \| `"jsonlines"` \| `"text"` \| `"csv"` |
+| `description` | string | No | Metadata for wrappers; default derived from name |
+| `category` | string | No | Metadata category (default `recon`) |
+| `version` | string | No | Metadata version (default `1.0.0`) |
+| `parameters` | JSON Schema | No | LLM parameter schema (default empty) |
+| `binary` | string | cli_wrapper only | Executable name (checked via `shutil.which`) |
+| `args_template` | list | cli_wrapper only | CLI args with `{param}` placeholders |
+| `output_format` | enum | cli_wrapper only | `"json"` \| `"jsonlines"` \| `"text"` \| `"csv"` |
+| `timeout_seconds` | int | No | CLI default 300, API default 15 |
+| `install_hint` | string | No | Shown when binary/key missing |
 | `base_url` | string | api_wrapper only | API base URL |
-| `auth_env` | string | api_wrapper | Environment variable name for API key |
-| `requires_packages` | list | No | pip dependencies for this plugin |
-| `min_core_version` | semver | No | Minimum TIRPAN core version required |
-| `safety_level` | enum | No | `"low"` \| `"medium"` \| `"high"` — shown in UI |
-| `target_type` | enum | No | `"ip"` \| `"url"` \| `"session"` \| `"domain"` \| `"any"` |
-| `timeout_seconds` | int | No | Process/request timeout |
-| `parameters` | JSON Schema | Yes | LLM uses this to generate tool parameters |
+| `endpoints` | object | api_wrapper only | Endpoint map used by `GenericAPITool` |
+| `auth_env` | string | No | Env var name for API key |
+| `auth_secure_store_key` | string | No | SecureStore key name |
+| `auth_type` | enum | No | `"query_param"` (default) \| `"bearer"` \| `"header"` |
+| `auth_param_name` | string | No | Query or header name (default `key`) |
+
+Additional fields are ignored by the loader. `python_class` tools can define their own metadata in code.
 
 ---
 
@@ -311,7 +304,7 @@ Call a REST API entirely through `plugin.json`. No `tool.py` needed.
 ```
 At startup:
   1. ToolRegistry initialized
-  2. Core tools registered: NmapTool, SearchSploitTool, MetasploitTool
+  2. Core + extended tools registered (see `core/registry_builder.py`)
   3. /plugins/ directory scanned
   4. Each plugin.json read
   5. Enabled plugins dispatched by type:
@@ -365,11 +358,7 @@ class ToolHealthStatus(BaseModel):
 # Method 1: Edit plugin.json directly
 # plugins/ffuf/plugin.json → "enabled": true
 
-# Method 2: Web UI
-# Settings → Plugins → ffuf → Enable toggle
-
-# Method 3: API (future)
-# POST /api/v1/plugins/ffuf/enable
+# Restart the API/web process to reload plugins
 ```
 
 ---
@@ -397,56 +386,4 @@ class ToolHealthStatus(BaseModel):
 
 ## Current Plugin Status
 
-### V1 — Core Tools (built-in, always available)
-
-| Tool | File | Category |
-|---|---|---|
-| `nmap_scan` | `tools/nmap_tool.py` | recon |
-| `searchsploit_search` | `tools/searchsploit_tool.py` | exploit-search |
-| `metasploit_run` | `tools/metasploit_tool.py` | exploit-exec |
-
-### V2 — Plugins (implement in priority order)
-
-**Priority 1 — Core new tools:**
-
-| Plugin | Type | Binary / Dep | Category |
-|---|---|---|---|
-| `masscan` | cli_wrapper | `masscan` | recon |
-| `nuclei` | cli_wrapper | `nuclei` | vuln-scan |
-| `ffuf` | cli_wrapper | `ffuf` | web |
-| `sqlmap` | cli_wrapper | `sqlmap` | exploit |
-| `nikto` | cli_wrapper | `nikto` | web |
-| `whatweb` | cli_wrapper | `whatweb` | web |
-| `linpeas` | python_class | linpeas.sh | post-exploit |
-| `winpeas` | python_class | winpeas.exe | post-exploit |
-
-**Priority 2 — OSINT:**
-
-| Plugin | Type | Binary / Dep | Category |
-|---|---|---|---|
-| `theharvester` | cli_wrapper | `theHarvester` | osint |
-| `subfinder` | cli_wrapper | `subfinder` | osint |
-| `amass` | cli_wrapper | `amass` | osint |
-| `whois_lookup` | python_class | `python-whois` | osint |
-| `dns_lookup` | python_class | `dnspython` | osint |
-| `wpscan` | cli_wrapper | `wpscan` | web |
-| `dirsearch` | cli_wrapper | `dirsearch` | web |
-
-**Priority 3 — Post-exploit / Lateral:**
-
-| Plugin | Type | Binary / Dep | Category |
-|---|---|---|---|
-| `crackmapexec` | cli_wrapper | `nxc` / `cme` | lateral |
-| `impacket_psexec` | python_class | `impacket` | lateral |
-| `impacket_secretsdump` | python_class | `impacket` | post-exploit |
-| `hydra` | cli_wrapper | `hydra` | brute-force |
-| `hashcat` | cli_wrapper | `hashcat` | cracking |
-| `ligolo` | python_class | `ligolo-ng` | pivot |
-| `chisel` | cli_wrapper | `chisel` | pivot |
-
-**Priority 4 — Optional paid API:**
-
-| Plugin | Type | Requires | Category |
-|---|---|---|---|
-| `shodan_search` | api_wrapper | `SHODAN_API_KEY` | osint |
-| `censys_search` | api_wrapper | `CENSYS_API_KEY` | osint |
+The `plugins/` directory is empty by default. Core and extended tools are built into `tools/` and registered at startup. Use plugins only for custom/local integrations.
