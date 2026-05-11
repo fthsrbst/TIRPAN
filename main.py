@@ -393,6 +393,8 @@ async def _save_terminal_report(session, ctx, report_dir: Path) -> None:
         out_path = report_dir / f"{session.id[:8]}_report.html"
         out_path.write_text(html, encoding="utf-8")
         console.print(f"\n[green]Report saved:[/green] {out_path}")
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        raise
     except Exception as exc:
         console.print(f"[yellow]Report generation skipped:[/yellow] {exc}")
 
