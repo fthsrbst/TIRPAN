@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TIRPAN — Autonomous AI Pentesting Agent</title>
+<meta name="description" content="TIRPAN: An AI agent that reasons like a senior penetration tester and executes like one. Open-source autonomous pentesting with real-time UI."/>
+<link rel="icon" href="favicon.png" type="image/png"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        primary: '#ccff00',
+        surface: '#0a0a0a',
+        card: '#111111',
+        bdr: '#1a1a1a',
+        dim: '#888888',
+        danger: '#ff3b3b',
+        warn: '#ff9500',
+      },
+      fontFamily: {
+        display: ['Space Grotesk', 'sans-serif'],
+        sans: ['Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      }
+    }
+  }
+}
+</script>
+<style>
+  *{box-sizing:border-box}
+  .grid-bg{background-image:linear-gradient(rgba(204,255,0,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(204,255,0,.04) 1px,transparent 1px);background-size:64px 64px}
+  .glow{text-shadow:0 0 50px rgba(204,255,0,.45)}
+  .glow-sm{text-shadow:0 0 20px rgba(204,255,0,.3)}
+  .glow-box{box-shadow:0 0 60px rgba(204,255,0,.08)}
+  .terminal-window{background:#050505;border:1px solid #1a1a1a;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.75}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+  .cursor{animation:blink 1s step-end infinite;color:#ccff00}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+  .fade-up{animation:fadeUp .7s ease forwards}
+  .fade-up-2{animation:fadeUp .7s .15s ease forwards;opacity:0}
+  .fade-up-3{animation:fadeUp .7s .3s ease forwards;opacity:0}
+  @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}
+  .pulse-dot{animation:pulse-dot 1.6s ease-in-out infinite}
+  .reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
+  .revealed{opacity:1;transform:none}
+  ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#000}::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px}
+  .nav-blur{backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+  .step-line::after{content:'';position:absolute;top:50%;left:100%;width:100%;height:1px;background:linear-gradient(90deg,#1a1a1a,transparent);transform:translateY(-50%)}
+  .feature-card{transition:border-color .2s,background .2s,transform .2s}
+  .feature-card:hover{border-color:rgba(204,255,0,.25);background:#131313;transform:translateY(-2px)}
+  .check{color:#ccff00}
+  .xmark{color:#444}
+  code{font-family:'JetBrains Mono',monospace;font-size:.8em;background:#111;border:1px solid #222;padding:2px 6px;border-radius:2px}
+  .tag-critical{background:rgba(255,59,59,.12);color:#ff5555;border:1px solid rgba(255,59,59,.25);font-size:.7rem;padding:2px 7px;font-family:'JetBrains Mono',monospace}
+  .tag-high{background:rgba(255,149,0,.12);color:#ff9500;border:1px solid rgba(255,149,0,.25);font-size:.7rem;padding:2px 7px;font-family:'JetBrains Mono',monospace}
+</style>
+</head>
+<body class="bg-black text-white font-sans">
+
+<!-- ═══ NAVIGATION ═══ -->
+<nav class="fixed top-0 left-0 right-0 z-50 nav-blur bg-black/85 border-b border-bdr">
+  <div class="max-w-7xl mx-auto px-6 flex items-center justify-between h-16">
+    <a href="#" class="flex items-center gap-2.5 font-display font-bold text-lg">
+      <img src="logo.png" alt="TIRPAN" class="w-8 h-8 object-contain"/>
+      TIRPAN
+    </a>
+    <div class="hidden md:flex items-center gap-7 text-sm font-medium text-dim">
+      <a href="#features" class="hover:text-white transition-colors">Features</a>
+      <a href="#how-it-works" class="hover:text-white transition-colors">How It Works</a>
+      <a href="#capabilities" class="hover:text-white transition-colors">Capabilities</a>
+      <a href="#comparison" class="hover:text-white transition-colors">Compare</a>
+      <a href="#get-started" class="hover:text-white transition-colors">Install</a>
+      <a href="https://github.com/fthsrbst/tirpan" target="_blank" class="hover:text-white transition-colors flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub
+      </a>
+    </div>
+    <a href="normal/demo/" class="bg-primary text-black text-sm font-bold font-display px-5 py-2 tracking-wide hover:brightness-110 transition-all">
+      LAUNCH DEMO →
+    </a>
+  </div>
+</nav>
+
+<!-- ═══ HERO ═══ -->
+<section id="hero" class="grid-bg min-h-screen flex items-center pt-16">
+  <div class="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center py-20">
+    <!-- Left -->
+    <div>
+      <div class="fade-up inline-flex items-center gap-2 text-xs font-mono text-danger bg-danger/10 border border-danger/20 px-3 py-1.5 mb-7">
+        <span class="w-1.5 h-1.5 bg-danger rounded-full pulse-dot"></span>
+        AUTHORIZED ENVIRONMENTS &amp; CTF ONLY
+      </div>
+      <h1 class="fade-up-2 font-display text-5xl xl:text-6xl font-bold leading-[1.08] mb-6">
+        Give TIRPAN<br/>
+        a target.<br/>
+        <span class="text-primary glow">It handles</span><br/>
+        <span class="text-primary glow">the rest.</span>
+      </h1>
+      <p class="fade-up-3 text-dim text-lg leading-relaxed mb-9 max-w-md">
+        An AI agent that reasons like a senior penetration tester and executes like one — scanning, exploiting, pivoting, and reporting. Fully autonomous.
+      </p>
+      <div class="fade-up-3 flex flex-wrap gap-4 mb-10">
+        <a href="normal/demo/" class="bg-primary text-black font-bold font-display px-7 py-3 text-sm tracking-wide hover:brightness-110 transition-all glow-box">
+          LAUNCH DEMO →
+        </a>
+        <a href="https://github.com/fthsrbst/tirpan" target="_blank" class="border border-bdr text-white font-display font-medium px-7 py-3 text-sm tracking-wide hover:border-primary/40 transition-all">
+          VIEW ON GITHUB ↗
+        </a>
+      </div>
+      <div class="fade-up-3 flex flex-wrap gap-6 text-xs font-mono text-dim">
+        <span><span class="text-primary">✓</span> 329 tests · 79% coverage</span>
+        <span><span class="text-primary">✓</span> Python 3.11+</span>
+        <span><span class="text-primary">✓</span> Local LLM support</span>
+        <span><span class="text-primary">✓</span> Open source</span>
+      </div>
+    </div>
+    <!-- Right: Animated Terminal -->
+    <div class="fade-up-3">
+      <div class="terminal-window">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-bdr bg-black/60">
+          <div class="w-3 h-3 rounded-full bg-red-500/60"></div>
+          <div class="w-3 h-3 rounded-full bg-yellow-500/60"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500/60"></div>
+          <span class="ml-3 text-dim text-xs">tirpan — session: TRP-DEMO-001 — 192.168.56.101</span>
+          <div class="ml-auto flex items-center gap-1.5 text-xs">
+            <span class="w-1.5 h-1.5 bg-primary rounded-full pulse-dot"></span>
+            <span class="text-primary font-mono text-xs">RUNNING</span>
+          </div>
+        </div>
+        <div class="p-4 overflow-hidden" style="height:380px;overflow-y:auto" id="hero-terminal">
+          <div class="text-primary/60 text-xs mb-3 font-mono">TIRPAN v1.0.0 — Autonomous Pentesting Agent</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between mt-3 text-xs text-dim font-mono">
+        <span>Target: 192.168.56.101 (Metasploitable 2)</span>
+        <span id="hero-timer" class="text-primary">00:00</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ STATS BAR ═══ -->
+<div class="border-y border-bdr bg-surface">
+  <div class="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 divide-x divide-bdr">
+    <div class="py-6 px-8 text-center">
+      <div class="font-display text-3xl font-bold text-primary mb-1">329</div>
+      <div class="text-dim text-xs font-mono">TESTS PASSING</div>
+    </div>
+    <div class="py-6 px-8 text-center">
+      <div class="font-display text-3xl font-bold text-primary mb-1">40+</div>
+      <div class="text-dim text-xs font-mono">INTEGRATED TOOLS</div>
+    </div>
+    <div class="py-6 px-8 text-center">
+      <div class="font-display text-3xl font-bold text-primary mb-1">10</div>
+      <div class="text-dim text-xs font-mono">SAFETY GUARDRAILS</div>
+    </div>
+    <div class="py-6 px-8 text-center">
+      <div class="font-display text-3xl font-bold text-primary mb-1">V1→V3</div>
+      <div class="text-dim text-xs font-mono">ROADMAP PHASES</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FEATURES ═══ -->
+<section id="features" class="py-24 reveal">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="text-center mb-16">
+      <div class="text-primary font-mono text-xs tracking-widest mb-3">CAPABILITIES</div>
+      <h2 class="font-display text-4xl font-bold mb-4">Full Attack Lifecycle.<br/><span class="text-primary">Zero Human Intervention.</span></h2>
+      <p class="text-dim max-w-xl mx-auto text-sm leading-relaxed">From initial discovery to exploitation, lateral movement, and reporting — TIRPAN autonomously drives the complete penetration testing engagement.</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">⟳</div>
+        <h3 class="font-display font-bold text-base mb-2">ReAct Loop Engine</h3>
+        <p class="text-dim text-sm leading-relaxed">Reason → Act → Observe → Reflect. Continuously evaluates evidence and adapts strategy until all objectives are met.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">⚡</div>
+        <h3 class="font-display font-bold text-base mb-2">Multi-Agent Architecture (V2)</h3>
+        <p class="text-dim text-sm leading-relaxed">Specialized agents for scanning, exploitation, web app testing, OSINT, post-exploitation, and lateral movement — in parallel.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">◉</div>
+        <h3 class="font-display font-bold text-base mb-2">Real-time Web UI</h3>
+        <p class="text-dim text-sm leading-relaxed">WebSocket streaming of every agent thought, tool call, and observation. Watch the AI reason about your target live.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">⛨</div>
+        <h3 class="font-display font-bold text-base mb-2">10 Safety Guardrails</h3>
+        <p class="text-dim text-sm leading-relaxed">Never-scan list, hard scope enforcement, DoS blocking, destructive exploit protection, rate limiting, and a kill switch.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">📋</div>
+        <h3 class="font-display font-bold text-base mb-2">CVSS-Scored Reports</h3>
+        <p class="text-dim text-sm leading-relaxed">Automated HTML and PDF reports with CVSS v3.1 scores, evidence, reproduction steps, and actionable remediation guidance.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">🔌</div>
+        <h3 class="font-display font-bold text-base mb-2">Plugin Ecosystem</h3>
+        <p class="text-dim text-sm leading-relaxed">Extend with Python plugins or zero-code CLI/API wrappers. The agent auto-discovers and exposes new tools to the LLM.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">🧠</div>
+        <h3 class="font-display font-bold text-base mb-2">Cloud + Local LLM</h3>
+        <p class="text-dim text-sm leading-relaxed">OpenRouter for Claude, GPT-4, Gemini. Or run fully offline with Ollama (Llama 3, Qwen, Mistral). Air-gapped lab support.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default">
+        <div class="text-2xl mb-4">🔍</div>
+        <h3 class="font-display font-bold text-base mb-2">Knowledge Base + Audit Log</h3>
+        <p class="text-dim text-sm leading-relaxed">SQLite-backed per-service exploit success memory. Every action logged with timestamps for compliance and review.</p>
+      </div>
+      <div class="feature-card bg-card border border-bdr p-6 cursor-default border-primary/20 bg-primary/3">
+        <div class="text-2xl mb-4">🛡</div>
+        <h3 class="font-display font-bold text-base mb-2">Defense Monitor</h3>
+        <p class="text-dim text-sm leading-relaxed">Built-in blue team module with detector engine, network monitoring, and response tools for defenders.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ HOW IT WORKS ═══ -->
+<section id="how-it-works" class="py-24 border-t border-bdr bg-surface reveal">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="text-center mb-16">
+      <div class="text-primary font-mono text-xs tracking-widest mb-3">THE REACT LOOP</div>
+      <h2 class="font-display text-4xl font-bold mb-4">How TIRPAN <span class="text-primary">Thinks</span></h2>
+      <p class="text-dim max-w-xl mx-auto text-sm leading-relaxed">Every decision the agent makes follows the Reason-Act-Observe-Reflect cycle — the same loop a skilled human pentester runs in their head.</p>
+    </div>
+
+    <!-- The loop visual -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-px bg-bdr mb-16">
+      <div class="bg-surface p-8 text-center">
+        <div class="w-14 h-14 bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-4 text-blue-400 text-2xl font-mono font-bold">R</div>
+        <h3 class="font-display font-bold mb-2">Reason</h3>
+        <p class="text-dim text-xs leading-relaxed">Analyze current state, known vulnerabilities, prior tool output. Decide the highest-value next action.</p>
+      </div>
+      <div class="bg-surface p-8 text-center">
+        <div class="w-14 h-14 bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4 text-primary text-2xl font-mono font-bold">A</div>
+        <h3 class="font-display font-bold mb-2">Act</h3>
+        <p class="text-dim text-xs leading-relaxed">Execute a tool: nmap scan, searchsploit lookup, metasploit exploit, shell command, or report generation.</p>
+      </div>
+      <div class="bg-surface p-8 text-center">
+        <div class="w-14 h-14 bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mx-auto mb-4 text-yellow-400 text-2xl font-mono font-bold">O</div>
+        <h3 class="font-display font-bold mb-2">Observe</h3>
+        <p class="text-dim text-xs leading-relaxed">Process tool output, extract findings, update internal state. Raw data becomes structured knowledge.</p>
+      </div>
+      <div class="bg-surface p-8 text-center">
+        <div class="w-14 h-14 bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mx-auto mb-4 text-purple-400 text-2xl font-mono font-bold">↺</div>
+        <h3 class="font-display font-bold mb-2">Reflect</h3>
+        <p class="text-dim text-xs leading-relaxed">Evaluate progress toward objectives. Update strategy. Loop back to Reason with enriched context.</p>
+      </div>
+    </div>
+
+    <!-- Sample Trace -->
+    <div class="max-w-3xl mx-auto">
+      <div class="text-xs font-mono text-dim mb-4">SAMPLE AGENT TRACE — Metasploitable 2 Target</div>
+      <div class="terminal-window p-4 space-y-3 text-xs">
+        <div><span class="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 mr-2">THOUGHT</span><span class="text-dim">No hosts discovered yet. Starting with ping sweep on 192.168.56.101.</span></div>
+        <div><span class="bg-primary/20 text-primary px-1.5 py-0.5 mr-2">ACT</span><span class="text-white">nmap_scan</span><span class="text-dim"> — </span><span class="text-green-300">nmap -sn 192.168.56.101</span></div>
+        <div><span class="bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 mr-2">OBSERVE</span><span class="text-dim">Host up (0.0012s latency). MAC: 08:00:27:A3:B2:C1 (VirtualBox)</span></div>
+        <div><span class="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 mr-2">THOUGHT</span><span class="text-dim">Host confirmed live. Running full port scan + service detection.</span></div>
+        <div><span class="bg-primary/20 text-primary px-1.5 py-0.5 mr-2">ACT</span><span class="text-white">nmap_scan</span><span class="text-dim"> — </span><span class="text-green-300">nmap -sV -sC -p- --open -T4 192.168.56.101</span></div>
+        <div><span class="bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 mr-2">OBSERVE</span><span class="text-dim">23 open ports. Highlights: vsftpd 2.3.4 / Samba 3.0.20 / MySQL 5.0.51a</span></div>
+        <div><span class="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 mr-2">THOUGHT</span><span class="text-dim">vsftpd 2.3.4 is a known backdoor (CVE-2011-2523, CVSS 10.0). Exploiting first.</span></div>
+        <div><span class="bg-primary/20 text-primary px-1.5 py-0.5 mr-2">ACT</span><span class="text-white">metasploit_run</span><span class="text-dim"> — </span><span class="text-green-300">exploit/unix/ftp/vsftpd_234_backdoor</span></div>
+        <div><span class="bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 mr-2">OBSERVE</span><span class="text-dim text-green-400">[+] uid=0(root) — Command shell session 1 opened</span></div>
+        <div><span class="bg-purple-500/20 text-purple-300 px-1.5 py-0.5 mr-2">REFLECT</span><span class="text-dim">Root shell on primary target. Recording finding. Moving to enumerate remaining services.</span></div>
+        <div class="text-dim">— <span class="text-primary">3 more findings discovered</span> — <a href="normal/demo/" class="text-primary underline">see full demo →</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CAPABILITIES TABLE ═══ -->
+<section id="capabilities" class="py-24 border-t border-bdr reveal">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="text-center mb-16">
+      <div class="text-primary font-mono text-xs tracking-widest mb-3">V1 + V2 BETA</div>
+      <h2 class="font-display text-4xl font-bold mb-4">What TIRPAN <span class="text-primary">Can Do</span></h2>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div>
+        <div class="text-primary font-mono text-xs tracking-widest mb-4 pb-2 border-b border-bdr">NETWORK RECON</div>
+        <ul class="space-y-2 text-sm">
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Nmap discovery + service detection</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Masscan fast sweep (optional)</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> SMB enumeration helpers</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> NSE scripting integration</li>
+        </ul>
+      </div>
+      <div>
+        <div class="text-primary font-mono text-xs tracking-widest mb-4 pb-2 border-b border-bdr">EXPLOITATION</div>
+        <ul class="space-y-2 text-sm">
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Metasploit RPC / msfconsole</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> SearchSploit/ExploitDB queries</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> rsh/distcc/webdav helpers</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> SSH, bind shell, reverse shell</li>
+        </ul>
+      </div>
+      <div>
+        <div class="text-primary font-mono text-xs tracking-widest mb-4 pb-2 border-b border-bdr">WEB APP (V2)</div>
+        <ul class="space-y-2 text-sm">
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> WhatWeb, Nikto, Nuclei</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> ffuf/gobuster directory bruteforce</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> sqlmap injection testing</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Commix command injection</li>
+        </ul>
+      </div>
+      <div>
+        <div class="text-primary font-mono text-xs tracking-widest mb-4 pb-2 border-b border-bdr">OSINT (V2)</div>
+        <ul class="space-y-2 text-sm">
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> theHarvester, subfinder</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> WHOIS, DNS enumeration</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Certificate transparency</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Subdomain brute-force</li>
+        </ul>
+      </div>
+      <div>
+        <div class="text-primary font-mono text-xs tracking-widest mb-4 pb-2 border-b border-bdr">POST-EXPLOITATION</div>
+        <ul class="space-y-2 text-sm">
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> ssh_exec + shell_exec</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Linpeas/winpeas upload</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> LLM-generated payloads</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> Privilege escalation analysis</li>
+        </ul>
+      </div>
+      <div>
+        <div class="text-primary font-mono text-xs tracking-widest mb-4 pb-2 border-b border-bdr">REPORTING</div>
+        <ul class="space-y-2 text-sm">
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> HTML + PDF reports</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> CVSS v3.1 scoring</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> JSON/Markdown output</li>
+          <li class="flex gap-2.5 text-dim"><span class="check mt-0.5">✓</span> SARIF for CI/CD (V2)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ DEMO PREVIEW CTA ═══ -->
+<section class="py-24 border-t border-bdr bg-surface reveal">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+      <div>
+        <div class="text-primary font-mono text-xs tracking-widest mb-4">INTERACTIVE DEMO</div>
+        <h2 class="font-display text-4xl font-bold mb-5">Watch the Agent<br/><span class="text-primary">Attack a Target</span></h2>
+        <p class="text-dim leading-relaxed mb-6 text-sm">
+          The demo simulates a full TIRPAN engagement against a Metasploitable 2 target using realistic mock data. Every page of the real interface is accessible — dashboard, live session, reports, and the defense monitor.
+        </p>
+        <ul class="space-y-3 mb-8 text-sm">
+          <li class="flex items-start gap-3"><span class="text-primary mt-0.5">→</span><span class="text-dim">Real-time animated ReAct log with typewriter effect</span></li>
+          <li class="flex items-start gap-3"><span class="text-primary mt-0.5">→</span><span class="text-dim">3 critical vulnerabilities discovered and exploited</span></li>
+          <li class="flex items-start gap-3"><span class="text-primary mt-0.5">→</span><span class="text-dim">Full CVSS-scored vulnerability report</span></li>
+          <li class="flex items-start gap-3"><span class="text-primary mt-0.5">→</span><span class="text-dim">Defense monitor with alert feed</span></li>
+        </ul>
+        <a href="normal/demo/" class="inline-flex items-center gap-3 bg-primary text-black font-bold font-display px-7 py-3 text-sm tracking-wide hover:brightness-110 transition-all">
+          LAUNCH INTERACTIVE DEMO →
+        </a>
+      </div>
+      <!-- Mock browser preview -->
+      <div class="border border-bdr bg-black overflow-hidden">
+        <div class="bg-surface border-b border-bdr px-4 py-2.5 flex items-center gap-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-red-500/50"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></div>
+          <div class="w-2.5 h-2.5 rounded-full bg-green-500/50"></div>
+          <div class="ml-3 text-xs font-mono text-dim bg-black border border-bdr px-3 py-0.5 flex-1 text-center">localhost:8000/demo</div>
+        </div>
+        <div class="flex" style="height:280px">
+          <!-- Sidebar preview -->
+          <div class="w-14 bg-surface border-r border-bdr flex flex-col items-center py-4 gap-5">
+            <div class="w-7 h-7 bg-primary/20 rounded-sm flex items-center justify-center">
+              <div class="w-3 h-3 bg-primary rounded-sm"></div>
+            </div>
+            <div class="text-dim text-xs">⊞</div>
+            <div class="text-dim text-xs">▶</div>
+            <div class="text-dim text-xs">≡</div>
+            <div class="text-dim text-xs">📄</div>
+            <div class="text-dim text-xs">🛡</div>
+          </div>
+          <!-- Main preview -->
+          <div class="flex-1 p-4 overflow-hidden">
+            <div class="flex items-center justify-between mb-3">
+              <div class="text-xs font-mono text-primary">Session TRP-DEMO-001 · RUNNING</div>
+              <div class="w-2 h-2 bg-primary rounded-full pulse-dot"></div>
+            </div>
+            <div class="space-y-1.5 text-xs font-mono overflow-hidden">
+              <div class="flex gap-2"><span class="text-blue-400 bg-blue-400/10 px-1 text-xs">THOUGHT</span><span class="text-dim">Scanning 192.168.56.101...</span></div>
+              <div class="flex gap-2"><span class="text-primary bg-primary/10 px-1 text-xs">ACT</span><span class="text-green-300">nmap_scan — full port scan</span></div>
+              <div class="flex gap-2"><span class="text-yellow-400 bg-yellow-400/10 px-1 text-xs">OBSERVE</span><span class="text-dim">23 open ports discovered</span></div>
+              <div class="flex gap-2"><span class="text-blue-400 bg-blue-400/10 px-1 text-xs">THOUGHT</span><span class="text-dim">vsftpd 2.3.4 detected — CVSS 10.0</span></div>
+              <div class="flex gap-2"><span class="text-primary bg-primary/10 px-1 text-xs">ACT</span><span class="text-green-300">metasploit_run — vsftpd_234_backdoor</span></div>
+              <div class="flex gap-2"><span class="text-yellow-400 bg-yellow-400/10 px-1 text-xs">OBSERVE</span><span class="text-green-400">[+] uid=0(root) — shell opened</span></div>
+              <div class="flex gap-2"><span class="text-purple-400 bg-purple-400/10 px-1 text-xs">REFLECT</span><span class="text-dim">Root shell obtained. Moving to Samba...</span></div>
+            </div>
+          </div>
+          <!-- Right panel preview -->
+          <div class="w-32 border-l border-bdr p-3 text-xs">
+            <div class="text-dim mb-2 font-mono text-xs">FINDINGS</div>
+            <div class="space-y-1.5">
+              <div class="flex justify-between"><span class="text-danger">CRITICAL</span><span class="text-white font-bold">3</span></div>
+              <div class="flex justify-between"><span class="text-warn">HIGH</span><span class="text-white font-bold">2</span></div>
+              <div class="flex justify-between"><span class="text-yellow-300">MEDIUM</span><span class="text-white font-bold">3</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ COMPARISON ═══ -->
+<section id="comparison" class="py-24 border-t border-bdr reveal">
+  <div class="max-w-5xl mx-auto px-6">
+    <div class="text-center mb-14">
+      <div class="text-primary font-mono text-xs tracking-widest mb-3">TIRPAN VS XBOW</div>
+      <h2 class="font-display text-4xl font-bold mb-4">The Open-Source <span class="text-primary">Alternative</span></h2>
+      <p class="text-dim text-sm max-w-lg mx-auto">XBOW is the commercial benchmark for autonomous AI pentesting. TIRPAN is the open-source equivalent — with local LLM support and a plugin ecosystem.</p>
+    </div>
+    <div class="border border-bdr overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-surface border-b border-bdr">
+            <th class="text-left px-6 py-4 font-display font-semibold text-dim text-xs">CAPABILITY</th>
+            <th class="px-6 py-4 font-display font-semibold text-dim text-xs text-center">XBOW</th>
+            <th class="px-6 py-4 font-display font-semibold text-primary text-xs text-center">TIRPAN V1</th>
+            <th class="px-6 py-4 font-display font-semibold text-primary text-xs text-center">TIRPAN V2+</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-b border-bdr hover:bg-surface/50">
+            <td class="px-6 py-3.5 text-dim">Network scanning &amp; exploitation</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50">
+            <td class="px-6 py-3.5 text-dim">AI-driven ReAct loop</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50">
+            <td class="px-6 py-3.5 text-dim">Safety guardrails</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50">
+            <td class="px-6 py-3.5 text-dim">Web application testing</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center xmark">✗</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50">
+            <td class="px-6 py-3.5 text-dim">Active Directory attacks</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center xmark">✗</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50 bg-primary/3">
+            <td class="px-6 py-3.5 text-dim font-medium">Open source</td>
+            <td class="px-6 py-3.5 text-center xmark">✗</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50 bg-primary/3">
+            <td class="px-6 py-3.5 text-dim font-medium">Free to use</td>
+            <td class="px-6 py-3.5 text-center xmark">✗</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50 bg-primary/3">
+            <td class="px-6 py-3.5 text-dim font-medium">Local LLM (Ollama) support</td>
+            <td class="px-6 py-3.5 text-center xmark">✗</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="border-b border-bdr hover:bg-surface/50 bg-primary/3">
+            <td class="px-6 py-3.5 text-dim font-medium">Plugin ecosystem</td>
+            <td class="px-6 py-3.5 text-center xmark">✗</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+          </tr>
+          <tr class="hover:bg-surface/50">
+            <td class="px-6 py-3.5 text-dim">Multi-agent coordinator</td>
+            <td class="px-6 py-3.5 text-center check">✓</td>
+            <td class="px-6 py-3.5 text-center xmark">✗</td>
+            <td class="px-6 py-3.5 text-center text-warn text-xs font-mono">V3</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ GET STARTED ═══ -->
+<section id="get-started" class="py-24 border-t border-bdr bg-surface reveal">
+  <div class="max-w-3xl mx-auto px-6">
+    <div class="text-center mb-14">
+      <div class="text-primary font-mono text-xs tracking-widest mb-3">QUICK START</div>
+      <h2 class="font-display text-4xl font-bold mb-4">Up in <span class="text-primary">3 Steps</span></h2>
+      <p class="text-dim text-sm">Requires Python 3.11+, Nmap 7.94+, Metasploit 6.x, and SearchSploit.</p>
+    </div>
+    <div class="space-y-6">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <span class="w-6 h-6 bg-primary text-black font-bold font-mono text-xs flex items-center justify-center">1</span>
+          <span class="font-display font-semibold text-sm">Clone &amp; Install</span>
+        </div>
+        <div class="terminal-window p-4 text-xs">
+          <div class="text-dim mb-1"># Clone the repository</div>
+          <div><span class="text-primary">$</span> <span>git clone https://github.com/fthsrbst/tirpan.git &amp;&amp; cd tirpan</span></div>
+          <div class="text-dim mt-2 mb-1"># Create virtual environment and install</div>
+          <div><span class="text-primary">$</span> <span>python3 -m venv .venv &amp;&amp; source .venv/bin/activate</span></div>
+          <div><span class="text-primary">$</span> <span>pip install -r requirements.txt</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <span class="w-6 h-6 bg-primary text-black font-bold font-mono text-xs flex items-center justify-center">2</span>
+          <span class="font-display font-semibold text-sm">Configure LLM</span>
+        </div>
+        <div class="terminal-window p-4 text-xs">
+          <div class="text-dim mb-1"># Copy and edit configuration</div>
+          <div><span class="text-primary">$</span> <span>cp .env.example .env</span></div>
+          <div class="mt-2 text-dim"># Set one of these in .env:</div>
+          <div><span class="text-warn">OPENROUTER_API_KEY</span>=<span class="text-green-300">sk-or-...</span>  <span class="text-dim"># Claude, GPT-4, Gemini</span></div>
+          <div><span class="text-warn">OLLAMA_MODEL</span>=<span class="text-green-300">llama3.1:8b</span>             <span class="text-dim"># Local / air-gapped</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <span class="w-6 h-6 bg-primary text-black font-bold font-mono text-xs flex items-center justify-center">3</span>
+          <span class="font-display font-semibold text-sm">Launch</span>
+        </div>
+        <div class="terminal-window p-4 text-xs">
+          <div class="text-dim mb-1"># Start Metasploit RPC (required for exploitation)</div>
+          <div><span class="text-primary">$</span> <span>msfrpcd -P your_password -S</span></div>
+          <div class="mt-2 text-dim"># Launch the web UI</div>
+          <div><span class="text-primary">$</span> <span>python3 main.py</span></div>
+          <div class="mt-2 text-primary"># → Open http://localhost:8000</div>
+        </div>
+      </div>
+    </div>
+    <div class="mt-10 p-4 border border-warn/20 bg-warn/5 text-xs font-mono text-warn/80 leading-relaxed">
+      ⚠ Only test systems you own or have explicit written authorization to test. Lab environments, CTF platforms, and authorized engagements only.
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<footer class="border-t border-bdr py-12">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+      <div class="flex items-center gap-3">
+        <img src="logo.png" alt="TIRPAN" class="w-8 h-8 object-contain"/>
+        <div>
+          <div class="font-display font-bold">TIRPAN</div>
+          <div class="text-dim text-xs font-mono">Targeted Intrusion Recon, Penetration &amp; Autonomy Node</div>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-6 text-sm text-dim">
+        <a href="https://github.com/fthsrbst/tirpan" target="_blank" class="hover:text-white transition-colors">GitHub</a>
+        <a href="https://github.com/fthsrbst/tirpan/blob/main/docs/02_ARCHITECTURE.md" target="_blank" class="hover:text-white transition-colors">Docs</a>
+        <a href="https://github.com/fthsrbst/tirpan/blob/main/docs/05_SAFETY_AND_LEGAL.md" target="_blank" class="hover:text-white transition-colors">Legal</a>
+        <a href="normal/demo/" class="hover:text-white transition-colors text-primary">Demo</a>
+      </div>
+      <div class="text-xs text-dim font-mono text-center">
+        Non-Commercial License · Personal, Educational &amp; Research use only
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ═══ SCRIPTS ═══ -->
+<script>
+// ── Hero terminal animation ──────────────────────────────────────────────
+const HERO_STEPS = [
+  {type:'thought', text:'Starting engagement on 192.168.56.101. No prior knowledge. Beginning with host discovery.'},
+  {type:'act',    text:'nmap_scan — nmap -sn 192.168.56.101'},
+  {type:'observe',text:'Host is up (0.0012s latency). MAC: 08:00:27:A3:B2:C1 (VirtualBox)'},
+  {type:'thought',text:'Host confirmed live. Running full TCP scan with service version detection.'},
+  {type:'act',    text:'nmap_scan — nmap -sV -sC -p- --open -T4 192.168.56.101'},
+  {type:'observe',text:'23 open ports found. vsftpd 2.3.4 / Samba 3.0.20 / MySQL 5.0.51a / distccd'},
+  {type:'thought',text:'vsftpd 2.3.4 detected — known backdoor CVE-2011-2523 (CVSS 10.0). Exploiting now.'},
+  {type:'act',    text:'metasploit_run — exploit/unix/ftp/vsftpd_234_backdoor'},
+  {type:'observe',text:'[+] uid=0(root) gid=0(root) — Command shell session 1 opened!'},
+  {type:'thought',text:'Root shell obtained. Checking Samba for additional critical finding.'},
+  {type:'act',    text:'metasploit_run — exploit/multi/samba/usermap_script'},
+  {type:'observe',text:'[+] Command shell session 2 opened — uid=0(root)'},
+  {type:'done',   text:'Engagement complete. 3 CRITICAL · 2 HIGH · 3 MEDIUM findings. Report generated.'},
+];
+
+const BADGE = {
+  thought: '<span style="background:rgba(59,130,246,.2);color:#93c5fd;padding:1px 6px;margin-right:8px;font-size:11px">THOUGHT</span>',
+  act:     '<span style="background:rgba(204,255,0,.15);color:#ccff00;padding:1px 6px;margin-right:8px;font-size:11px">ACT</span>',
+  observe: '<span style="background:rgba(234,179,8,.15);color:#fbbf24;padding:1px 6px;margin-right:8px;font-size:11px">OBSERVE</span>',
+  done:    '<span style="background:rgba(204,255,0,.2);color:#ccff00;padding:1px 6px;margin-right:8px;font-size:11px;font-weight:700">DONE</span>',
+};
+
+const termEl = document.getElementById('hero-terminal');
+const timerEl = document.getElementById('hero-timer');
+let stepIdx = 0, charIdx = 0, currentLine = null, timerSec = 0, timerInterval;
+
+function startTimer() {
+  timerInterval = setInterval(() => {
+    timerSec++;
+    const m = String(Math.floor(timerSec / 60)).padStart(2,'0');
+    const s = String(timerSec % 60).padStart(2,'0');
+    timerEl.textContent = m + ':' + s;
+  }, 1000);
+}
+
+function typeStep() {
+  if (stepIdx >= HERO_STEPS.length) {
+    if (currentLine) {
+      const cur = currentLine.querySelector('.cursor');
+      if (cur) cur.remove();
+    }
+    clearInterval(timerInterval);
+    timerEl.style.color = '#888';
+    // Loop after delay
+    setTimeout(() => {
+      termEl.innerHTML = '<div style="color:rgba(204,255,0,.6);font-size:12px;margin-bottom:12px;font-family:JetBrains Mono,monospace">TIRPAN v1.0.0 — Autonomous Pentesting Agent</div>';
+      stepIdx = 0; charIdx = 0; timerSec = 0;
+      timerEl.style.color = '#ccff00';
+      timerEl.textContent = '00:00';
+      startTimer();
+      setTimeout(typeStep, 800);
+    }, 4000);
+    return;
+  }
+  const step = HERO_STEPS[stepIdx];
+  if (charIdx === 0) {
+    currentLine = document.createElement('div');
+    currentLine.style.cssText = 'margin-bottom:6px;font-size:12.5px;font-family:JetBrains Mono,monospace';
+    currentLine.innerHTML = BADGE[step.type] + '<span class="line-text"></span><span class="cursor" style="color:#ccff00">▋</span>';
+    termEl.appendChild(currentLine);
+    termEl.scrollTop = termEl.scrollHeight;
+  }
+  const lineText = currentLine.querySelector('.line-text');
+  if (charIdx < step.text.length) {
+    lineText.textContent += step.text[charIdx];
+    charIdx++;
+    termEl.scrollTop = termEl.scrollHeight;
+    const speed = step.type === 'observe' ? 18 : 28;
+    setTimeout(typeStep, speed);
+  } else {
+    charIdx = 0; stepIdx++;
+    const delay = step.type === 'done' ? 2000 : 700;
+    setTimeout(typeStep, delay);
+  }
+}
+
+setTimeout(() => { startTimer(); typeStep(); }, 1200);
+
+// ── Scroll reveal ────────────────────────────────────────────────────────
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('revealed'); });
+}, { threshold: 0.1 });
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

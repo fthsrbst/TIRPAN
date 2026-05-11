@@ -113,7 +113,7 @@ function initSidebars() {
 let currentView = 'agent';
 let previousView = 'agent';
 
-const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission', 'outputs'];
+const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission', 'outputs', 'team'];
 
 function _agCurrentSessionPrefId() {
     return viewingSessionId || activeMissionId || '';
@@ -177,6 +177,11 @@ function switchView(viewName) {
     if (viewName === 'config') {
         fetchOllamaStatus();
         fetchLMStudioStatus();
+    }
+
+    // Load team data whenever team view is opened
+    if (viewName === 'team') {
+        teamLoad();
     }
 
     // Update nav highlight
@@ -3374,6 +3379,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateIntelNodesPanel(null);
     updateIntelKnowledgeBasePanel(null);
     loadSessionsForSelects();
+    initRBAC();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -7737,6 +7743,9 @@ function _renderSessionSwitcherList() {
         clickArea.type = 'button';
         clickArea.dataset.sessionIndex = String(idx);
         clickArea.className = 'flex-1 text-left min-w-0';
+        const assignedLabel = s.assigned_to_name
+            ? `<span class="text-[9px] mono-text text-purple-400/80">↳ ${_esc(s.assigned_to_name)}</span>`
+            : '';
         clickArea.innerHTML = `
             <div class="flex items-center justify-between mb-0.5">
                 <span class="text-[10px] mono-text font-bold text-slate-200 truncate">${_esc(displayName)}</span>
@@ -7747,6 +7756,7 @@ function _renderSessionSwitcherList() {
                 ${s.name ? `<span class="text-[9px] mono-text text-secondary-text truncate">${_esc(s.target)}</span>` : ''}
                 <span class="text-[9px] mono-text text-secondary-text">${_esc(s.mode || '')}</span>
                 <span class="text-[9px] mono-text text-secondary-text">${_esc(ts)}</span>
+                ${assignedLabel}
             </div>`;
         clickArea.addEventListener('click', () => {
             closeSessionSwitcher();
@@ -7756,70 +7766,91 @@ function _renderSessionSwitcherList() {
         const btnGroup = document.createElement('div');
         btnGroup.className = 'flex flex-col gap-1 shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity mt-0.5';
 
-        const renBtn = document.createElement('button');
-        renBtn.type = 'button';
-        renBtn.className = 'text-secondary-text hover:text-primary transition-colors';
-        renBtn.title = 'Rename mission';
-        renBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">edit</span>';
-        renBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeSessionSwitcher();
-            showPrompt({
-                title: 'Name Mission',
-                label: 'Mission name',
-                icon: 'edit',
-                defaultValue: s.name || s.target,
-                onConfirm: async (name) => {
-                    try {
-                        await fetch(`/api/v1/sessions/${s.id}/name`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name }),
-                        });
-                        showToast('Mission renamed');
-                        if (viewingSessionId === s.id || activeMissionId === s.id) {
-                            updateMissionStatusHeader(effStatus, s.id, name);
-                        }
-                        openSessionSwitcher();
-                    } catch {
-                        showToast('Rename failed');
-                    }
-                },
+        // Assign button — only for admin/owner
+        if (_rbacHasMinRole('admin')) {
+            const assignBtn = document.createElement('button');
+            assignBtn.type = 'button';
+            assignBtn.className = 'text-secondary-text hover:text-purple-400 transition-colors';
+            assignBtn.title = 'Assign mission';
+            assignBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">person_add</span>';
+            assignBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeSessionSwitcher();
+                openAssignModal(s.id, s.assigned_to || null);
             });
-        });
+            btnGroup.appendChild(assignBtn);
+        }
 
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'text-secondary-text hover:text-danger transition-colors';
-        delBtn.title = 'Delete mission';
-        delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
-        delBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeSessionSwitcher();
-            showConfirm({
-                title: 'Delete Mission',
-                message: `Delete mission "${s.name || s.target}"? This cannot be undone.`,
-                onConfirm: async () => {
-                    try {
-                        await fetch(`/api/v1/sessions/${s.id}`, { method: 'DELETE' });
-                        showToast('Mission deleted');
-                        if (viewingSessionId === s.id) viewingSessionId = null;
-                        if (activeMissionId === s.id) {
-                            activeMissionId = null;
-                            updateMissionStatusHeader('idle', null, '');
-                            _currentMissionName = '';
+        // Rename button — only analyst+
+        if (_rbacHasMinRole('analyst')) {
+            const renBtn = document.createElement('button');
+            renBtn.type = 'button';
+            renBtn.className = 'text-secondary-text hover:text-primary transition-colors';
+            renBtn.title = 'Rename mission';
+            renBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">edit</span>';
+            renBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeSessionSwitcher();
+                showPrompt({
+                    title: 'Name Mission',
+                    label: 'Mission name',
+                    icon: 'edit',
+                    defaultValue: s.name || s.target,
+                    onConfirm: async (name) => {
+                        try {
+                            await fetch(`/api/v1/sessions/${s.id}/name`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name }),
+                            });
+                            showToast('Mission renamed');
+                            if (viewingSessionId === s.id || activeMissionId === s.id) {
+                                updateMissionStatusHeader(effStatus, s.id, name);
+                            }
+                            openSessionSwitcher();
+                        } catch {
+                            showToast('Rename failed');
                         }
-                        loadSessionsForSelects();
-                        openSessionSwitcher();
-                    } catch {
-                        showToast('Delete failed');
-                    }
-                },
+                    },
+                });
             });
-        });
+            btnGroup.appendChild(renBtn);
+        }
 
-        btnGroup.appendChild(renBtn);
-        btnGroup.appendChild(delBtn);
+        // Delete button — only analyst+
+        if (_rbacHasMinRole('analyst')) {
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'text-secondary-text hover:text-danger transition-colors';
+            delBtn.title = 'Delete mission';
+            delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeSessionSwitcher();
+                showConfirm({
+                    title: 'Delete Mission',
+                    message: `Delete mission "${s.name || s.target}"? This cannot be undone.`,
+                    onConfirm: async () => {
+                        try {
+                            await fetch(`/api/v1/sessions/${s.id}`, { method: 'DELETE' });
+                            showToast('Mission deleted');
+                            if (viewingSessionId === s.id) viewingSessionId = null;
+                            if (activeMissionId === s.id) {
+                                activeMissionId = null;
+                                updateMissionStatusHeader('idle', null, '');
+                                _currentMissionName = '';
+                            }
+                            loadSessionsForSelects();
+                            openSessionSwitcher();
+                        } catch {
+                            showToast('Delete failed');
+                        }
+                    },
+                });
+            });
+            btnGroup.appendChild(delBtn);
+        }
+
         item.appendChild(clickArea);
         item.appendChild(btnGroup);
         list.appendChild(item);
@@ -11684,4 +11715,450 @@ async function agLoadKGData() {
             console.warn('[V3] agIngestKGGraph() not defined — raw data:', d);
         }
     } catch(e) { alert('KG load error: ' + e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RBAC — Expert Mode Role-Based Access Control
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _currentUser = null;
+
+const _ROLE_HIERARCHY_EX = { viewer: 10, analyst: 20, admin: 30, owner: 40 };
+const _ROLE_LABELS_EX = { viewer: 'Viewer', analyst: 'Analyst', admin: 'Admin', owner: 'Owner' };
+const _ROLE_COLORS_EX = {
+    viewer:  'text-secondary-text border-border-color',
+    analyst: 'text-blue-400 border-blue-400/40',
+    admin:   'text-purple-400 border-purple-400/40',
+    owner:   'text-primary border-primary/40',
+};
+
+function _rbacLevel(role) { return _ROLE_HIERARCHY_EX[role] || 0; }
+function _rbacHasMinRole(minRole) { return !!(_currentUser && _rbacLevel(_currentUser.role) >= _rbacLevel(minRole)); }
+function _rbacHasRole(...roles) { return !!(_currentUser && roles.includes(_currentUser.role)); }
+
+async function initRBAC() {
+    try {
+        const token = _getToken();
+        if (!token) return;
+        const res = await _origFetch('/api/v1/auth/me', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (!res.ok) return;
+        _currentUser = await res.json();
+        try { localStorage.setItem('tirpan_user', JSON.stringify(_currentUser)); } catch {}
+    } catch {
+        try {
+            const cached = localStorage.getItem('tirpan_user');
+            if (cached) _currentUser = JSON.parse(cached);
+        } catch {}
+    }
+    applyRBACVisibility();
+}
+
+function applyRBACVisibility() {
+    if (!_currentUser) return;
+    const isAnalystOrAbove = _rbacHasMinRole('analyst');
+    const isAdminOrOwner   = _rbacHasMinRole('admin');
+
+    // ── New Mission button (sidebar) ──────────────────────────────────────
+    const newMissionBtn = document.getElementById('new-mission-btn');
+    if (newMissionBtn) newMissionBtn.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Mission nav (full-page config view) ───────────────────────────────
+    const missionNav = document.querySelector('.bottom-nav-item[data-view="mission"]');
+    if (missionNav) missionNav.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Resume from session button ────────────────────────────────────────
+    const resumeBtn = document.getElementById('resume-from-session-btn');
+    if (resumeBtn) resumeBtn.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Emergency stop / pause ────────────────────────────────────────────
+    ['emergency-stop-btn', 'emergency-stop-btn-mobile', 'pause-mission-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+    });
+
+    // ── Agent injection input (inject into running agent) ─────────────────
+    const injectArea = document.getElementById('agent-inject-input-area');
+    if (injectArea) injectArea.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Configuration nav (viewers don't need to configure system) ────────
+    const configNav = document.querySelector('.bottom-nav-item[data-view="config"]');
+    if (configNav) configNav.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Team nav — only admin/owner ───────────────────────────────────────
+    const teamNav = document.getElementById('nav-team');
+    if (teamNav) teamNav.classList.toggle('hidden', !isAdminOrOwner);
+
+    // ── Invite button inside team view ────────────────────────────────────
+    const inviteBtn = document.getElementById('team-invite-btn');
+    if (inviteBtn) inviteBtn.classList.toggle('hidden', !isAdminOrOwner);
+
+    // Update user badge with role color
+    _rbacUpdateBadge();
+}
+
+function _rbacUpdateBadge() {
+    if (!_currentUser) return;
+    const badge = document.getElementById('dev-user-badge');
+    if (!badge) return;
+    const roleColor = {
+        viewer:  'text-secondary-text',
+        analyst: 'text-blue-400',
+        admin:   'text-purple-400',
+        owner:   'text-primary',
+    }[_currentUser.role] || 'text-secondary-text';
+    badge.innerHTML = `
+        <span class="text-secondary-text">${_esc(_currentUser.full_name || _currentUser.email)}</span>
+        <span class="w-px h-3 bg-border-color mx-1"></span>
+        <span class="${roleColor} font-bold uppercase text-[9px] tracking-widest">${_esc(_ROLE_LABELS_EX[_currentUser.role] || _currentUser.role)}</span>
+    `;
+    badge.classList.remove('hidden');
+    badge.classList.add('md:flex');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TEAM MANAGEMENT VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function teamLoad() {
+    applyRBACVisibility();
+    await Promise.all([teamLoadOrg(), teamLoadMembers(), teamLoadInvitations()]);
+}
+
+async function teamLoadOrg() {
+    const card = document.getElementById('team-org-card');
+    if (!card) return;
+    try {
+        const res = await fetch('/api/v1/auth/org');
+        if (!res.ok) { card.innerHTML = '<span class="text-secondary-text text-xs p-4 block">No organization linked.</span>'; return; }
+        const org = await res.json();
+        const isOwner = _rbacHasRole('owner');
+        card.innerHTML = `
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+                <div class="w-10 h-10 bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
+                    <span class="material-symbols-outlined text-primary">domain</span>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-sm font-bold text-white truncate">${_esc(org.name || 'Unnamed Organization')}</p>
+                    ${org.allowed_email_domain
+                        ? `<p class="text-[10px] text-secondary-text font-mono">Restricted to @${_esc(org.allowed_email_domain)}</p>`
+                        : '<p class="text-[10px] text-secondary-text">No email domain restriction</p>'}
+                </div>
+            </div>
+            ${isOwner ? `<button onclick="teamEditOrg()" class="flex items-center gap-1.5 text-xs text-secondary-text hover:text-primary transition-colors border border-border-color px-3 py-1.5 shrink-0">
+                <span class="material-symbols-outlined text-[13px]">edit</span>Edit Org
+            </button>` : ''}
+        `;
+    } catch { card.innerHTML = '<span class="text-secondary-text text-xs p-4 block">Could not load org.</span>'; }
+}
+
+async function teamLoadMembers() {
+    const list = document.getElementById('team-members-list');
+    if (!list) return;
+    list.innerHTML = `<div class="flex items-center gap-2 p-6 text-secondary-text text-xs">
+        <span class="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>Loading members...
+    </div>`;
+    try {
+        const res = await fetch('/api/v1/auth/users');
+        if (!res.ok) {
+            list.innerHTML = '<div class="p-6 text-secondary-text text-xs">Access denied — admin/owner only.</div>';
+            return;
+        }
+        const users = await res.json();
+        if (!users.length) {
+            list.innerHTML = '<div class="p-6 text-secondary-text text-xs">No members found.</div>';
+            return;
+        }
+
+        list.innerHTML = `
+            <div class="grid grid-cols-[1fr_auto_auto] gap-0 text-[9px] uppercase tracking-widest text-secondary-text/60 px-4 py-2 border-b border-border-color/40">
+                <span>Member</span><span class="text-right pr-6">Role</span><span></span>
+            </div>
+        `;
+
+        users.forEach(u => {
+            const isMe = _currentUser && u.id === _currentUser.id;
+            const myLevel = _rbacLevel(_currentUser?.role);
+            const theirLevel = _rbacLevel(u.role);
+            const canManage = _rbacHasMinRole('admin') && !isMe && myLevel > theirLevel;
+            const roleColorClass = _ROLE_COLORS_EX[u.role] || _ROLE_COLORS_EX.viewer;
+
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 px-4 py-3 border-b border-border-color/30 hover:bg-white/[0.02] transition-colors group';
+            row.innerHTML = `
+                <div class="w-8 h-8 rounded-full bg-surface border border-border-color flex items-center justify-center shrink-0 text-xs font-bold text-secondary-text">
+                    ${_esc((u.full_name || u.email || '?')[0].toUpperCase())}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-medium text-white truncate">${_esc(u.full_name || u.email)}</span>
+                        ${isMe ? '<span class="text-[9px] text-primary border border-primary/40 px-1.5 py-0.5 uppercase tracking-wider shrink-0">You</span>' : ''}
+                        ${!u.is_active ? '<span class="text-[9px] text-danger border border-danger/40 px-1.5 py-0.5 uppercase tracking-wider shrink-0">Inactive</span>' : ''}
+                    </div>
+                    <span class="text-[10px] text-secondary-text font-mono">${_esc(u.email)}</span>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    ${canManage ? `
+                    <select data-uid="${u.id}" onchange="teamChangeRole('${u.id}', this.value)"
+                        class="bg-background-dark border border-border-color text-slate-100 text-[10px] px-2 py-1 mono-text opacity-0 group-hover:opacity-100 transition-opacity">
+                        ${['viewer','analyst',...(_rbacHasMinRole('admin') && _rbacHasRole('owner') ? ['admin'] : []),...(_rbacHasRole('owner') ? ['owner'] : [])]
+                            .map(r => `<option value="${r}" ${r===u.role?'selected':''}>${_ROLE_LABELS_EX[r]}</option>`).join('')}
+                    </select>
+                    <button onclick="teamToggleActive('${u.id}', ${!u.is_active})"
+                        title="${u.is_active ? 'Deactivate user' : 'Activate user'}"
+                        class="w-7 h-7 flex items-center justify-center text-secondary-text hover:text-${u.is_active ? 'danger' : 'primary'} transition-colors opacity-0 group-hover:opacity-100">
+                        <span class="material-symbols-outlined text-[14px]">${u.is_active ? 'person_off' : 'person_check'}</span>
+                    </button>
+                    ` : '<div class="w-[88px]"></div>'}
+                    <span class="text-[9px] border px-1.5 py-0.5 uppercase tracking-wider font-bold ${roleColorClass} shrink-0">${_esc(_ROLE_LABELS_EX[u.role] || u.role)}</span>
+                </div>
+            `;
+            list.appendChild(row);
+        });
+    } catch(e) {
+        list.innerHTML = `<div class="p-6 text-danger text-xs">${_esc(String(e))}</div>`;
+    }
+}
+
+async function teamChangeRole(userId, newRole) {
+    try {
+        const res = await fetch(`/api/v1/auth/users/${userId}/role`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: newRole }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Role change failed');
+            teamLoadMembers();
+            return;
+        }
+        showToast('Role updated');
+        teamLoadMembers();
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+}
+
+async function teamToggleActive(userId, activate) {
+    try {
+        const res = await fetch(`/api/v1/auth/users/${userId}/active?is_active=${activate}`, {
+            method: 'PATCH',
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Failed');
+            return;
+        }
+        showToast(activate ? 'User activated' : 'User deactivated');
+        teamLoadMembers();
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+}
+
+async function teamLoadInvitations() {
+    const section = document.getElementById('team-invitations-section');
+    const list = document.getElementById('team-invitations-list');
+    if (!section || !list) return;
+    try {
+        const res = await fetch('/api/v1/auth/org/invitations');
+        if (!res.ok) { section.classList.add('hidden'); return; }
+        const invites = await res.json();
+        const pending = invites.filter(i => !i.used_at && i.expires_at > Date.now() / 1000);
+        if (!pending.length) { section.classList.add('hidden'); return; }
+        section.classList.remove('hidden');
+        list.innerHTML = '';
+        pending.forEach(inv => {
+            const item = document.createElement('div');
+            item.className = 'flex items-center gap-3 px-4 py-3 border-b border-border-color/30 group';
+            const exp = new Date(inv.expires_at * 1000).toLocaleDateString();
+            const roleColorClass = _ROLE_COLORS_EX[inv.role] || _ROLE_COLORS_EX.viewer;
+            item.innerHTML = `
+                <span class="material-symbols-outlined text-[16px] text-secondary-text/60 shrink-0">mail</span>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        ${inv.email
+                            ? `<span class="text-sm text-white font-mono truncate">${_esc(inv.email)}</span>`
+                            : '<span class="text-sm text-secondary-text italic">Open link</span>'}
+                        <span class="text-[9px] border px-1.5 py-0.5 uppercase tracking-wider font-bold ${roleColorClass} shrink-0">${_esc(_ROLE_LABELS_EX[inv.role] || inv.role)}</span>
+                    </div>
+                    <span class="text-[10px] text-secondary-text">Expires ${_esc(exp)}</span>
+                </div>
+                <button onclick="teamCopyInviteLink('${_esc(inv.token)}')" title="Copy invite link"
+                    class="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center text-secondary-text hover:text-primary transition-all">
+                    <span class="material-symbols-outlined text-[14px]">content_copy</span>
+                </button>
+                <button onclick="teamRevokeInvite('${_esc(inv.id)}')" title="Revoke invite"
+                    class="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center text-secondary-text hover:text-danger transition-all">
+                    <span class="material-symbols-outlined text-[14px]">delete</span>
+                </button>
+            `;
+            list.appendChild(item);
+        });
+    } catch { section.classList.add('hidden'); }
+}
+
+function teamCopyInviteLink(token) {
+    const link = `${location.origin}/normal/signup?invite=${token}`;
+    navigator.clipboard.writeText(link)
+        .then(() => showToast('Invite link copied to clipboard!'))
+        .catch(() => showPrompt({
+            title: 'Invite Link',
+            label: 'Copy this link and share it:',
+            defaultValue: link,
+            onConfirm: () => {},
+        }));
+}
+
+async function teamRevokeInvite(inviteId) {
+    showConfirm({
+        title: 'Revoke Invitation',
+        message: 'Revoke this invitation? It will no longer work.',
+        onConfirm: async () => {
+            try {
+                await fetch(`/api/v1/auth/org/invitations/${inviteId}`, { method: 'DELETE' });
+                showToast('Invitation revoked');
+                teamLoadInvitations();
+            } catch { showToast('Failed to revoke invitation'); }
+        },
+    });
+}
+
+function teamOpenInvite() {
+    const modal = document.getElementById('team-invite-modal');
+    if (modal) {
+        document.getElementById('team-invite-error').textContent = '';
+        document.getElementById('team-invite-email').value = '';
+        document.getElementById('team-invite-role').value = 'analyst';
+        document.getElementById('team-invite-expire').value = '72';
+        modal.classList.remove('hidden');
+        document.getElementById('team-invite-email').focus();
+    }
+}
+
+function teamCloseInvite() {
+    const modal = document.getElementById('team-invite-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function teamCreateInvite() {
+    const email = document.getElementById('team-invite-email')?.value?.trim() || null;
+    const role = document.getElementById('team-invite-role')?.value || 'analyst';
+    const hours = parseInt(document.getElementById('team-invite-expire')?.value || '72', 10);
+    const errEl = document.getElementById('team-invite-error');
+    if (errEl) errEl.textContent = '';
+
+    try {
+        const res = await fetch('/api/v1/auth/org/invitations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email || null, role, expire_hours: hours }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            if (errEl) errEl.textContent = err.detail || 'Failed to create invitation';
+            return;
+        }
+        const inv = await res.json();
+        teamCloseInvite();
+        teamCopyInviteLink(inv.token);
+        teamLoadInvitations();
+    } catch(e) {
+        if (errEl) errEl.textContent = String(e);
+    }
+}
+
+async function teamEditOrg() {
+    try {
+        const res = await fetch('/api/v1/auth/org');
+        if (!res.ok) return;
+        const org = await res.json();
+        showPrompt({
+            title: 'Edit Organization',
+            label: 'Organization Name',
+            defaultValue: org.name || '',
+            onConfirm: async (name) => {
+                if (!name.trim()) return;
+                try {
+                    await fetch('/api/v1/auth/org', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: name.trim() }),
+                    });
+                    showToast('Organization name updated');
+                    teamLoadOrg();
+                } catch { showToast('Failed to update organization'); }
+            },
+        });
+    } catch { showToast('Could not load org details'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MISSION ASSIGNMENT MODAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _assignModalUsers = [];
+
+async function openAssignModal(sessionId, currentAssignedTo) {
+    const modal = document.getElementById('assign-modal');
+    const select = document.getElementById('assign-user-select');
+    const titleEl = document.getElementById('assign-modal-session');
+    if (!modal || !select) return;
+
+    if (titleEl) titleEl.textContent = sessionId.slice(0, 8).toUpperCase();
+
+    select.innerHTML = '<option value="">— Unassign (no assignee) —</option>';
+    select.disabled = true;
+    modal.dataset.sessionId = sessionId;
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/v1/auth/users');
+        _assignModalUsers = res.ok ? await res.json() : [];
+    } catch { _assignModalUsers = []; }
+
+    select.disabled = false;
+    _assignModalUsers.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        const roleLabel = _ROLE_LABELS_EX[u.role] || u.role;
+        opt.textContent = `${u.full_name || u.email} — ${roleLabel}`;
+        if (u.id === currentAssignedTo) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function closeAssignModal() {
+    const modal = document.getElementById('assign-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function confirmAssign() {
+    const modal = document.getElementById('assign-modal');
+    const select = document.getElementById('assign-user-select');
+    if (!modal || !select) return;
+
+    const sid = modal.dataset.sessionId;
+    const userId = select.value || null;
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${sid}/assign`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assigned_to: userId }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Assignment failed');
+            return;
+        }
+        const assigneeName = userId
+            ? (_assignModalUsers.find(u => u.id === userId)?.full_name || _assignModalUsers.find(u => u.id === userId)?.email || 'user')
+            : null;
+        showToast(assigneeName ? `Mission assigned to ${assigneeName}` : 'Assignment removed');
+        closeAssignModal();
+        openSessionSwitcher();
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
 }

@@ -479,6 +479,62 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v12 applied: users indexes")
 
+        if version < 15:
+            # Add created_by + assigned_to to pentest_sessions for RBAC-based filtering
+            for col, typedef in [
+                ("created_by",  "TEXT"),
+                ("assigned_to", "TEXT"),
+            ]:
+                try:
+                    await db.execute(
+                        f"ALTER TABLE pentest_sessions ADD COLUMN {col} {typedef}"
+                    )
+                except Exception:
+                    pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (15, time.time(), "pentest_sessions: created_by + assigned_to for RBAC"),
+            )
+            await db.commit()
+            logger.info("DB migration v15 applied: session ownership + assignment")
+
+        if version < 14:
+            # Enrich organizations + add org_invitations for invite-based onboarding
+            for col, typedef in [
+                ("slug",                 "TEXT NOT NULL DEFAULT ''"),
+                ("owner_id",             "TEXT"),
+                ("allowed_email_domain", "TEXT NOT NULL DEFAULT ''"),
+            ]:
+                try:
+                    await db.execute(
+                        f"ALTER TABLE organizations ADD COLUMN {col} {typedef}"
+                    )
+                except Exception:
+                    pass  # column may already exist
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS org_invitations (
+                    id          TEXT PRIMARY KEY,
+                    token       TEXT NOT NULL UNIQUE,
+                    org_id      TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    role        TEXT NOT NULL DEFAULT 'viewer',
+                    invited_by  TEXT NOT NULL REFERENCES users(id),
+                    email       TEXT NOT NULL DEFAULT '',
+                    expires_at  REAL NOT NULL,
+                    used_at     REAL,
+                    created_at  REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_invitations_token  ON org_invitations(token);
+                CREATE INDEX IF NOT EXISTS idx_invitations_org    ON org_invitations(org_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_org_slug
+                    ON organizations(slug) WHERE slug != '';
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (14, time.time(), "RBAC: org enhancements (slug, owner_id, allowed_email_domain) + org_invitations"),
+            )
+            await db.commit()
+            logger.info("DB migration v14 applied: org enhancements + org_invitations")
+
     logger.info("Database ready: %s", path)
 
 

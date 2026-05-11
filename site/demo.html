@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TIRPAN — Interactive Demo</title>
+<link rel="icon" href="favicon.png" type="image/png"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<script>
+tailwind.config = {
+  darkMode:'class',
+  theme:{extend:{
+    colors:{
+      primary:'#ccff00', surface:'#0a0a0a', card:'#111111', bdr:'#1a1a1a',
+      dim:'#888888', danger:'#ff3b3b', warn:'#ff9500',
+    },
+    fontFamily:{
+      display:['Space Grotesk','sans-serif'],
+      sans:['Inter','sans-serif'],
+      mono:['JetBrains Mono','monospace'],
+    }
+  }}
+}
+</script>
+<style>
+  *{box-sizing:border-box}
+  body{background:#000;color:#fff;font-family:'Inter',sans-serif;overflow:hidden;height:100vh}
+  .mono{font-family:'JetBrains Mono',monospace}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:#000}
+  ::-webkit-scrollbar-thumb{background:#222;border-radius:2px}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+  .cursor{animation:blink 1s step-end infinite;color:#ccff00}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+  .pulse{animation:pulse 1.4s ease-in-out infinite}
+  @keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+  .slide-in{animation:slideIn .3s ease forwards}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .fade-in{animation:fadeIn .35s ease forwards}
+  .view{display:none}
+  .view.active{display:flex;flex-direction:column;flex:1;overflow:hidden}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:2px;cursor:pointer;font-size:13px;color:#888;transition:background .15s,color .15s;white-space:nowrap}
+  .nav-item:hover{background:#111;color:#ccc}
+  .nav-item.active{background:rgba(204,255,0,.1);color:#ccff00;border-left:2px solid #ccff00}
+  .nav-item.active .nav-icon{color:#ccff00}
+  .stat-card{background:#111;border:1px solid #1a1a1a;padding:20px}
+  .finding-critical{background:rgba(255,59,59,.08);border:1px solid rgba(255,59,59,.2);border-left:3px solid #ff3b3b}
+  .finding-high{background:rgba(255,149,0,.06);border:1px solid rgba(255,149,0,.15);border-left:3px solid #ff9500}
+  .finding-medium{background:rgba(234,179,8,.05);border:1px solid rgba(234,179,8,.1);border-left:3px solid #eab308}
+  .log-entry{padding:8px 12px;border-bottom:1px solid #0d0d0d;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6}
+  .log-entry:last-child{border-bottom:none}
+  .badge{padding:1px 7px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:.04em}
+  .badge-thought{background:rgba(59,130,246,.18);color:#93c5fd}
+  .badge-act{background:rgba(204,255,0,.15);color:#ccff00}
+  .badge-observe{background:rgba(234,179,8,.15);color:#fbbf24}
+  .badge-reflect{background:rgba(168,85,247,.15);color:#c084fc}
+  .badge-done{background:rgba(204,255,0,.25);color:#ccff00;font-weight:700}
+  .badge-error{background:rgba(255,59,59,.15);color:#ff5555}
+  .btn-primary{background:#ccff00;color:#000;font-family:'Space Grotesk',sans-serif;font-weight:700;padding:8px 20px;font-size:13px;letter-spacing:.04em;cursor:pointer;border:none;transition:filter .15s}
+  .btn-primary:hover{filter:brightness(1.1)}
+  .btn-ghost{background:transparent;color:#888;font-family:'Space Grotesk',sans-serif;font-size:13px;padding:8px 16px;border:1px solid #1a1a1a;cursor:pointer;transition:border-color .15s,color .15s}
+  .btn-ghost:hover{border-color:#444;color:#ccc}
+  .btn-danger{background:rgba(255,59,59,.12);color:#ff5555;border:1px solid rgba(255,59,59,.25);font-size:12px;padding:6px 14px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:background .15s}
+  .btn-danger:hover{background:rgba(255,59,59,.2)}
+  .input-field{background:#0a0a0a;border:1px solid #1a1a1a;color:#fff;padding:8px 12px;font-family:'Inter',sans-serif;font-size:13px;width:100%;outline:none;transition:border-color .15s}
+  .input-field:focus{border-color:#ccff00}
+  select.input-field option{background:#111}
+  .table-row{border-bottom:1px solid #111;transition:background .15s;cursor:pointer}
+  .table-row:hover{background:#0d0d0d}
+  .progress-bar{height:3px;background:#1a1a1a;overflow:hidden}
+  .progress-fill{height:100%;background:#ccff00;transition:width .5s ease}
+  .tag{font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 6px;display:inline-block}
+  .tag-crit{background:rgba(255,59,59,.12);color:#ff5555;border:1px solid rgba(255,59,59,.25)}
+  .tag-high{background:rgba(255,149,0,.12);color:#ff9500;border:1px solid rgba(255,149,0,.25)}
+  .tag-med{background:rgba(234,179,8,.1);color:#eab308;border:1px solid rgba(234,179,8,.2)}
+  .tag-info{background:rgba(59,130,246,.1);color:#60a5fa;border:1px solid rgba(59,130,246,.2)}
+  .alert-item{border-left:2px solid #ff3b3b;padding:8px 12px;background:rgba(255,59,59,.04);margin-bottom:4px;font-size:12px;font-family:'JetBrains Mono',monospace}
+  .sidebar-collapsed .nav-label{display:none}
+  .sidebar-collapsed .nav-item{justify-content:center;padding:10px 8px}
+  .sidebar-collapsed{width:52px!important}
+</style>
+</head>
+<body class="flex flex-col">
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="flex items-center justify-between px-4 py-2.5 border-b border-bdr bg-surface shrink-0" style="height:48px">
+  <div class="flex items-center gap-3">
+    <button onclick="window.location.href='index.html'" class="text-dim hover:text-white transition-colors text-sm font-mono">← back to site</button>
+    <div class="w-px h-4 bg-bdr"></div>
+    <img src="logo.png" alt="TIRPAN" class="w-6 h-6 object-contain"/>
+    <span class="font-display font-bold text-sm">TIRPAN</span>
+    <span class="text-dim font-mono text-xs">v1.0.0</span>
+  </div>
+  <div class="flex items-center gap-4">
+    <div class="flex items-center gap-1.5 text-xs font-mono text-dim">
+      <span class="w-1.5 h-1.5 bg-primary rounded-full pulse"></span>
+      <span class="text-primary">DEMO MODE</span>
+    </div>
+    <div class="text-xs font-mono text-dim border border-bdr px-3 py-1">
+      192.168.56.101 · Metasploitable 2
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MAIN LAYOUT ═══ -->
+<div class="flex flex-1 overflow-hidden">
+
+  <!-- SIDEBAR -->
+  <div id="sidebar" class="w-56 bg-surface border-r border-bdr flex flex-col shrink-0 transition-all duration-200" style="min-width:52px">
+    <div class="flex items-center justify-between px-3 py-3 border-b border-bdr">
+      <span class="nav-label text-xs font-mono text-dim tracking-widest">NAVIGATION</span>
+      <button onclick="toggleSidebar()" class="text-dim hover:text-white text-xs p-1 transition-colors" title="Toggle sidebar">⊟</button>
+    </div>
+    <nav class="flex-1 py-2 px-2 space-y-0.5">
+      <div class="nav-item active" onclick="showView('dashboard')" id="nav-dashboard">
+        <span class="nav-icon text-base">⊞</span>
+        <span class="nav-label">Dashboard</span>
+      </div>
+      <div class="nav-item" onclick="showView('new-session')" id="nav-new-session">
+        <span class="nav-icon text-base">＋</span>
+        <span class="nav-label">New Session</span>
+      </div>
+      <div class="nav-item" onclick="showView('live')" id="nav-live">
+        <span class="nav-icon text-base">▶</span>
+        <span class="nav-label">Live Session</span>
+        <span id="live-badge" class="nav-label ml-auto text-xs font-mono bg-primary/20 text-primary px-1.5 py-0.5 hidden">LIVE</span>
+      </div>
+      <div class="nav-item" onclick="showView('sessions')" id="nav-sessions">
+        <span class="nav-icon text-base">≡</span>
+        <span class="nav-label">Sessions</span>
+      </div>
+      <div class="nav-item" onclick="showView('report')" id="nav-report">
+        <span class="nav-icon text-base">📄</span>
+        <span class="nav-label">Report Viewer</span>
+      </div>
+      <div class="nav-item" onclick="showView('defense')" id="nav-defense">
+        <span class="nav-icon text-base">🛡</span>
+        <span class="nav-label">Defense Monitor</span>
+      </div>
+      <div class="nav-item" onclick="showView('tools')" id="nav-tools">
+        <span class="nav-icon text-base">🔧</span>
+        <span class="nav-label">Tool Status</span>
+      </div>
+    </nav>
+    <div class="border-t border-bdr p-3 space-y-1">
+      <div class="nav-label text-xs font-mono text-dim">
+        <div class="flex items-center gap-1.5 mb-1"><span class="w-1.5 h-1.5 bg-primary rounded-full pulse"></span> All systems nominal</div>
+        <div class="text-dim/60">Model: claude-3.7-sonnet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTENT AREA -->
+  <div class="flex-1 overflow-hidden flex flex-col">
+
+    <!-- ═══ VIEW: DASHBOARD ═══ -->
+    <div class="view active" id="view-dashboard">
+      <div class="border-b border-bdr px-6 py-3 flex items-center justify-between shrink-0">
+        <div>
+          <h1 class="font-display font-bold text-base">Dashboard</h1>
+          <p class="text-dim text-xs font-mono">Overview of all sessions and findings</p>
+        </div>
+        <button class="btn-primary text-xs" onclick="showView('new-session')">＋ NEW SESSION</button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <!-- Stats -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div class="stat-card fade-in">
+            <div class="text-dim text-xs font-mono mb-2">TOTAL SESSIONS</div>
+            <div class="font-display text-3xl font-bold text-white mb-1">3</div>
+            <div class="text-dim text-xs">↑ 1 this week</div>
+          </div>
+          <div class="stat-card fade-in">
+            <div class="text-dim text-xs font-mono mb-2">CRITICAL FINDINGS</div>
+            <div class="font-display text-3xl font-bold text-danger mb-1">9</div>
+            <div class="text-dim text-xs">Across all sessions</div>
+          </div>
+          <div class="stat-card fade-in">
+            <div class="text-dim text-xs font-mono mb-2">EXPLOITS CONFIRMED</div>
+            <div class="font-display text-3xl font-bold text-primary mb-1">6</div>
+            <div class="text-dim text-xs">Root shells obtained</div>
+          </div>
+          <div class="stat-card fade-in">
+            <div class="text-dim text-xs font-mono mb-2">TOOLS HEALTHY</div>
+            <div class="font-display text-3xl font-bold text-green-400 mb-1">12<span class="text-dim text-lg">/14</span></div>
+            <div class="text-dim text-xs">2 optional missing</div>
+          </div>
+        </div>
+
+        <!-- Recent Sessions -->
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="font-display font-semibold text-sm">Recent Sessions</h2>
+            <button onclick="showView('sessions')" class="text-primary text-xs font-mono hover:underline">view all →</button>
+          </div>
+          <div class="border border-bdr overflow-hidden">
+            <table class="w-full text-sm">
+              <thead><tr class="bg-surface border-b border-bdr">
+                <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">SESSION ID</th>
+                <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">TARGET</th>
+                <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">MODE</th>
+                <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">STATUS</th>
+                <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">FINDINGS</th>
+                <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">DURATION</th>
+                <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">STARTED</th>
+              </tr></thead>
+              <tbody>
+                <tr class="table-row" onclick="showView('live')">
+                  <td class="px-4 py-3 font-mono text-xs text-primary">TRP-DEMO-003</td>
+                  <td class="px-4 py-3 font-mono text-xs">10.10.14.56</td>
+                  <td class="px-4 py-3"><span class="tag tag-crit">FULL AUTO</span></td>
+                  <td class="px-4 py-3"><span class="flex items-center gap-1.5 text-xs font-mono text-green-400"><span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>Completed</span></td>
+                  <td class="px-4 py-3 text-xs font-mono"><span class="text-danger">3C</span> <span class="text-warn">2H</span></td>
+                  <td class="px-4 py-3 text-xs font-mono text-dim">12m 44s</td>
+                  <td class="px-4 py-3 text-xs font-mono text-dim">Today 09:14</td>
+                </tr>
+                <tr class="table-row" onclick="showView('sessions')">
+                  <td class="px-4 py-3 font-mono text-xs text-primary">TRP-DEMO-002</td>
+                  <td class="px-4 py-3 font-mono text-xs">192.168.1.0/24</td>
+                  <td class="px-4 py-3"><span class="tag tag-info">SCAN ONLY</span></td>
+                  <td class="px-4 py-3"><span class="flex items-center gap-1.5 text-xs font-mono text-green-400"><span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>Completed</span></td>
+                  <td class="px-4 py-3 text-xs font-mono"><span class="text-warn">4H</span> <span class="text-yellow-400">6M</span></td>
+                  <td class="px-4 py-3 text-xs font-mono text-dim">8m 12s</td>
+                  <td class="px-4 py-3 text-xs font-mono text-dim">Yesterday 16:30</td>
+                </tr>
+                <tr class="table-row" onclick="showView('report')">
+                  <td class="px-4 py-3 font-mono text-xs text-primary">TRP-DEMO-001</td>
+                  <td class="px-4 py-3 font-mono text-xs">192.168.56.101</td>
+                  <td class="px-4 py-3"><span class="tag tag-crit">FULL AUTO</span></td>
+                  <td class="px-4 py-3"><span class="flex items-center gap-1.5 text-xs font-mono text-green-400"><span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>Completed</span></td>
+                  <td class="px-4 py-3 text-xs font-mono"><span class="text-danger">3C</span> <span class="text-warn">2H</span> <span class="text-yellow-400">3M</span></td>
+                  <td class="px-4 py-3 text-xs font-mono text-dim">4m 32s</td>
+                  <td class="px-4 py-3 text-xs font-mono text-dim">May 10, 14:23</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Top Findings -->
+        <div>
+          <h2 class="font-display font-semibold text-sm mb-3">Top Critical Findings</h2>
+          <div class="space-y-2">
+            <div class="finding-critical p-3 text-xs font-mono cursor-pointer hover:opacity-90" onclick="showView('report')">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-bold">vsftpd 2.3.4 Backdoor Command Execution</span>
+                <span class="tag-crit tag">CVSS 10.0</span>
+              </div>
+              <div class="text-dim">192.168.56.101:21 · CVE-2011-2523 · Confirmed exploited → uid=0(root)</div>
+            </div>
+            <div class="finding-critical p-3 text-xs font-mono cursor-pointer hover:opacity-90" onclick="showView('report')">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-bold">Samba "username map script" RCE</span>
+                <span class="tag-crit tag">CVSS 9.3</span>
+              </div>
+              <div class="text-dim">192.168.56.101:445 · CVE-2007-2447 · Confirmed exploited → uid=0(root)</div>
+            </div>
+            <div class="finding-critical p-3 text-xs font-mono cursor-pointer hover:opacity-90" onclick="showView('report')">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-bold">DistCC Daemon Remote Code Execution</span>
+                <span class="tag-crit tag">CVSS 9.3</span>
+              </div>
+              <div class="text-dim">192.168.56.101:3632 · CVE-2004-2687 · Shell as daemon user</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: NEW SESSION ═══ -->
+    <div class="view" id="view-new-session">
+      <div class="border-b border-bdr px-6 py-3 shrink-0">
+        <h1 class="font-display font-bold text-base">New Session</h1>
+        <p class="text-dim text-xs font-mono">Configure and launch a new engagement</p>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div class="max-w-2xl">
+          <div class="border border-warn/20 bg-warn/5 p-3 text-xs font-mono text-warn/80 mb-6 flex items-start gap-2">
+            <span class="mt-0.5">⚠</span>
+            <span>Only target systems you own or have explicit written authorization to test. Demo mode uses mock data — no real connections are made.</span>
+          </div>
+          <form onsubmit="startDemoSession(event)" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label class="block text-xs font-mono text-dim mb-2">TARGET <span class="text-danger">*</span></label>
+                <input id="f-target" class="input-field" type="text" value="192.168.56.101" placeholder="IP, CIDR, hostname, or URL"/>
+                <div class="text-dim text-xs mt-1 font-mono">e.g. 10.0.0.1, 192.168.1.0/24</div>
+              </div>
+              <div>
+                <label class="block text-xs font-mono text-dim mb-2">SCOPE (CIDR boundary)</label>
+                <input id="f-scope" class="input-field" type="text" value="192.168.56.0/24" placeholder="192.168.1.0/24"/>
+              </div>
+              <div>
+                <label class="block text-xs font-mono text-dim mb-2">MODE</label>
+                <select id="f-mode" class="input-field">
+                  <option value="full_auto">Full Auto — exploit everything</option>
+                  <option value="ask_before_exploit">Ask Before Exploit</option>
+                  <option value="scan_only">Scan Only — no exploitation</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-mono text-dim mb-2">SPEED PROFILE</label>
+                <select id="f-speed" class="input-field">
+                  <option value="normal">Normal (T3 — balanced)</option>
+                  <option value="aggressive">Aggressive (T5 — lab/CTF)</option>
+                  <option value="stealth">Stealth (T1 — IDS evasive)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-mono text-dim mb-2">MAX ITERATIONS</label>
+                <input id="f-iters" class="input-field" type="number" value="50" min="1" max="200"/>
+              </div>
+              <div>
+                <label class="block text-xs font-mono text-dim mb-2">TIME LIMIT (seconds, 0 = none)</label>
+                <input id="f-timelimit" class="input-field" type="number" value="0" min="0"/>
+              </div>
+            </div>
+            <!-- Advanced -->
+            <div>
+              <details class="group">
+                <summary class="text-xs font-mono text-dim cursor-pointer hover:text-white select-none mb-3">▸ Advanced Options</summary>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 pt-3 border-t border-bdr">
+                  <div>
+                    <label class="block text-xs font-mono text-dim mb-2">EXCLUDE IPs (comma-separated)</label>
+                    <input class="input-field" type="text" placeholder="192.168.1.1, 192.168.1.254"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-mono text-dim mb-2">EXCLUDE PORTS</label>
+                    <input class="input-field" type="text" placeholder="22, 443"/>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-mono text-dim mb-2">LLM MODEL</label>
+                    <select class="input-field">
+                      <option>claude-3.7-sonnet (default)</option>
+                      <option>gpt-4o</option>
+                      <option>gemini-2.0-flash</option>
+                      <option>llama3.1:8b (local)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-mono text-dim mb-2">RATE LIMIT (req/s)</label>
+                    <input class="input-field" type="number" value="10" min="1" max="100"/>
+                  </div>
+                </div>
+              </details>
+            </div>
+            <!-- Safety summary -->
+            <div class="border border-bdr p-4 bg-surface">
+              <div class="text-xs font-mono text-dim mb-3">ACTIVE SAFETY GUARDRAILS</div>
+              <div class="grid grid-cols-2 gap-y-1.5 text-xs font-mono">
+                <span class="flex gap-2 text-dim"><span class="text-primary">✓</span> Never-scan list enforced</span>
+                <span class="flex gap-2 text-dim"><span class="text-primary">✓</span> Scope CIDR boundary active</span>
+                <span class="flex gap-2 text-dim"><span class="text-primary">✓</span> DoS exploits blocked</span>
+                <span class="flex gap-2 text-dim"><span class="text-primary">✓</span> Destructive payloads blocked</span>
+                <span class="flex gap-2 text-dim"><span class="text-primary">✓</span> Rate limiting: 10 req/s</span>
+                <span class="flex gap-2 text-dim"><span class="text-primary">✓</span> Kill switch available</span>
+              </div>
+            </div>
+            <div class="flex gap-4">
+              <button type="submit" class="btn-primary">▶ START DEMO ENGAGEMENT</button>
+              <button type="button" class="btn-ghost" onclick="showView('dashboard')">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: LIVE SESSION ═══ -->
+    <div class="view" id="view-live">
+      <!-- Session header -->
+      <div class="border-b border-bdr px-4 py-2.5 flex items-center gap-4 shrink-0 bg-surface/50">
+        <div class="flex items-center gap-2">
+          <span id="live-status-dot" class="w-2 h-2 bg-primary rounded-full pulse"></span>
+          <span id="live-status-text" class="font-mono text-xs text-primary font-bold">RUNNING</span>
+        </div>
+        <div class="w-px h-4 bg-bdr"></div>
+        <span class="font-mono text-xs text-dim">TRP-DEMO-001</span>
+        <div class="w-px h-4 bg-bdr"></div>
+        <span class="font-mono text-xs"><span class="text-dim">target:</span> <span id="live-target">192.168.56.101</span></span>
+        <div class="w-px h-4 bg-bdr"></div>
+        <span class="font-mono text-xs"><span class="text-dim">mode:</span> <span class="text-primary">FULL AUTO</span></span>
+        <div class="w-px h-4 bg-bdr"></div>
+        <span class="font-mono text-xs text-dim">elapsed: <span id="live-timer" class="text-white">00:00</span></span>
+        <div class="ml-auto flex items-center gap-3">
+          <div class="progress-bar w-32">
+            <div class="progress-fill" id="live-progress" style="width:0%"></div>
+          </div>
+          <button id="kill-btn" class="btn-danger" onclick="killSession()">■ KILL SWITCH</button>
+        </div>
+      </div>
+
+      <div class="flex flex-1 overflow-hidden">
+        <!-- Agent Log -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+          <div class="border-b border-bdr px-4 py-2 flex items-center justify-between shrink-0">
+            <span class="text-xs font-mono text-dim">AGENT REASONING LOG</span>
+            <span id="live-iter" class="text-xs font-mono text-dim">iteration: <span class="text-white">0</span> / 50</span>
+          </div>
+          <div id="log-container" class="flex-1 overflow-y-auto font-mono text-xs" style="background:#030303">
+            <div class="p-4 text-dim text-xs font-mono" id="log-waiting">Waiting for session to start... <span class="cursor">▋</span></div>
+          </div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="w-64 border-l border-bdr flex flex-col shrink-0 overflow-hidden">
+          <!-- Findings counter -->
+          <div class="border-b border-bdr p-4">
+            <div class="text-xs font-mono text-dim mb-3">FINDINGS</div>
+            <div class="space-y-2 text-sm font-mono">
+              <div class="flex items-center justify-between">
+                <span class="text-danger text-xs">CRITICAL</span>
+                <span id="cnt-crit" class="font-bold text-lg text-white">0</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-warn text-xs">HIGH</span>
+                <span id="cnt-high" class="font-bold text-lg text-white">0</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-yellow-400 text-xs">MEDIUM</span>
+                <span id="cnt-med" class="font-bold text-lg text-white">0</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-blue-400 text-xs">LOW</span>
+                <span id="cnt-low" class="font-bold text-lg text-white">0</span>
+              </div>
+            </div>
+          </div>
+          <!-- Host info -->
+          <div class="border-b border-bdr p-4">
+            <div class="text-xs font-mono text-dim mb-2">TARGET INFO</div>
+            <div id="host-info" class="text-xs font-mono text-dim space-y-1">
+              <div>Hosts alive: <span id="info-hosts" class="text-white">—</span></div>
+              <div>Open ports: <span id="info-ports" class="text-white">—</span></div>
+              <div>Services: <span id="info-svcs" class="text-white">—</span></div>
+              <div>Sessions: <span id="info-sessions" class="text-white">—</span></div>
+            </div>
+          </div>
+          <!-- Tools used -->
+          <div class="border-b border-bdr p-4">
+            <div class="text-xs font-mono text-dim mb-2">TOOLS USED</div>
+            <div id="tools-used" class="text-xs font-mono space-y-1"></div>
+          </div>
+          <!-- Live findings list -->
+          <div class="flex-1 overflow-y-auto p-4">
+            <div class="text-xs font-mono text-dim mb-2">LIVE FINDINGS</div>
+            <div id="live-findings" class="space-y-2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: SESSIONS ═══ -->
+    <div class="view" id="view-sessions">
+      <div class="border-b border-bdr px-6 py-3 flex items-center justify-between shrink-0">
+        <div>
+          <h1 class="font-display font-bold text-base">Sessions</h1>
+          <p class="text-dim text-xs font-mono">All past and active engagements</p>
+        </div>
+        <button class="btn-primary text-xs" onclick="showView('new-session')">＋ NEW SESSION</button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div class="border border-bdr overflow-hidden">
+          <table class="w-full text-sm">
+            <thead><tr class="bg-surface border-b border-bdr">
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">SESSION ID</th>
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">TARGET</th>
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">SCOPE</th>
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">MODE</th>
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">STATUS</th>
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">C/H/M/L</th>
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">DURATION</th>
+              <th class="text-left px-4 py-2.5 text-dim text-xs font-mono">DATE</th>
+              <th class="px-4 py-2.5"></th>
+            </tr></thead>
+            <tbody>
+              <tr class="table-row">
+                <td class="px-4 py-3 font-mono text-xs text-primary">TRP-DEMO-003</td>
+                <td class="px-4 py-3 font-mono text-xs">10.10.14.56</td>
+                <td class="px-4 py-3 font-mono text-xs text-dim">10.10.14.0/24</td>
+                <td class="px-4 py-3"><span class="tag tag-crit">FULL AUTO</span></td>
+                <td class="px-4 py-3"><span class="text-xs font-mono text-green-400">✓ Completed</span></td>
+                <td class="px-4 py-3 text-xs font-mono"><span class="text-danger">3</span>/<span class="text-warn">2</span>/<span class="text-yellow-400">1</span>/<span class="text-dim">0</span></td>
+                <td class="px-4 py-3 text-xs font-mono text-dim">12m 44s</td>
+                <td class="px-4 py-3 text-xs font-mono text-dim">2026-05-11 09:14</td>
+                <td class="px-4 py-3"><button onclick="showView('live')" class="text-xs font-mono text-primary hover:underline">view →</button></td>
+              </tr>
+              <tr class="table-row">
+                <td class="px-4 py-3 font-mono text-xs text-primary">TRP-DEMO-002</td>
+                <td class="px-4 py-3 font-mono text-xs">192.168.1.0/24</td>
+                <td class="px-4 py-3 font-mono text-xs text-dim">192.168.1.0/24</td>
+                <td class="px-4 py-3"><span class="tag tag-info">SCAN ONLY</span></td>
+                <td class="px-4 py-3"><span class="text-xs font-mono text-green-400">✓ Completed</span></td>
+                <td class="px-4 py-3 text-xs font-mono"><span class="text-danger">0</span>/<span class="text-warn">4</span>/<span class="text-yellow-400">6</span>/<span class="text-dim">3</span></td>
+                <td class="px-4 py-3 text-xs font-mono text-dim">8m 12s</td>
+                <td class="px-4 py-3 text-xs font-mono text-dim">2026-05-10 16:30</td>
+                <td class="px-4 py-3"><button onclick="showView('sessions')" class="text-xs font-mono text-primary hover:underline">view →</button></td>
+              </tr>
+              <tr class="table-row">
+                <td class="px-4 py-3 font-mono text-xs text-primary">TRP-DEMO-001</td>
+                <td class="px-4 py-3 font-mono text-xs">192.168.56.101</td>
+                <td class="px-4 py-3 font-mono text-xs text-dim">192.168.56.0/24</td>
+                <td class="px-4 py-3"><span class="tag tag-crit">FULL AUTO</span></td>
+                <td class="px-4 py-3"><span class="text-xs font-mono text-green-400">✓ Completed</span></td>
+                <td class="px-4 py-3 text-xs font-mono"><span class="text-danger">3</span>/<span class="text-warn">2</span>/<span class="text-yellow-400">3</span>/<span class="text-dim">1</span></td>
+                <td class="px-4 py-3 text-xs font-mono text-dim">4m 32s</td>
+                <td class="px-4 py-3 text-xs font-mono text-dim">2026-05-10 14:23</td>
+                <td class="px-4 py-3"><button onclick="showView('report')" class="text-xs font-mono text-primary hover:underline">report →</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: REPORT ═══ -->
+    <div class="view" id="view-report">
+      <div class="border-b border-bdr px-6 py-3 flex items-center justify-between shrink-0">
+        <div>
+          <h1 class="font-display font-bold text-base">Vulnerability Report</h1>
+          <p class="text-dim text-xs font-mono">TRP-DEMO-001 · 192.168.56.101 · Generated 2026-05-10 14:28</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn-ghost text-xs">↓ Download PDF</button>
+          <button class="btn-ghost text-xs">↓ Download HTML</button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div class="max-w-4xl">
+          <!-- Executive Summary -->
+          <div class="border border-bdr p-5 mb-6 bg-surface/30">
+            <h2 class="font-display font-bold text-sm text-primary mb-3">EXECUTIVE SUMMARY</h2>
+            <p class="text-sm text-dim leading-relaxed mb-4">TIRPAN conducted a fully autonomous penetration test against <code>192.168.56.101</code> (Metasploitable 2) on May 10, 2026. The engagement ran in <strong class="text-white">Full Auto</strong> mode with scope restricted to <code>192.168.56.0/24</code>. The agent completed the engagement in <strong class="text-white">4 minutes 32 seconds</strong> with <strong class="text-danger">3 critical</strong>, <strong class="text-warn">2 high</strong>, and <strong class="text-yellow-400">3 medium</strong> findings.</p>
+            <div class="grid grid-cols-4 gap-4 text-center">
+              <div class="border border-danger/20 bg-danger/5 p-3">
+                <div class="text-2xl font-bold text-danger">3</div>
+                <div class="text-xs font-mono text-dim">CRITICAL</div>
+              </div>
+              <div class="border border-warn/20 bg-warn/5 p-3">
+                <div class="text-2xl font-bold text-warn">2</div>
+                <div class="text-xs font-mono text-dim">HIGH</div>
+              </div>
+              <div class="border border-yellow-500/20 bg-yellow-500/5 p-3">
+                <div class="text-2xl font-bold text-yellow-400">3</div>
+                <div class="text-xs font-mono text-dim">MEDIUM</div>
+              </div>
+              <div class="border border-bdr bg-surface p-3">
+                <div class="text-2xl font-bold text-dim">1</div>
+                <div class="text-xs font-mono text-dim">LOW</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Target Info -->
+          <div class="grid grid-cols-2 gap-4 mb-6 text-xs font-mono">
+            <div class="border border-bdr p-4 bg-surface/20">
+              <div class="text-primary mb-2">TARGET DETAILS</div>
+              <div class="space-y-1 text-dim">
+                <div>IP: <span class="text-white">192.168.56.101</span></div>
+                <div>Hostname: <span class="text-white">metasploitable</span></div>
+                <div>OS: <span class="text-white">Linux 2.6.24 (Ubuntu 8.04)</span></div>
+                <div>Open Ports: <span class="text-white">23</span></div>
+              </div>
+            </div>
+            <div class="border border-bdr p-4 bg-surface/20">
+              <div class="text-primary mb-2">ENGAGEMENT DETAILS</div>
+              <div class="space-y-1 text-dim">
+                <div>Mode: <span class="text-white">Full Auto</span></div>
+                <div>Duration: <span class="text-white">4m 32s</span></div>
+                <div>Iterations: <span class="text-white">14 / 50</span></div>
+                <div>Root shells: <span class="text-danger font-bold">3</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Findings -->
+          <h2 class="font-display font-bold text-sm mb-4">VULNERABILITIES</h2>
+
+          <!-- Finding 1 -->
+          <div class="finding-critical p-5 mb-4">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <span class="tag tag-crit mr-2">CRITICAL</span>
+                <span class="font-display font-bold">vsftpd 2.3.4 Backdoor Command Execution</span>
+              </div>
+              <div class="text-right shrink-0 ml-4">
+                <div class="text-2xl font-bold text-danger font-display">10.0</div>
+                <div class="text-xs font-mono text-dim">CVSS v3.1</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-xs font-mono mb-4">
+              <div><span class="text-dim">Port:</span> <span>21/tcp (FTP)</span></div>
+              <div><span class="text-dim">CVE:</span> <span>CVE-2011-2523</span></div>
+              <div><span class="text-dim">Status:</span> <span class="text-danger">Confirmed Exploited</span></div>
+            </div>
+            <details>
+              <summary class="text-xs font-mono text-primary cursor-pointer mb-2">▸ Description &amp; Evidence</summary>
+              <div class="mt-3 space-y-3 text-sm text-dim leading-relaxed">
+                <p>The vsftpd 2.3.4 package contains a backdoor introduced by an unauthorized modification to the source code. When a username containing the string <code>:)</code> is sent, the daemon opens a shell listener on TCP port 6200, providing unauthenticated root access.</p>
+                <div class="bg-black border border-bdr p-3 text-xs font-mono mt-2">
+                  <div class="text-dim mb-1"># Exploit Evidence</div>
+                  <div>[*] 192.168.56.101:21 - Banner: "220 (vsFTPd 2.3.4)"</div>
+                  <div>[*] 192.168.56.101:21 - USER: 331 Please specify the password.</div>
+                  <div class="text-green-400">[+] 192.168.56.101:21 - UID: uid=0(root) gid=0(root)</div>
+                  <div class="text-green-400">[+] Command shell session 1 opened (192.168.56.102:46821 → 192.168.56.101:6200)</div>
+                </div>
+                <p><strong class="text-white">Remediation:</strong> Upgrade vsftpd to version 2.3.5 or later. Verify the integrity of any vsftpd installation using known-good checksums from the official distribution.</p>
+              </div>
+            </details>
+          </div>
+
+          <!-- Finding 2 -->
+          <div class="finding-critical p-5 mb-4">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <span class="tag tag-crit mr-2">CRITICAL</span>
+                <span class="font-display font-bold">Samba "username map script" RCE</span>
+              </div>
+              <div class="text-right shrink-0 ml-4">
+                <div class="text-2xl font-bold text-danger font-display">9.3</div>
+                <div class="text-xs font-mono text-dim">CVSS v3.1</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-xs font-mono mb-4">
+              <div><span class="text-dim">Port:</span> <span>445/tcp (SMB)</span></div>
+              <div><span class="text-dim">CVE:</span> <span>CVE-2007-2447</span></div>
+              <div><span class="text-dim">Status:</span> <span class="text-danger">Confirmed Exploited</span></div>
+            </div>
+            <details>
+              <summary class="text-xs font-mono text-primary cursor-pointer mb-2">▸ Description &amp; Evidence</summary>
+              <div class="mt-3 space-y-3 text-sm text-dim leading-relaxed">
+                <p>Samba versions 3.0.20 through 3.0.25rc3 contain a vulnerability in the <code>username map script</code> smb.conf option. When this option is enabled, a user can inject shell metacharacters into the username, causing arbitrary commands to execute as root.</p>
+                <div class="bg-black border border-bdr p-3 text-xs font-mono mt-2">
+                  <div class="text-green-400">[+] Command shell session 2 opened (192.168.56.102:43812 → 192.168.56.101:4444)</div>
+                  <div>uid=0(root) gid=0(root) groups=0(root)</div>
+                </div>
+                <p><strong class="text-white">Remediation:</strong> Upgrade Samba to 3.0.25 or later. If upgrade is not possible, disable the <code>username map script</code> option in smb.conf.</p>
+              </div>
+            </details>
+          </div>
+
+          <!-- Finding 3 -->
+          <div class="finding-critical p-5 mb-4">
+            <div class="flex items-start justify-between mb-3">
+              <div>
+                <span class="tag tag-crit mr-2">CRITICAL</span>
+                <span class="font-display font-bold">DistCC Daemon Remote Code Execution</span>
+              </div>
+              <div class="text-right shrink-0 ml-4">
+                <div class="text-2xl font-bold text-danger font-display">9.3</div>
+                <div class="text-xs font-mono text-dim">CVSS v3.1</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-xs font-mono mb-4">
+              <div><span class="text-dim">Port:</span> <span>3632/tcp</span></div>
+              <div><span class="text-dim">CVE:</span> <span>CVE-2004-2687</span></div>
+              <div><span class="text-dim">Status:</span> <span class="text-danger">Confirmed Exploited</span></div>
+            </div>
+            <details>
+              <summary class="text-xs font-mono text-primary cursor-pointer mb-2">▸ Description &amp; Evidence</summary>
+              <div class="mt-3 text-sm text-dim leading-relaxed">
+                <p>The distccd daemon allows arbitrary command execution without authentication by accepting compilation jobs that contain shell commands. This results in remote code execution as the daemon user.</p>
+                <p class="mt-2"><strong class="text-white">Remediation:</strong> Restrict distccd to trusted IP addresses using <code>--allow</code> flags, or disable the service if not required.</p>
+              </div>
+            </details>
+          </div>
+
+          <!-- Finding 4 (High) -->
+          <div class="finding-high p-5 mb-4">
+            <div class="flex items-start justify-between mb-3">
+              <div><span class="tag tag-high mr-2">HIGH</span><span class="font-display font-bold">MySQL 5.0.51 Local Privilege Escalation (UDF)</span></div>
+              <div class="text-right shrink-0 ml-4"><div class="text-2xl font-bold text-warn font-display">7.2</div><div class="text-xs font-mono text-dim">CVSS v3.1</div></div>
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-xs font-mono">
+              <div><span class="text-dim">Port:</span> <span>3306/tcp</span></div>
+              <div><span class="text-dim">CVE:</span> <span>CVE-2009-2446</span></div>
+              <div><span class="text-dim">Status:</span> <span class="text-warn">Verified</span></div>
+            </div>
+          </div>
+
+          <!-- Finding 5 (High) -->
+          <div class="finding-high p-5 mb-4">
+            <div class="flex items-start justify-between mb-3">
+              <div><span class="tag tag-high mr-2">HIGH</span><span class="font-display font-bold">Cleartext Protocol Exposure (Telnet, FTP, rsh)</span></div>
+              <div class="text-right shrink-0 ml-4"><div class="text-2xl font-bold text-warn font-display">7.5</div><div class="text-xs font-mono text-dim">CVSS v3.1</div></div>
+            </div>
+            <div class="grid grid-cols-3 gap-4 text-xs font-mono">
+              <div><span class="text-dim">Ports:</span> <span>21, 23, 512-514</span></div>
+              <div><span class="text-dim">CWE:</span> <span>CWE-319</span></div>
+              <div><span class="text-dim">Status:</span> <span class="text-warn">Confirmed</span></div>
+            </div>
+          </div>
+
+          <!-- Medium findings summary -->
+          <div class="border border-bdr p-4 text-xs font-mono bg-surface/20">
+            <div class="text-yellow-400 mb-2 font-bold">MEDIUM FINDINGS (3)</div>
+            <div class="space-y-1.5 text-dim">
+              <div>• Anonymous FTP access enabled (port 21) — Information disclosure</div>
+              <div>• NFS shares accessible without authentication (port 2049)</div>
+              <div>• IRC UnrealIRCd 3.2.8.1 backdoor present (port 6667) — CVSS 7.5</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: DEFENSE ═══ -->
+    <div class="view" id="view-defense">
+      <div class="border-b border-bdr px-6 py-3 flex items-center justify-between shrink-0">
+        <div>
+          <h1 class="font-display font-bold text-base">Defense Monitor</h1>
+          <p class="text-dim text-xs font-mono">Blue team — real-time threat detection and response</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="flex items-center gap-1.5 text-xs font-mono"><span class="w-1.5 h-1.5 bg-green-400 rounded-full pulse"></span><span class="text-green-400">MONITORING ACTIVE</span></span>
+          <button class="btn-ghost text-xs">Configure Rules</button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <!-- Stats -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="stat-card text-center">
+            <div class="text-dim text-xs font-mono mb-1">MONITORED INTERFACES</div>
+            <div class="text-2xl font-bold text-primary">3</div>
+          </div>
+          <div class="stat-card text-center">
+            <div class="text-dim text-xs font-mono mb-1">BLOCKED TODAY</div>
+            <div class="text-2xl font-bold text-green-400">247</div>
+          </div>
+          <div class="stat-card text-center">
+            <div class="text-dim text-xs font-mono mb-1">ACTIVE ALERTS</div>
+            <div class="text-2xl font-bold text-danger">4</div>
+          </div>
+          <div class="stat-card text-center">
+            <div class="text-dim text-xs font-mono mb-1">SUSPICIOUS PROCESSES</div>
+            <div class="text-2xl font-bold text-warn">2</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Alert Feed -->
+          <div>
+            <div class="text-xs font-mono text-dim mb-3">LIVE ALERT FEED</div>
+            <div id="alert-feed" class="space-y-1 text-xs">
+              <div class="alert-item"><div class="flex justify-between mb-1"><span class="text-danger font-bold">PORT SCAN DETECTED</span><span class="text-dim">09:14:32</span></div><div class="text-dim">Source: 192.168.56.102 → Target: 192.168.56.101 · nmap T4 fingerprint detected</div></div>
+              <div class="alert-item"><div class="flex justify-between mb-1"><span class="text-danger font-bold">BRUTE FORCE ATTEMPT</span><span class="text-dim">09:14:45</span></div><div class="text-dim">FTP (port 21) — 47 failed login attempts from 192.168.56.102</div></div>
+              <div class="alert-item"><div class="flex justify-between mb-1"><span class="text-warn font-bold">UNUSUAL OUTBOUND TRAFFIC</span><span class="text-dim">09:15:08</span></div><div class="text-dim">Reverse shell detected: 192.168.56.101:4444 → 192.168.56.102:43812</div></div>
+              <div class="alert-item" style="border-left-color:#ff9500"><div class="flex justify-between mb-1"><span class="text-warn font-bold">PRIVILEGE ESCALATION</span><span class="text-dim">09:16:22</span></div><div class="text-dim">Process escalation detected on 192.168.56.101 — uid change to 0 (root)</div></div>
+              <div class="alert-item" style="border-left-color:#eab308"><div class="flex justify-between mb-1"><span class="text-yellow-400 font-bold">SUSPICIOUS FILE ACCESS</span><span class="text-dim">09:16:35</span></div><div class="text-dim">Read access to /etc/shadow detected from process PID 4821</div></div>
+            </div>
+          </div>
+
+          <!-- Network Heatmap + Tools -->
+          <div class="space-y-4">
+            <div class="border border-bdr p-4">
+              <div class="text-xs font-mono text-dim mb-3">NETWORK ACTIVITY (last 60s)</div>
+              <div class="flex items-end gap-1" style="height:80px">
+                <!-- Simple bar chart using divs -->
+                <div class="flex-1 bg-primary/20 hover:bg-primary/30 transition-colors" style="height:20%" title="2 events"></div>
+                <div class="flex-1 bg-primary/20 hover:bg-primary/30 transition-colors" style="height:35%"></div>
+                <div class="flex-1 bg-primary/20 hover:bg-primary/30 transition-colors" style="height:15%"></div>
+                <div class="flex-1 bg-primary/20 hover:bg-primary/30 transition-colors" style="height:45%"></div>
+                <div class="flex-1 bg-primary/40 hover:bg-primary/50 transition-colors" style="height:75%"></div>
+                <div class="flex-1 bg-danger/50 hover:bg-danger/60 transition-colors" style="height:100%"></div>
+                <div class="flex-1 bg-danger/50 hover:bg-danger/60 transition-colors" style="height:90%"></div>
+                <div class="flex-1 bg-warn/50 hover:bg-warn/60 transition-colors" style="height:60%"></div>
+                <div class="flex-1 bg-warn/40 hover:bg-warn/50 transition-colors" style="height:50%"></div>
+                <div class="flex-1 bg-primary/20 hover:bg-primary/30 transition-colors" style="height:25%"></div>
+                <div class="flex-1 bg-primary/20 hover:bg-primary/30 transition-colors" style="height:20%"></div>
+                <div class="flex-1 bg-primary/20 hover:bg-primary/30 transition-colors" style="height:30%"></div>
+              </div>
+              <div class="flex justify-between text-xs font-mono text-dim mt-1"><span>60s ago</span><span>now</span></div>
+            </div>
+            <div class="border border-bdr p-4">
+              <div class="text-xs font-mono text-dim mb-3">ACTIVE DETECTORS</div>
+              <div class="space-y-2 text-xs font-mono">
+                <div class="flex justify-between items-center"><span class="text-dim">Port scan detector</span><span class="text-green-400">ACTIVE</span></div>
+                <div class="flex justify-between items-center"><span class="text-dim">Brute force detector</span><span class="text-green-400">ACTIVE</span></div>
+                <div class="flex justify-between items-center"><span class="text-dim">Shell spawn detector</span><span class="text-green-400">ACTIVE</span></div>
+                <div class="flex justify-between items-center"><span class="text-dim">Privilege escalation</span><span class="text-green-400">ACTIVE</span></div>
+                <div class="flex justify-between items-center"><span class="text-dim">Exfiltration detector</span><span class="text-green-400">ACTIVE</span></div>
+                <div class="flex justify-between items-center"><span class="text-dim">Canary file monitor</span><span class="text-warn">STANDBY</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: TOOLS ═══ -->
+    <div class="view" id="view-tools">
+      <div class="border-b border-bdr px-6 py-3 shrink-0">
+        <h1 class="font-display font-bold text-base">Tool Status</h1>
+        <p class="text-dim text-xs font-mono">Registered tools and their availability</p>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Core tools -->
+          <div>
+            <div class="text-xs font-mono text-primary mb-3 pb-2 border-b border-bdr">CORE TOOLS</div>
+            <div class="space-y-2 text-xs font-mono">
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>nmap_scan</span><span class="text-green-400">✓ v7.94</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>searchsploit_search</span><span class="text-green-400">✓ v4.20.0</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>metasploit_run</span><span class="text-green-400">✓ v6.3.44</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>ssh_exec</span><span class="text-green-400">✓ built-in</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>shell_exec</span><span class="text-green-400">✓ built-in</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>generate_report</span><span class="text-green-400">✓ built-in</span></div>
+            </div>
+          </div>
+          <!-- Extended tools -->
+          <div>
+            <div class="text-xs font-mono text-primary mb-3 pb-2 border-b border-bdr">EXTENDED TOOLS (V2)</div>
+            <div class="space-y-2 text-xs font-mono">
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>whatweb</span><span class="text-green-400">✓ v0.5.5</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>nikto</span><span class="text-green-400">✓ v2.1.6</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>nuclei</span><span class="text-green-400">✓ v3.1.7</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>ffuf</span><span class="text-green-400">✓ v2.1.0</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>sqlmap</span><span class="text-green-400">✓ v1.7.11</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>theHarvester</span><span class="text-green-400">✓ v4.4.3</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>crackmapexec</span><span class="text-warn">⚠ not installed</span></div>
+              <div class="flex justify-between p-2 border border-bdr bg-surface/30"><span>impacket</span><span class="text-warn">⚠ not installed</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ SCRIPTS ═══ -->
+<script>
+// ── Navigation ─────────────────────────────────────────────────────────────
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const view = document.getElementById('view-' + id);
+  const nav  = document.getElementById('nav-' + id);
+  if (view) view.classList.add('active');
+  if (nav)  nav.classList.add('active');
+}
+
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  sb.classList.toggle('sidebar-collapsed');
+}
+
+// ── Session start (from New Session form) ──────────────────────────────────
+function startDemoSession(e) {
+  e.preventDefault();
+  const target = document.getElementById('f-target').value || '192.168.56.101';
+  document.getElementById('live-target').textContent = target;
+  showView('live');
+  document.getElementById('live-badge').classList.remove('hidden');
+  resetAndRunDemo();
+}
+
+// ── Demo animation engine ──────────────────────────────────────────────────
+const STEPS = [
+  {type:'thought', text:'Starting engagement on 192.168.56.101. No prior knowledge in knowledge base. Beginning with network discovery.',            delay:600},
+  {type:'act',     text:'nmap_scan — nmap -sn 192.168.56.101',                                                                                       delay:1800, tool:'nmap_scan'},
+  {type:'observe', text:'Host is up (0.0012s latency). 1 host found. MAC Address: 08:00:27:A3:B2:C1 (Oracle VirtualBox)',                             delay:1200},
+  {type:'thought', text:'Host confirmed live. Running full TCP port scan with service version detection and default NSE scripts.',                     delay:500},
+  {type:'act',     text:'nmap_scan — nmap -sV -sC -p- --open -T4 192.168.56.101',                                                                    delay:4000, tool:'nmap_scan',
+   info:{hosts:'1', ports:'23', svcs:'12'}},
+  {type:'observe', text:'PORT     STATE SERVICE     VERSION\n  21/tcp   open  ftp         vsftpd 2.3.4\n  22/tcp   open  ssh         OpenSSH 4.7p1\n  23/tcp   open  telnet      Linux telnetd\n  25/tcp   open  smtp        Postfix smtpd\n  80/tcp   open  http        Apache httpd 2.2.8\n  139/tcp  open  netbios-ssn Samba smbd 3.X\n  445/tcp  open  netbios-ssn Samba smbd 3.0.20\n  512/tcp  open  exec        netkit-rsh rexecd\n  513/tcp  open  login\n  514/tcp  open  shell       Netkit rshd\n  3306/tcp open  mysql       MySQL 5.0.51a\n  3632/tcp open  distccd     distccd v1 (4.2.4)',                                                delay:2000},
+  {type:'thought', text:'Multiple high-priority targets found:\n  • vsftpd 2.3.4 — backdoor (CVE-2011-2523) CVSS 10.0 — CRITICAL\n  • Samba 3.0.20 — usermap_script RCE (CVE-2007-2447) CVSS 9.3\n  • distccd — RCE (CVE-2004-2687) CVSS 9.3\nStarting with vsftpd — highest severity, immediate root access.',                    delay:800},
+  {type:'act',     text:'searchsploit_search — "vsftpd 2.3.4"',                                                                                      delay:1400, tool:'searchsploit_search'},
+  {type:'observe', text:'unix/remote/17491.rb  vsftpd 2.3.4 - Backdoor Command Execution\nCVSS: 10.0 (CRITICAL) | Reliability: Excellent | CVE-2011-2523', delay:800},
+  {type:'thought', text:'Perfect match. CVE-2011-2523. Backdoor triggered by ":)" in username opens shell on port 6200. Exploiting now.',            delay:500},
+  {type:'act',     text:'metasploit_run — exploit/unix/ftp/vsftpd_234_backdoor\n  RHOSTS: 192.168.56.101\n  LHOST: 192.168.56.102',                   delay:3500, tool:'metasploit_run'},
+  {type:'observe', text:'[*] 192.168.56.101:21 - Banner: "220 (vsFTPd 2.3.4)"\n[*] 192.168.56.101:21 - USER: 331 Please specify the password.\n[+] 192.168.56.101:21 - UID: uid=0(root) gid=0(root)\n[+] Command shell session 1 opened (192.168.56.102:46821 → 192.168.56.101:6200)', delay:1500,
+   finding:{sev:'critical', title:'vsftpd 2.3.4 Backdoor', cvss:'10.0', port:'21/tcp'}},
+  {type:'thought', text:'Root shell obtained via vsftpd backdoor. Recording finding. Performing post-exploitation reconnaissance.',                    delay:500},
+  {type:'act',     text:'shell_exec — id && uname -a && hostname && cat /etc/passwd | head -5',                                                        delay:2000, tool:'shell_exec', info:{sessions:'1'}},
+  {type:'observe', text:'uid=0(root) gid=0(root) groups=0(root)\nLinux metasploitable 2.6.24-16-server #1 SMP Thu Feb 5 2009\nmetasploitable\nroot:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/bin/sh\nbin:x:2:2:bin:/bin:/bin/sh',                                                         delay:1200},
+  {type:'thought', text:'Root confirmed. /etc/passwd readable. Checking Samba for second critical finding.',                                           delay:400},
+  {type:'act',     text:'searchsploit_search — "Samba 3.0.20 usermap"',                                                                              delay:1400, tool:'searchsploit_search'},
+  {type:'observe', text:'multi/samba/usermap_script — Samba "username map script" Command Execution\nCVSS: 9.3 (CRITICAL) | CVE-2007-2447',          delay:700},
+  {type:'act',     text:'metasploit_run — exploit/multi/samba/usermap_script\n  RHOSTS: 192.168.56.101\n  PAYLOAD: cmd/unix/reverse',                 delay:3000, tool:'metasploit_run'},
+  {type:'observe', text:'[+] Command shell session 2 opened (192.168.56.102:43812 → 192.168.56.101:4444)\nuid=0(root) gid=0(root)',                   delay:1000,
+   finding:{sev:'critical', title:'Samba usermap_script RCE', cvss:'9.3', port:'445/tcp'}},
+  {type:'thought', text:'Second root shell via Samba. Now checking distccd service.',                                                                  delay:400},
+  {type:'act',     text:'metasploit_run — exploit/unix/misc/distcc_exec\n  RHOSTS: 192.168.56.101',                                                   delay:2500, tool:'metasploit_run'},
+  {type:'observe', text:'[+] Command shell session 3 opened (192.168.56.102:44102 → 192.168.56.101:4445)\nuid=1(daemon) gid=1(daemon)',               delay:1000,
+   finding:{sev:'critical', title:'DistCC Daemon RCE', cvss:'9.3', port:'3632/tcp'}},
+  {type:'thought', text:'Three exploits successful. Adding high findings: MySQL LPE and cleartext protocols. Generating comprehensive report.',        delay:600},
+  {type:'act',     text:'generate_report — session TRP-DEMO-001 --format html,pdf',                                                                   delay:2000, tool:'generate_report',
+   finding:{sev:'high', title:'MySQL 5.0.51 LPE (UDF)', cvss:'7.2', port:'3306/tcp'}},
+  {type:'observe', text:'Report generated:\n• 3 CRITICAL · 2 HIGH · 3 MEDIUM · 1 LOW\n• HTML: reports/TRP-DEMO-001.html\n• PDF:  reports/TRP-DEMO-001.pdf\n• JSON: reports/TRP-DEMO-001.json', delay:800,
+   finding:{sev:'high', title:'Cleartext Protocols (Telnet/FTP/rsh)', cvss:'7.5', port:'21,23,512'}},
+  {type:'done',    text:'Engagement complete. Duration: 4m 32s · Iterations: 14/50 · 3 root shells obtained.\nSee Report Viewer for full findings.',  delay:0},
+];
+
+let demoTimer, demoTimerSec=0, stepI=0, charI=0, currentEntry=null, animTimeout;
+const toolsSet = new Set();
+
+function resetAndRunDemo() {
+  clearInterval(demoTimer);
+  clearTimeout(animTimeout);
+  stepI=0; charI=0; demoTimerSec=0; toolsSet.clear();
+  currentEntry=null;
+  // reset counters
+  ['crit','high','med','low'].forEach(s=>{ document.getElementById('cnt-'+s).textContent='0'; });
+  // reset info
+  ['hosts','ports','svcs','sessions'].forEach(k=>{ document.getElementById('info-'+k).textContent='—'; });
+  document.getElementById('tools-used').innerHTML='';
+  document.getElementById('live-findings').innerHTML='';
+  document.getElementById('live-timer').textContent='00:00';
+  document.getElementById('live-progress').style.width='0%';
+  document.getElementById('live-status-dot').className='w-2 h-2 bg-primary rounded-full pulse';
+  document.getElementById('live-status-text').textContent='RUNNING';
+  document.getElementById('live-status-text').className='font-mono text-xs text-primary font-bold';
+  document.getElementById('live-iter').innerHTML='iteration: <span class="text-white">0</span> / 50';
+  document.getElementById('kill-btn').disabled=false;
+  const logEl = document.getElementById('log-container');
+  logEl.innerHTML='';
+
+  demoTimer = setInterval(()=>{
+    demoTimerSec++;
+    const m=String(Math.floor(demoTimerSec/60)).padStart(2,'0');
+    const s=String(demoTimerSec%60).padStart(2,'0');
+    document.getElementById('live-timer').textContent=m+':'+s;
+  },1000);
+
+  animTimeout = setTimeout(runStep, 800);
+}
+
+function runStep() {
+  if(stepI>=STEPS.length) {
+    clearInterval(demoTimer);
+    document.getElementById('live-status-dot').className='w-2 h-2 bg-green-400 rounded-full';
+    document.getElementById('live-status-text').textContent='COMPLETED';
+    document.getElementById('live-status-text').className='font-mono text-xs text-green-400 font-bold';
+    document.getElementById('live-badge').textContent='DONE';
+    document.getElementById('live-badge').className='nav-label ml-auto text-xs font-mono bg-green-400/20 text-green-400 px-1.5 py-0.5';
+    document.getElementById('live-progress').style.width='100%';
+    // CTA to view report
+    const logEl=document.getElementById('log-container');
+    const cta=document.createElement('div');
+    cta.className='log-entry';
+    cta.innerHTML='<button onclick="showView(\'report\')" class="bg-primary text-black font-bold font-mono text-xs px-4 py-2 mt-2 hover:brightness-110 transition-all">→ VIEW FULL REPORT</button>';
+    logEl.appendChild(cta);
+    logEl.scrollTop=logEl.scrollHeight;
+    return;
+  }
+  const step=STEPS[stepI];
+  // Apply side effects immediately on first char
+  if(charI===0) {
+    // Progress
+    const pct=Math.round((stepI/STEPS.length)*95);
+    document.getElementById('live-progress').style.width=pct+'%';
+    // Iteration
+    document.getElementById('live-iter').innerHTML='iteration: <span class="text-white">'+(stepI+1)+'</span> / 50';
+    // Tool registration
+    if(step.tool && !toolsSet.has(step.tool)) {
+      toolsSet.add(step.tool);
+      const toolsEl=document.getElementById('tools-used');
+      const d=document.createElement('div');
+      d.className='flex items-center gap-1.5 text-dim slide-in';
+      d.innerHTML='<span class="text-primary">✓</span> '+step.tool;
+      toolsEl.appendChild(d);
+    }
+    // Info panel
+    if(step.info) {
+      Object.entries(step.info).forEach(([k,v])=>{
+        const el=document.getElementById('info-'+k);
+        if(el) el.textContent=v;
+      });
+    }
+    // Finding
+    if(step.finding) {
+      addFinding(step.finding);
+    }
+    // Create log entry
+    const logEl=document.getElementById('log-container');
+    currentEntry=document.createElement('div');
+    currentEntry.className='log-entry slide-in';
+    const badge=makeBadge(step.type);
+    const textSpan=document.createElement('span');
+    textSpan.id='step-text-'+stepI;
+    textSpan.style.color=step.type==='done'?'#ccff00':step.type==='observe'?'#d4d4d4':'#888';
+    const cur=document.createElement('span');
+    cur.className='cursor';
+    cur.textContent='▋';
+    currentEntry.appendChild(badge);
+    currentEntry.appendChild(textSpan);
+    currentEntry.appendChild(cur);
+    logEl.appendChild(currentEntry);
+    logEl.scrollTop=logEl.scrollHeight;
+  }
+
+  const textEl=document.getElementById('step-text-'+stepI);
+  if(charI<step.text.length) {
+    textEl.textContent+=step.text[charI];
+    charI++;
+    const logEl=document.getElementById('log-container');
+    logEl.scrollTop=logEl.scrollHeight;
+    const speed=step.type==='observe'?12:step.type==='done'?30:22;
+    animTimeout=setTimeout(runStep, speed);
+  } else {
+    // Done with this step
+    if(currentEntry) {
+      const c=currentEntry.querySelector('.cursor');
+      if(c) c.remove();
+    }
+    charI=0; stepI++;
+    const delay=step.type==='done'?0:step.delay||600;
+    animTimeout=setTimeout(runStep, delay);
+  }
+}
+
+const SEV_COLOR={critical:'#ff5555',high:'#ff9500',medium:'#eab308',low:'#60a5fa'};
+const SEV_COUNT={critical:0,high:0,medium:0,low:0};
+const SEV_ID={critical:'crit',high:'high',medium:'med',low:'low'};
+
+function addFinding(f) {
+  SEV_COUNT[f.sev]=(SEV_COUNT[f.sev]||0)+1;
+  const el=document.getElementById('cnt-'+(SEV_ID[f.sev]||f.sev));
+  if(el) el.textContent=SEV_COUNT[f.sev];
+  // Live findings panel
+  const parent=document.getElementById('live-findings');
+  const d=document.createElement('div');
+  d.className='slide-in';
+  d.style.cssText='border-left:2px solid '+SEV_COLOR[f.sev]+';padding:6px 8px;background:rgba(0,0,0,.4);margin-bottom:4px;font-size:11px;font-family:JetBrains Mono,monospace';
+  d.innerHTML='<div style="color:'+SEV_COLOR[f.sev]+';font-weight:700">'+f.sev.toUpperCase()+'</div><div style="color:#ccc;margin-top:2px">'+f.title+'</div><div style="color:#555;margin-top:1px">CVSS '+f.cvss+' · '+f.port+'</div>';
+  parent.appendChild(d);
+}
+
+function makeBadge(type) {
+  const span=document.createElement('span');
+  span.className='badge';
+  const map={thought:['badge-thought','THOUGHT'],act:['badge-act','ACT'],observe:['badge-observe','OBSERVE'],reflect:['badge-reflect','REFLECT'],done:['badge-done','DONE'],error:['badge-error','ERROR']};
+  const [cls,txt]=map[type]||['badge-reflect','INFO'];
+  span.classList.add(cls);
+  span.textContent=txt;
+  span.style.marginRight='10px';
+  return span;
+}
+
+function killSession() {
+  clearInterval(demoTimer);
+  clearTimeout(animTimeout);
+  stepI=STEPS.length+1;
+  document.getElementById('live-status-dot').className='w-2 h-2 bg-danger rounded-full';
+  document.getElementById('live-status-text').textContent='KILLED';
+  document.getElementById('live-status-text').className='font-mono text-xs text-danger font-bold';
+  document.getElementById('kill-btn').disabled=true;
+  const logEl=document.getElementById('log-container');
+  const d=document.createElement('div');
+  d.className='log-entry';
+  const badge=document.createElement('span');
+  badge.className='badge badge-error';
+  badge.style.marginRight='10px';
+  badge.textContent='KILLED';
+  d.appendChild(badge);
+  const t=document.createElement('span');
+  t.style.color='#ff5555';
+  t.textContent='Session terminated by kill switch. All active shells closed.';
+  d.appendChild(t);
+  logEl.appendChild(d);
+  logEl.scrollTop=logEl.scrollHeight;
+}
+
+// Auto-run demo on Live Session view (if first visit)
+let demoStarted=false;
+const origShowView=showView;
+window.showView=function(id) {
+  origShowView(id);
+  if(id==='live' && !demoStarted) {
+    demoStarted=true;
+    setTimeout(()=>{ resetAndRunDemo(); }, 300);
+  }
+};
+
+// Defense alert feed animation
+function addAlert() {
+  const alerts=[
+    {sev:'text-warn',label:'SYN FLOOD DETECTED',msg:'192.168.56.102 → 192.168.56.101:80 · 2400 packets/s'},
+    {sev:'text-yellow-400',label:'SSH SCAN',msg:'Port 22 scanning from 192.168.56.102 — 34 connection attempts'},
+    {sev:'text-blue-400',label:'DNS EXFILTRATION',msg:'Unusual DNS query volume from 192.168.56.101 — possible tunneling'},
+  ];
+  const idx=Math.floor(Math.random()*alerts.length);
+  const a=alerts[idx];
+  const feed=document.getElementById('alert-feed');
+  if(!feed||!feed.parentElement) return;
+  const d=document.createElement('div');
+  d.className='alert-item slide-in';
+  const now=new Date();
+  const ts=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
+  d.innerHTML='<div class="flex justify-between mb-1"><span class="'+a.sev+' font-bold">'+a.label+'</span><span class="text-dim">'+ts+'</span></div><div class="text-dim">'+a.msg+'</div>';
+  feed.insertBefore(d, feed.firstChild);
+  if(feed.children.length>8) feed.removeChild(feed.lastChild);
+}
+setInterval(addAlert, 8000);
+</script>
+</body>
+</html>

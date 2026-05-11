@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<title>TIRPAN Demo</title>
+</head>
+<body>
+<script>
+try {
+  localStorage.setItem('tirpan_demo','1');
+  localStorage.setItem('tirpan_token','demo-token');
+  localStorage.setItem('tirpan_user', JSON.stringify({
+    id:'demo-user', email:'demo@tirpan.io', full_name:'Demo User',
+    role:'analyst', role_label:'Analyst', org_id:null, is_active:true, created_at:0
+  }));
+} catch(e) {}
+window.location.replace('/normal/');
+</script>
+</body>
+</html>
