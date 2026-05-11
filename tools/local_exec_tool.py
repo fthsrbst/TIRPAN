@@ -147,7 +147,7 @@ class LocalExecTool(BaseTool):
                             "ip": ip,
                             "prefix": prefix,
                         })
-        except Exception:
+        except (asyncio.TimeoutError, OSError, UnicodeDecodeError):
             pass
 
         # Fallback: hostname -I (no internet needed)
@@ -163,10 +163,8 @@ class LocalExecTool(BaseTool):
                     if re.match(r"^\d+\.\d+\.\d+\.\d+$", ip) and not ip.startswith("127."):
                         interfaces.append({"interface": "default", "ip": ip, "prefix": "?"})
                         break
-            except Exception:
+            except (asyncio.TimeoutError, OSError, UnicodeDecodeError):
                 pass
-
-        # Also include hostname
         try:
             hostname = socket.gethostname()
         except Exception:
