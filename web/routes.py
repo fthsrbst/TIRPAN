@@ -14,9 +14,10 @@ from typing import Optional
 
 import httpx
 import psutil
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field, field_validator
+from web.auth.dependencies import get_current_user, require_min_role, require_role
 
 from config import SafetyConfig, settings
 from core.agent_model_config import normalize_agent_models
@@ -1171,8 +1172,12 @@ async def _run_agent_task(
     )
 
 @router.post("/sessions")
-async def start_session(body: StartSessionRequest, background_tasks: BackgroundTasks):
-    """Create and start a new pentest session."""
+async def start_session(
+    body: StartSessionRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(require_min_role("analyst")),
+):
+    """Create and start a new pentest session. Requires at least analyst role."""
     import json as _json
     from web import session_manager
     from core.agent import PentestAgent
@@ -1424,8 +1429,13 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         existing = list(settings.safety.excluded_ports)
         settings.safety.excluded_ports = list(set(existing) | set(per_session_ports))
 
-    # Persist session record
-    session_data = await _session_repo.create(agent_target_expr, body.mode)
+    # Persist session record (track who created it)
+    session_data = await _session_repo.create(
+        agent_target_expr,
+        body.mode,
+        created_by=current_user.get("id"),
+        assigned_to=getattr(body, "assigned_to", None) or None,
+    )
     session_id = session_data["id"]
 
     mission_label = (body.mission_name or "").strip()
@@ -1587,12 +1597,31 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
 
 @router.get("/sessions")
-async def list_sessions():
-    sessions = await _session_repo.list_all()
-    # Annotate with live running status
+async def list_sessions(current_user: dict = Depends(get_current_user)):
     from web import session_manager
-    for s in sessions:
-        s["is_running"] = session_manager.is_running(s["id"])
+    sessions = await _session_repo.list_for_user(
+        user_id=current_user["id"],
+        role=current_user["role"],
+    )
+    # Enrich with assigned_to_name for admin/owner
+    if current_user["role"] in ("owner", "admin"):
+        from database.repositories import UserRepository
+        _urepo = UserRepository()
+        _user_cache: dict = {}
+        for s in sessions:
+            s["is_running"] = session_manager.is_running(s["id"])
+            uid = s.get("assigned_to")
+            if uid:
+                if uid not in _user_cache:
+                    u = await _urepo.get_by_id(uid)
+                    _user_cache[uid] = (u.get("full_name") or u.get("email") or uid) if u else uid
+                s["assigned_to_name"] = _user_cache[uid]
+            else:
+                s["assigned_to_name"] = None
+    else:
+        for s in sessions:
+            s["is_running"] = session_manager.is_running(s["id"])
+            s["assigned_to_name"] = None
     return sessions
 
 
@@ -1690,7 +1719,7 @@ async def get_session(sid: str):
 
 
 @router.post("/sessions/{sid}/kill")
-async def kill_session(sid: str):
+async def kill_session(sid: str, current_user: dict = Depends(require_min_role("analyst"))):
     """Trigger emergency stop on a running session."""
     from web import session_manager
 
@@ -1734,12 +1763,35 @@ async def kill_session(sid: str):
 
 
 @router.delete("/sessions/{sid}")
-async def delete_session(sid: str):
+async def delete_session(sid: str, current_user: dict = Depends(require_min_role("analyst"))):
     session = await _session_repo.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
+    # Analyst yalnızca kendi oluşturduğu session'ı silebilir
+    if current_user["role"] == "analyst" and session.get("created_by") != current_user["id"]:
+        raise HTTPException(403, "Yalnızca kendi oluşturduğunuz session'ları silebilirsiniz.")
     await _session_repo.delete(sid)
     return {"ok": True}
+
+
+class AssignSessionRequest(BaseModel):
+    assigned_to: str | None = None
+
+
+@router.patch("/sessions/{sid}/assign")
+async def assign_session(
+    sid: str,
+    body: AssignSessionRequest,
+    current_user: dict = Depends(require_role("owner", "admin")),
+):
+    """Session'ı bir kullanıcıya ata (owner / admin)."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    ok = await _session_repo.assign(sid, body.assigned_to)
+    if not ok:
+        raise HTTPException(500, "Atama başarısız")
+    return {"ok": True, "assigned_to": body.assigned_to}
 
 
 class RenameSessionRequest(BaseModel):
@@ -2088,12 +2140,34 @@ async def get_audit_log(
     event_type: str = "",
     search: str = "",
     limit: int = 200,
+    current_user: dict = Depends(get_current_user),
 ):
-    """Return audit log entries with optional filtering."""
+    """Return audit log entries — filtered by role."""
+    role = current_user["role"]
+    uid  = current_user["id"]
+
     if session_id:
+        # Explicit session filter: verify user can see this session first
+        if role not in ("owner", "admin"):
+            allowed = await _session_repo.list_for_user(user_id=uid, role=role)
+            allowed_ids = {s["id"] for s in allowed}
+            if session_id not in allowed_ids:
+                return {"entries": [], "total": 0}
         entries = await _audit_repo.get_for_session(session_id, limit=limit)
-    else:
+    elif role in ("owner", "admin"):
         entries = await _audit_repo.get_recent(limit=limit)
+    else:
+        # analyst / viewer — only own/assigned sessions
+        allowed = await _session_repo.list_for_user(user_id=uid, role=role)
+        allowed_ids = [s["id"] for s in allowed]
+        if not allowed_ids:
+            return {"entries": [], "total": 0}
+        all_entries: list[dict] = []
+        for sid in allowed_ids:
+            chunk = await _audit_repo.get_for_session(sid, limit=limit)
+            all_entries.extend(chunk)
+        all_entries.sort(key=lambda e: e.get("created_at", 0), reverse=True)
+        entries = all_entries[:limit]
 
     # Filter by event category (prefix/keyword matching for grouped filters)
     if event_type and event_type.upper() != "ALL":

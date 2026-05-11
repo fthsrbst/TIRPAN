@@ -1736,3 +1736,6 @@ html.light .rsb-section-toggle:hover .rsb-chevron { color: #4a7c00; }
 .v3-panel-btn.active { color: #ccff00; border-bottom: 1.5px solid #ccff00; }
 .v3-panel { display: flex; }
 .v3-panel.hidden { display: none; }
+
+/* ── RBAC visibility ─────────────────────────────────────────────────────── */
+.rbac-hidden { display: none !important; }
