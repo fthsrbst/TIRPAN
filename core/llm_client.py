@@ -53,30 +53,43 @@ class LLMClient(ABC):
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
-def _resolve_local_url(url: str) -> str:
-    """On WSL2, try to replace localhost/127.0.0.1 with the Windows host IP.
+_WSL_HOST_IP: str | None = None
+_WSL_DETECTED: bool | None = None  # None = not yet checked
 
-    WSL2 cannot reach Windows services at 127.0.0.1 — the host is reachable
-    via the nameserver IP found in /etc/resolv.conf.
-    """
+
+def _detect_wsl_host_ip() -> str | None:
+    """Detect the Windows host IP from /etc/resolv.conf when running inside WSL2."""
     import os
     try:
         if not os.path.exists("/proc/version"):
-            return url
+            return None
         with open("/proc/version") as f:
             if "microsoft" not in f.read().lower():
-                return url
-        # We are in WSL2 — check if the URL targets localhost
-        if not any(h in url for h in ("127.0.0.1", "localhost")):
-            return url
+                return None
         with open("/etc/resolv.conf") as f:
             for line in f:
                 if line.startswith("nameserver"):
-                    host_ip = line.split()[1].strip()
-                    return url.replace("127.0.0.1", host_ip).replace("localhost", host_ip)
+                    return line.split()[1].strip()
     except Exception:
         pass
-    return url
+    return None
+
+
+def _resolve_local_url(url: str) -> str:
+    """On WSL2, replace localhost/127.0.0.1 with the Windows host IP.
+
+    Result is cached at module level — /proc/version and /etc/resolv.conf are
+    only read once per process lifetime.
+    """
+    global _WSL_HOST_IP, _WSL_DETECTED
+    if _WSL_DETECTED is None:
+        _WSL_HOST_IP = _detect_wsl_host_ip()
+        _WSL_DETECTED = _WSL_HOST_IP is not None
+    if not _WSL_DETECTED or _WSL_HOST_IP is None:
+        return url
+    if not any(h in url for h in ("127.0.0.1", "localhost")):
+        return url
+    return url.replace("127.0.0.1", _WSL_HOST_IP).replace("localhost", _WSL_HOST_IP)
 
 
 class OllamaClient(LLMClient):
@@ -88,6 +101,15 @@ class OllamaClient(LLMClient):
         self._original_base_url = base
         self.model = settings.ollama.model
         self.timeout = settings.ollama.timeout
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            )
+        return self._http_client
 
     async def chat(self, messages: list[dict], stream: bool = False) -> str:
         if stream:
@@ -96,21 +118,22 @@ class OllamaClient(LLMClient):
                 result.append(token)
             return "".join(result)
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": False,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["message"]["content"]
+        client = self._get_client()
+        resp = await client.post(
+            f"{self.base_url}/api/chat",
+            json={
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["message"]["content"]
 
     async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
-        async with httpx.AsyncClient(timeout=self.timeout) as client, client.stream(
+        client = self._get_client()
+        async with client.stream(
             "POST",
             f"{self.base_url}/api/chat",
             json={
@@ -136,9 +159,9 @@ class OllamaClient(LLMClient):
 
     async def is_available(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{self.base_url}/api/tags")
-                return resp.status_code == 200
+            client = self._get_client()
+            resp = await client.get(f"{self.base_url}/api/tags", timeout=5.0)
+            return resp.status_code == 200
         except Exception:
             return False
 
@@ -156,6 +179,15 @@ class OpenRouterClient(LLMClient):
         self.api_key = settings.llm.api_key
         self.model = settings.llm.cloud_model
         self.timeout = 30.0
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            )
+        return self._http_client
 
     @property
     def _current_key(self) -> str:
@@ -192,22 +224,22 @@ class OpenRouterClient(LLMClient):
 
         for attempt in range(self._MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    resp = await client.post(
-                        f"{self._BASE}/chat/completions",
-                        headers=self._headers(),
-                        json={
-                            "model": self._current_model,
-                            "messages": messages,
-                            "max_tokens": 8192,
-                        },
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    choices = data.get("choices") or []
-                    if not choices:
-                        raise ValueError(f"OpenRouter returned empty choices: {data}")
-                    return choices[0]["message"]["content"]
+                client = self._get_client()
+                resp = await client.post(
+                    f"{self._BASE}/chat/completions",
+                    headers=self._headers(),
+                    json={
+                        "model": self._current_model,
+                        "messages": messages,
+                        "max_tokens": 8192,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    raise ValueError(f"OpenRouter returned empty choices: {data}")
+                return choices[0]["message"]["content"]
 
             except httpx.HTTPStatusError as e:
                 last_error = e
@@ -245,7 +277,8 @@ class OpenRouterClient(LLMClient):
 
         for attempt in range(self._MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client, client.stream(
+                client = self._get_client()
+                async with client.stream(
                     "POST",
                     f"{self._BASE}/chat/completions",
                     headers=self._headers(),
@@ -313,12 +346,13 @@ class OpenRouterClient(LLMClient):
         if not self._has_valid_key():
             return False
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(
-                    f"{self._BASE}/models",
-                    headers=self._headers(),
-                )
-                return resp.status_code == 200
+            client = self._get_client()
+            resp = await client.get(
+                f"{self._BASE}/models",
+                headers=self._headers(),
+                timeout=5.0,
+            )
+            return resp.status_code == 200
         except Exception:
             return False
 
@@ -332,6 +366,17 @@ class OpenCodeGoClient(LLMClient):
 
     _MAX_RETRIES = 3
     _RETRY_BASE_DELAY = 1.0
+
+    def __init__(self):
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self._timeout),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            )
+        return self._http_client
 
     @property
     def _base_url(self) -> str:
@@ -380,22 +425,22 @@ class OpenCodeGoClient(LLMClient):
 
         for attempt in range(self._MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.post(
-                        f"{self._base_url}/chat/completions",
-                        headers=self._headers(),
-                        json={
-                            "model": self._model,
-                            "messages": messages,
-                            "max_tokens": 8192,
-                        },
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    choices = data.get("choices") or []
-                    if not choices:
-                        raise ValueError(f"OpenCode Go returned empty choices: {data}")
-                    return choices[0]["message"]["content"]
+                client = self._get_client()
+                resp = await client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=self._headers(),
+                    json={
+                        "model": self._model,
+                        "messages": messages,
+                        "max_tokens": 8192,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    raise ValueError(f"OpenCode Go returned empty choices: {data}")
+                return choices[0]["message"]["content"]
 
             except httpx.HTTPStatusError as e:
                 last_error = e
@@ -432,7 +477,8 @@ class OpenCodeGoClient(LLMClient):
 
         for attempt in range(self._MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client, client.stream(
+                client = self._get_client()
+                async with client.stream(
                     "POST",
                     f"{self._base_url}/chat/completions",
                     headers=self._headers(),
@@ -500,12 +546,13 @@ class OpenCodeGoClient(LLMClient):
         if not self._has_valid_key():
             return False
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(
-                    f"{self._base_url}/models",
-                    headers=self._headers(),
-                )
-                return resp.status_code == 200
+            client = self._get_client()
+            resp = await client.get(
+                f"{self._base_url}/models",
+                headers=self._headers(),
+                timeout=5.0,
+            )
+            return resp.status_code == 200
         except Exception:
             return False
 
@@ -514,6 +561,17 @@ class OpenCodeGoClient(LLMClient):
 
 class LMStudioClient(LLMClient):
     """LM Studio local API — OpenAI-compatible at http://127.0.0.1:1234/v1"""
+
+    def __init__(self):
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self._timeout),
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            )
+        return self._http_client
 
     @property
     def _base_url(self) -> str:
@@ -538,17 +596,18 @@ class LMStudioClient(LLMClient):
                 result.append(token)
             return "".join(result)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/v1/chat/completions",
-                json={"model": self._model, "messages": messages, "stream": False},
-            )
-            resp.raise_for_status()
-            choices = resp.json().get("choices", [])
-            return choices[0]["message"]["content"] if choices else ""
+        client = self._get_client()
+        resp = await client.post(
+            f"{self._base_url}/v1/chat/completions",
+            json={"model": self._model, "messages": messages, "stream": False},
+        )
+        resp.raise_for_status()
+        choices = resp.json().get("choices", [])
+        return choices[0]["message"]["content"] if choices else ""
 
     async def stream_chat(self, messages: list[dict]) -> AsyncIterator[str]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client, client.stream(
+        client = self._get_client()
+        async with client.stream(
             "POST",
             f"{self._base_url}/v1/chat/completions",
             json={"model": self._model, "messages": messages, "stream": True},
@@ -573,9 +632,9 @@ class LMStudioClient(LLMClient):
 
     async def is_available(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"{self._base_url}/v1/models")
-                return resp.status_code == 200
+            client = self._get_client()
+            resp = await client.get(f"{self._base_url}/v1/models", timeout=3.0)
+            return resp.status_code == 200
         except Exception:
             return False
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
@@ -150,6 +151,8 @@ class PentestAgent(BaseAgent):
         )
         ctx = await agent.run()
     """
+
+    _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
 
     def __init__(
         self,
@@ -387,15 +390,20 @@ class PentestAgent(BaseAgent):
             # instructions without restarting the session.
             if self._state == AgentState.WAITING_FOR_OPERATOR:
                 self._emit("waiting_for_operator", {})
+                self._inject_event.clear()
                 while self._state == AgentState.WAITING_FOR_OPERATOR:
                     if self._safety.kill_switch_triggered:
                         self._state = AgentState.DONE
                         break
+                    try:
+                        await asyncio.wait_for(self._inject_event.wait(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        continue
                     if self._has_pending_inject:
                         self._has_pending_inject = False
+                        self._inject_event.clear()
                         self._state = AgentState.REASONING
                         break
-                    await asyncio.sleep(0.5)
                 if self._state != AgentState.REASONING:
                     break  # kill switch or other exit
                 # Operator injected — resume reasoning
@@ -942,18 +950,14 @@ class PentestAgent(BaseAgent):
         This prevents context bloat from multi-KB MSF console dumps while
         preserving the information the agent actually needs to reason about.
         """
-        import re as _re
-
-        _ANSI = _re.compile(r"\x1b\[[0-9;]*[mGKHF]")
-
         if tool_name == "metasploit_run" and isinstance(raw_output, dict):
             msf_raw = raw_output.get("output", "")
             key_lines: list[str] = []
             if isinstance(msf_raw, str):
                 for line in msf_raw.splitlines():
-                    clean = _ANSI.sub("", line).strip()
+                    clean = self._ANSI_RE.sub("", line).strip()
                     # Keep important MSF status lines and TIRPAN debug tags
-                    if _re.match(r"^\[[\+\-!\*]\]", clean) or "TIRPAN_CMD_OUT" in clean:
+                    if re.match(r"^\[[\+\-!\*]\]", clean) or "TIRPAN_CMD_OUT" in clean:
                         key_lines.append(clean)
             summary = {
                 "success":              raw_output.get("success"),

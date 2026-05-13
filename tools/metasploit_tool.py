@@ -13,7 +13,6 @@ import os
 import re
 import socket
 import tempfile
-import threading
 import time
 
 from config import settings
@@ -35,7 +34,6 @@ _RPC_SESSION_POLL_INTERVAL = 0.5
 _LPORT_POOL_START = 4400
 _LPORT_POOL_END = 4500
 _lport_counter = itertools.cycle(range(_LPORT_POOL_START, _LPORT_POOL_END))
-_lport_lock = threading.Lock()
 
 # Patterns that indicate a session was opened in msfconsole output
 _SESSION_PATTERNS = [
@@ -1720,11 +1718,10 @@ class MetasploitTool(BaseTool):
 
     def _allocate_lport(self) -> int:
         span = max(1, _LPORT_POOL_END - _LPORT_POOL_START)
-        with _lport_lock:
-            for _ in range(span):
-                port = next(_lport_counter)
-                if self._is_port_free(port):
-                    return port
+        for _ in range(span):
+            port = next(_lport_counter)
+            if self._is_port_free(port):
+                return port
         raise RuntimeError("No free LPORT available in pool")
 
     def _build_rc_commands(
