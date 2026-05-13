@@ -172,20 +172,20 @@ class AppConfig(BaseSettings):
     cred_encryption_key: str = Field(default="", alias="CRED_ENCRYPTION_KEY")
 
     # JWT authentication
-    jwt_secret: str = Field(default="CHANGE_ME_IN_PRODUCTION_GENERATE_WITH_secrets_token_hex_32", alias="JWT_SECRET")
+    jwt_secret: str = Field(default="", alias="JWT_SECRET")
     token_expire_minutes: int = Field(default=480, alias="TOKEN_EXPIRE_MINUTES")
 
     def model_post_init(self, __context) -> None:
         self.data_dir.mkdir(exist_ok=True)
-        _default_secret = "CHANGE_ME_IN_PRODUCTION_GENERATE_WITH_secrets_token_hex_32"
-        if self.jwt_secret == _default_secret:
-            import warnings
-            warnings.warn(
-                "JWT_SECRET is set to the default insecure value. "
-                "Set JWT_SECRET in your .env file before deploying. "
-                "Generate a safe secret with: python -c \"import secrets; print(secrets.token_hex(32))\"",
-                RuntimeWarning,
-                stacklevel=2,
+        if not self.jwt_secret:
+            import secrets
+            import logging
+            self.jwt_secret = secrets.token_hex(32)
+            logging.getLogger(__name__).warning(
+                "JWT_SECRET not set in .env — using an auto-generated ephemeral secret. "
+                "Tokens will be invalidated on every restart. "
+                "Set JWT_SECRET in your .env file for persistent sessions. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
             )
 
     def get_speed_profile(self) -> SpeedProfile:
