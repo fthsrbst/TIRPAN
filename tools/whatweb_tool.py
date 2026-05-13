@@ -58,7 +58,7 @@ class WhatWebTool(BaseTool):
         plugins = {}
         for line in stdout.decode(errors="replace").splitlines():
             line = line.strip()
-            if not line:
+            if not line or (line[0] != "[" and line[0] != "{"):
                 continue
             try:
                 entry = json.loads(line)
@@ -67,7 +67,7 @@ class WhatWebTool(BaseTool):
                         plugins.update(item.get("plugins", {}))
                 elif isinstance(entry, dict):
                     plugins.update(entry.get("plugins", {}))
-            except Exception:
+            except json.JSONDecodeError:
                 continue
 
         tech = [{"name": k, "detail": v} for k, v in plugins.items()]

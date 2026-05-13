@@ -31,30 +31,26 @@ class DnsTool(BaseTool):
 
     async def execute(self, params: dict) -> dict:
         domain = params.get("domain", "")
-        record_types = params.get("record_types", "A,MX,NS,TXT,CNAME").split(",")
+        record_types = [r.strip().upper() for r in params.get("record_types", "A,MX,NS,TXT,CNAME").split(",") if r.strip()]
 
         tool = "dig" if shutil.which("dig") else ("host" if shutil.which("host") else None)
         if not tool:
             return {"success": False, "error": "dig/host not found"}
 
-        records: dict[str, list[str]] = {}
-        for rtype in record_types:
-            rtype = rtype.strip().upper()
+        async def _query(rtype: str) -> tuple[str, list[str]]:
             try:
-                if tool == "dig":
-                    cmd = ["dig", "+short", rtype, domain]
-                else:
-                    cmd = ["host", "-t", rtype, domain]
+                cmd = ["dig", "+short", rtype, domain] if tool == "dig" else ["host", "-t", rtype, domain]
                 proc = await asyncio.create_subprocess_exec(
                     *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-                lines = [l.strip() for l in stdout.decode(errors="replace").splitlines() if l.strip()]
-                if lines:
-                    records[rtype] = lines
+                lines = [ln.strip() for ln in stdout.decode(errors="replace").splitlines() if ln.strip()]
+                return rtype, lines
             except Exception:
-                pass
+                return rtype, []
 
+        results = await asyncio.gather(*[_query(rt) for rt in record_types])
+        records = {rtype: lines for rtype, lines in results if lines}
         return {"success": True, "output": {"domain": domain, "records": records}}
 
     async def health_check(self) -> ToolHealthStatus:

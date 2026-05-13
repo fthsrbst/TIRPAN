@@ -15,7 +15,6 @@ V2 additions:
 """
 
 import asyncio
-import inspect
 import logging
 import shutil
 import time
@@ -209,8 +208,7 @@ class NmapTool(BaseTool):
 
         try:
             start = time.time()
-            maybe_xml = self._run_nmap(cmd)
-            xml_output = await maybe_xml if inspect.isawaitable(maybe_xml) else maybe_xml
+            xml_output = await self._run_nmap(cmd)
             duration = time.time() - start
 
             result = self._parse_xml(xml_output, " ".join(targets), scan_type, duration)
@@ -283,7 +281,7 @@ class NmapTool(BaseTool):
 
         # NSE scripts
         if scripts.strip() and scan_type != "ping":
-            base += ["--script", scripts.strip(), "--script-timeout", "30s"]
+            base += ["--script", scripts.strip(), "--script-timeout", "10s"]
 
         # Port exclusions — merge tool param + global safety config
         all_excluded: list[str] = []
@@ -320,12 +318,9 @@ class NmapTool(BaseTool):
                     timeout=SCAN_TIMEOUT,
                 )
             except asyncio.TimeoutError:
-                if inspect.iscoroutine(communicate_coro):
-                    communicate_coro.close()
+                communicate_coro.close()
                 proc.kill()
-                maybe_wait = proc.wait()
-                if inspect.isawaitable(maybe_wait):
-                    await maybe_wait
+                await proc.wait()
                 raise TimeoutError(f"nmap timed out after {SCAN_TIMEOUT}s")
 
         except asyncio.CancelledError:
@@ -333,9 +328,7 @@ class NmapTool(BaseTool):
             if proc is not None:
                 try:
                     proc.kill()
-                    maybe_wait = proc.wait()
-                    if inspect.isawaitable(maybe_wait):
-                        await maybe_wait
+                    await proc.wait()
                 except Exception:
                     pass
             raise
