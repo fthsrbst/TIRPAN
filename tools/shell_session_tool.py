@@ -48,7 +48,9 @@ import base64
 import ipaddress
 import logging
 import re
+import shlex
 import socket
+import threading
 import subprocess
 import time
 from pathlib import Path
@@ -74,6 +76,7 @@ _MAX_OUTPUT_BYTES   = 64 * 1024
 #   "reverse"         — callback received, reader/writer populated
 #
 _SESSIONS: dict[str, dict[str, Any]] = {}
+_SESSIONS_LOCK = threading.Lock()
 
 
 def _auto_key(method: str, host: str, port: int) -> str:
@@ -417,8 +420,9 @@ class ShellSessionTool(BaseTool):
              _auto_key(method, target_ip or "local", target_port if method != "reverse" else local_port)
 
         # Already open → return info without reconnecting
-        if sk in _SESSIONS:
-            sess = _SESSIONS[sk]
+        with _SESSIONS_LOCK:
+            if sk in _SESSIONS:
+                sess = _SESSIONS[sk]
             status = "pending_callback" if sess["method"] == "reverse_pending" else "already_open"
             return {
                 "success": True,
@@ -441,10 +445,12 @@ class ShellSessionTool(BaseTool):
             return await self._connect_reverse(target_ip, local_port, sk, rev_wait)
 
     async def _close(self, sk: str) -> dict:
-        sess = _SESSIONS.pop(sk, None)
+        with _SESSIONS_LOCK:
+            sess = _SESSIONS.pop(sk, None)
+            active_list = list(_SESSIONS)
         if sess is None:
             return {"success": False, "output": None,
-                    "error": f"No session '{sk}'. Active: {list(_SESSIONS)}"}
+                    "error": f"No session '{sk}'. Active: {active_list}"}
         method = sess.get("method", "")
         try:
             if method == "ssh":
@@ -616,11 +622,12 @@ class ShellSessionTool(BaseTool):
         except Exception as exc:
             return {"success": False, "output": None, "error": str(exc)}
 
-        _SESSIONS[sk] = {
-            "method": "ssh", "client": client,
-            "target_ip": target_ip, "target_port": target_port,
-            "created_at": time.time(),
-        }
+        with _SESSIONS_LOCK:
+            _SESSIONS[sk] = {
+                "method": "ssh", "client": client,
+                "target_ip": target_ip, "target_port": target_port,
+                "created_at": time.time(),
+            }
         return {
             "success": True,
             "output": {"session_key": sk, "status": "connected", "method": "ssh",
@@ -649,7 +656,8 @@ class ShellSessionTool(BaseTool):
         await asyncio.sleep(0.4)
         banner = await self._drain(reader, settle_ms=200)
 
-        _SESSIONS[sk] = {
+        with _SESSIONS_LOCK:
+            _SESSIONS[sk] = {
             "method": "bind", "reader": reader, "writer": writer,
             "target_ip": target_ip, "target_port": target_port,
             "created_at": time.time(),
@@ -695,7 +703,8 @@ class ShellSessionTool(BaseTool):
 
         triggers = _build_trigger_commands(lhost, local_port) if lhost else {}
 
-        _SESSIONS[sk] = {
+        with _SESSIONS_LOCK:
+            _SESSIONS[sk] = {
             "method": "reverse_pending",
             "server": server,
             "connected": connected,
@@ -779,7 +788,8 @@ class ShellSessionTool(BaseTool):
             server = sess.get("server")
             if server:
                 server.close()
-            _SESSIONS.pop(sk, None)
+            with _SESSIONS_LOCK:
+                _SESSIONS.pop(sk, None)
             return {
                 "success": False, "output": None,
                 "error": (
@@ -801,7 +811,8 @@ class ShellSessionTool(BaseTool):
         await asyncio.sleep(0.3)
         banner = await self._drain(reader, settle_ms=200)
 
-        _SESSIONS[sk] = {
+        with _SESSIONS_LOCK:
+            _SESSIONS[sk] = {
             "method": "reverse", "reader": reader, "writer": writer,
             "target_ip": sess.get("target_ip", ""), "target_port": sess.get("local_port", 0),
             "created_at": sess["created_at"],
@@ -871,7 +882,7 @@ class ShellSessionTool(BaseTool):
                     "error": f"Cannot read local file: {exc}"}
         enc = base64.b64encode(data).decode()
         lines = [enc[i:i+76] for i in range(0, len(enc), 76)]
-        cmd = f"printf '%s' '{chr(10).join(lines)}' | base64 -d > {remote_path} && echo OK"
+        cmd = f"printf '%s' '{chr(10).join(lines)}' | base64 -d > {shlex.quote(remote_path)} && echo OK"
         out, err, rc = self._ssh_run(client, cmd, timeout)
         return {
             "success": rc == 0 and "OK" in out,
@@ -880,7 +891,7 @@ class ShellSessionTool(BaseTool):
         }
 
     def _ssh_download(self, client, remote_path: str, timeout: int) -> dict:
-        out, err, rc = self._ssh_run(client, f"cat {remote_path} | base64", timeout)
+        out, err, rc = self._ssh_run(client, f"cat {shlex.quote(remote_path)} | base64", timeout)
         if rc != 0:
             return {"success": False, "output": None, "error": err or "cat failed"}
         try:

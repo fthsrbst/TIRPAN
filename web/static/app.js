@@ -1,3 +1,55 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUTH — redirect to Normal Mode login if no valid token
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function _getToken() {
+    try { return localStorage.getItem('tirpan_token') || sessionStorage.getItem('tirpan_token'); } catch { return null; }
+}
+function _clearAuth() {
+    try { [localStorage, sessionStorage].forEach(function(s) { s.removeItem('tirpan_token'); s.removeItem('tirpan_user'); }); } catch {}
+}
+
+// ── Patch fetch to always send auth header for /api/ requests ─────────────────
+const _origFetch = window.fetch;
+window.fetch = function(url, options) {
+    const urlStr = typeof url === 'string' ? url : (url instanceof Request ? url.url : String(url));
+    if (urlStr.startsWith('/api/') || urlStr.includes('/api/v1/')) {
+        const token = _getToken();
+        const headers = new Headers(options?.headers || {});
+        if (token) headers.set('Authorization', 'Bearer ' + token);
+        const newOpts = { ...options, headers };
+        return _origFetch(url, newOpts).then(function(res) {
+            if (res.status === 401) {
+                _clearAuth();
+                window.location.href = '/normal/login';
+                throw new Error('Session expired');
+            }
+            return res;
+        });
+    }
+    return _origFetch(url, options);
+};
+
+// ── Auth guard: on page load, verify token or redirect to login ──────────────
+(function() {
+    var token = _getToken();
+    if (!token) {
+        window.location.replace('/normal/login');
+        return;
+    }
+    // Validate token with server
+    _origFetch('/api/v1/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(function(res) {
+            if (!res.ok) {
+                _clearAuth();
+                window.location.replace('/normal/login');
+            }
+        })
+        .catch(function() {
+            // Network error — let page load, user can still use cached data
+        });
+})();
+
 // ─── Mobile Sidebar ──────────────────────────────────────────────────────────
 
 function toggleMobileSidebar() {
@@ -61,29 +113,75 @@ function initSidebars() {
 let currentView = 'agent';
 let previousView = 'agent';
 
-const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission', 'outputs'];
+const ALL_VIEWS = ['agent', 'chat', 'console', 'audit', 'config', 'report', 'intel', 'mission', 'outputs', 'team'];
+
+function _agCurrentSessionPrefId() {
+    return viewingSessionId || activeMissionId || '';
+}
+
+function _agViewStorageKey(sessionId) {
+    const sid = String(sessionId || '').trim().toLowerCase();
+    return sid ? `tirpan_ag_view:${sid}` : 'agView';
+}
+
+function _agLoadSavedView(sessionId) {
+    try {
+        const perSession = localStorage.getItem(_agViewStorageKey(sessionId));
+        if (perSession === 'graph' || perSession === 'feed') return perSession;
+        if (perSession === 'timeline') return 'feed';
+        const fallback = localStorage.getItem('agView');
+        if (fallback === 'graph' || fallback === 'feed') return fallback;
+        if (fallback === 'timeline') return 'feed';
+    } catch (e) {
+        // no-op
+    }
+    return 'feed';
+}
+
+function _agSaveViewPreference(view, sessionId) {
+    try {
+        localStorage.setItem('agView', view);
+        localStorage.setItem(_agViewStorageKey(sessionId), view);
+    } catch (e) {
+        // no-op
+    }
+}
 
 function switchView(viewName) {
     if (!viewName) return;
     if (currentView !== 'intel') previousView = currentView;
+
+    const domViewId = viewName === 'logs' ? 'console' : viewName;
 
     // Hide all views, show target
     ALL_VIEWS.forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.classList.add('hidden');
     });
-    const target = document.getElementById(`view-${viewName}`);
+    const target = document.getElementById(`view-${domViewId}`);
     if (target) target.classList.remove('hidden');
 
     currentView = viewName;
+
+    if (viewName === 'logs') {
+        _switchConsoleTab('logs');
+    }
     syncInputMode();
 
-    // Restore saved agent sub-view (feed/graph) when switching to agent
+    // Restore saved agent sub-view (feed/graph/timeline) when switching to agent
     if (viewName === 'agent') {
-        try {
-            const saved = localStorage.getItem('agView');
-            if (saved === 'graph' || saved === 'feed') switchAgentView(saved);
-        } catch(e) {}
+        switchAgentView(_agLoadSavedView(_agCurrentSessionPrefId()));
+    }
+
+    // Refresh local model lists whenever the config view is opened
+    if (viewName === 'config') {
+        fetchOllamaStatus();
+        fetchLMStudioStatus();
+    }
+
+    // Load team data whenever team view is opened
+    if (viewName === 'team') {
+        teamLoad();
     }
 
     // Update nav highlight
@@ -103,132 +201,232 @@ function switchView(viewName) {
 }
 
 function initBottomNav() {
-    const navItems = document.querySelectorAll('.bottom-nav-item');
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const view = item.dataset.view;
-            if (view) {
-                switchView(view);
-                closeMobileSidebar();
-            }
-        });
+    if (initBottomNav._bound) return;
+    initBottomNav._bound = true;
+
+    // Delegated handler keeps nav working even if init ordering changes.
+    document.addEventListener('click', (event) => {
+        const item = event.target && event.target.closest
+            ? event.target.closest('.bottom-nav-item[data-view]')
+            : null;
+        if (!item) return;
+
+        const view = item.dataset.view;
+        if (!view) return;
+
+        switchView(view);
+        closeMobileSidebar();
     });
 }
 
+initBottomNav();
+
 // ─── Console Tabs ────────────────────────────────────────────────────────────
 
-function initConsoleTabs() {
-    const tabs = document.querySelectorAll('.console-tab');
-    const bodies = document.querySelectorAll('.console-body');
+// Console last-active-tab persistence
+const _CONSOLE_TAB_KEY = 'tirpan_console_tab';
+function _consoleSavedTab() {
+    try { return localStorage.getItem(_CONSOLE_TAB_KEY) || 'terminal'; } catch { return 'terminal'; }
+}
+function _consoleSaveTab(t) {
+    try { localStorage.setItem(_CONSOLE_TAB_KEY, t); } catch {}
+}
 
-    tabs.forEach(tab => {
+function initConsoleTabs() {
+    if (initConsoleTabs._bound) return;
+    initConsoleTabs._bound = true;
+
+    document.querySelectorAll('#view-console .console-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             const target = tab.dataset.tab;
-
-            tabs.forEach(t => {
-                if (t.dataset.tab === target) {
-                    t.classList.add('bg-black', 'text-primary', 'border-t-2', 'border-t-primary');
-                    t.classList.remove('text-secondary-text', 'hover:bg-white/5');
-                } else {
-                    t.classList.remove('bg-black', 'text-primary', 'border-t-2', 'border-t-primary');
-                    t.classList.add('text-secondary-text', 'hover:bg-white/5');
-                }
-            });
-
-            bodies.forEach(body => {
-                if (body.dataset.tab === target) {
-                    body.classList.remove('hidden');
-                } else {
-                    body.classList.add('hidden');
-                }
-            });
+            if (target) _switchConsoleTab(target);
         });
     });
+
+    // Log filter chips
+    document.querySelectorAll('.log-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.log-filter-btn').forEach(b => {
+                b.classList.remove('active', 'border-primary', 'text-primary');
+                b.classList.add('border-border-color', 'text-secondary-text');
+            });
+            btn.classList.add('active', 'border-primary', 'text-primary');
+            btn.classList.remove('border-border-color', 'text-secondary-text');
+            _logsApplyFilter(btn.dataset.filter || 'all');
+        });
+    });
+
+    // Clear logs button
+    document.getElementById('logs-clear-btn')?.addEventListener('click', () => {
+        const out = document.getElementById('console-logs-output');
+        if (out) {
+            out.innerHTML = '<div id="console-logs-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none"><span class="material-symbols-outlined text-3xl opacity-40">list_alt</span><span class="text-[11px] tracking-widest uppercase opacity-60">No logs yet — start a mission</span></div>';
+        }
+    });
+
+    // Restore last active tab
+    _switchConsoleTab(_consoleSavedTab(), true);
+}
+
+let _logsActiveFilter = 'all';
+function _logsApplyFilter(filter) {
+    _logsActiveFilter = filter;
+    const out = document.getElementById('console-logs-output');
+    if (!out) return;
+    out.querySelectorAll('.log-entry').forEach(el => {
+        const cat = el.dataset.cat || 'bash';
+        el.classList.toggle('hidden', filter !== 'all' && cat !== filter);
+    });
+}
+
+function _appendToLogs(html, category) {
+    const out = document.getElementById('console-logs-output');
+    if (!out) return;
+    const empty = document.getElementById('console-logs-empty');
+    if (empty) empty.remove();
+
+    const wrap = document.createElement('div');
+    wrap.className = 'log-entry';
+    wrap.dataset.cat = category || 'bash';
+    if (_logsActiveFilter !== 'all' && wrap.dataset.cat !== _logsActiveFilter) {
+        wrap.classList.add('hidden');
+    }
+    wrap.innerHTML = html;
+    out.appendChild(wrap);
+    out.scrollTop = out.scrollHeight;
+
+    // Badge notification when logs tab not active
+    if (_consoleSavedTab() !== 'logs') {
+        const badge = document.getElementById('logs-new-badge');
+        if (badge) badge.classList.remove('hidden');
+    }
 }
 
 // ─── Pentest / Defense Mode Toggle ──────────────────────────────────────────
 
 function initModeToggle() {
-    const pentestBtn = document.getElementById('mode-pentest');
-    const defenseBtn = document.getElementById('mode-defense');
-
-    function setMode(mode) {
-        if (mode === 'pentest') {
-            pentestBtn.classList.add('bg-primary', 'text-black');
-            pentestBtn.classList.remove('text-secondary-text', 'hover:text-white');
-            defenseBtn.classList.remove('bg-primary', 'text-black');
-            defenseBtn.classList.add('text-secondary-text', 'hover:text-white');
-        } else {
-            defenseBtn.classList.add('bg-primary', 'text-black');
-            defenseBtn.classList.remove('text-secondary-text', 'hover:text-white');
-            pentestBtn.classList.remove('bg-primary', 'text-black');
-            pentestBtn.classList.add('text-secondary-text', 'hover:text-white');
-        }
-        _updateShieldVisibility(mode === 'defense');
-    }
-
-    pentestBtn.addEventListener('click', () => setMode('pentest'));
-    defenseBtn.addEventListener('click', () => setMode('defense'));
-
-    // Initialize: shield hidden on pentest (default)
-    _updateShieldVisibility(false);
+    // Manual mode removed — Auto is always active
 }
 
-function _updateShieldVisibility(show) {
-    // Tab button in expanded intel view
-    const shieldTabBtn = document.querySelector('.intel-tab[data-intel-tab="shield"]');
-    // Nav item in right sidebar
-    const shieldNavItem = document.querySelector('.intel-nav-item[data-panel="shield"]');
-    // Right sidebar panel content
-    const shieldPanel = document.getElementById('intel-panel-shield');
-    // Expanded-view tab body
-    const shieldTabBody = document.querySelector('.intel-tab-body[data-intel-tab="shield"]');
+function _switchMainDashboard(mode) {
+    // All pentest views
+    const pentestViews = document.querySelectorAll(
+        '#view-agent, #view-chat, #view-console, #view-audit, ' +
+        '#view-config, #view-report, #view-intel, #view-mission, #view-outputs'
+    );
+    const defenseDash = document.getElementById('defense-dashboard');
+
+    if (mode === 'defense') {
+        // Hide all pentest views
+        pentestViews.forEach(v => {
+            if (v) { v._prev_display = v.classList.contains('hidden') ? 'hidden' : 'flex'; v.classList.add('hidden'); }
+        });
+        // Show defense dashboard
+        if (defenseDash) defenseDash.classList.remove('hidden');
+        // Load defense sessions
+        if (typeof defenseInit === 'function') defenseInit();
+    } else {
+        // Restore pentest views
+        if (defenseDash) defenseDash.classList.add('hidden');
+        // Restore previously active view (default: agent)
+        const activeView = document.getElementById('view-agent');
+        if (activeView) activeView.classList.remove('hidden');
+    }
+}
+
+function _updateDdosVisibility(show) {
+    const ddosTabBtn = document.querySelector('.intel-tab[data-intel-tab="ddos"]');
+    const ddosNavItem = document.querySelector('.intel-nav-item[data-panel="ddos"]');
+    const ddosPanel = document.getElementById('intel-panel-ddos');
+    const ddosTabBody = document.querySelector('.intel-tab-body[data-intel-tab="ddos"]');
 
     if (show) {
-        if (shieldTabBtn)  shieldTabBtn.style.display  = '';
-        if (shieldNavItem) shieldNavItem.style.display = '';
-        if (shieldPanel)   shieldPanel.classList.remove('hidden');
-        if (shieldTabBody) shieldTabBody.classList.remove('hidden');
+        if (ddosTabBtn)  ddosTabBtn.style.display  = '';
+        if (ddosNavItem) ddosNavItem.style.display = '';
+        if (ddosPanel)   ddosPanel.classList.remove('hidden');
+        if (ddosTabBody) ddosTabBody.classList.remove('hidden');
     } else {
-        if (shieldTabBtn)  shieldTabBtn.style.display  = 'none';
-        if (shieldNavItem) shieldNavItem.style.display = 'none';
-        // If the shield panel is currently visible, switch to analysis first
-        if (shieldPanel && !shieldPanel.classList.contains('hidden')) {
-            switchIntelPanel('analysis');
+        if (ddosTabBtn)  ddosTabBtn.style.display  = 'none';
+        if (ddosNavItem) ddosNavItem.style.display = 'none';
+        if (ddosPanel && !ddosPanel.classList.contains('hidden')) {
+            switchIntelPanel('live');
         }
-        if (shieldPanel) shieldPanel.classList.add('hidden');
-        if (shieldTabBody && !shieldTabBody.classList.contains('hidden')) {
-            shieldTabBody.classList.add('hidden');
+        if (ddosPanel) ddosPanel.classList.add('hidden');
+        if (ddosTabBody && !ddosTabBody.classList.contains('hidden')) {
+            ddosTabBody.classList.add('hidden');
         }
     }
 }
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
 
-const ALL_INTEL_PANELS = ['analysis', 'network', 'shield', 'history', 'nodes', 'kb'];
+const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'ddos', 'history', 'nodes', 'kb'];
+
+function _setIntelNavActive(panelName) {
+    const items = document.querySelectorAll('.intel-nav-item');
+    items.forEach((item) => {
+        const active = item.dataset.panel === panelName;
+        item.classList.toggle('text-primary', active);
+        item.classList.toggle('text-secondary-text', !active);
+    });
+}
 
 function switchIntelPanel(panelName) {
-    // Hide all panels
-    ALL_INTEL_PANELS.forEach(p => {
+    const secondary = document.getElementById('rsb-secondary-panel');
+
+    if (panelName === 'live' || !panelName) {
+        // Live: just hide the secondary panel, live section is always visible
+        if (secondary) secondary.classList.add('hidden');
+        _setIntelNavActive('live');
+        return;
+    }
+
+    // Non-live: show secondary panel, hide all panels inside it, show target
+    if (secondary) secondary.classList.remove('hidden');
+
+    ALL_INTEL_PANELS.filter(p => p !== 'live').forEach(p => {
         const el = document.getElementById(`intel-panel-${p}`);
         if (el) el.classList.add('hidden');
     });
-    // Show target
+
     const target = document.getElementById(`intel-panel-${panelName}`);
-    if (target) target.classList.remove('hidden');
+    if (target) {
+        target.classList.remove('hidden');
+        _setIntelNavActive(panelName);
+    } else {
+        if (secondary) secondary.classList.add('hidden');
+        _setIntelNavActive('live');
+    }
+
+    const sid = viewingSessionId || activeMissionId || (_intelSessionsCache[0] ? _intelSessionsCache[0].id : null);
+
+    if (panelName === 'history') {
+        refreshIntelPanelsForSession(sid, { refreshHistory: true });
+        return;
+    }
+
+    if (panelName === 'analysis' || panelName === 'network' || panelName === 'nodes' || panelName === 'kb') {
+        if (_intelCurrentSessionData && sid && _intelCurrentSessionData.id === sid) {
+            syncAnalysisPanelFromSession(_intelCurrentSessionData);
+            updateNetworkPanelFromSession(_intelCurrentSessionData);
+            updateIntelNodesPanel(_intelCurrentSessionData);
+            updateIntelKnowledgeBasePanel(_intelCurrentSessionData);
+        } else {
+            refreshIntelPanelsForSession(sid);
+        }
+    }
+
+    if (panelName === 'ddos') {
+        if (typeof refreshDDoSPanelForSession === 'function') {
+            refreshDDoSPanelForSession(sid);
+        }
+    }
 }
 
 function initIntelNav() {
     const items = document.querySelectorAll('.intel-nav-item');
     items.forEach(item => {
         item.addEventListener('click', () => {
-            items.forEach(i => {
-                i.classList.add('text-secondary-text');
-                i.classList.remove('text-primary');
-            });
-            item.classList.remove('text-secondary-text');
-            item.classList.add('text-primary');
-
             const panel = item.dataset.panel;
             if (panel) {
                 switchIntelPanel(panel);
@@ -244,7 +442,7 @@ function initIntelNav() {
 const INTEL_TAB_ICONS = {
     analysis: 'monitoring',
     network: 'hub',
-    shield: 'security',
+    ddos: 'bolt',
     history: 'history',
     nodes: 'account_tree',
     kb: 'auto_stories',
@@ -264,15 +462,19 @@ function switchIntelTab(tabName) {
     const title = document.getElementById('intel-view-title');
     if (icon) icon.textContent = INTEL_TAB_ICONS[tabName] || 'monitoring';
     if (title) title.textContent = tabName.charAt(0).toUpperCase() + tabName.slice(1);
+    _setIntelNavActive(tabName);
 
     // When switching to network tab: force fresh render + fit
     if (tabName === 'network') {
         setTimeout(() => {
-            // Reset fitted flag so _topoFitView always runs when tab is now visible
             if (_topoD3State['topo-d3-svg']) _topoD3State['topo-d3-svg'].fitted = false;
             _topoD3Render('topo-d3-svg', 'topo-tooltip', _topoLastHosts, _topoLastExploits, false);
             _topoUpdateTimeline();
         }, 60);
+    }
+
+    if (tabName === 'ddos' && typeof DDOS !== 'undefined' && DDOS._refreshExpanded) {
+        setTimeout(() => DDOS._refreshExpanded(), 50);
     }
 }
 
@@ -362,6 +564,14 @@ function initApiKeyToggle() {
             const input = btn.closest('div').querySelector('input');
             if (input.type === 'password') { input.type = 'text'; btn.textContent = 'visibility_off'; }
             else { input.type = 'password'; btn.textContent = 'visibility'; }
+        });
+    }
+    const ocgBtn = document.getElementById('toggle-ocg-api-key');
+    if (ocgBtn) {
+        ocgBtn.addEventListener('click', () => {
+            const input = ocgBtn.closest('div').querySelector('input');
+            if (input.type === 'password') { input.type = 'text'; ocgBtn.textContent = 'visibility_off'; }
+            else { input.type = 'password'; ocgBtn.textContent = 'visibility'; }
         });
     }
     const sudoBtn = document.getElementById('toggle-sudo-pass');
@@ -953,8 +1163,27 @@ async function loadConversation(convId) {
         const messages = data.messages || [];
         if (!messages.length) { resetMessageStream(); return; }
         messages.forEach(msg => {
-            if (msg.role === 'user') appendUserMessageDOM(msg.content);
-            else if (msg.role === 'assistant') appendAssistantMessageDOM(msg.content);
+            if (msg.role === 'user') {
+                currentAssistantEl = null;
+                appendUserMessageDOM(msg.content);
+            } else if (msg.role === 'tool_log') {
+                // Replay tool activity lines as status bubbles inside an assistant bubble
+                if (!currentAssistantEl) startAssistantMessage();
+                msg.content.split('\n').forEach(line => {
+                    if (line.trim()) appendChatStatusBubble(line.trim(), null);
+                });
+            } else if (msg.role === 'assistant') {
+                if (currentAssistantEl) {
+                    // Fill in the text of the already-open bubble (created by tool_log)
+                    const p = currentAssistantEl.querySelector('.msg-text');
+                    const cursor = currentAssistantEl.querySelector('.cursor-blink');
+                    if (cursor) cursor.remove();
+                    if (p) p.innerHTML = renderMarkdown(msg.content);
+                    currentAssistantEl = null;
+                } else {
+                    appendAssistantMessageDOM(msg.content);
+                }
+            }
         });
         autoScroll = true;
         forceScrollToBottom();
@@ -1280,7 +1509,9 @@ function updateSendBtn() {
 
 function wsConnect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const token = _getToken();
+    const wsUrl = token ? `${proto}://${location.host}/ws?token=${encodeURIComponent(token)}` : `${proto}://${location.host}/ws`;
+    ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
         wsReady = true;
@@ -1302,6 +1533,7 @@ function wsConnect() {
     ws.onclose = () => {
         wsReady = false;
         setConnectionBadge(false);
+        _handleNativeSocketClose();
         // Reconnect after 3 s
         setTimeout(wsConnect, 3000);
     };
@@ -1323,6 +1555,12 @@ function wsConnect() {
             appendChatApprovalRequest(msg);
         } else if (msg.type === 'message_end') {
             finalizeAssistantMessage();
+            // If user submitted a custom "Other" instruction during approval, send it now
+            if (_pendingApprovalOtherMessage) {
+                const pendingMsg = _pendingApprovalOtherMessage;
+                _pendingApprovalOtherMessage = null;
+                setTimeout(() => sendChatMessage(pendingMsg), 200);
+            }
         } else if (msg.type === 'error') {
             appendErrorMessage(msg.content);
             finalizeAssistantMessage();
@@ -1340,8 +1578,29 @@ function wsConnect() {
             renderConversationList();
         } else if (msg.type === 'conversation_reset') {
             // UI already reset by createNewConversation()
+        } else if (
+            msg.type === 'terminal_opened'
+            || msg.type === 'terminal_output'
+            || msg.type === 'terminal_exit'
+            || msg.type === 'terminal_closed'
+            || msg.type === 'terminal_error'
+            || msg.type === 'terminal_pong'
+            || msg.type === 'terminal_resized'
+        ) {
+            _handleNativeTerminalMessage(msg);
+        } else if (msg.type && msg.type.startsWith('defense_') || msg.type === 'attacker_profile' || msg.type === 'honeypot_hit' || msg.type === 'canary_triggered') {
+            // Route to defense module handler
+            if (typeof defenseHandleWsEvent === 'function') {
+                defenseHandleWsEvent(msg.type, msg);
+            }
         }
     };
+}
+
+// Subscribe to defense session events via WebSocket
+function wsSubscribeDefense(sessionId) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({type: 'subscribe_defense', session_id: sessionId}));
 }
 
 function setConnectionBadge(online) {
@@ -1530,9 +1789,12 @@ function appendChatStatusBubble(content, msgId) {
 /**
  * Show an approval request card in the chat when ChatAgent asks permission.
  */
+// Holds a user message to send automatically after the current agent turn ends
+// (set when user clicks "Other" in an approval card — deny + queue instruction)
+let _pendingApprovalOtherMessage = null;
+
 function appendChatApprovalRequest(msg) {
     if (!currentAssistantEl) startAssistantMessage();
-    const msgText = currentAssistantEl ? currentAssistantEl.querySelector('.msg-text') : null;
     const stream = getMessageStream();
     const container = stream;
     if (!container) return;
@@ -1542,6 +1804,7 @@ function appendChatApprovalRequest(msg) {
     const paramsStr = msg.params && typeof msg.params === 'object'
         ? Object.entries(msg.params).slice(0, 5).map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`).join('\n')
         : '';
+    const approvalId = escapeHtml(msg.approval_id || '');
     card.innerHTML = `
         <div class="shrink-0 w-8 h-8 border border-orange-400/60 flex items-center justify-center bg-surface self-start mt-5">
           <span class="material-symbols-outlined text-orange-400 text-xl">security</span>
@@ -1551,26 +1814,62 @@ function appendChatApprovalRequest(msg) {
           <div class="bg-surface border border-orange-400/30 p-4">
             <p class="text-xs text-slate-200 font-bold mb-1">${escapeHtml(msg.tool || '')}</p>
             ${paramsStr ? `<pre class="text-[10px] mono-text text-secondary-text whitespace-pre-wrap break-all mt-1">${escapeHtml(paramsStr)}</pre>` : ''}
-            <div class="flex gap-2 mt-3">
-              <button class="approval-approve px-4 py-1.5 bg-primary text-black text-[11px] font-bold uppercase tracking-wider hover:brightness-90 transition-all" data-id="${escapeHtml(msg.approval_id || '')}">Approve</button>
-              <button class="approval-deny px-4 py-1.5 border border-danger/50 text-danger text-[11px] font-bold uppercase tracking-wider hover:border-danger transition-all" data-id="${escapeHtml(msg.approval_id || '')}">Deny</button>
+            <div class="approval-action-row flex gap-2 mt-3">
+              <button class="approval-approve px-4 py-1.5 bg-primary text-black text-[11px] font-bold uppercase tracking-wider hover:brightness-90 transition-all" data-id="${approvalId}">Approve</button>
+              <button class="approval-deny px-4 py-1.5 border border-danger/50 text-danger text-[11px] font-bold uppercase tracking-wider hover:border-danger transition-all" data-id="${approvalId}">Deny</button>
+            </div>
+            <div class="flex gap-2 mt-2 items-center">
+              <input class="approval-other-input flex-1 bg-background-dark border border-border-color text-slate-200 px-3 py-1.5 text-[11px] mono-text focus:border-orange-400/60 transition-colors" placeholder="Other… (deny + send custom instruction)" type="text"/>
+              <button class="approval-other-send px-3 py-1.5 border border-orange-400/40 text-orange-400 text-[11px] font-bold uppercase tracking-wider hover:border-orange-400 transition-all" data-id="${approvalId}">Send</button>
             </div>
           </div>
         </div>`;
 
+    function dismissApprovalCard(label) {
+        card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        const actionRow = card.querySelector('.approval-action-row');
+        if (actionRow) actionRow.innerHTML = `<span class="text-[11px] font-bold uppercase tracking-wider text-secondary-text">${label}</span>`;
+        const otherRow = card.querySelector('.flex.gap-2.mt-2');
+        if (otherRow) otherRow.remove();
+        card.style.height = card.offsetHeight + 'px';
+        card.style.overflow = 'hidden';
+        card.style.transition = 'opacity 0.3s ease';
+        card.style.opacity = '0';
+        setTimeout(() => {
+            card.style.transition = 'height 0.25s ease, margin-top 0.25s ease, padding-top 0.25s ease, padding-bottom 0.25s ease';
+            card.style.height = '0';
+            card.style.marginTop = '0';
+            card.style.paddingTop = '0';
+            card.style.paddingBottom = '0';
+        }, 310);
+        setTimeout(() => card.remove(), 580);
+    }
+
     card.querySelector('.approval-approve')?.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: true }));
-        card.querySelector('.approval-approve').disabled = true;
-        card.querySelector('.approval-deny').disabled = true;
-        card.querySelector('.approval-approve').textContent = 'Approved';
+        dismissApprovalCard('✓ Approved');
     });
     card.querySelector('.approval-deny')?.addEventListener('click', (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: false }));
-        card.querySelector('.approval-approve').disabled = true;
-        card.querySelector('.approval-deny').disabled = true;
-        card.querySelector('.approval-deny').textContent = 'Denied';
+        dismissApprovalCard('✗ Denied');
+    });
+    card.querySelector('.approval-other-send')?.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const text = card.querySelector('.approval-other-input')?.value?.trim();
+        if (!text) return;
+        // Deny the current action, then queue the custom text as the next user message
+        ws.send(JSON.stringify({ type: 'approval_response', approval_id: id, approved: false }));
+        _pendingApprovalOtherMessage = text;
+        dismissApprovalCard(`✗ Denied — queued: "${text.slice(0, 40)}${text.length > 40 ? '…' : ''}"`);
+    });
+    // Allow Enter key in the Other input to submit
+    card.querySelector('.approval-other-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            card.querySelector('.approval-other-send')?.click();
+        }
     });
 
     container.appendChild(card);
@@ -1801,22 +2100,194 @@ function initChatViewInput() {
 
 let availableModels = [];
 let activeModel = '';
-let activeProvider = 'ollama';  // 'ollama' | 'lmstudio' | 'openrouter'
+let activeProvider = 'ollama';  // 'ollama' | 'lmstudio' | 'openrouter' | 'opencode_go'
 let ollamaBaseUrl = 'http://127.0.0.1:11434';
 let openRouterModels = [];
 let cloudModel = 'anthropic/claude-sonnet-4-6';
+
+// ─── OpenCode Go State ─────────────────────────────────────────────────────────
+
+let openCodeGoModels = [];
+let openCodeGoModel = 'opencode-go/deepseek-v4-pro';
 
 // ─── LM Studio Status & Model Selector ───────────────────────────────────────
 
 let lmStudioModels = [];
 let lmStudioModel = '';
 let lmStudioBaseUrl = 'http://127.0.0.1:1234';
+let brandingLogoUrl = '';
+let brandingLogoFile = '';
+const _BRANDING_MAX_BYTES = 5 * 1024 * 1024;
+const _BRANDING_ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const _BRANDING_ALLOWED_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp']);
+
+function _validateBrandingLogoFile(file) {
+    if (!file) return 'Logo file is required';
+    if (!file.size) return 'Logo file is empty';
+    if (file.size > _BRANDING_MAX_BYTES) return 'Logo is too large (max 5MB)';
+
+    const type = String(file.type || '').toLowerCase();
+    const ext = String(file.name || '').split('.').pop().toLowerCase();
+    const hasAllowedType = _BRANDING_ALLOWED_TYPES.has(type);
+    const hasAllowedExt = _BRANDING_ALLOWED_EXTS.has(ext);
+    if (!hasAllowedType && !hasAllowedExt) {
+        return 'Unsupported logo format. Use PNG, JPG, JPEG, or WEBP';
+    }
+
+    return '';
+}
+
+function _renderBrandingLogoPreview() {
+    const preview = document.getElementById('cfg-branding-logo-preview');
+    const removeBtn = document.getElementById('cfg-branding-logo-remove');
+    if (removeBtn) removeBtn.classList.toggle('hidden', !brandingLogoUrl);
+    if (!preview) return;
+
+    preview.innerHTML = '';
+    if (brandingLogoUrl) {
+        const img = document.createElement('img');
+        const cacheBuster = brandingLogoUrl.includes('?') ? '&' : '?';
+        img.src = `${brandingLogoUrl}${cacheBuster}t=${Date.now()}`;
+        img.alt = 'Company logo preview';
+        img.className = 'max-h-full max-w-full object-contain';
+        preview.appendChild(img);
+        return;
+    }
+
+    const hint = document.createElement('span');
+    hint.className = 'text-[10px] mono-text text-secondary-text';
+    hint.textContent = 'No logo uploaded';
+    preview.appendChild(hint);
+}
+
+async function loadBrandingConfig() {
+    try {
+        const res = await fetch('/api/v1/config/branding');
+        if (!res.ok) return;
+        const data = await res.json();
+        const companyInput = document.getElementById('cfg-branding-company');
+        if (companyInput) companyInput.value = data.company_name || '';
+        brandingLogoUrl = data.logo_url || '';
+        brandingLogoFile = data.logo_file || '';
+        _renderBrandingLogoPreview();
+    } catch {
+        // ignore
+    }
+}
+
+async function saveBrandingConfig() {
+    const companyName = document.getElementById('cfg-branding-company')?.value?.trim() || '';
+    const res = await fetch('/api/v1/config/branding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_name: companyName }),
+    });
+    if (!res.ok) {
+        throw new Error('Failed to save branding settings');
+    }
+}
+
+async function uploadBrandingLogo(file) {
+    if (!file) return;
+    const uploadBtn = document.getElementById('cfg-branding-logo-btn');
+    const originalLabel = uploadBtn ? uploadBtn.textContent : '';
+
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch('/api/v1/config/branding/upload', {
+            method: 'POST',
+            body: formData,
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Logo upload failed');
+        }
+
+        await loadBrandingConfig();
+        showToast('Logo uploaded');
+    } catch (err) {
+        showToast(err.message || 'Logo upload failed', true);
+    } finally {
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = originalLabel || 'Upload Logo';
+        }
+    }
+}
+
+async function removeBrandingLogo() {
+    try {
+        const res = await fetch('/api/v1/config/branding/logo', { method: 'DELETE' });
+        if (!res.ok) {
+            throw new Error('Failed to remove logo');
+        }
+        brandingLogoUrl = '';
+        brandingLogoFile = '';
+        _renderBrandingLogoPreview();
+        showToast('Logo removed');
+    } catch (err) {
+        showToast(err.message || 'Failed to remove logo', true);
+    }
+}
+
+function initBrandingConfig() {
+    const uploadBtn = document.getElementById('cfg-branding-logo-btn');
+    const fileInput = document.getElementById('cfg-branding-logo-input');
+    const removeBtn = document.getElementById('cfg-branding-logo-remove');
+
+    if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener('click', () => fileInput.click());
+    }
+
+    if (fileInput) {
+        fileInput.addEventListener('change', async () => {
+            const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+            if (file) {
+                const validationError = _validateBrandingLogoFile(file);
+                if (validationError) {
+                    showToast(validationError, true);
+                    fileInput.value = '';
+                    return;
+                }
+                await uploadBrandingLogo(file);
+            }
+            fileInput.value = '';
+        });
+    }
+
+    if (removeBtn) {
+        removeBtn.addEventListener('click', removeBrandingLogo);
+    }
+
+    _renderBrandingLogoPreview();
+}
 
 async function fetchLMStudioStatus(overrideUrl) {
     try {
         const urlParam = overrideUrl ? `?base_url=${encodeURIComponent(overrideUrl)}` : '';
         const res = await fetch(`/api/v1/lmstudio/status${urlParam}`);
         const data = await res.json();
+
+        // Fallback: if backend can't reach LM Studio (e.g. WSL2 networking),
+        // try fetching directly from the browser instead.
+        if (!data.online) {
+            const directUrl = (overrideUrl || lmStudioBaseUrl).replace(/\/$/, '');
+            try {
+                const directRes = await fetch(`${directUrl}/v1/models`, { signal: AbortSignal.timeout(5000) });
+                if (directRes.ok) {
+                    const directData = await directRes.json();
+                    data.online = true;
+                    data.models = (directData.data || []).map(m => m.id);
+                }
+            } catch { /* still offline */ }
+        }
 
         const dot = document.getElementById('cfg-lmstudio-status-dot');
 
@@ -1839,56 +2310,35 @@ async function fetchLMStudioStatus(overrideUrl) {
         const cfgModel = document.getElementById('cfg-lmstudio-model');
         if (cfgModel && lmStudioModel) cfgModel.value = lmStudioModel;
 
-        // Load base URL from backend
-        try {
-            const cfgRes = await fetch('/api/v1/config/lmstudio');
-            const cfgData = await cfgRes.json();
-            lmStudioBaseUrl = cfgData.base_url || lmStudioBaseUrl;
-            const cfgUrl = document.getElementById('cfg-lmstudio-url');
-            if (cfgUrl) cfgUrl.value = lmStudioBaseUrl;
-            if (cfgData.model && !lmStudioModel) {
-                lmStudioModel = cfgData.model;
-                populateLMStudioModelDropdown();
-            }
-        } catch { /* ignore */ }
+        // Load base URL from backend — but don't overwrite the input when the user
+        // called us with a custom override URL (e.g. while typing a new address).
+        if (!overrideUrl) {
+            try {
+                const cfgRes = await fetch('/api/v1/config/lmstudio');
+                const cfgData = await cfgRes.json();
+                lmStudioBaseUrl = cfgData.base_url || lmStudioBaseUrl;
+                const cfgUrl = document.getElementById('cfg-lmstudio-url');
+                if (cfgUrl) cfgUrl.value = lmStudioBaseUrl;
+                if (cfgData.model && !lmStudioModel) {
+                    lmStudioModel = cfgData.model;
+                    populateLMStudioModelDropdown();
+                }
+            } catch { /* ignore */ }
+        } else {
+            // Keep lmStudioBaseUrl in sync with what was actually used
+            lmStudioBaseUrl = overrideUrl;
+        }
 
     } catch { /* ignore */ }
 }
 
 function populateLMStudioModelDropdown() {
-    const list = document.getElementById('cfg-lmstudio-model-list');
-    const label = document.getElementById('cfg-lmstudio-model-label');
-    const hidden = document.getElementById('cfg-lmstudio-model');
-    if (!list) return;
-
-    list.innerHTML = '';
-
-    if (!lmStudioModels.length) {
-        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is LM Studio running?</div>';
-        if (label) label.textContent = lmStudioModel || '—';
-        if (hidden && lmStudioModel) hidden.value = lmStudioModel;
-        return;
+    // Update config label and hidden input
+    updateCfgLabels();
+    // Refresh picker if open
+    if (!document.getElementById('model-picker-overlay')?.classList.contains('hidden')) {
+        renderModelPickerList(document.getElementById('model-picker-search')?.value || '');
     }
-
-    if (label) label.textContent = lmStudioModel || lmStudioModels[0] || '—';
-    if (hidden) hidden.value = lmStudioModel || '';
-
-    lmStudioModels.forEach(model => {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = [
-            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
-            'hover:bg-primary/10 hover:text-primary transition-colors',
-            model === lmStudioModel ? 'text-primary' : 'text-slate-300',
-        ].join(' ');
-        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === lmStudioModel ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
-        item.addEventListener('click', () => {
-            lmStudioModel = model;
-            closeLMStudioModelDropdown();
-            populateLMStudioModelDropdown();
-        });
-        list.appendChild(item);
-    });
 }
 
 function openLMStudioModelDropdown() {
@@ -1946,6 +2396,20 @@ async function fetchOllamaStatus(overrideUrl) {
         const res = await fetch(`/api/v1/ollama/status${urlParam}`);
         const data = await res.json();
 
+        // Fallback: if backend can't reach Ollama (e.g. WSL2 networking),
+        // try fetching directly from the browser instead.
+        if (!data.online) {
+            const directUrl = (overrideUrl || ollamaBaseUrl).replace(/\/$/, '');
+            try {
+                const directRes = await fetch(`${directUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+                if (directRes.ok) {
+                    const directData = await directRes.json();
+                    data.online = true;
+                    data.models = (directData.models || []).map(m => m.name);
+                }
+            } catch { /* still offline */ }
+        }
+
         const dot = document.getElementById('ollama-dot');
         const label = document.getElementById('ollama-status-text');
         const cfgDot = document.getElementById('cfg-ollama-status-dot');
@@ -1995,149 +2459,46 @@ function updateModelLabel() {
     let prefix = '';
     if (activeProvider === 'lmstudio') prefix = '[LMS] ';
     else if (activeProvider === 'openrouter') prefix = '[OR] ';
+    else if (activeProvider === 'opencode_go') prefix = '[OCG] ';
     if (lbl) lbl.textContent = activeModel ? prefix + activeModel : '—';
 }
 
 function populateModelDropdown() {
-    // Header dropdown
-    const list = document.getElementById('model-dropdown-list');
-    if (list) {
-        list.innerHTML = '';
-
-        const hasOllama = availableModels.length > 0;
-        const hasLMS = lmStudioModels.length > 0;
-        const hasOR = openRouterModels.length > 0 || !!cloudModel;
-
-        if (!hasOllama && !hasLMS && !hasOR) {
-            list.innerHTML = '<div class="px-4 py-2 text-[10px] mono-text text-secondary-text">No models found</div>';
-        } else {
-            // Ollama section
-            if (hasOllama) {
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-border-color';
-                sep.textContent = 'Ollama';
-                list.appendChild(sep);
-
-                availableModels.forEach(model => {
-                    const item = document.createElement('button');
-                    const isActive = activeProvider === 'ollama' && model === activeModel;
-                    item.className = [
-                        'w-full text-left px-4 py-2 text-[11px] mono-text',
-                        'hover:bg-primary/10 hover:text-primary transition-colors',
-                        isActive ? 'text-primary' : 'text-slate-300',
-                    ].join(' ');
-                    item.textContent = model;
-                    if (isActive) {
-                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                    }
-                    item.addEventListener('click', () => selectModel(model, 'ollama'));
-                    list.appendChild(item);
-                });
-            }
-
-            // LM Studio section
-            if (hasLMS) {
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
-                sep.textContent = 'LM Studio';
-                list.appendChild(sep);
-
-                lmStudioModels.forEach(model => {
-                    const item = document.createElement('button');
-                    const isActive = activeProvider === 'lmstudio' && model === activeModel;
-                    item.className = [
-                        'w-full text-left px-4 py-2 text-[11px] mono-text',
-                        'hover:bg-primary/10 hover:text-primary transition-colors',
-                        isActive ? 'text-primary' : 'text-slate-300',
-                    ].join(' ');
-                    item.textContent = model;
-                    if (isActive) {
-                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                    }
-                    item.addEventListener('click', () => selectModel(model, 'lmstudio'));
-                    list.appendChild(item);
-                });
-            }
-
-            // OpenRouter section — always rendered independently of Ollama/LMStudio
-            if (openRouterModels.length > 0) {
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
-                sep.textContent = 'OpenRouter';
-                list.appendChild(sep);
-
-                openRouterModels.forEach(model => {
-                    const item = document.createElement('button');
-                    const isActive = activeProvider === 'openrouter' && model === activeModel;
-                    item.className = [
-                        'w-full text-left px-4 py-2 text-[11px] mono-text',
-                        'hover:bg-primary/10 hover:text-primary transition-colors',
-                        isActive ? 'text-primary' : 'text-slate-300',
-                    ].join(' ');
-                    item.textContent = model;
-                    if (isActive) {
-                        item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                    }
-                    item.addEventListener('click', () => selectModel(model, 'openrouter'));
-                    list.appendChild(item);
-                });
-            } else if (cloudModel) {
-                // Show current cloud model even without fetched list
-                const sep = document.createElement('div');
-                sep.className = 'px-4 py-1 text-[9px] mono-text text-secondary-text uppercase tracking-widest border-b border-t border-border-color mt-1';
-                sep.textContent = 'OpenRouter';
-                list.appendChild(sep);
-                const item = document.createElement('button');
-                const isActive = activeProvider === 'openrouter';
-                item.className = [
-                    'w-full text-left px-4 py-2 text-[11px] mono-text',
-                    'hover:bg-primary/10 hover:text-primary transition-colors',
-                    isActive ? 'text-primary' : 'text-slate-300',
-                ].join(' ');
-                item.textContent = cloudModel;
-                if (isActive) item.innerHTML += ' <span class="material-symbols-outlined text-[12px] align-middle ml-1">check</span>';
-                item.addEventListener('click', () => selectModel(cloudModel, 'openrouter'));
-                list.appendChild(item);
-            }
-        }
+    // Update config panel labels to reflect current state
+    updateCfgLabels();
+    // Refresh picker list if open
+    if (!document.getElementById('model-picker-overlay')?.classList.contains('hidden')) {
+        renderModelPickerList(document.getElementById('model-picker-search')?.value || '');
     }
-
-    // Config dropdown
-    populateCfgModelDropdown();
 }
 
-function populateCfgModelDropdown() {
-    const list = document.getElementById('cfg-model-list');
-    const label = document.getElementById('cfg-model-label');
-    const hidden = document.getElementById('cfg-ollama-model');
-    if (!list) return;
+function updateCfgLabels() {
+    // Ollama config label
+    const ollamaLabel = document.getElementById('cfg-model-label');
+    const ollamaHidden = document.getElementById('cfg-ollama-model');
+    const ollamaActive = activeProvider === 'ollama' ? activeModel : '';
+    const ollamaDisplay = ollamaActive || availableModels[0] || '—';
+    if (ollamaLabel) ollamaLabel.textContent = ollamaDisplay;
+    if (ollamaHidden) ollamaHidden.value = ollamaDisplay !== '—' ? ollamaDisplay : '';
 
-    list.innerHTML = '';
+    // LM Studio config label
+    const lmsLabel = document.getElementById('cfg-lmstudio-model-label');
+    const lmsHidden = document.getElementById('cfg-lmstudio-model');
+    const lmsDisplay = lmStudioModel || lmStudioModels[0] || '—';
+    if (lmsLabel) lmsLabel.textContent = lmsDisplay;
+    if (lmsHidden) lmsHidden.value = lmsDisplay !== '—' ? lmsDisplay : '';
 
-    if (!availableModels.length) {
-        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is Ollama running?</div>';
-        if (label) label.textContent = '—';
-        return;
+    // Status dots
+    const ollamaDot = document.getElementById('cfg-ollama-status-dot');
+    const lmsDot = document.getElementById('cfg-lmstudio-status-dot');
+    if (ollamaDot) {
+        ollamaDot.classList.remove('bg-border-color', 'bg-primary', 'bg-danger');
+        ollamaDot.classList.add(availableModels.length ? 'bg-primary' : 'bg-danger');
     }
-
-    if (label) label.textContent = activeModel || availableModels[0] || '—';
-    if (hidden) hidden.value = activeModel || '';
-
-    availableModels.forEach(model => {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = [
-            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
-            'hover:bg-primary/10 hover:text-primary transition-colors',
-            model === activeModel ? 'text-primary' : 'text-slate-300',
-        ].join(' ');
-        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === activeModel ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
-        item.addEventListener('click', () => {
-            selectModel(model);
-            closeCfgModelDropdown();
-        });
-        list.appendChild(item);
-    });
+    if (lmsDot) {
+        lmsDot.classList.remove('bg-border-color', 'bg-primary', 'bg-danger');
+        lmsDot.classList.add(lmStudioModels.length ? 'bg-primary' : 'bg-danger');
+    }
 }
 
 async function fetchOpenRouterModels() {
@@ -2227,6 +2588,94 @@ function initCloudModelDropdown() {
     });
 }
 
+// ─── OpenCode Go Model Fetcher & Dropdown ─────────────────────────────────
+
+async function fetchOpenCodeGoModels() {
+    try {
+        const res = await fetch('/api/v1/opencode-go/models');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.error && !data.models?.length) {
+            const list = document.getElementById('cfg-ocg-model-list');
+            if (list) list.innerHTML = `<div class="px-3 py-2 text-[10px] mono-text text-danger">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+        openCodeGoModels = data.models || [];
+        populateCfgOcgModelDropdown();
+        populateModelDropdown();
+    } catch { /* ignore */ }
+}
+
+function populateCfgOcgModelDropdown() {
+    const list = document.getElementById('cfg-ocg-model-list');
+    const label = document.getElementById('cfg-ocg-model-label');
+    const hidden = document.getElementById('cfg-ocg-model');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    if (!openCodeGoModels.length) {
+        list.innerHTML = '<div class="px-3 py-2 text-[10px] mono-text text-secondary-text">Enter API key and click Fetch Models</div>';
+        return;
+    }
+
+    const current = (hidden?.value || openCodeGoModel || '').trim();
+    if (label) label.textContent = current || openCodeGoModels[0] || '—';
+
+    openCodeGoModels.forEach(model => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = [
+            'w-full text-left px-3 py-2 text-[11px] mono-text flex items-center justify-between',
+            'hover:bg-primary/10 hover:text-primary transition-colors',
+            model === current ? 'text-primary' : 'text-slate-300',
+        ].join(' ');
+        item.innerHTML = `<span>${escapeHtml(model)}</span>${model === current ? '<span class="material-symbols-outlined text-[12px]">check</span>' : ''}`;
+        item.addEventListener('click', () => {
+            openCodeGoModel = model;
+            if (label) label.textContent = model;
+            if (hidden) hidden.value = model;
+            document.getElementById('cfg-ocg-model-dropdown')?.classList.add('hidden');
+            document.getElementById('cfg-ocg-model-chevron')?.textContent === 'expand_less' &&
+                (document.getElementById('cfg-ocg-model-chevron').textContent = 'expand_more');
+            populateCfgOcgModelDropdown();
+            selectModel(model, 'opencode_go');
+        });
+        list.appendChild(item);
+    });
+}
+
+function initOpenCodeGoModelDropdown() {
+    const btn = document.getElementById('cfg-ocg-model-btn');
+    const dropdown = document.getElementById('cfg-ocg-model-dropdown');
+    const chevron = document.getElementById('cfg-ocg-model-chevron');
+
+    btn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const hidden = dropdown?.classList.contains('hidden');
+        dropdown?.classList.toggle('hidden');
+        if (chevron) chevron.textContent = hidden ? 'expand_less' : 'expand_more';
+        if (!hidden) return;
+        populateCfgOcgModelDropdown();
+    });
+
+    document.getElementById('fetch-ocg-models-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('fetch-ocg-models-btn');
+        if (btn) { btn.textContent = 'Fetching...'; btn.disabled = true; }
+        await fetchOpenCodeGoModels();
+        if (btn) { btn.innerHTML = '<span class="material-symbols-outlined text-[13px]">refresh</span> Fetch Models'; btn.disabled = false; }
+        dropdown?.classList.remove('hidden');
+        if (chevron) chevron.textContent = 'expand_less';
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!document.getElementById('cfg-ocg-model-wrapper')?.contains(e.target)) {
+            dropdown?.classList.add('hidden');
+            if (chevron) chevron.textContent = 'expand_more';
+        }
+    });
+}
+
 function selectModel(model, provider = 'ollama') {
     activeModel = model;
     activeProvider = provider;
@@ -2259,6 +2708,17 @@ function selectModel(model, provider = 'ollama') {
         if (cfgLabel) cfgLabel.textContent = model;
         const cfgHidden = document.getElementById('cfg-cloud-model');
         if (cfgHidden) cfgHidden.value = model;
+    } else if (provider === 'opencode_go') {
+        openCodeGoModel = model;
+        fetch('/api/v1/config/opencode-go', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model }),
+        });
+        const cfgLabel = document.getElementById('cfg-ocg-model-label');
+        if (cfgLabel) cfgLabel.textContent = model;
+        const cfgHidden = document.getElementById('cfg-ocg-model');
+        if (cfgHidden) cfgHidden.value = model;
     } else {
         fetch('/api/v1/config/ollama', {
             method: 'POST',
@@ -2272,73 +2732,252 @@ function selectModel(model, provider = 'ollama') {
     }
 }
 
-function openCfgModelDropdown() {
-    const dd = document.getElementById('cfg-model-dropdown');
-    const chevron = document.getElementById('cfg-model-chevron');
-    const btn = document.getElementById('cfg-model-btn');
-    if (dd) dd.classList.remove('hidden');
-    if (chevron) chevron.textContent = 'expand_less';
-    if (btn) btn.classList.add('border-primary');
-}
+// ─── Model Picker Popup ───────────────────────────────────────────────────────
 
-function closeCfgModelDropdown() {
-    const dd = document.getElementById('cfg-model-dropdown');
-    const chevron = document.getElementById('cfg-model-chevron');
-    const btn = document.getElementById('cfg-model-btn');
-    if (dd) dd.classList.add('hidden');
-    if (chevron) chevron.textContent = 'expand_more';
-    if (btn) btn.classList.remove('border-primary');
-}
+let _pickerContext    = null; // display filter: null/'all'/'ollama'/'lmstudio'/'openrouter'
+let _pickerAgentCtx  = null; // per-agent target key when open for a specific agent row
 
-function initCfgModelDropdown() {
-    const btn = document.getElementById('cfg-model-btn');
-    if (!btn) return;
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const dd = document.getElementById('cfg-model-dropdown');
-        if (dd && dd.classList.contains('hidden')) openCfgModelDropdown();
-        else closeCfgModelDropdown();
+function _updatePickerSidebarActive() {
+    // In per-agent mode the display filter is _pickerContext; if null → 'all'
+    const active = _pickerContext || 'all';
+    document.querySelectorAll('.picker-provider-btn').forEach(btn => {
+        const p = btn.dataset.pickerProvider;
+        const isActive = p === active;
+        btn.classList.toggle('text-primary', isActive);
+        btn.classList.toggle('text-secondary-text', !isActive);
+        btn.classList.toggle('bg-primary/10', isActive);
+        btn.style.borderLeftColor = isActive ? 'var(--color-primary, #22d3ee)' : 'transparent';
     });
-    document.addEventListener('click', (e) => {
-        const wrapper = document.getElementById('cfg-model-wrapper');
-        if (wrapper && !wrapper.contains(e.target)) closeCfgModelDropdown();
+    // Update sidebar status dots
+    const ollamaDot = document.getElementById('picker-sidebar-ollama-dot');
+    const lmsDot   = document.getElementById('picker-sidebar-lmstudio-dot');
+    const orDot    = document.getElementById('picker-sidebar-or-dot');
+    const ocgDot   = document.getElementById('picker-sidebar-ocg-dot');
+    if (ollamaDot) ollamaDot.className = `w-1.5 h-1.5 rounded-full mt-0.5 ${availableModels.length ? 'bg-primary' : 'bg-border-color'}`;
+    if (lmsDot)   lmsDot.className   = `w-1.5 h-1.5 rounded-full mt-0.5 ${lmStudioModels.length ? 'bg-primary' : 'bg-border-color'}`;
+    if (orDot)    orDot.className    = `w-1.5 h-1.5 rounded-full mt-0.5 ${openRouterModels.length ? 'bg-primary' : 'bg-border-color'}`;
+    if (ocgDot)   ocgDot.className   = `w-1.5 h-1.5 rounded-full mt-0.5 ${openCodeGoModels.length ? 'bg-primary' : 'bg-border-color'}`;
+}
+
+const _AGENT_DISPLAY_NAMES = {
+    brain: 'Brain',
+    scanner: 'Scanner',
+    exploit: 'Exploit',
+    webapp: 'WebApp',
+    postexploit: 'Post-Exploit',
+    lateral: 'Lateral',
+    reporting: 'Reporting',
+    osint: 'OSINT',
+};
+
+function openModelPicker(context = null) {
+    const subtitle = document.getElementById('model-picker-subtitle');
+    if (context && (context.startsWith('cfg_agent_') || context.startsWith('adv_agent_'))) {
+        // Per-agent mode: store agent context separately; show all providers by default
+        _pickerAgentCtx = context;
+        _pickerContext  = null; // show all
+        if (subtitle) {
+            const parts = context.split('_');
+            const agentKey = parts.slice(2).join('_');
+            const scope = parts[0] === 'cfg' ? 'Global config' : 'Mission override';
+            subtitle.textContent = `${scope} → ${_AGENT_DISPLAY_NAMES[agentKey] || agentKey} agent`;
+            subtitle.classList.remove('hidden');
+        }
+    } else {
+        _pickerAgentCtx = null;
+        _pickerContext  = context;
+        if (subtitle) subtitle.classList.add('hidden');
+    }
+    const search = document.getElementById('model-picker-search');
+    if (search) search.value = '';
+    _updatePickerSidebarActive();
+    renderModelPickerList('');
+    document.getElementById('model-picker-overlay')?.classList.remove('hidden');
+    setTimeout(() => search?.focus(), 50);
+}
+
+function closeModelPicker() {
+    document.getElementById('model-picker-overlay')?.classList.add('hidden');
+    _pickerContext   = null;
+    _pickerAgentCtx  = null;
+}
+
+function renderModelPickerList(query) {
+    const list = document.getElementById('model-picker-list');
+    if (!list) return;
+    const q = query.toLowerCase().trim();
+
+    // Build sections based on context
+    const sections = [];
+
+    const ollamaFiltered = availableModels.filter(m => !q || m.toLowerCase().includes(q));
+    const lmsFiltered = lmStudioModels.filter(m => !q || m.toLowerCase().includes(q));
+    const orModels = [...openRouterModels];
+    if (cloudModel && !orModels.includes(cloudModel)) orModels.unshift(cloudModel);
+    const orFiltered = orModels.filter(m => !q || m.toLowerCase().includes(q));
+    const ocgModels = [...openCodeGoModels];
+    if (openCodeGoModel && !ocgModels.includes(openCodeGoModel)) ocgModels.unshift(openCodeGoModel);
+    const ocgFiltered = ocgModels.filter(m => !q || m.toLowerCase().includes(q));
+
+    if (_pickerContext === 'ollama') {
+        if (ollamaFiltered.length) sections.push({ provider: 'ollama', label: 'Ollama', models: ollamaFiltered });
+    } else if (_pickerContext === 'lmstudio') {
+        if (lmsFiltered.length) sections.push({ provider: 'lmstudio', label: 'LM Studio', models: lmsFiltered });
+    } else if (_pickerContext === 'openrouter') {
+        if (orFiltered.length) sections.push({ provider: 'openrouter', label: 'OpenRouter', models: orFiltered });
+    } else if (_pickerContext === 'opencode_go') {
+        if (ocgFiltered.length) sections.push({ provider: 'opencode_go', label: 'OpenCode Go', models: ocgFiltered });
+    } else {
+        if (ollamaFiltered.length) sections.push({ provider: 'ollama', label: 'Ollama', models: ollamaFiltered });
+        if (lmsFiltered.length) sections.push({ provider: 'lmstudio', label: 'LM Studio', models: lmsFiltered });
+        if (orFiltered.length) sections.push({ provider: 'openrouter', label: 'OpenRouter', models: orFiltered });
+        if (ocgFiltered.length) sections.push({ provider: 'opencode_go', label: 'OpenCode Go', models: ocgFiltered });
+    }
+    _updatePickerSidebarActive();
+
+    list.innerHTML = '';
+
+    if (!sections.length) {
+        const empty = document.createElement('div');
+        empty.className = 'px-6 py-10 text-center text-secondary-text text-xs mono-text flex flex-col items-center gap-3';
+        empty.innerHTML = `
+            <span class="material-symbols-outlined text-[32px] opacity-30">smart_toy</span>
+            <span>${q ? 'No models match your search' : 'No models found — check Ollama / LM Studio is running'}</span>
+        `;
+        list.appendChild(empty);
+        return;
+    }
+
+    sections.forEach(({ provider, label, models }) => {
+        // Section header
+        const sep = document.createElement('div');
+        sep.className = 'px-6 py-2 flex items-center gap-2 text-[9px] mono-text text-secondary-text uppercase tracking-[0.2em] border-b border-border-color bg-[#080808] sticky top-0';
+        const onlineColor = (provider === 'ollama' && availableModels.length) || (provider === 'lmstudio' && lmStudioModels.length) || provider === 'openrouter' || provider === 'opencode_go'
+            ? 'bg-primary' : 'bg-danger';
+        sep.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${onlineColor} shrink-0"></span><span>${escapeHtml(label)}</span><span class="ml-auto text-[9px] opacity-50">${models.length} model${models.length !== 1 ? 's' : ''}</span>`;
+        list.appendChild(sep);
+
+        models.forEach(model => {
+            const isActive = model === activeModel && activeProvider === provider;
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = [
+                'w-full text-left px-6 py-3.5 text-[11px] mono-text flex items-center gap-3',
+                'hover:bg-primary/5 transition-colors border-b border-border-color/20',
+                isActive ? 'text-primary' : 'text-slate-300',
+            ].join(' ');
+            item.innerHTML = `
+                <span class="flex-1 truncate">${escapeHtml(model)}</span>
+                ${isActive ? '<span class="material-symbols-outlined text-[14px] shrink-0 text-primary">check_circle</span>' : '<span class="material-symbols-outlined text-[14px] shrink-0 opacity-20">radio_button_unchecked</span>'}
+            `;
+            item.addEventListener('click', () => onModelPickerSelect(model, provider));
+            list.appendChild(item);
+        });
     });
+
+    // Update footer status
+    const statusText = document.getElementById('model-picker-status-text');
+    const statusDot = document.getElementById('model-picker-ollama-dot');
+    if (statusText) {
+        const parts = [];
+        if (availableModels.length) parts.push(`Ollama: ${availableModels.length} model${availableModels.length !== 1 ? 's' : ''}`);
+        if (lmStudioModels.length) parts.push(`LM Studio: ${lmStudioModels.length}`);
+        if (openRouterModels.length) parts.push(`OpenRouter: ${openRouterModels.length}`);
+        if (openCodeGoModels.length) parts.push(`OpenCode Go: ${openCodeGoModels.length}`);
+        statusText.textContent = parts.length ? parts.join(' · ') : 'No providers online';
+    }
+    if (statusDot) {
+        const anyOnline = availableModels.length || lmStudioModels.length || openRouterModels.length || openCodeGoModels.length;
+        statusDot.className = `w-2 h-2 rounded-full transition-colors ${anyOnline ? 'bg-primary' : 'bg-danger'}`;
+    }
 }
 
-function openModelDropdown() {
-    const dd = document.getElementById('model-dropdown');
-    const chevron = document.getElementById('model-chevron');
-    if (dd) dd.classList.remove('hidden');
-    if (chevron) chevron.textContent = 'expand_less';
+function onModelPickerSelect(model, provider) {
+    if (_pickerContext === 'ollama') {
+        // Update config Ollama field only
+        const cfgLabel = document.getElementById('cfg-model-label');
+        const cfgHidden = document.getElementById('cfg-ollama-model');
+        if (cfgLabel) cfgLabel.textContent = model;
+        if (cfgHidden) cfgHidden.value = model;
+        // Also update active session if provider matches
+        selectModel(model, 'ollama');
+    } else if (_pickerContext === 'lmstudio') {
+        lmStudioModel = model;
+        const cfgLabel = document.getElementById('cfg-lmstudio-model-label');
+        const cfgHidden = document.getElementById('cfg-lmstudio-model');
+        if (cfgLabel) cfgLabel.textContent = model;
+        if (cfgHidden) cfgHidden.value = model;
+        selectModel(model, 'lmstudio');
+    } else if (_pickerAgentCtx) {
+        // Per-agent model selection — write to that agent row regardless of provider filter
+        _setAgentModelRow(_pickerAgentCtx, model, provider);
+    } else {
+        selectModel(model, provider);
+    }
+    closeModelPicker();
 }
 
-function closeModelDropdown() {
-    const dd = document.getElementById('model-dropdown');
-    const chevron = document.getElementById('model-chevron');
-    if (dd) dd.classList.add('hidden');
-    if (chevron) chevron.textContent = 'expand_more';
-}
+function initModelPicker() {
+    // Close button
+    document.getElementById('model-picker-close')?.addEventListener('click', closeModelPicker);
 
-function initModelSelector() {
-    const btn = document.getElementById('model-selector-btn');
-    if (!btn) return;
+    // Backdrop click
+    document.getElementById('model-picker-overlay')?.addEventListener('click', (e) => {
+        if (e.target.id === 'model-picker-overlay') closeModelPicker();
+    });
 
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const dd = document.getElementById('model-dropdown');
-        if (dd && dd.classList.contains('hidden')) {
-            openModelDropdown();
-        } else {
-            closeModelDropdown();
+    // ESC key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !document.getElementById('model-picker-overlay')?.classList.contains('hidden')) {
+            closeModelPicker();
         }
     });
 
-    // Close on outside click
-    document.addEventListener('click', (e) => {
-        const wrapper = document.getElementById('model-selector-wrapper');
-        if (wrapper && !wrapper.contains(e.target)) closeModelDropdown();
+    // Search input
+    document.getElementById('model-picker-search')?.addEventListener('input', (e) => {
+        renderModelPickerList(e.target.value);
+    });
+
+    // Refresh button
+    document.getElementById('model-picker-refresh')?.addEventListener('click', async () => {
+        const btn = document.getElementById('model-picker-refresh');
+        if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+        await Promise.all([fetchOllamaStatus(), fetchLMStudioStatus()]);
+        renderModelPickerList(document.getElementById('model-picker-search')?.value || '');
+        if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+    });
+
+    // Header model selector button → global picker
+    document.getElementById('model-selector-btn')?.addEventListener('click', () => openModelPicker(null));
+
+    // Config Ollama model button → ollama-filtered picker
+    document.getElementById('cfg-model-btn')?.addEventListener('click', () => openModelPicker('ollama'));
+
+    // Config LM Studio model button → lmstudio-filtered picker
+    document.getElementById('cfg-lmstudio-model-btn')?.addEventListener('click', () => openModelPicker('lmstudio'));
+
+    // Provider sidebar buttons
+    document.querySelectorAll('.picker-provider-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const p = btn.dataset.pickerProvider;
+            // Only change the display filter — if we're in per-agent mode, keep _pickerAgentCtx
+            _pickerContext = (p === 'all') ? null : p;
+            const search = document.getElementById('model-picker-search');
+            if (search) search.value = '';
+            _updatePickerSidebarActive();
+            renderModelPickerList('');
+        });
     });
 }
+
+// Kept as no-op stubs — called from old fetch functions, harmless
+function closeModelDropdown() {}
+function initModelSelector() {}
+function initCfgModelDropdown() {}
+function openCfgModelDropdown() {}
+function closeCfgModelDropdown() {}
+function openLMStudioModelDropdown() {}
+function closeLMStudioModelDropdown() {}
 
 // ─── Config Save & Persistent Settings ───────────────────────────────────────
 
@@ -2384,6 +3023,24 @@ async function loadPersistedSettings() {
             const cfgHidden = document.getElementById('cfg-cloud-model');
             if (cfgHidden) cfgHidden.value = cloudModel;
         }
+        // Restore OpenCode Go API key and fetch models if key exists
+        if (data.opencode_go_api_key) {
+            const keyInput = document.getElementById('cfg-opencodego-key');
+            if (keyInput) keyInput.value = data.opencode_go_api_key;
+            fetchOpenCodeGoModels();
+        } else {
+            fetch('/api/v1/config/opencode-go')
+                .then(r => r.json())
+                .then(ocgCfg => { if (ocgCfg.has_api_key) fetchOpenCodeGoModels(); })
+                .catch(() => {});
+        }
+        if (data.opencode_go_model) {
+            openCodeGoModel = data.opencode_go_model;
+            const cfgLabel = document.getElementById('cfg-ocg-model-label');
+            if (cfgLabel) cfgLabel.textContent = openCodeGoModel;
+            const cfgHidden = document.getElementById('cfg-ocg-model');
+            if (cfgHidden) cfgHidden.value = openCodeGoModel;
+        }
         if (data.lmstudio_base_url) {
             lmStudioBaseUrl = data.lmstudio_base_url;
             const cfgUrl = document.getElementById('cfg-lmstudio-url');
@@ -2393,7 +3050,171 @@ async function loadPersistedSettings() {
             lmStudioModel = data.lmstudio_model;
             populateLMStudioModelDropdown();
         }
+        await loadBrandingConfig();
+
+        // Load per-agent model overrides
+        if (data.agent_models) {
+            try {
+                const am = typeof data.agent_models === 'string' ? JSON.parse(data.agent_models) : data.agent_models;
+                _applyAgentModelsToConfigUI(_normalizeAgentModels(am));
+            } catch { /* ignore */ }
+        }
     } catch { /* ignore */ }
+}
+
+// ── Per-Agent Model Helpers ───────────────────────────────────────────────────
+//
+// Context key format:  "{scope}_agent_{agentKey}"
+//   scope    = "cfg"  (Configuration page)  or "adv" (Mission Config tab)
+//   agentKey = brain | scanner | exploit | webapp | postexploit | lateral | osint | reporting
+
+const _CANONICAL_AGENT_MODEL_KEYS = [
+    'brain', 'scanner', 'exploit', 'webapp',
+    'postexploit', 'lateral', 'osint', 'reporting',
+];
+const _LEGACY_AGENT_MODEL_KEY_ALIASES = { post_exploit: 'postexploit' };
+
+const _CFG_AGENT_KEYS = [..._CANONICAL_AGENT_MODEL_KEYS];
+const _ADV_AGENT_KEYS = [..._CANONICAL_AGENT_MODEL_KEYS];
+
+function _normalizeAgentModels(rawModels) {
+    if (!rawModels || typeof rawModels !== 'object') return {};
+
+    const normalized = {};
+    for (const [rawKey, rawCfg] of Object.entries(rawModels)) {
+        const key = _LEGACY_AGENT_MODEL_KEY_ALIASES[rawKey] || rawKey;
+        if (!_CANONICAL_AGENT_MODEL_KEYS.includes(key)) continue;
+        if (!rawCfg || typeof rawCfg !== 'object') continue;
+
+        const provider = String(rawCfg.provider || '').trim();
+        const model = String(rawCfg.model || '').trim();
+        if (!provider && !model) continue;
+        normalized[key] = { provider, model };
+    }
+
+    if (normalized.scanner) {
+        normalized.exploit ||= { ...normalized.scanner };
+        normalized.webapp ||= { ...normalized.scanner };
+    }
+    if (normalized.osint) {
+        normalized.lateral ||= { ...normalized.osint };
+    }
+    return normalized;
+}
+
+/** Open the shared model picker for a specific per-agent row. */
+function openAgentModelPicker(contextKey) {
+    openModelPicker(contextKey);
+}
+
+/** Clear a per-agent model override and reset the row. */
+function clearAgentModel(contextKey) {
+    const parts = contextKey.split('_');           // e.g. ['cfg','agent','brain']
+    const scope    = parts[0];
+    const agentKey = parts.slice(2).join('_');     // handles e.g. 'postexploit'
+    const prefix   = `${scope}-agent-model-${agentKey}`;
+    const provEl   = document.getElementById(`${prefix}-provider`);
+    const modEl    = document.getElementById(`${prefix}-model`);
+    const labelEl  = document.getElementById(`${prefix}-label`);
+    const clearBtn = document.querySelector(`.agent-model-clear[data-key="${contextKey}"]`);
+    if (provEl)   provEl.value  = '';
+    if (modEl)    modEl.value   = '';
+    if (labelEl) {
+        labelEl.textContent = '— inherit global —';
+        labelEl.classList.remove('text-primary');
+        labelEl.classList.add('text-secondary-text');
+    }
+    if (clearBtn) clearBtn.classList.add('hidden');
+}
+
+/** Write a model selection into a per-agent row's hidden inputs + label. */
+function _setAgentModelRow(contextKey, model, provider) {
+    const parts    = contextKey.split('_');
+    const scope    = parts[0];
+    const agentKey = parts.slice(2).join('_');
+    const prefix   = `${scope}-agent-model-${agentKey}`;
+    const provEl   = document.getElementById(`${prefix}-provider`);
+    const modEl    = document.getElementById(`${prefix}-model`);
+    const labelEl  = document.getElementById(`${prefix}-label`);
+    const clearBtn = document.querySelector(`.agent-model-clear[data-key="${contextKey}"]`);
+    if (provEl)  provEl.value = provider;
+    if (modEl)   modEl.value  = model;
+    if (labelEl) {
+        const badge = { openrouter: 'OR', ollama: 'Ollama', lmstudio: 'LMS' }[provider] || provider;
+        labelEl.textContent = badge ? `${badge} · ${model}` : (model || '— inherit global —');
+        labelEl.classList.toggle('text-primary', !!(model || provider));
+        labelEl.classList.toggle('text-secondary-text', !(model || provider));
+    }
+    if (clearBtn) clearBtn.classList.toggle('hidden', !(model || provider));
+}
+
+function _applyAgentModelsToConfigUI(am) {
+    for (const key of _CFG_AGENT_KEYS) {
+        if (am[key] && (am[key].provider || am[key].model)) {
+            _setAgentModelRow(`cfg_agent_${key}`, am[key].model || '', am[key].provider || '');
+        }
+    }
+}
+
+function _collectAgentModelsFromConfigUI() {
+    const result = {};
+    for (const key of _CFG_AGENT_KEYS) {
+        const provider = document.getElementById(`cfg-agent-model-${key}-provider`)?.value?.trim() || '';
+        const model    = document.getElementById(`cfg-agent-model-${key}-model`)?.value?.trim()    || '';
+        if (provider || model) result[key] = { provider, model };
+    }
+    const normalized = _normalizeAgentModels(result);
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+/** Load per-agent model defaults from Configuration page into Mission Config "07 Models" tab. */
+function advLoadAgentModelDefaults() {
+    const am = _collectAgentModelsFromConfigUI() || {};
+    for (const key of _ADV_AGENT_KEYS) {
+        const src = am[key] || {};
+        if (src.provider || src.model) {
+            _setAgentModelRow(`adv_agent_${key}`, src.model || '', src.provider || '');
+        } else {
+            clearAgentModel(`adv_agent_${key}`);
+        }
+    }
+    showToast('Loaded defaults from global config');
+}
+
+function _collectAgentModelsFromMissionUI() {
+    const result = {};
+    for (const key of _ADV_AGENT_KEYS) {
+        const provider = document.getElementById(`adv-agent-model-${key}-provider`)?.value?.trim() || '';
+        const model    = document.getElementById(`adv-agent-model-${key}-model`)?.value?.trim()    || '';
+        if (provider || model) result[key] = { provider, model };
+    }
+    const normalized = _normalizeAgentModels(result);
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function advToolPreset(preset) {
+    const all       = document.querySelectorAll('#adv-tab-tools .tool-permission');
+    const scanOnly  = ['nmap', 'masscan'];
+    const noExploit = ['nmap', 'masscan', 'ffuf', 'nikto', 'wpscan', 'searchsploit'];
+
+    all.forEach(btn => {
+        const tool = btn.dataset.tool || '';
+        let enable;
+        if (preset === 'all')        enable = true;
+        else if (preset === 'scan_only')  enable = scanOnly.includes(tool);
+        else if (preset === 'no_exploit') enable = noExploit.includes(tool);
+        else enable = true;
+        btn.classList.toggle('active', enable);
+        btn.setAttribute('aria-checked', String(enable));
+    });
+}
+
+function _collectToolPermissionsFromMissionUI() {
+    const disabled = [];
+    document.querySelectorAll('#adv-tab-tools .tool-permission').forEach(btn => {
+        if (!btn.classList.contains('active')) disabled.push(btn.dataset.tool);
+    });
+    return disabled.length > 0 ? disabled : undefined;
 }
 
 async function saveConfig() {
@@ -2408,6 +3229,8 @@ async function saveConfig() {
     const orModel    = document.getElementById('cfg-cloud-model')?.value?.trim()      || cloudModel;
     const lmsUrl     = document.getElementById('cfg-lmstudio-url')?.value?.trim()     || lmStudioBaseUrl;
     const lmsModel   = document.getElementById('cfg-lmstudio-model')?.value?.trim()   || lmStudioModel;
+    const ocgKey     = document.getElementById('cfg-opencodego-key')?.value?.trim()   || '';
+    const ocgModel   = document.getElementById('cfg-ocg-model')?.value?.trim()        || openCodeGoModel;
 
     btns.forEach(b => { b.textContent = 'Saving...'; b.disabled = true; });
 
@@ -2427,12 +3250,27 @@ async function saveConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: apiKey, cloud_model: orModel }),
         });
+        await fetch('/api/v1/config/opencode-go', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: ocgKey, model: ocgModel }),
+        });
+        await saveBrandingConfig();
+        // Save per-agent models
+        const agentModels = _collectAgentModelsFromConfigUI() || {};
+        fetch('/api/v1/settings/agent_models', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: JSON.stringify(agentModels) }),
+        });
         cloudModel = orModel;
         ollamaBaseUrl = url;
         lmStudioBaseUrl = lmsUrl;
         lmStudioModel = lmsModel;
+        openCodeGoModel = ocgModel;
         if (activeProvider === 'ollama') activeModel = model;
         else if (activeProvider === 'openrouter') activeModel = orModel;
+        else if (activeProvider === 'opencode_go') activeModel = ocgModel;
         updateModelLabel();
         // Persist active selection
         fetch('/api/v1/settings/active_provider', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: activeProvider }) });
@@ -2488,6 +3326,15 @@ document.addEventListener('DOMContentLoaded', () => {
     initModeToggle();
     initIntelNav();
     initIntelTabs();
+    initIntelPanelControls();
+    initRightSidebar();
+    // Wire tool toggle buttons
+    document.querySelectorAll('#adv-tab-tools .tool-permission').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const active = btn.classList.toggle('active');
+            btn.setAttribute('aria-checked', String(active));
+        });
+    });
     initExpandButtons();
     initNodeToggles();
     initClock();
@@ -2501,7 +3348,10 @@ document.addEventListener('DOMContentLoaded', () => {
     initCfgModelDropdown();
     initLMStudioModelDropdown();
     initCloudModelDropdown();
+    initOpenCodeGoModelDropdown();
+    initModelPicker();
     initConfigSave();
+    initBrandingConfig();
     initScrollTracking();
     initAgentScrollTracking();
     window.addEventListener('resize', scheduleMinimapUpdate);
@@ -2525,7 +3375,11 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSafetyConfig();
     loadMsfConfig();
     loadTrainingConfig();
+    updateIntelHistoryPanel([]);
+    updateIntelNodesPanel(null);
+    updateIntelKnowledgeBasePanel(null);
     loadSessionsForSelects();
+    initRBAC();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2751,6 +3605,10 @@ function handleSessionEvent(msg) {
         stopMissionUptime();
         showToast('Emergency stop activated');
         updateMissionStatusHeader('stopped', msg.session_id);
+        setAgentStatus('stopped', 'emergency stop');
+        showPauseMissionBtn();
+        missionPaused = true;
+        updatePauseButton();
         appendConsoleLine('[KILL_SWITCH] Emergency stop triggered', 'text-danger');
 
     } else if (event === 'max_iterations') {
@@ -2784,11 +3642,13 @@ function handleSessionEvent(msg) {
         const agId   = data.agent_id   || '';
         const agType = data.agent_type || '';
         appendConsoleLine(`[AGENT START] ${agId} (${agType}) — mission: ${data.mission_id || ''}`, 'text-cyan-400');
+        rsbUpdateAgent(agId, agType, 'running', data.target || '');
 
     } else if (event === 'child_agent_done') {
         const agId = data.agent_id   || '';
         const cnt  = data.findings   || 0;
         appendConsoleLine(`[AGENT DONE] ${agId} — ${cnt} finding(s)`, 'text-green-400');
+        rsbRemoveAgent(agId);
 
     } else if (event === 'agent_done') {
         const agId   = data.agent_id   || '';
@@ -2800,6 +3660,7 @@ function handleSessionEvent(msg) {
         if (data.error) {
             appendConsoleLine(`             error: ${data.error}`, 'text-danger');
         }
+        rsbUpdateAgent(agId, agType, status || 'done', '');
 
     } else if (event === 'debug_log') {
         // ── TIRPAN Debug Logger → UI console-bash ─────────────────────────
@@ -2829,7 +3690,11 @@ function handleSessionEvent(msg) {
         const hostIp   = data.host_ip   || '';
         const stype    = data.session_type || 'shell';
         const module   = data.module    || '';
-        _onReverseShellReceived(shellKey, `${hostIp} [${stype}]`);
+        _onReverseShellReceived(shellKey, {
+            hostIp,
+            sessionType: stype,
+            module,
+        });
         appendConsoleLine(`[SHELL] New ${stype} session on ${hostIp}${module ? ' via ' + module : ''}`, 'text-green-400');
         appendMissionCard(`
             <div class="border border-green-500/40 bg-green-500/5 px-4 py-2 font-mono text-xs">
@@ -2863,6 +3728,8 @@ function handleSessionEvent(msg) {
             _shellOutputBuffers[shellKey].push(line);
             if (_activeShellId === shellKey) _shellPrint(`<span class="text-cyan-400 select-none">[agent]# </span>${_escHtml(ioData)}`);
         }
+    } else if (event === 'opsec_alert') {
+        v3PushOpsecAlert(data.payload || data);
     }
 
     if (activeMissionId) {
@@ -2906,11 +3773,11 @@ function handleSessionDone(msg) {
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 if (!data) return;
-                if (Array.isArray(data.vulnerabilities) && data.vulnerabilities.length > 0) {
-                    _analysisVulns = data.vulnerabilities;
-                    updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: data.vulnerabilities }) });
-                }
+                syncAnalysisPanelFromSession(data);
+                _intelCurrentSessionData = data;
                 updateNetworkPanelFromSession(data);
+                updateIntelNodesPanel(data);
+                updateIntelKnowledgeBasePanel(data);
             })
             .catch(() => {});
     }
@@ -2961,12 +3828,7 @@ async function startMission() {
     const notesInput = document.getElementById('mission-notes');
     const portRange = portRangeInput ? (portRangeInput.value.trim() || '1-65535') : '1-65535';
     const notes = notesInput ? notesInput.value.trim() : '';
-
-    if (!target) {
-        showToast('Enter a target IP, CIDR range, or domain');
-        if (targetInput) targetInput.focus();
-        return;
-    }
+    const displayTarget = target || 'AUTO-DISCOVERY (LOCAL SCOPE)';
 
     if (startBtn) { startBtn.textContent = 'Starting...'; startBtn.disabled = true; }
 
@@ -2974,7 +3836,17 @@ async function startMission() {
         const res = await fetch('/api/v1/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target, mode, port_range: portRange, notes, provider: activeProvider, model: activeModel }),
+            body: JSON.stringify({
+                target,
+                mode,
+                port_range: portRange,
+                notes,
+                provider: activeProvider,
+                model: activeModel,
+                agent_models: _collectAgentModelsFromConfigUI() || undefined,
+                allow_persistence: document.getElementById('pol-allow-persistence')?.checked || false,
+                v3_features: document.getElementById('pol-v3-features')?.checked ?? true,
+            }),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -2983,12 +3855,13 @@ async function startMission() {
         const data = await res.json();
         activeMissionId = data.session_id;
         viewingSessionId = activeMissionId;
+        window._currentSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
         hideResumeFromSessionBtn();
 
         // Update UI
-        updateMissionStatusHeader('running', activeMissionId, target);
+        updateMissionStatusHeader('running', activeMissionId, displayTarget);
         resetMissionStats();
         resetPhaseBar();
         setPhaseActive(1);
@@ -2996,11 +3869,11 @@ async function startMission() {
         clearMissionFeed();
         agentAutoScroll = true;
         _updateScrollBtn();
-        resetAnalysisPanel(target);
-        resetNetworkPanel(target);
-        renderMissionStart(target, mode);
+        resetAnalysisPanel(displayTarget);
+        resetNetworkPanel(displayTarget);
+        renderMissionStart(displayTarget, mode);
         appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
-        appendConsoleLine(`[TARGET]  ${target}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
+        appendConsoleLine(`[TARGET]  ${displayTarget}  [MODE] ${mode.toUpperCase()}`, 'text-secondary-text');
         showPauseMissionBtn();
         updatePauseButton();
         setAgentStatus('reasoning');
@@ -3019,7 +3892,7 @@ async function startMission() {
 
         // Switch to agent view so user sees the live feed immediately
         switchView('agent');
-        showToast('Mission started');
+        showToast(target ? 'Mission started' : 'Mission started (auto-discovery enabled)');
 
     } catch (err) {
         showToast('Error: ' + err.message, true);
@@ -3050,6 +3923,7 @@ async function resumeMissionFromSession(sessionId) {
         const data = await res.json();
         activeMissionId = data.session_id;
         viewingSessionId = activeMissionId;
+        window._currentSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
 
@@ -3110,6 +3984,7 @@ async function forkFromIteration(iteration) {
 
                 activeMissionId = sessionId;
                 viewingSessionId = sessionId;
+                window._currentSessionId = sessionId;
                 missionPaused = false;
 
                 updateMissionStatusHeader('running', sessionId);
@@ -3171,12 +4046,13 @@ async function killMission() {
                     throw new Error(data.message || 'Kill request failed');
                 }
                 if (data.killed === true) {
-                    setAgentStatus('error', 'emergency stop');
+                    setAgentStatus('stopped', 'emergency stop');
                     updateMissionStatusHeader('stopped', activeMissionId);
                     stopMissionPoll();
                     stopMissionUptime();
-                    hidePauseMissionBtn();
-                    missionPaused = false;
+                    showPauseMissionBtn();
+                    missionPaused = true;
+                    updatePauseButton();
                     syncInputMode();
                     const killedMs = Number(data.killed_in_ms || 0);
                     const childCancelled = Number(data.child_agents_cancelled || 0);
@@ -3242,18 +4118,23 @@ async function refreshMissionStats(sessionId) {
         if (viewingSessionId && viewingSessionId !== sessionId) return;
 
         // Count individual open ports — merge hosts first to deduplicate across multiple scans
-        const _mergedForCount = _mergeHosts((data.scan_results || []).flatMap(r => r.hosts || []));
-        const livePorts = _mergedForCount.flatMap(h => h.ports.filter(p => p.state === 'open')).length;
+        const _mergedForCount = _extractHostsFromScanResults(data.scan_results || []);
+        const livePorts = _countOpenPortsFromHosts(_mergedForCount);
+        const statPorts = _sessionOpenPortCount(data, _mergedForCount);
         const liveHosts = _mergedForCount.length;
         const liveVulns = (data.vulnerabilities || []).length;
 
         // Use live counts; fall back to V2 in-memory counters; fall back to DB summary fields
         setStatValue('stat-vulns', liveVulns || _v2Vulns  || data.vulns_found || '—');
         setStatValue('stat-hosts', liveHosts || _v2Hosts.size || data.hosts_found || '—');
-        setStatValue('stat-ports', livePorts || _v2Ports  || data.ports_found || '—');
+        setStatValue('stat-ports', statPorts || _v2Ports || livePorts || data.ports_found || '—');
 
         // Update network panel with live scan data
         updateNetworkPanelFromSession(data);
+        syncAnalysisPanelFromSession(data);
+        _intelCurrentSessionData = data;
+        updateIntelNodesPanel(data);
+        updateIntelKnowledgeBasePanel(data);
 
         // Update phase bar based on agent's attack_phase
         updatePhaseFromSessionStatus(data.status);
@@ -3289,24 +4170,61 @@ function resetMissionStats() {
     setStatValue('stat-shells', '0');
     // Reset V2 live finding counters
     _v2Hosts.clear();
+    _v2OpenPortKeys.clear();
     _v2Vulns  = 0;
     _v2Ports  = 0;
     _v2Shells = 0;
+    // Reset right sidebar
+    rsbResetMission();
 }
 
 // ── V2 live finding counters (updated via "finding" WebSocket events) ──────────
 const _v2Hosts = new Set();  // unique IPs
+const _v2OpenPortKeys = new Set();
 let _v2Vulns  = 0;
 let _v2Ports  = 0;
 let _v2Shells = 0;
 
+function _rememberV2OpenPorts(hostIp, ports) {
+    const ip = String(hostIp || '').trim();
+    if (!ip || !Array.isArray(ports)) return;
+    ports.forEach((p) => {
+        const state = String((p && p.state) || 'open').toLowerCase();
+        if (state && state !== 'open') return;
+        const num = Number((p && (p.number ?? p.port)) || 0);
+        if (!Number.isFinite(num) || num <= 0) return;
+        const proto = String((p && p.protocol) || 'tcp').toLowerCase();
+        _v2OpenPortKeys.add(`${ip}:${num}/${proto}`);
+        // Feed right sidebar services section
+        rsbAddService(num, proto, (p && p.service) || '', (p && p.version) || '', ip);
+    });
+    _v2Ports = Math.max(_v2Ports, _v2OpenPortKeys.size);
+}
+
 function _handleV2Finding(data) {
     const type = data.type || '';
     if (type === 'host') {
-        if (data.ip) _v2Hosts.add(data.ip);
-        if (Array.isArray(data.ports)) _v2Ports += data.ports.filter(p => p.state === 'open').length;
+        if (data.ip) {
+            _v2Hosts.add(data.ip);
+            _rememberV2OpenPorts(data.ip, data.ports || []);
+        }
         setStatValue('stat-hosts', _v2Hosts.size || '—');
         setStatValue('stat-ports', _v2Ports   || '—');
+    } else if (type === 'port_scan') {
+        const hostIp = data.host || data.ip || data.host_ip || '';
+        if (hostIp) _v2Hosts.add(hostIp);
+
+        if (Array.isArray(data.services) && data.services.length > 0) {
+            _rememberV2OpenPorts(hostIp, data.services);
+        } else {
+            const hinted = Number(data.open_ports || 0);
+            if (Number.isFinite(hinted) && hinted > 0) {
+                _v2Ports = Math.max(_v2Ports, hinted);
+            }
+        }
+
+        setStatValue('stat-hosts', _v2Hosts.size || '—');
+        setStatValue('stat-ports', _v2Ports || '—');
     } else if (type === 'vulnerability') {
         _v2Vulns++;
         setStatValue('stat-vulns', _v2Vulns || '—');
@@ -3343,6 +4261,51 @@ function resetAnalysisPanel(target) {
 
     const summary = document.getElementById('analysis-summary-text');
     if (summary) summary.textContent = `Mission active on ${target || '?'}. Awaiting scan results…`;
+}
+
+function syncAnalysisPanelFromSession(sessionData) {
+    const vulns = Array.isArray(sessionData?.vulnerabilities) ? sessionData.vulnerabilities : [];
+    const status = (sessionData?.status || '').toLowerCase();
+
+    if (vulns.length > 0) {
+        _analysisVulns = vulns;
+        updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: vulns }) });
+        return;
+    }
+
+    _analysisVulns = [];
+
+    const list = document.getElementById('analysis-findings-list');
+    if (list) {
+        const label = status === 'running'
+            ? 'Scan in progress. Findings will appear automatically.'
+            : 'No validated vulnerabilities for this mission.';
+        list.innerHTML = `<p class="text-[10px] text-secondary-text mono-text text-center py-4">${label}</p>`;
+    }
+
+    const scoreEl = document.getElementById('analysis-threat-score');
+    if (scoreEl) { scoreEl.textContent = '0.0'; scoreEl.style.color = '#888'; }
+
+    const statusEl = document.getElementById('analysis-threat-status');
+    if (statusEl) {
+        statusEl.textContent = status === 'running' ? 'SCANNING' : 'LOW';
+        statusEl.style.color = status === 'running' ? '#ccff00' : '#888';
+    }
+
+    const circle = document.getElementById('analysis-threat-circle');
+    if (circle) {
+        circle.setAttribute('stroke', status === 'running' ? '#ccff00' : '#444');
+        circle.setAttribute('stroke-dashoffset', status === 'running' ? '280' : '364.4');
+    }
+
+    const summary = document.getElementById('analysis-summary-text');
+    if (summary) {
+        summary.textContent = status === 'running'
+            ? `Mission active on ${sessionData?.target || '?'}. Scan is still collecting data.`
+            : `No vulnerabilities were confirmed for ${sessionData?.target || 'this mission'}.`;
+    }
+
+    _updateAnalysisExpanded([]);
 }
 
 function updateAnalysisPanelFromSearchsploit(data) {
@@ -3541,6 +4504,52 @@ function _portRiskLabel(portNum) {
 }
 
 // Merge duplicate host entries (multiple scans can return the same IP)
+function _extractHostsFromScanResults(scanResults) {
+    const rows = Array.isArray(scanResults) ? scanResults : [];
+    const hasNestedHosts = rows.some((r) => Array.isArray(r && r.hosts));
+
+    if (hasNestedHosts) {
+        return _mergeHosts(rows.flatMap((r) => (Array.isArray(r && r.hosts) ? r.hosts : [])));
+    }
+
+    const hostsByIp = new Map();
+    rows.forEach((row) => {
+        const ip = String((row && (row.ip || row.host_ip)) || '').trim();
+        if (!ip) return;
+
+        if (!hostsByIp.has(ip)) {
+            hostsByIp.set(ip, {
+                ip,
+                hostname: (row && row.hostname) || '',
+                os: (row && row.os) || '',
+                ports: [],
+            });
+        }
+
+        const host = hostsByIp.get(ip);
+        if (host && !host.hostname && row && row.hostname) host.hostname = row.hostname;
+        if (host && !host.os && row && row.os) host.os = row.os;
+
+        const portNum = Number((row && (row.port ?? row.port_number)) || 0);
+        if (!Number.isFinite(portNum) || portNum <= 0 || !host) return;
+
+        const protocol = String((row && row.protocol) || 'tcp');
+        const state = String((row && row.state) || 'open');
+        const exists = host.ports.some((p) => Number(p.number) === portNum && String(p.protocol || 'tcp') === protocol);
+        if (exists) return;
+
+        host.ports.push({
+            number: portNum,
+            protocol,
+            state,
+            service: String((row && row.service) || ''),
+            version: String((row && row.version) || ''),
+        });
+    });
+
+    return _mergeHosts([...hostsByIp.values()]);
+}
+
 function _mergeHosts(allHosts) {
     const map = new Map();
     for (const h of allHosts) {
@@ -3563,16 +4572,39 @@ function _mergeHosts(allHosts) {
     return result;
 }
 
+function _countOpenPortsFromHosts(hosts) {
+    const rows = Array.isArray(hosts) ? hosts : [];
+    const seen = new Set();
+    rows.forEach((host) => {
+        const ip = String((host && host.ip) || '').trim();
+        (host && Array.isArray(host.ports) ? host.ports : []).forEach((port) => {
+            const state = String((port && port.state) || 'open').toLowerCase();
+            if (state && state !== 'open') return;
+            const num = Number((port && (port.number ?? port.port)) || 0);
+            if (!Number.isFinite(num) || num <= 0) return;
+            const proto = String((port && port.protocol) || 'tcp').toLowerCase();
+            seen.add(`${ip}:${num}/${proto}`);
+        });
+    });
+    return seen.size;
+}
+
+function _sessionOpenPortCount(data, mergedHosts) {
+    const summary = Number((data && data.ports_found) || 0);
+    if (Number.isFinite(summary) && summary > 0) return summary;
+    return _countOpenPortsFromHosts(mergedHosts);
+}
+
 function updateNetworkPanelFromSession(data) {
     const scanResults    = data.scan_results    || [];
     const exploitResults = data.exploit_results || [];
     const vulnCount      = (data.vulnerabilities || []).length || data.vulns_found || 0;
+    const sessionStatus  = String(data.status || '').toLowerCase();
     _networkScanResults  = scanResults;
     _networkVulnCount    = vulnCount;
 
-    const allHosts  = _mergeHosts(scanResults.flatMap(r => r.hosts || []));
-    const openPorts = allHosts.flatMap(h => h.ports.filter(p => p.state === 'open'));
-    const portCount = openPorts.length;
+    const allHosts  = _extractHostsFromScanResults(scanResults);
+    const portCount = _sessionOpenPortCount(data, allHosts);
 
     _topoLastHosts    = allHosts;
     _topoLastExploits = exploitResults;
@@ -3585,6 +4617,9 @@ function updateNetworkPanelFromSession(data) {
     setStatValue('network-ports-count', portCount        || '0');
     setStatValue('network-vulns-count', vulnCount        || '0');
 
+    const subnetText = document.getElementById('network-subnet-text');
+    if (subnetText) subnetText.textContent = data.target || data.name || '—';
+
     // Small sidebar topology (SVG-based, compact)
     renderNetworkTopology(allHosts, exploitResults);
 
@@ -3593,6 +4628,16 @@ function updateNetworkPanelFromSession(data) {
         if (dot) { dot.style.backgroundColor = '#ccff00'; dot.style.boxShadow = '0 0 4px #ccff00'; }
         const txt = document.getElementById('network-status-text');
         if (txt) { txt.textContent = 'Scanning'; txt.style.color = '#ccff00'; }
+    } else {
+        const dot = document.getElementById('network-status-dot');
+        const txt = document.getElementById('network-status-text');
+        if (sessionStatus === 'running') {
+            if (dot) { dot.style.backgroundColor = '#ccff00'; dot.style.boxShadow = '0 0 4px #ccff00'; }
+            if (txt) { txt.textContent = 'Scanning'; txt.style.color = '#ccff00'; }
+        } else {
+            if (dot) { dot.style.backgroundColor = '#555'; dot.style.boxShadow = 'none'; }
+            if (txt) { txt.textContent = 'No Scan Data'; txt.style.color = '#888'; }
+        }
     }
 
     _updateNetworkExpanded(data, allHosts, portCount, vulnCount, exploitResults);
@@ -3621,6 +4666,814 @@ function stopNetworkPanel() {
     if (dot) { dot.style.backgroundColor = ''; dot.style.boxShadow = ''; }
     const txt = document.getElementById('network-status-text');
     if (txt) { txt.textContent = 'Done'; txt.style.color = ''; }
+}
+
+// ─── Intel Side Panels: History / Nodes / Knowledge Base ───────────────────
+
+let _intelSessionsCache = [];
+let _intelCurrentSessionData = null;
+
+function _intelSetText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+}
+
+function _intelFormatTimestamp(ts) {
+    if (!ts) return '—';
+    const d = new Date(Number(ts) * 1000);
+    if (Number.isNaN(d.getTime())) return '—';
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function _intelFormatDuration(session) {
+    const start = Number(session?.created_at || 0);
+    const end = Number(session?.finished_at || session?.updated_at || 0);
+    if (!start || !end || end <= start) return '—';
+    const sec = Math.max(0, Math.floor(end - start));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function _intelNormalizedStatus(session) {
+    if (session?.is_running) return 'running';
+    const st = String(session?.status || 'done').toLowerCase();
+    if (st === 'running') return 'stopped';
+    if (st === 'paused') return 'paused';
+    if (st === 'error') return 'error';
+    if (st === 'stopped') return 'stopped';
+    if (st === 'idle') return 'idle';
+    return 'done';
+}
+
+function _intelStatusPill(status) {
+    if (status === 'running') return '<span class="intel-pill intel-pill-good">Running</span>';
+    if (status === 'error' || status === 'stopped') return '<span class="intel-pill intel-pill-danger">Issue</span>';
+    if (status === 'paused' || status === 'idle') return '<span class="intel-pill intel-pill-warn">Paused</span>';
+    return '<span class="intel-pill">Done</span>';
+}
+
+function initIntelPanelControls() {
+    const latestBtn = document.getElementById('intel-history-open-latest');
+    if (latestBtn && !latestBtn.dataset.bound) {
+        latestBtn.dataset.bound = '1';
+        latestBtn.addEventListener('click', () => {
+            const sid = latestBtn.dataset.sessionId || '';
+            if (!sid) return;
+            switchToSession(sid);
+        });
+    }
+}
+
+// ─── Right Sidebar (Mission Intel) ────────────────────────────────────────────
+
+const _rsbAgents  = {};   // agentId → {type, status, task}
+const _rsbServices = [];  // {port, proto, service, version, host}
+const _rsbFlags   = [];   // {content, method, host, ts}
+
+function initRightSidebar() {
+    document.querySelectorAll('.rsb-section-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const section = btn.dataset.section;
+            const bodyId = `rsb-${section}-body`;
+            const body = document.getElementById(bodyId);
+            const chevron = btn.querySelector('.rsb-chevron');
+            if (!body) return;
+            const isHidden = body.classList.toggle('hidden');
+            if (chevron) chevron.textContent = isHidden ? 'expand_more' : 'expand_less';
+        });
+    });
+}
+
+function rsbSetMissionStatus(label) {
+    const el = document.getElementById('rsb-mission-status');
+    if (el) el.textContent = label || 'Idle';
+}
+
+function rsbResetMission() {
+    Object.keys(_rsbAgents).forEach(k => delete _rsbAgents[k]);
+    _rsbServices.length = 0;
+    _rsbFlags.length = 0;
+    _rsbRenderAgents();
+    _rsbRenderServices();
+    _rsbRenderFlags();
+    rsbSetMissionStatus('Active');
+}
+
+function rsbUpdateAgent(agentId, agentType, status, task) {
+    _rsbAgents[agentId] = { type: agentType || 'agent', status: status || 'running', task: task || '' };
+    _rsbRenderAgents();
+}
+
+function rsbRemoveAgent(agentId) {
+    delete _rsbAgents[agentId];
+    _rsbRenderAgents();
+}
+
+function rsbAddService(port, proto, service, version, host) {
+    const key = `${host}:${port}/${proto}`;
+    if (!_rsbServices.find(s => `${s.host}:${s.port}/${s.proto}` === key)) {
+        _rsbServices.push({ port, proto: proto || 'tcp', service: service || '?', version: version || '', host: host || '' });
+        _rsbRenderServices();
+    }
+}
+
+function rsbAddFlag(content, method, host) {
+    _rsbFlags.unshift({ content: content || '', method: method || '', host: host || '', ts: new Date().toLocaleTimeString() });
+    _rsbRenderFlags();
+}
+
+function _rsbAgentIcon(type) {
+    const icons = { brain: 'psychology', scanner: 'search', exploit: 'bolt', webapp: 'language', post_exploit: 'manage_accounts', lateral: 'alt_route', reporting: 'summarize' };
+    return icons[type] || 'smart_toy';
+}
+function _rsbAgentColor(status) {
+    if (status === 'running' || status === 'spawning') return 'text-primary';
+    if (status === 'success') return 'text-green-400';
+    if (status === 'failed' || status === 'error') return 'text-danger';
+    return 'text-secondary-text';
+}
+
+function _rsbRenderAgents() {
+    const list = document.getElementById('rsb-agents-list');
+    const empty = document.getElementById('rsb-agents-empty');
+    const count = document.getElementById('rsb-agent-count');
+    if (!list) return;
+    const entries = Object.entries(_rsbAgents);
+    const active = entries.filter(([,a]) => a.status === 'running' || a.status === 'spawning').length;
+    if (count) count.textContent = `${active} active`;
+    if (!entries.length) {
+        list.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    list.innerHTML = entries.map(([id, a]) => `
+        <div class="flex items-center gap-2 py-1 border-b border-border-color/30 last:border-0">
+            <span class="material-symbols-outlined text-[13px] ${_rsbAgentColor(a.status)}" style="font-variation-settings:'FILL' 1;">${_rsbAgentIcon(a.type)}</span>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1">
+                    <span class="text-[10px] font-bold uppercase ${_rsbAgentColor(a.status)}">${_esc(a.type)}</span>
+                    <span class="text-[9px] text-secondary-text/60 mono-text truncate">${_esc(id.slice(0,8))}</span>
+                </div>
+                ${a.task ? `<div class="text-[9px] text-secondary-text truncate mono-text">${_esc(a.task)}</div>` : ''}
+            </div>
+            <span class="text-[8px] uppercase font-bold mono-text ${_rsbAgentColor(a.status)} shrink-0">${_esc(a.status)}</span>
+        </div>`).join('');
+}
+
+function _rsbRenderServices() {
+    const list = document.getElementById('rsb-services-list');
+    const empty = document.getElementById('rsb-services-empty');
+    const count = document.getElementById('rsb-svc-count');
+    if (!list) return;
+    if (count) count.textContent = `${_rsbServices.length} open`;
+    if (!_rsbServices.length) {
+        list.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    const sorted = [..._rsbServices].sort((a,b) => Number(a.port) - Number(b.port));
+    list.innerHTML = sorted.map(s => {
+        const svcColor = ['http','https','ftp','smtp','telnet','ssh','smb','mysql','vnc'].includes((s.service||'').toLowerCase()) ? 'text-yellow-400' : 'text-slate-300';
+        return `<div class="flex items-center gap-2 py-1 border-b border-border-color/30 last:border-0 font-mono">
+            <span class="text-[10px] font-bold text-primary w-10 shrink-0">${_esc(String(s.port))}</span>
+            <span class="text-[9px] text-secondary-text w-7 shrink-0">${_esc(s.proto)}</span>
+            <span class="text-[10px] ${svcColor} truncate flex-1">${_esc(s.service)}</span>
+            ${s.version ? `<span class="text-[9px] text-secondary-text/70 truncate max-w-[80px]" title="${_esc(s.version)}">${_esc(s.version.slice(0,20))}</span>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function _rsbRenderFlags() {
+    const list = document.getElementById('rsb-flags-list');
+    const empty = document.getElementById('rsb-flags-empty');
+    const count = document.getElementById('rsb-flags-count');
+    if (!list) return;
+    if (count) count.textContent = `${_rsbFlags.length} found`;
+    if (!_rsbFlags.length) {
+        list.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    // Open the flags section when a flag is found
+    const body = document.getElementById('rsb-flags-body');
+    const chevron = document.querySelector('.rsb-section-toggle[data-section="flags"] .rsb-chevron');
+    if (body) body.classList.remove('hidden');
+    if (chevron) chevron.textContent = 'expand_less';
+    // Update section header color
+    const hdr = document.querySelector('.rsb-section-toggle[data-section="flags"] .font-bold');
+    if (hdr) { hdr.classList.remove('text-secondary-text'); hdr.classList.add('text-danger'); }
+    const icon = document.querySelector('.rsb-section-toggle[data-section="flags"] .material-symbols-outlined');
+    if (icon) { icon.classList.remove('text-secondary-text'); icon.classList.add('text-danger'); }
+
+    list.innerHTML = _rsbFlags.map(f => `
+        <div class="border border-danger/30 bg-danger/5 p-2">
+            <div class="flex items-center gap-1 mb-0.5">
+                <span class="material-symbols-outlined text-[11px] text-danger" style="font-variation-settings:'FILL' 1;">flag</span>
+                <span class="text-[9px] font-bold text-danger uppercase tracking-wider">Flag</span>
+                <span class="text-[9px] text-secondary-text/60 mono-text ml-auto">${_esc(f.ts)}</span>
+            </div>
+            <div class="text-[10px] text-primary font-bold mono-text break-all">${_esc(f.content)}</div>
+            ${f.method ? `<div class="text-[9px] text-secondary-text mono-text mt-0.5">${_esc(f.method)}</div>` : ''}
+        </div>`).join('');
+}
+
+function _intelGetTabBody(tabName) {
+        return document.querySelector(`.intel-tab-body[data-intel-tab="${tabName}"]`);
+}
+
+function _intelStatusBadge(status) {
+        if (status === 'running') return '<span class="px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[8px] font-bold uppercase">Running</span>';
+        if (status === 'error' || status === 'stopped') return '<span class="px-2 py-0.5 bg-danger/10 border border-danger/30 text-danger text-[8px] font-bold uppercase">Issue</span>';
+        if (status === 'paused' || status === 'idle') return '<span class="px-2 py-0.5 bg-orange-400/10 border border-orange-400/30 text-orange-400 text-[8px] font-bold uppercase">Paused</span>';
+        return '<span class="px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[8px] font-bold uppercase">Done</span>';
+}
+
+function updateIntelHistoryExpanded(sessions) {
+        const body = _intelGetTabBody('history');
+        if (!body) return;
+
+        const sorted = [...(Array.isArray(sessions) ? sessions : [])]
+                .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+
+        const total = sorted.length;
+        const findings = sorted.reduce((acc, s) => acc + Number(s.vulns_found || 0), 0);
+        const runs = sorted.reduce((acc, s) => acc + Number(s.exploits_run || 0), 0);
+        const hits = sorted.reduce((acc, s) => acc + Number(s.exploits_success || 0), 0);
+        const exploitRate = runs > 0 ? Math.round((hits / runs) * 100) : 0;
+        const durations = sorted
+                .map((s) => {
+                        const start = Number(s.created_at || 0);
+                        const end = Number(s.finished_at || s.updated_at || 0);
+                        return (start > 0 && end > start) ? (end - start) : 0;
+                })
+                .filter((v) => v > 0);
+        const avgSec = durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+        const avgLabel = avgSec ? _intelFormatDuration({ created_at: 1, finished_at: avgSec + 1 }) : '—';
+
+        if (!total) {
+                body.innerHTML = `
+                    <div class="max-w-6xl mx-auto flex flex-col gap-6">
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Sessions</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulns Found</p><p class="mono-text text-3xl font-bold text-danger">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Avg Duration</p><p class="mono-text text-3xl font-bold">—</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Exploit Rate</p><p class="mono-text text-3xl font-bold text-primary">0%</p></div>
+                        </div>
+                        <div class="bg-card border border-border-color p-8 text-center">
+                            <p class="text-sm text-secondary-text">No session history yet.</p>
+                        </div>
+                    </div>`;
+                return;
+        }
+
+        const rows = sorted.slice(0, 20).map((s) => {
+                const status = _intelNormalizedStatus(s);
+                const sid = _esc(String(s.id || '').slice(0, 8).toUpperCase());
+                const target = _esc(s.target || '—');
+                const mode = _esc(String(s.mode || 'unknown').replace(/_/g, ' ').toUpperCase());
+                const start = _esc(_intelFormatTimestamp(s.created_at));
+                const duration = _esc(_intelFormatDuration(s));
+                const hosts = Number(s.hosts_found || 0);
+                const vulns = Number(s.vulns_found || 0);
+                return `
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                        <td class="px-6 py-3 text-primary font-bold">${sid}</td>
+                        <td class="px-4 py-3 text-slate-300">${target}</td>
+                        <td class="px-4 py-3 text-slate-400">${mode}</td>
+                        <td class="px-4 py-3 text-secondary-text">${start}</td>
+                        <td class="px-4 py-3 text-slate-300">${duration}</td>
+                        <td class="px-4 py-3 text-slate-300">${hosts}</td>
+                        <td class="px-4 py-3 ${vulns > 0 ? 'text-danger font-bold' : 'text-slate-400'}">${vulns}</td>
+                        <td class="px-4 py-3">${_intelStatusBadge(status)}</td>
+                    </tr>`;
+        }).join('');
+
+        body.innerHTML = `
+            <div class="max-w-6xl mx-auto flex flex-col gap-8">
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Sessions</p><p class="mono-text text-3xl font-bold text-primary">${total}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulns Found</p><p class="mono-text text-3xl font-bold text-danger">${findings}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Avg Duration</p><p class="mono-text text-3xl font-bold">${_esc(avgLabel)}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Exploit Rate</p><p class="mono-text text-3xl font-bold text-primary">${exploitRate}%</p></div>
+                </div>
+                <div class="bg-card border border-border-color overflow-hidden">
+                    <div class="px-6 py-3 border-b border-border-color flex items-center justify-between">
+                        <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Session History</p>
+                        <span class="mono-text text-[10px] text-secondary-text">${total} sessions</span>
+                    </div>
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b border-border-color">
+                                <th class="text-left px-6 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Session</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Target</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Mode</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Start</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Duration</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Hosts</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Vulns</th>
+                                <th class="text-left px-4 py-2.5 text-[8px] font-bold text-secondary-text uppercase">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="mono-text text-xs">${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+}
+
+function updateIntelNodesExpanded(sessionData, hosts, vulnByHost, exploitedHosts) {
+        const body = _intelGetTabBody('nodes');
+        if (!body) return;
+
+        const hostList = Array.isArray(hosts) ? hosts : [];
+        const openPortCount = hostList.reduce((acc, h) => acc + (h.ports || []).filter((p) => p.state === 'open').length, 0);
+        const vulnerableCount = vulnByHost instanceof Map ? vulnByHost.size : 0;
+        const exploitedCount = exploitedHosts instanceof Set ? exploitedHosts.size : 0;
+        const runningCount = (sessionData && String(sessionData.status || '').toLowerCase() === 'running') ? 1 : 0;
+
+        if (!sessionData || !hostList.length) {
+                body.innerHTML = `
+                    <div class="max-w-6xl mx-auto flex flex-col gap-6">
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Hosts</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulnerable</p><p class="mono-text text-3xl font-bold text-danger">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Open Ports</p><p class="mono-text text-3xl font-bold">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Scanning</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                        </div>
+                        <div class="bg-card border border-border-color p-8 text-center">
+                            <p class="text-sm text-secondary-text">No host inventory available for this mission yet.</p>
+                        </div>
+                    </div>`;
+                return;
+        }
+
+        const rows = hostList.slice(0, 30).map((host) => {
+                const ip = _esc(host.ip || 'unknown');
+                const os = _esc(host.os || 'Unknown OS');
+                const openPorts = (host.ports || []).filter((p) => p.state === 'open');
+                const portPreview = _esc(openPorts.slice(0, 4).map((p) => `${p.number}/${p.protocol || 'tcp'}`).join(', ') || '—');
+                const vulnCount = vulnByHost.get(host.ip) || 0;
+                const exploited = exploitedHosts.has(host.ip);
+                const riskText = exploited ? 'COMPROMISED' : (vulnCount > 0 ? 'AT RISK' : 'STABLE');
+                const riskClass = exploited ? 'text-danger' : (vulnCount > 0 ? 'text-orange-400' : 'text-primary');
+                return `
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                        <td class="px-5 py-3"><span class="mono-text text-slate-200 font-bold">${ip}</span></td>
+                        <td class="px-4 py-3 text-secondary-text">${os}</td>
+                        <td class="px-4 py-3 text-slate-300">${openPorts.length}</td>
+                        <td class="px-4 py-3 ${vulnCount > 0 ? 'text-danger font-bold' : 'text-slate-400'}">${vulnCount}</td>
+                        <td class="px-4 py-3 ${riskClass} font-bold">${riskText}</td>
+                        <td class="px-4 py-3 text-secondary-text">${portPreview}</td>
+                    </tr>`;
+        }).join('');
+
+        body.innerHTML = `
+            <div class="max-w-6xl mx-auto flex flex-col gap-8">
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Hosts</p><p class="mono-text text-3xl font-bold text-primary">${hostList.length}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Vulnerable</p><p class="mono-text text-3xl font-bold text-danger">${vulnerableCount}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Open Ports</p><p class="mono-text text-3xl font-bold">${openPortCount}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Scanning</p><p class="mono-text text-3xl font-bold ${runningCount ? 'text-primary animate-pulse' : 'text-secondary-text'}">${runningCount}</p></div>
+                </div>
+                <div class="bg-card border border-border-color overflow-hidden">
+                    <div class="px-6 py-3 border-b border-border-color flex items-center justify-between">
+                        <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Host Exposure Matrix</p>
+                        <span class="mono-text text-[10px] text-secondary-text">${exploitedCount} exploited</span>
+                    </div>
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b border-border-color bg-surface">
+                                <th class="text-left px-5 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Host</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">OS</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Open Ports</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Findings</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Risk</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Port Preview</th>
+                            </tr>
+                        </thead>
+                        <tbody class="mono-text text-xs">${rows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+}
+
+function updateIntelKnowledgeBaseExpanded(entries, globalRate, lastTs) {
+        const body = _intelGetTabBody('kb');
+        if (!body) return;
+
+        const rows = Array.isArray(entries) ? entries : [];
+        const serviceCount = new Set(rows.map((r) => String(r.service || 'unknown'))).size;
+        const updatedAt = lastTs ? _intelFormatTimestamp(lastTs) : '—';
+
+        if (!rows.length) {
+                body.innerHTML = `
+                    <div class="max-w-6xl mx-auto flex flex-col gap-6">
+                        <div class="grid grid-cols-4 gap-4">
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">KB Entries</p><p class="mono-text text-3xl font-bold text-primary">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Success Rate</p><p class="mono-text text-3xl font-bold text-primary">0%</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Services Mapped</p><p class="mono-text text-3xl font-bold">0</p></div>
+                            <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Last Updated</p><p class="mono-text text-lg font-bold text-secondary-text">—</p></div>
+                        </div>
+                        <div class="bg-card border border-border-color p-8 text-center">
+                            <p class="text-sm text-secondary-text">No reusable attack pattern has been learned for this mission yet.</p>
+                        </div>
+                    </div>`;
+                return;
+        }
+
+        const tableRows = rows.slice(0, 20).map((entry) => {
+                const service = _esc(String(entry.service || 'unknown').toUpperCase());
+                const version = _esc(entry.version || 'mixed versions');
+                const module = _esc(entry.module || 'manual_validation');
+                const findings = Number(entry.findings || 0);
+                const success = Number(entry.successes || 0);
+                const attempts = Number(entry.attempts || 0);
+                const cvss = Number(entry.maxCvss || 0).toFixed(1);
+                const hostCount = Number(entry.hostCount || 0);
+                return `
+                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
+                        <td class="px-5 py-3 text-primary font-bold">${service}</td>
+                        <td class="px-4 py-3 text-slate-400">${version}</td>
+                        <td class="px-4 py-3 text-slate-300" style="word-break:break-all">${module}</td>
+                        <td class="px-4 py-3 text-slate-300">${findings}</td>
+                        <td class="px-4 py-3 text-primary font-bold">${success}/${attempts}</td>
+                        <td class="px-4 py-3 ${Number(entry.maxCvss || 0) >= 7 ? 'text-danger font-bold' : 'text-slate-400'}">${cvss}</td>
+                        <td class="px-4 py-3 text-secondary-text">${hostCount}</td>
+                    </tr>`;
+        }).join('');
+
+        body.innerHTML = `
+            <div class="max-w-6xl mx-auto flex flex-col gap-8">
+                <div class="grid grid-cols-4 gap-4">
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">KB Entries</p><p class="mono-text text-3xl font-bold text-primary">${rows.length}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Success Rate</p><p class="mono-text text-3xl font-bold text-primary">${globalRate}%</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Services Mapped</p><p class="mono-text text-3xl font-bold">${serviceCount}</p></div>
+                    <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Last Updated</p><p class="mono-text text-sm font-bold text-primary">${_esc(updatedAt)}</p></div>
+                </div>
+                <div class="bg-card border border-border-color overflow-hidden">
+                    <div class="px-6 py-3 border-b border-border-color flex items-center justify-between">
+                        <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Reusable Attack Patterns</p>
+                        <span class="mono-text text-[10px] text-secondary-text">${rows.length} entries</span>
+                    </div>
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b border-border-color bg-surface">
+                                <th class="text-left px-5 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Service</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Version</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Module</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Findings</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Success</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Max CVSS</th>
+                                <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Hosts</th>
+                            </tr>
+                        </thead>
+                        <tbody class="mono-text text-xs">${tableRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+}
+
+function updateIntelHistoryPanel(sessions) {
+    const sorted = [...(Array.isArray(sessions) ? sessions : [])]
+        .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0));
+    _intelSessionsCache = sorted;
+
+    const total = sorted.length;
+    const active = sorted.filter((s) => _intelNormalizedStatus(s) === 'running').length;
+    const findings = sorted.reduce((acc, s) => acc + Number(s.vulns_found || 0), 0);
+
+    _intelSetText('intel-history-total-sessions', total);
+    _intelSetText('intel-history-active-sessions', active);
+    _intelSetText('intel-history-total-findings', findings);
+    _intelSetText('intel-history-total', `${total} total`);
+
+    const list = document.getElementById('intel-history-list');
+    const latestBtn = document.getElementById('intel-history-open-latest');
+    const latest = sorted[0] || null;
+
+    if (latestBtn) {
+        latestBtn.dataset.sessionId = latest ? latest.id : '';
+        latestBtn.disabled = !latest;
+        latestBtn.style.opacity = latest ? '' : '0.5';
+        latestBtn.style.cursor = latest ? '' : 'not-allowed';
+    }
+
+    if (!list) {
+        updateIntelHistoryExpanded(sorted);
+        return;
+    }
+    if (!total) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No sessions yet</p>';
+        updateIntelHistoryExpanded(sorted);
+        return;
+    }
+
+    list.innerHTML = sorted.slice(0, 10).map((s) => {
+        const status = _intelNormalizedStatus(s);
+        const mission = _esc(s.name || s.target || 'Untitled mission');
+        const target = _esc(s.target || '—');
+        const hosts = Number(s.hosts_found || 0);
+        const vulns = Number(s.vulns_found || 0);
+        const dur = _intelFormatDuration(s);
+        const when = _intelFormatTimestamp(s.created_at);
+        return `
+            <button type="button" class="intel-history-item w-full text-left" data-session-id="${s.id}">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="intel-item-title truncate">${mission}</p>
+                  <p class="intel-item-meta truncate">${target}</p>
+                </div>
+                ${_intelStatusPill(status)}
+              </div>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="intel-pill">${hosts} hosts</span>
+                <span class="intel-pill ${vulns > 0 ? 'intel-pill-danger' : ''}">${vulns} vulns</span>
+                <span class="intel-pill">${dur}</span>
+              </div>
+              <p class="intel-item-meta mt-1 truncate">${when}</p>
+            </button>`;
+    }).join('');
+
+    list.querySelectorAll('[data-session-id]').forEach((item) => {
+        item.addEventListener('click', () => {
+            const sid = item.dataset.sessionId;
+            if (sid) switchToSession(sid);
+        });
+    });
+
+    updateIntelHistoryExpanded(sorted);
+}
+
+function updateIntelNodesPanel(sessionData) {
+    const list = document.getElementById('intel-nodes-list');
+    if (!sessionData) {
+        _intelSetText('intel-nodes-total', '0');
+        _intelSetText('intel-nodes-vuln', '0');
+        _intelSetText('intel-nodes-exploited', '0');
+        _intelSetText('intel-nodes-online', '0 online');
+        if (list) list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>';
+        updateIntelNodesExpanded(null, [], new Map(), new Set());
+        return;
+    }
+
+    const scanResults = sessionData.scan_results || [];
+    const vulns = sessionData.vulnerabilities || [];
+    const exploits = sessionData.exploit_results || [];
+    const hosts = _extractHostsFromScanResults(scanResults);
+
+    const vulnByHost = new Map();
+    vulns.forEach((v) => {
+        const ip = v.host_ip || '';
+        if (!ip) return;
+        vulnByHost.set(ip, (vulnByHost.get(ip) || 0) + 1);
+    });
+    const exploitedHosts = new Set(
+        exploits
+            .filter((e) => e.success && e.host_ip)
+            .map((e) => e.host_ip),
+    );
+
+    const vulnerableHostCount = [...vulnByHost.keys()].length;
+    _intelSetText('intel-nodes-total', hosts.length);
+    _intelSetText('intel-nodes-vuln', vulnerableHostCount);
+    _intelSetText('intel-nodes-exploited', exploitedHosts.size);
+    _intelSetText('intel-nodes-online', `${hosts.length} online`);
+
+    if (!list) {
+        updateIntelNodesExpanded(sessionData, hosts, vulnByHost, exploitedHosts);
+        return;
+    }
+    if (!hosts.length) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>';
+        updateIntelNodesExpanded(sessionData, hosts, vulnByHost, exploitedHosts);
+        return;
+    }
+
+    const sortedHosts = [...hosts].sort((a, b) => {
+        const aExp = exploitedHosts.has(a.ip) ? 1 : 0;
+        const bExp = exploitedHosts.has(b.ip) ? 1 : 0;
+        if (bExp !== aExp) return bExp - aExp;
+        const aV = vulnByHost.get(a.ip) || 0;
+        const bV = vulnByHost.get(b.ip) || 0;
+        if (bV !== aV) return bV - aV;
+        return (b.ports?.length || 0) - (a.ports?.length || 0);
+    });
+
+    list.innerHTML = sortedHosts.slice(0, 20).map((host) => {
+        const ip = _esc(host.ip || 'unknown');
+        const os = _esc(host.os || 'Unknown OS');
+        const hostname = _esc(host.hostname || '');
+        const openPorts = (host.ports || []).filter((p) => p.state === 'open');
+        const portPreview = openPorts.slice(0, 4).map((p) => `${p.number}/${p.protocol || 'tcp'}`).join(', ');
+        const vulnCount = vulnByHost.get(host.ip) || 0;
+        const exploited = exploitedHosts.has(host.ip);
+        return `
+            <div class="intel-node-item">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="intel-item-title truncate">${ip}</p>
+                  <p class="intel-item-meta truncate">${hostname || os}</p>
+                </div>
+                <span class="intel-pill ${exploited ? 'intel-pill-danger' : vulnCount > 0 ? 'intel-pill-warn' : 'intel-pill-good'}">
+                  ${exploited ? 'Exploited' : vulnCount > 0 ? 'At Risk' : 'Stable'}
+                </span>
+              </div>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="intel-pill">${openPorts.length} open ports</span>
+                <span class="intel-pill ${vulnCount > 0 ? 'intel-pill-danger' : ''}">${vulnCount} findings</span>
+              </div>
+              <p class="intel-item-meta mt-1 truncate">${portPreview || 'No open ports recorded'}</p>
+            </div>`;
+    }).join('');
+
+    updateIntelNodesExpanded(sessionData, sortedHosts, vulnByHost, exploitedHosts);
+}
+
+function updateIntelKnowledgeBasePanel(sessionData) {
+    const list = document.getElementById('intel-kb-list');
+    if (!sessionData) {
+        _intelSetText('intel-kb-entry-count', '0');
+        _intelSetText('intel-kb-success-rate', '0%');
+        _intelSetText('intel-kb-last-updated', '—');
+        const summary = document.getElementById('intel-kb-summary');
+        if (summary) summary.textContent = 'Knowledge Base captures what worked in previous missions and suggests repeatable remediation actions.';
+        if (list) list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No knowledge patterns yet</p>';
+        updateIntelKnowledgeBaseExpanded([], 0, 0);
+        return;
+    }
+
+    const vulns = Array.isArray(sessionData.vulnerabilities) ? sessionData.vulnerabilities : [];
+    const exploits = Array.isArray(sessionData.exploit_results) ? sessionData.exploit_results : [];
+    const byKey = new Map();
+
+    const rememberEntry = (service, version, module) => {
+        const safeService = (service || 'unknown').toLowerCase();
+        const safeVersion = version || '';
+        const safeModule = module || 'manual_validation';
+        const key = `${safeService}|${safeVersion}|${safeModule}`;
+        if (!byKey.has(key)) {
+            byKey.set(key, {
+                service: safeService,
+                version: safeVersion,
+                module: safeModule,
+                findings: 0,
+                attempts: 0,
+                successes: 0,
+                maxCvss: 0,
+                hosts: new Set(),
+                cves: new Set(),
+            });
+        }
+        return byKey.get(key);
+    };
+
+    vulns.forEach((v) => {
+        const module = v.exploit_path || 'manual_validation';
+        const entry = rememberEntry(v.service, v.service_version, module);
+        entry.findings += 1;
+        entry.maxCvss = Math.max(entry.maxCvss, Number(v.cvss_score || 0));
+        if (v.host_ip) entry.hosts.add(v.host_ip);
+        if (v.cve_id) entry.cves.add(v.cve_id);
+    });
+
+    exploits.forEach((e) => {
+        const mod = e.module || 'manual_validation';
+        const linkedV = vulns.find((v) => {
+            if (!v.host_ip || !e.host_ip || v.host_ip !== e.host_ip) return false;
+            if (v.exploit_path && e.module) return v.exploit_path === e.module;
+            return true;
+        });
+        const entry = rememberEntry(linkedV?.service || 'unknown', linkedV?.service_version || '', mod);
+        entry.attempts += 1;
+        if (e.success) entry.successes += 1;
+        if (e.host_ip) entry.hosts.add(e.host_ip);
+    });
+
+    const rows = [...byKey.values()].map((entry) => {
+        const attempts = entry.attempts || entry.findings || 0;
+        const successRate = attempts > 0 ? Math.round((entry.successes / attempts) * 100) : 0;
+        return {
+            ...entry,
+            attempts,
+            successRate,
+            hostCount: entry.hosts.size,
+            cveCount: entry.cves.size,
+        };
+    }).sort((a, b) => {
+        if (b.successes !== a.successes) return b.successes - a.successes;
+        if (b.maxCvss !== a.maxCvss) return b.maxCvss - a.maxCvss;
+        return b.findings - a.findings;
+    });
+
+    const totalAttempts = exploits.length;
+    const totalSuccess = exploits.filter((e) => e.success).length;
+    const globalRate = totalAttempts > 0 ? Math.round((totalSuccess / totalAttempts) * 100) : 0;
+    const lastTs = Math.max(
+        Number(sessionData.updated_at || 0),
+        ...vulns.map((v) => Number(v.created_at || 0)),
+        ...exploits.map((e) => Number(e.created_at || 0)),
+    );
+
+    _intelSetText('intel-kb-entry-count', rows.length);
+    _intelSetText('intel-kb-success-rate', `${globalRate}%`);
+    _intelSetText('intel-kb-last-updated', lastTs ? _intelFormatTimestamp(lastTs).split(' ')[1] || '—' : '—');
+
+    const summary = document.getElementById('intel-kb-summary');
+    if (summary) {
+        if (!rows.length) {
+            summary.textContent = 'No reusable attack pattern has been learned yet for this mission.';
+        } else {
+            const top = rows[0];
+            summary.textContent = `Top reusable pattern: ${top.service.toUpperCase()} via ${top.module}. ${top.successes} successful validation(s) across ${top.hostCount} host(s).`;
+        }
+    }
+
+    if (!list) {
+        updateIntelKnowledgeBaseExpanded(rows, globalRate, lastTs);
+        return;
+    }
+    if (!rows.length) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No knowledge patterns yet</p>';
+        updateIntelKnowledgeBaseExpanded([], globalRate, lastTs);
+        return;
+    }
+
+    list.innerHTML = rows.slice(0, 12).map((entry) => {
+        const service = _esc((entry.service || 'unknown').toUpperCase());
+        const module = _esc(entry.module || 'manual_validation');
+        const version = _esc(entry.version || 'mixed versions');
+        const cvss = entry.maxCvss > 0 ? entry.maxCvss.toFixed(1) : '—';
+        const rateClass = entry.successRate >= 70 ? 'intel-pill-good' : entry.successRate >= 35 ? 'intel-pill-warn' : 'intel-pill-danger';
+        return `
+            <div class="intel-kb-item">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="intel-item-title truncate">${service}</p>
+                  <p class="intel-item-meta truncate">${version}</p>
+                </div>
+                <span class="intel-pill ${rateClass}">${entry.successRate}%</span>
+              </div>
+              <p class="intel-item-meta mt-1 truncate">${module}</p>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="intel-pill">${entry.findings} findings</span>
+                <span class="intel-pill">${entry.successes}/${entry.attempts} success</span>
+                <span class="intel-pill ${entry.maxCvss >= 9 ? 'intel-pill-danger' : entry.maxCvss >= 7 ? 'intel-pill-warn' : ''}">CVSS ${cvss}</span>
+              </div>
+            </div>`;
+    }).join('');
+
+    updateIntelKnowledgeBaseExpanded(rows, globalRate, lastTs);
+}
+
+async function refreshIntelHistoryPanel() {
+    try {
+        const res = await fetch('/api/v1/sessions');
+        if (!res.ok) {
+            updateIntelHistoryPanel(_intelSessionsCache);
+            return false;
+        }
+        const sessions = await res.json();
+        updateIntelHistoryPanel(sessions);
+        return true;
+    } catch {
+        updateIntelHistoryPanel(_intelSessionsCache);
+        return false;
+    }
+}
+
+async function refreshIntelPanelsForSession(sessionId, options = {}) {
+    const refreshHistory = Boolean(options.refreshHistory);
+
+    if (refreshHistory || !_intelSessionsCache.length) {
+        await refreshIntelHistoryPanel();
+    }
+
+    const resolvedSessionId = sessionId || viewingSessionId || activeMissionId || (_intelSessionsCache[0] ? _intelSessionsCache[0].id : null);
+    if (!resolvedSessionId) {
+        _intelCurrentSessionData = null;
+        syncAnalysisPanelFromSession(null);
+        resetNetworkPanel('—');
+        updateIntelNodesPanel(null);
+        updateIntelKnowledgeBasePanel(null);
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${resolvedSessionId}`);
+        if (!res.ok) return;
+        const session = await res.json();
+        _intelCurrentSessionData = session;
+        syncAnalysisPanelFromSession(session);
+        updateNetworkPanelFromSession(session);
+        updateIntelNodesPanel(session);
+        updateIntelKnowledgeBasePanel(session);
+    } catch {
+        // ignore refresh failures to avoid blocking the main UI
+    }
 }
 
 // ── Sidebar mini-topology (compact SVG, unchanged) ────────────────────────────
@@ -4509,24 +6362,15 @@ function updateMissionStatusHeader(status, sessionId, missionName) {
 // ─── Console output helpers ───────────────────────────────────────────────────
 
 function clearConsoleOutput() {
+    // Clear the unified logs panel
+    const out = document.getElementById('console-logs-output');
+    if (out) {
+        out.innerHTML = '<div id="console-logs-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none"><span class="material-symbols-outlined text-3xl opacity-40">list_alt</span><span class="text-[11px] tracking-widest uppercase opacity-60">No logs yet — start a mission</span></div>';
+    }
+    // Also clear legacy hidden containers
     ['console-bash', 'console-nmap', 'console-msf'].forEach(id => {
         const el = document.getElementById(id);
-        if (!el) return;
-        el.innerHTML = '';
-        // Restore empty state placeholder
-        const emptyId = id + '-empty';
-        const empty = document.createElement('div');
-        empty.id = emptyId;
-        empty.className = 'flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none';
-        const labels = {
-            'console-bash': ['terminal', 'No active session \u2014 start a mission to see live output'],
-            'console-nmap': ['search', 'No nmap results yet'],
-            'console-msf':  ['bolt', 'No Metasploit activity yet'],
-        };
-        const [icon, label] = labels[id];
-        empty.innerHTML = `<span class="material-symbols-outlined text-3xl opacity-40">${icon}</span>
-<span class="text-[11px] tracking-widest uppercase opacity-60">${label}</span>`;
-        el.appendChild(empty);
+        if (el) el.innerHTML = '';
     });
 }
 
@@ -4536,15 +6380,13 @@ function _consoleEnsureActive(panelId) {
     if (emptyEl) emptyEl.remove();
 }
 
+const _PANEL_TO_CAT = { 'console-bash': 'bash', 'console-nmap': 'nmap', 'console-msf': 'msf' };
+
 function _consoleAppend(panelId, text, colorClass = 'text-primary') {
-    const el = document.getElementById(panelId);
-    if (!el) return;
-    _consoleEnsureActive(panelId);
-    const line = document.createElement('div');
-    line.className = colorClass;
-    line.textContent = text;
-    el.appendChild(line);
-    el.scrollTop = el.scrollHeight;
+    // Route to unified logs panel
+    const category = _PANEL_TO_CAT[panelId] || 'bash';
+    const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    _appendToLogs(`<span class="${colorClass}">${escaped}</span>`, category);
 }
 
 function appendConsoleLine(text, colorClass = 'text-primary') {
@@ -5567,6 +7409,7 @@ function renderMissionDone(data) {
     const objective = data.objective_result || data.objective || '';
     const findings  = Array.isArray(data.findings) ? data.findings : [];
     if (flags.length > 0) {
+        flags.forEach(f => rsbAddFlag(String(f), '', ''));
         findingsHtml += `<div class="mt-3 border-t border-primary/20 pt-3">
             <div class="text-primary/70 text-[10px] uppercase tracking-widest font-bold mb-1.5">Flags Found</div>
             ${flags.map(f => `<div class="flex items-center gap-2 mb-1">
@@ -5694,6 +7537,23 @@ async function loadSessionsForSelects() {
             }
         }
 
+        updateIntelHistoryPanel(sessions);
+
+        const intelSessionId = viewingSessionId || activeMissionId || (_intelSessionsCache[0] ? _intelSessionsCache[0].id : (sessions[0] ? sessions[0].id : null));
+        if (!intelSessionId) {
+            syncAnalysisPanelFromSession(null);
+            resetNetworkPanel('—');
+            updateIntelNodesPanel(null);
+            updateIntelKnowledgeBasePanel(null);
+        } else if (_intelCurrentSessionData && _intelCurrentSessionData.id === intelSessionId) {
+            syncAnalysisPanelFromSession(_intelCurrentSessionData);
+            updateNetworkPanelFromSession(_intelCurrentSessionData);
+            updateIntelNodesPanel(_intelCurrentSessionData);
+            updateIntelKnowledgeBasePanel(_intelCurrentSessionData);
+        } else {
+            refreshIntelPanelsForSession(intelSessionId);
+        }
+
     } catch { /* ignore */ }
 }
 
@@ -5737,79 +7597,194 @@ function setAgentStatus(key, detail = '') {
 
 let _sessionSwitcherOpen = false;
 let viewingSessionId = null;  // session currently being viewed (may differ from activeMissionId)
+let _sessionSwitcherData = [];
+let _sessionSwitcherVisible = [];
+let _sessionSwitcherQuery = '';
+let _sessionSwitcherStatus = 'all';
+let _sessionSwitcherSort = 'recent';
+let _sessionSwitcherFocusIndex = 0;
+const _SESSION_SWITCHER_PREFS_KEY = 'session_switcher_prefs_v1';
 
-function initSessionSwitcher() {
-    const btn = document.getElementById('session-switcher-btn');
-    const dropdown = document.getElementById('session-switcher-dropdown');
-    const closeBtn = document.getElementById('session-dropdown-close');
-
-    if (btn) btn.addEventListener('click', () => {
-        _sessionSwitcherOpen ? closeSessionSwitcher() : openSessionSwitcher();
-    });
-    if (closeBtn) closeBtn.addEventListener('click', closeSessionSwitcher);
-
-    document.addEventListener('click', (e) => {
-        if (!_sessionSwitcherOpen) return;
-        if (dropdown && !dropdown.contains(e.target) && btn && !btn.contains(e.target)) {
-            closeSessionSwitcher();
+function _loadSessionSwitcherPrefs() {
+    try {
+        const raw = localStorage.getItem(_SESSION_SWITCHER_PREFS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+            if (['all', 'running', 'done', 'error', 'stopped'].includes(parsed.status)) {
+                _sessionSwitcherStatus = parsed.status;
+            }
+            if (['recent', 'name', 'target'].includes(parsed.sort)) {
+                _sessionSwitcherSort = parsed.sort;
+            }
         }
+    } catch {
+        // ignore
+    }
+}
+
+function _saveSessionSwitcherPrefs() {
+    try {
+        localStorage.setItem(_SESSION_SWITCHER_PREFS_KEY, JSON.stringify({
+            status: _sessionSwitcherStatus,
+            sort: _sessionSwitcherSort,
+        }));
+    } catch {
+        // ignore
+    }
+}
+
+function _sessionEffectiveStatus(session) {
+    if (session.is_running) return 'running';
+    if (session.status === 'running') return 'stopped';
+    return session.status || 'done';
+}
+
+function _sessionStatusColorClass(status) {
+    if (status === 'running') return 'text-primary';
+    if (status === 'done') return 'text-slate-400';
+    if (status === 'stopped') return 'text-orange-400';
+    return 'text-danger';
+}
+
+function _sessionSorter(a, b) {
+    if (_sessionSwitcherSort === 'name') {
+        const an = (a.name || a.target || '').toLowerCase();
+        const bn = (b.name || b.target || '').toLowerCase();
+        return an.localeCompare(bn);
+    }
+    if (_sessionSwitcherSort === 'target') {
+        return (a.target || '').toLowerCase().localeCompare((b.target || '').toLowerCase());
+    }
+    const aa = Number(a.created_at || 0);
+    const bb = Number(b.created_at || 0);
+    return bb - aa;
+}
+
+function _sessionMatchesQuery(session, query) {
+    if (!query) return true;
+    const haystack = `${session.name || ''} ${session.target || ''} ${session.mode || ''} ${session.id || ''}`.toLowerCase();
+    return haystack.includes(query);
+}
+
+function _setSessionSwitcherSummary(total, shown) {
+    const summary = document.getElementById('session-switcher-summary');
+    if (!summary) return;
+    if (!total) {
+        summary.textContent = 'No missions available';
+        return;
+    }
+    summary.textContent = `${shown} of ${total} mission${total === 1 ? '' : 's'}`;
+}
+
+function _setSessionFilterButtonsActive() {
+    document.querySelectorAll('#session-switcher-status-filters .session-switcher-filter-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.status === _sessionSwitcherStatus);
     });
 }
 
-async function openSessionSwitcher() {
-    const dropdown = document.getElementById('session-switcher-dropdown');
+function _sessionSwitcherApplyFilters() {
+    const normalizedQuery = (_sessionSwitcherQuery || '').trim().toLowerCase();
+    _sessionSwitcherVisible = _sessionSwitcherData
+        .filter((session) => {
+            const effectiveStatus = _sessionEffectiveStatus(session);
+            if (_sessionSwitcherStatus !== 'all' && effectiveStatus !== _sessionSwitcherStatus) return false;
+            return _sessionMatchesQuery(session, normalizedQuery);
+        })
+        .sort(_sessionSorter);
+
+    if (_sessionSwitcherVisible.length === 0) {
+        _sessionSwitcherFocusIndex = 0;
+        return;
+    }
+    if (_sessionSwitcherFocusIndex < 0) _sessionSwitcherFocusIndex = 0;
+    if (_sessionSwitcherFocusIndex >= _sessionSwitcherVisible.length) {
+        _sessionSwitcherFocusIndex = _sessionSwitcherVisible.length - 1;
+    }
+}
+
+function _sessionSwitcherEnsureFocusVisible() {
+    const el = document.querySelector(`#session-switcher-list [data-session-index="${_sessionSwitcherFocusIndex}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest' });
+}
+
+function _renderSessionSwitcherList() {
     const list = document.getElementById('session-switcher-list');
-    if (!dropdown || !list) return;
+    if (!list) return;
 
-    _sessionSwitcherOpen = true;
-    dropdown.classList.remove('hidden');
-    list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading...</div>';
+    _sessionSwitcherApplyFilters();
+    _setSessionSwitcherSummary(_sessionSwitcherData.length, _sessionSwitcherVisible.length);
 
-    try {
-        const res = await fetch('/api/v1/sessions');
-        const sessions = await res.json();
+    if (!_sessionSwitcherData.length) {
+        list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">No sessions yet</div>';
+        return;
+    }
 
-        if (!sessions.length) {
-            list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">No sessions yet</div>';
-            return;
+    if (!_sessionSwitcherVisible.length) {
+        list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">No missions match your filters</div>';
+        return;
+    }
+
+    list.innerHTML = '';
+    _sessionSwitcherVisible.forEach((s, idx) => {
+        const d = s.created_at ? new Date(s.created_at * 1000) : null;
+        const ts = d ? `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '';
+        const effStatus = _sessionEffectiveStatus(s);
+        const statusLabel = effStatus.toUpperCase();
+        const statusColor = _sessionStatusColorClass(effStatus);
+        const isViewing = s.id === (viewingSessionId || activeMissionId);
+        const displayName = s.name ? s.name : s.target;
+
+        const item = document.createElement('div');
+        item.className = `session-switcher-item w-full text-left px-4 py-2.5 hover:bg-primary/5 transition-colors border-b border-border-color/30 ${isViewing ? 'bg-primary/5' : ''} ${idx === _sessionSwitcherFocusIndex ? 'session-switcher-item-focus' : ''} group/sitem flex items-start gap-2`;
+        item.dataset.sessionId = s.id;
+
+        const clickArea = document.createElement('button');
+        clickArea.type = 'button';
+        clickArea.dataset.sessionIndex = String(idx);
+        clickArea.className = 'flex-1 text-left min-w-0';
+        const assignedLabel = s.assigned_to_name
+            ? `<span class="text-[9px] mono-text text-purple-400/80">↳ ${_esc(s.assigned_to_name)}</span>`
+            : '';
+        clickArea.innerHTML = `
+            <div class="flex items-center justify-between mb-0.5">
+                <span class="text-[10px] mono-text font-bold text-slate-200 truncate">${_esc(displayName)}</span>
+                <span class="text-[9px] font-bold ${statusColor} uppercase ml-2 shrink-0">${statusLabel}</span>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[9px] mono-text text-secondary-text">${s.id.slice(0, 8).toUpperCase()}</span>
+                ${s.name ? `<span class="text-[9px] mono-text text-secondary-text truncate">${_esc(s.target)}</span>` : ''}
+                <span class="text-[9px] mono-text text-secondary-text">${_esc(s.mode || '')}</span>
+                <span class="text-[9px] mono-text text-secondary-text">${_esc(ts)}</span>
+                ${assignedLabel}
+            </div>`;
+        clickArea.addEventListener('click', () => {
+            closeSessionSwitcher();
+            switchToSession(s.id);
+        });
+
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'flex flex-col gap-1 shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity mt-0.5';
+
+        // Assign button — only for admin/owner
+        if (_rbacHasMinRole('admin')) {
+            const assignBtn = document.createElement('button');
+            assignBtn.type = 'button';
+            assignBtn.className = 'text-secondary-text hover:text-purple-400 transition-colors';
+            assignBtn.title = 'Assign mission';
+            assignBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">person_add</span>';
+            assignBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeSessionSwitcher();
+                openAssignModal(s.id, s.assigned_to || null);
+            });
+            btnGroup.appendChild(assignBtn);
         }
 
-        list.innerHTML = '';
-        sessions.forEach(s => {
-            const d = s.created_at ? new Date(s.created_at * 1000) : null;
-            const ts = d ? d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
-            const isRunning = s.is_running;
-            // DB status "running" but no live task means the server restarted mid-session
-            const effStatus = isRunning ? 'running' : (s.status === 'running' ? 'stopped' : (s.status || 'done'));
-            const statusLabel = effStatus.toUpperCase();
-            const statusColor = effStatus === 'running' ? 'text-primary' : (effStatus === 'done' ? 'text-slate-400' : 'text-danger');
-            const isViewing = s.id === (viewingSessionId || activeMissionId);
-            const displayName = s.name ? s.name : s.target;
-
-            const item = document.createElement('div');
-            item.className = `w-full text-left px-4 py-2.5 hover:bg-primary/5 transition-colors border-b border-border-color/30 ${isViewing ? 'bg-primary/5' : ''} group/sitem flex items-start gap-2`;
-            item.dataset.sessionId = s.id;
-            const clickArea = document.createElement('button');
-            clickArea.className = 'flex-1 text-left min-w-0';
-            clickArea.innerHTML = `
-                <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-[10px] mono-text font-bold text-slate-200 truncate">${_esc(displayName)}</span>
-                    <span class="text-[9px] font-bold ${statusColor} uppercase ml-2 shrink-0">${statusLabel}</span>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-[9px] mono-text text-secondary-text">${s.id.slice(0, 8).toUpperCase()}</span>
-                    ${s.name ? `<span class="text-[9px] mono-text text-secondary-text truncate">${_esc(s.target)}</span>` : ''}
-                    <span class="text-[9px] mono-text text-secondary-text">${_esc(s.mode || '')}</span>
-                    <span class="text-[9px] mono-text text-secondary-text">${ts}</span>
-                </div>`;
-            clickArea.addEventListener('click', () => {
-                closeSessionSwitcher();
-                switchToSession(s.id);
-            });
-            const btnGroup = document.createElement('div');
-            btnGroup.className = 'flex flex-col gap-1 shrink-0 opacity-0 group-hover/sitem:opacity-100 transition-opacity mt-0.5';
-
+        // Rename button — only analyst+
+        if (_rbacHasMinRole('analyst')) {
             const renBtn = document.createElement('button');
+            renBtn.type = 'button';
             renBtn.className = 'text-secondary-text hover:text-primary transition-colors';
             renBtn.title = 'Rename mission';
             renBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">edit</span>';
@@ -5833,12 +7808,19 @@ async function openSessionSwitcher() {
                                 updateMissionStatusHeader(effStatus, s.id, name);
                             }
                             openSessionSwitcher();
-                        } catch { showToast('Rename failed'); }
+                        } catch {
+                            showToast('Rename failed');
+                        }
                     },
                 });
             });
+            btnGroup.appendChild(renBtn);
+        }
 
+        // Delete button — only analyst+
+        if (_rbacHasMinRole('analyst')) {
             const delBtn = document.createElement('button');
+            delBtn.type = 'button';
             delBtn.className = 'text-secondary-text hover:text-danger transition-colors';
             delBtn.title = 'Delete mission';
             delBtn.innerHTML = '<span class="material-symbols-outlined text-[13px]">delete</span>';
@@ -5852,21 +7834,151 @@ async function openSessionSwitcher() {
                         try {
                             await fetch(`/api/v1/sessions/${s.id}`, { method: 'DELETE' });
                             showToast('Mission deleted');
-                            if (viewingSessionId === s.id) { viewingSessionId = null; }
-                            if (activeMissionId === s.id) { activeMissionId = null; updateMissionStatusHeader('idle', null, ''); _currentMissionName = ''; }
+                            if (viewingSessionId === s.id) viewingSessionId = null;
+                            if (activeMissionId === s.id) {
+                                activeMissionId = null;
+                                updateMissionStatusHeader('idle', null, '');
+                                _currentMissionName = '';
+                            }
                             loadSessionsForSelects();
-                        } catch { showToast('Delete failed'); }
+                            openSessionSwitcher();
+                        } catch {
+                            showToast('Delete failed');
+                        }
                     },
                 });
             });
-
-            btnGroup.appendChild(renBtn);
             btnGroup.appendChild(delBtn);
-            item.appendChild(clickArea);
-            item.appendChild(btnGroup);
-            list.appendChild(item);
+        }
+
+        item.appendChild(clickArea);
+        item.appendChild(btnGroup);
+        list.appendChild(item);
+    });
+
+    _sessionSwitcherEnsureFocusVisible();
+}
+
+function _handleSessionSwitcherKeydown(e) {
+    if (!_sessionSwitcherOpen) return;
+
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSessionSwitcher();
+        return;
+    }
+
+    if (!_sessionSwitcherVisible.length) return;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _sessionSwitcherFocusIndex = (_sessionSwitcherFocusIndex + 1) % _sessionSwitcherVisible.length;
+        _renderSessionSwitcherList();
+        return;
+    }
+
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _sessionSwitcherFocusIndex = (_sessionSwitcherFocusIndex - 1 + _sessionSwitcherVisible.length) % _sessionSwitcherVisible.length;
+        _renderSessionSwitcherList();
+        return;
+    }
+
+    if (e.key === 'Enter') {
+        if (document.activeElement && document.activeElement.id === 'session-switcher-sort') return;
+        e.preventDefault();
+        const selected = _sessionSwitcherVisible[_sessionSwitcherFocusIndex];
+        if (!selected) return;
+        closeSessionSwitcher();
+        switchToSession(selected.id);
+    }
+}
+
+function initSessionSwitcher() {
+    const btn = document.getElementById('session-switcher-btn');
+    const dropdown = document.getElementById('session-switcher-dropdown');
+    const closeBtn = document.getElementById('session-dropdown-close');
+    const backdrop = document.getElementById('session-switcher-backdrop');
+    const search = document.getElementById('session-switcher-search');
+    const sort = document.getElementById('session-switcher-sort');
+    const filterButtons = document.querySelectorAll('#session-switcher-status-filters .session-switcher-filter-btn');
+
+    _loadSessionSwitcherPrefs();
+    if (sort) sort.value = _sessionSwitcherSort;
+    _setSessionFilterButtonsActive();
+
+    if (btn) btn.addEventListener('click', () => {
+        _sessionSwitcherOpen ? closeSessionSwitcher() : openSessionSwitcher();
+    });
+    if (closeBtn) closeBtn.addEventListener('click', closeSessionSwitcher);
+    if (backdrop) backdrop.addEventListener('click', closeSessionSwitcher);
+
+    if (search) {
+        search.addEventListener('input', () => {
+            _sessionSwitcherQuery = search.value || '';
+            _sessionSwitcherFocusIndex = 0;
+            _renderSessionSwitcherList();
         });
+    }
+
+    if (sort) {
+        sort.addEventListener('change', () => {
+            _sessionSwitcherSort = sort.value || 'recent';
+            _sessionSwitcherFocusIndex = 0;
+            _saveSessionSwitcherPrefs();
+            _renderSessionSwitcherList();
+        });
+    }
+
+    filterButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            _sessionSwitcherStatus = button.dataset.status || 'all';
+            _sessionSwitcherFocusIndex = 0;
+            _saveSessionSwitcherPrefs();
+            _setSessionFilterButtonsActive();
+            _renderSessionSwitcherList();
+        });
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!_sessionSwitcherOpen) return;
+        if (dropdown && !dropdown.contains(e.target) && btn && !btn.contains(e.target)) {
+            closeSessionSwitcher();
+        }
+    });
+
+    document.addEventListener('keydown', _handleSessionSwitcherKeydown);
+}
+
+async function openSessionSwitcher() {
+    const dropdown = document.getElementById('session-switcher-dropdown');
+    const list = document.getElementById('session-switcher-list');
+    const search = document.getElementById('session-switcher-search');
+    const sort = document.getElementById('session-switcher-sort');
+    if (!dropdown || !list) return;
+
+    _sessionSwitcherOpen = true;
+    dropdown.classList.remove('hidden');
+    dropdown.classList.add('is-open');
+    _sessionSwitcherQuery = '';
+    _sessionSwitcherFocusIndex = 0;
+    if (search) search.value = '';
+    if (sort) sort.value = _sessionSwitcherSort;
+    _setSessionFilterButtonsActive();
+    _setSessionSwitcherSummary(0, 0);
+    list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading...</div>';
+
+    try {
+        const res = await fetch('/api/v1/sessions');
+        if (!res.ok) throw new Error('Failed to load sessions');
+        const sessions = await res.json();
+        _sessionSwitcherData = Array.isArray(sessions) ? sessions : [];
+        _renderSessionSwitcherList();
+        if (search) search.focus();
     } catch {
+        _sessionSwitcherData = [];
+        _sessionSwitcherVisible = [];
+        _setSessionSwitcherSummary(0, 0);
         list.innerHTML = '<div class="px-4 py-3 text-[10px] mono-text text-danger">Failed to load sessions</div>';
     }
 }
@@ -5874,6 +7986,7 @@ async function openSessionSwitcher() {
 function closeSessionSwitcher() {
     const dropdown = document.getElementById('session-switcher-dropdown');
     if (dropdown) dropdown.classList.add('hidden');
+    if (dropdown) dropdown.classList.remove('is-open');
     _sessionSwitcherOpen = false;
 }
 
@@ -5898,25 +8011,24 @@ async function switchToSession(sessionId) {
 
         // Compute stats — prefer DB summary fields, fall back to counting attached arrays
         // (DB summary may be 0 if the session was stopped before the final update)
-        const hostsFound = session.hosts_found ||
-            new Set((session.scan_results || []).flatMap(r => (r.hosts || []).map(h => h.ip))).size;
+        const mergedHosts = _extractHostsFromScanResults(session.scan_results || []);
+        const hostsFound = Number(session.hosts_found || 0) || mergedHosts.length;
         const vulnsFound = session.vulns_found || (session.vulnerabilities || []).length;
-        const portsFound = session.ports_found ||
-            (session.scan_results || []).flatMap(r => (r.hosts || []).flatMap(h => h.ports || [])).length;
+        const portsFound = _sessionOpenPortCount(session, mergedHosts);
 
         setStatValue('stat-vulns', vulnsFound || '—');
         setStatValue('stat-hosts', hostsFound || '—');
         setStatValue('stat-ports', portsFound || '—');
 
         // Populate intel panels from stored session data
-        if (Array.isArray(session.vulnerabilities) && session.vulnerabilities.length > 0) {
-            _analysisVulns = session.vulnerabilities;
-            updateAnalysisPanelFromSearchsploit({ output: JSON.stringify({ vulnerabilities: session.vulnerabilities }) });
-        }
+        syncAnalysisPanelFromSession(session);
+        _intelCurrentSessionData = session;
         updateNetworkPanelFromSession(session);
+        updateIntelNodesPanel(session);
+        updateIntelKnowledgeBasePanel(session);
         // For historical sessions: reconstruct timeline from existing data
         {
-            const hist_hosts    = _mergeHosts((session.scan_results || []).flatMap(r => r.hosts || []));
+            const hist_hosts    = _extractHostsFromScanResults(session.scan_results || []);
             const hist_exploits = session.exploit_results || [];
             if (hist_hosts.length > 0 && _topoEvents.length === 0) {
                 _topoReconstructEvents(hist_hosts, hist_exploits);
@@ -5932,6 +8044,7 @@ async function switchToSession(sessionId) {
             hideResumeFromSessionBtn();
             // Live session — subscribe to WS events and restart uptime from session start
             activeMissionId = sessionId;
+            window._currentSessionId = sessionId;
             patchWsSessionHandler();
             if (ws && wsReady) {
                 ws.send(JSON.stringify({ type: 'subscribe_session', session_id: sessionId }));
@@ -6913,7 +9026,7 @@ document.addEventListener('DOMContentLoaded', () => {
     _advInitExploitCascade();
     _advInitVersionSlider();
     _initConsoleTabs();
-    _initTerminalInput();
+    _initNativeTerminal();
     _initShellInput();
 });
 
@@ -6941,17 +9054,24 @@ const _advModeDesc = {
     scan_only: 'Scan and identify vulnerabilities — no exploitation.',
     ask_before_exploit: 'Agent will ask for confirmation before running any exploit.',
     full_auto: 'Agent exploits autonomously within configured safety limits.',
-    v2_auto: 'V2 Multi-Agent: BrainAgent coordinates specialized sub-agents (scanner, exploit, post-exploit, webapp, osint, lateral, reporting).',
+    v2_auto: 'Multi-agent orchestration: BrainAgent coordinates specialist sub-agents (scanner, exploit, post-exploit, webapp, osint, lateral, reporting).',
+    v3_auto: 'V3 HMAS: SquadLeaders coordinate specialist workers with RAG, KnowledgeGraph, Verifier, Critic, and DynamicModelRouter.',
 };
 
-function _advInitModeButtons() {
-    document.querySelectorAll('.adv-mode-btn').forEach(btn => {
+function _advInitExclusiveButtons(selector, onSelect) {
+    document.querySelectorAll(selector).forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.adv-mode-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll(selector).forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            const desc = document.getElementById('adv-mode-desc');
-            if (desc) desc.textContent = _advModeDesc[btn.dataset.mode] || '';
+            if (typeof onSelect === 'function') onSelect(btn);
         });
+    });
+}
+
+function _advInitModeButtons() {
+    _advInitExclusiveButtons('.adv-mode-btn', (btn) => {
+        const desc = document.getElementById('adv-mode-desc');
+        if (desc) desc.textContent = _advModeDesc[btn.dataset.mode] || '';
     });
 }
 
@@ -6963,12 +9083,7 @@ function _advGetMode() {
 // ── Speed profile buttons ──────────────────────────────────────────────────────
 
 function _advInitSpeedButtons() {
-    document.querySelectorAll('.adv-speed-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.adv-speed-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
-    });
+    _advInitExclusiveButtons('.adv-speed-btn');
 }
 
 function _advGetSpeedProfile() {
@@ -6979,12 +9094,7 @@ function _advGetSpeedProfile() {
 // ── Scan type buttons ──────────────────────────────────────────────────────────
 
 function _advInitScanTypeButtons() {
-    document.querySelectorAll('.adv-scan-type-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.adv-scan-type-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
-    });
+    _advInitExclusiveButtons('.adv-scan-type-btn');
 }
 
 function _advGetScanType() {
@@ -7467,6 +9577,14 @@ function _advApplyConfig(cfg) {
         const el = document.getElementById('pol-allow-browser');
         if (el) el.checked = cfg.allow_browser_recon;
     }
+    if (typeof cfg.allow_persistence !== 'undefined') {
+        const el = document.getElementById('pol-allow-persistence');
+        if (el) el.checked = cfg.allow_persistence;
+    }
+    if (typeof cfg.v3_features !== 'undefined') {
+        const el = document.getElementById('pol-v3-features');
+        if (el) el.checked = cfg.v3_features;
+    }
     if (cfg.target_type) {
         const el = document.getElementById('adv-target-type');
         if (el) el.value = cfg.target_type;
@@ -7515,6 +9633,14 @@ function _advApplyConfig(cfg) {
             if (el) el.checked = cfg[key];
         }
     });
+    if (typeof cfg.confirm_every_step !== 'undefined') {
+        const el = document.getElementById('adv-step-by-step');
+        if (el) el.checked = !!cfg.confirm_every_step;
+    }
+    if (cfg.mission_briefing) {
+        const el = document.getElementById('adv-mission-briefing');
+        if (el) el.value = cfg.mission_briefing;
+    }
 }
 
 function _advCollectConfig() {
@@ -7547,6 +9673,10 @@ function _advCollectConfig() {
         objectives:             _v('adv-objectives'),
         excluded_ports:         _v('adv-excluded-ports'),
         version_intensity:      (() => { const el = document.getElementById('adv-version-intensity'); return el ? el.value : '5'; })(),
+        confirm_every_step:     _c('adv-step-by-step'),
+        mission_briefing:       _v('adv-mission-briefing'),
+        allow_persistence:      document.getElementById('pol-allow-persistence')?.checked ?? false,
+        v3_features:            document.getElementById('pol-v3-features')?.checked ?? true,
     };
 }
 
@@ -7587,13 +9717,7 @@ async function advRefreshToolStatus() {
 
 async function launchAdvancedMission() {
     const primaryTarget = document.getElementById('adv-primary-target').value.trim();
-
-    if (!primaryTarget) {
-        showToast('Enter a primary target first', true);
-        _advSwitchTab('targets');
-        document.getElementById('adv-primary-target').focus();
-        return;
-    }
+    const displayTarget = primaryTarget || 'AUTO-DISCOVERY (LOCAL SCOPE)';
 
     // Collect additional targets
     const additionalTargets = [];
@@ -7677,11 +9801,16 @@ async function launchAdvancedMission() {
         allow_lateral_movement: cfg.allow_lateral_movement,
         allow_docker_escape: cfg.allow_docker_escape,
         allow_browser_recon: cfg.allow_browser_recon,
+        allow_persistence: cfg.allow_persistence,
+        v3_features: cfg.v3_features,
         known_tech: knownTech ? knownTech.split(',').map(s => s.trim()).filter(Boolean) : undefined,
         scope_notes: scopeNotes || undefined,
-        notes: cfg.notes || undefined,
+        notes: (cfg.notes || cfg.mission_briefing) || undefined,
         objectives: cfg.objectives ? cfg.objectives.split('\n').map(s => s.trim()).filter(Boolean) : undefined,
         credential_ids: newCredIds.length > 0 ? newCredIds : undefined,
+        confirm_every_step: cfg.confirm_every_step || false,
+        agent_models: _collectAgentModelsFromMissionUI() || undefined,
+        disabled_tools: _collectToolPermissionsFromMissionUI() || undefined,
     };
 
     // Sync primary target back to sidebar quick-launch field
@@ -7722,20 +9851,21 @@ async function launchAdvancedMission() {
         // Replicate session startup logic from startMission()
         activeMissionId = data.session_id;
         viewingSessionId = activeMissionId;
+        window._currentSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
         hideResumeFromSessionBtn();
 
-        updateMissionStatusHeader('running', activeMissionId, primaryTarget);
+        updateMissionStatusHeader('running', activeMissionId, displayTarget);
         resetMissionStats();
         resetPhaseBar();
         setPhaseActive(1);
         clearConsoleOutput();
         clearMissionFeed();
-        renderMissionStart(primaryTarget, cfg.mode);
+        renderMissionStart(displayTarget, cfg.mode);
         appendConsoleLine(`[SESSION] ${activeMissionId}`, 'text-primary');
         appendConsoleLine(
-            `[TARGET] ${primaryTarget}  [PROFILE] ${cfg.speed_profile.toUpperCase()}  [SCAN] ${cfg.scan_type.toUpperCase()}`,
+            `[TARGET] ${displayTarget}  [PROFILE] ${cfg.speed_profile.toUpperCase()}  [SCAN] ${cfg.scan_type.toUpperCase()}`,
             'text-secondary-text'
         );
         showPauseMissionBtn();
@@ -7751,7 +9881,7 @@ async function launchAdvancedMission() {
         startMissionPoll(activeMissionId);
         startMissionUptime();
         switchView('agent');
-        showToast('Mission launched');
+        showToast(primaryTarget ? 'Mission launched' : 'Mission launched (auto-discovery enabled)');
 
     } catch (err) {
         showToast('Launch failed: ' + err.message, true);
@@ -7772,12 +9902,22 @@ function _escHtml(str) {
 // ─── Console Tab Switching ─────────────────────────────────────────────────────
 
 function _initConsoleTabs() {
-    document.querySelectorAll('#view-console .console-tab').forEach(tab => {
-        tab.addEventListener('click', () => _switchConsoleTab(tab.dataset.tab));
-    });
+    initConsoleTabs();
 }
 
-function _switchConsoleTab(tabName) {
+function _switchConsoleTab(tabName, silent) {
+    // Map legacy tab names to new ones
+    if (tabName === 'bash' || tabName === 'nmap' || tabName === 'msf') tabName = 'logs';
+    if (!tabName || !['terminal', 'shells', 'logs', 'v3intel'].includes(tabName)) tabName = 'terminal';
+
+    if (!silent) _consoleSaveTab(tabName);
+
+    // Clear new-badge when logs tab opened
+    if (tabName === 'logs') {
+        const badge = document.getElementById('logs-new-badge');
+        if (badge) badge.classList.add('hidden');
+    }
+
     document.querySelectorAll('#view-console .console-tab').forEach(t => {
         const isActive = t.dataset.tab === tabName;
         t.classList.toggle('bg-black', isActive);
@@ -7785,10 +9925,21 @@ function _switchConsoleTab(tabName) {
         t.classList.toggle('border-t-2', isActive);
         t.classList.toggle('border-t-primary', isActive);
         t.classList.toggle('text-secondary-text', !isActive);
+        t.classList.toggle('hover:bg-white/5', !isActive);
     });
     document.querySelectorAll('#view-console .console-body').forEach(body => {
-        body.classList.toggle('hidden', body.dataset.tab !== tabName);
+        const tab = body.dataset.tab;
+        // show body divs for all valid tabs
+        body.classList.toggle('hidden', tab !== tabName);
     });
+
+    if (tabName === 'terminal' && _nativeFitAddon) {
+        setTimeout(() => {
+            _nativeFitAddon.fit();
+            _sendNativeTerminalResize();
+            if (_nativeTerm) _nativeTerm.focus();
+        }, 30);
+    }
 }
 
 // ─── Objective Confirmation Card ──────────────────────────────────────────────
@@ -7879,180 +10030,186 @@ function appendMissionCardEl(el) {
     feed.scrollTop = feed.scrollHeight;
 }
 
+const _shellSessionMeta = {};
+let _activeShellId = null;
+
+function _refreshShellSidebarCount() {
+    const badge = document.getElementById('shell-count-badge');
+    const sidebar = document.getElementById('shell-sidebar-count');
+    const activeCount = parseInt(badge?.dataset.count || '0', 10) || 0;
+    if (sidebar) sidebar.textContent = `${activeCount} online`;
+}
+
+function _setActiveShellHeader(shellId) {
+    const title = document.getElementById('shell-active-title');
+    const status = document.getElementById('shell-active-status');
+    const metaEl = document.getElementById('shell-active-meta');
+    const meta = _shellSessionMeta[shellId];
+
+    if (!meta) {
+        if (title) title.textContent = 'No shell selected';
+        if (status) {
+            status.textContent = 'IDLE';
+            status.classList.remove('text-primary', 'text-danger', 'text-yellow-400');
+            status.classList.add('text-secondary-text/70');
+        }
+        if (metaEl) metaEl.textContent = 'Shell output will appear here when a session becomes active.';
+        return;
+    }
+
+    if (title) title.textContent = `${meta.hostIp} [${meta.sessionType}]`;
+    if (status) {
+        status.classList.remove('text-secondary-text/70', 'text-primary', 'text-danger', 'text-yellow-400');
+        if (meta.status === 'closed') {
+            status.textContent = 'CLOSED';
+            status.classList.add('text-danger');
+        } else {
+            status.textContent = 'LIVE';
+            status.classList.add('text-primary');
+        }
+    }
+    if (metaEl) {
+        const moduleInfo = meta.module ? ` · module ${meta.module}` : '';
+        const reasonInfo = meta.reason ? ` · ${meta.reason}` : '';
+        metaEl.textContent = `shell ${shellId}${moduleInfo}${reasonInfo}`;
+    }
+}
+
 // Called when a reverse shell arrives
-function _onReverseShellReceived(shellId, remoteAddr) {
+function _onReverseShellReceived(shellId, shellInfo) {
     const badge = document.getElementById('shell-count-badge');
     const emptyMsg = document.getElementById('shell-empty-msg');
     const inputRow = document.getElementById('shell-input-row');
     const bar = document.getElementById('shell-subtab-bar');
+    const hostIp = shellInfo?.hostIp || 'unknown-host';
+    const sessionType = shellInfo?.sessionType || 'shell';
+    const module = shellInfo?.module || '';
 
-    const currentCount = parseInt(badge.dataset.count || '0') + 1;
-    badge.dataset.count = currentCount;
-    badge.textContent = currentCount;
-    badge.classList.remove('hidden');
+    _shellSessionMeta[shellId] = {
+        shellId,
+        hostIp,
+        sessionType,
+        module,
+        status: 'active',
+        reason: '',
+    };
+
+    const currentCount = (parseInt(badge?.dataset.count || '0', 10) || 0) + 1;
+    if (badge) {
+        badge.dataset.count = currentCount;
+        badge.textContent = currentCount;
+        badge.classList.remove('hidden');
+    }
     setStatValue('stat-shells', currentCount);
+    _refreshShellSidebarCount();
+
     if (emptyMsg) emptyMsg.classList.add('hidden');
 
-    const subTab = document.createElement('button');
-    subTab.className = 'shell-subtab px-3 py-1 text-[10px] font-mono border border-border-color hover:border-primary bg-black/60 whitespace-nowrap transition-colors';
-    subTab.textContent = `SHELL-${currentCount} [${remoteAddr}]`;
-    subTab.dataset.shellId = shellId;
-    subTab.onclick = () => _activateShell(shellId, remoteAddr);
-    bar.appendChild(subTab);
+    if (bar) {
+        const subTab = document.createElement('button');
+        subTab.className = 'shell-subtab shell-subtab-idle px-3 py-2 text-left text-[10px] font-mono border border-border-color/80 bg-black/60 transition-colors';
+        subTab.dataset.shellId = shellId;
+        subTab.title = `${hostIp} [${sessionType}]`;
+        subTab.innerHTML = `
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-secondary-text uppercase tracking-wider">${_escHtml(sessionType)}</span>
+                            <span class="shell-live-badge text-[9px] text-secondary-text/70">LIVE</span>
+            </div>
+            <div class="mt-1 text-primary truncate">${_escHtml(hostIp)}</div>
+        `;
+        subTab.onclick = () => _activateShell(shellId);
+        bar.appendChild(subTab);
+    }
 
     if (inputRow) inputRow.classList.remove('hidden');
-    _activateShell(shellId, remoteAddr);
+    _activateShell(shellId);
     _switchConsoleTab('shells');
 
-    if (currentView !== 'console') {
-        showToast(`Reverse shell received: ${remoteAddr} — Console → SHELLS`);
+    if (currentView !== 'console' && currentView !== 'logs') {
+        showToast(`Reverse shell received: ${hostIp} — Console → SHELLS`);
     }
 }
 
-let _activeShellId = null;
-
 function _onShellClosed(shellId, hostIp, reason) {
-    // Append a [DEAD] marker to this shell's output buffer
+    const meta = _shellSessionMeta[shellId];
+    if (meta) {
+        meta.status = 'closed';
+        meta.reason = reason || 'connection lost';
+        if (hostIp && !meta.hostIp) meta.hostIp = hostIp;
+    }
+
     const buf = _shellOutputBuffers[shellId];
     if (buf) buf.push(`\n[!] Shell closed: ${reason}`);
+
+    const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
+    if (tab) {
+        tab.classList.remove('shell-subtab-active', 'shell-subtab-idle', 'shell-subtab-unread');
+        tab.classList.add('shell-subtab-dead');
+        const liveBadge = tab.querySelector('.shell-live-badge');
+        if (liveBadge) {
+            liveBadge.textContent = 'DEAD';
+            liveBadge.classList.remove('text-secondary-text/70');
+            liveBadge.classList.add('text-danger');
+        }
+    }
+
     if (_activeShellId === shellId) {
-        _shellPrint(`<span class="text-orange-400">[!] Shell closed — ${_escHtml(reason)}</span>`);
-        // Disable input
+        _shellPrint(`<span class="text-orange-400">[!] Shell closed — ${_escHtml(reason)}</span>`, 'system');
         const inp = document.getElementById('shell-cmd-input');
         if (inp) inp.disabled = true;
         const row = document.getElementById('shell-input-row');
         if (row) row.classList.add('opacity-40');
+        _setActiveShellHeader(shellId);
     }
-    // Mark the subtab as dead
-    const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
-    if (tab) {
-        tab.classList.remove('text-primary', 'text-secondary-text', 'text-yellow-300');
-        tab.classList.add('text-danger', 'line-through', 'opacity-60');
-    }
-    // Update badge count
+
     const badge = document.getElementById('shell-count-badge');
-    if (badge && badge.dataset.count > 0) {
-        const newCount = parseInt(badge.dataset.count) - 1;
+    if (badge && parseInt(badge.dataset.count || '0', 10) > 0) {
+        const newCount = parseInt(badge.dataset.count || '0', 10) - 1;
         badge.dataset.count = newCount;
         badge.textContent = newCount;
         setStatValue('stat-shells', newCount);
         if (newCount === 0) badge.classList.add('hidden');
     }
+    _refreshShellSidebarCount();
 }
 
-function _activateShell(shellId, remoteAddr) {
+function _activateShell(shellId) {
     _activeShellId = shellId;
     document.querySelectorAll('.shell-subtab').forEach(t => {
         const active = t.dataset.shellId === shellId;
-        t.classList.toggle('text-primary', active);
-        t.classList.toggle('border-primary', active);
-        t.classList.toggle('text-secondary-text', !active);
-        if (active) t.classList.remove('text-yellow-300');
+        t.classList.toggle('shell-subtab-active', active && !t.classList.contains('shell-subtab-dead'));
+        t.classList.toggle('shell-subtab-idle', !active && !t.classList.contains('shell-subtab-dead'));
+        if (active) t.classList.remove('shell-subtab-unread');
     });
-    const prompt = document.getElementById('shell-prompt');
-    if (prompt) prompt.textContent = `${remoteAddr}#`;
 
-    // Replay buffered output for this shell
+    const meta = _shellSessionMeta[shellId];
+    _setActiveShellHeader(shellId);
+
+    const prompt = document.getElementById('shell-prompt');
+    if (prompt) {
+        const promptHost = meta?.hostIp || shellId;
+        prompt.textContent = `${promptHost}#`;
+    }
+
     const out = document.getElementById('shell-output-area');
     if (out) {
         out.innerHTML = '';
         const buf = _shellOutputBuffers[shellId] || [];
-        buf.forEach(line => _shellPrint(_escHtml(line)));
+        buf.forEach(line => _shellPrint(_escHtml(line), 'output'));
     }
 
-    // Re-enable input (may have been disabled by a closed-shell state)
     const row = document.getElementById('shell-input-row');
-    if (row) row.classList.remove('opacity-40');
     const inp = document.getElementById('shell-cmd-input');
-    if (inp) { inp.disabled = false; inp.focus(); }
-}
-
-// ─── Interactive Terminal ──────────────────────────────────────────────────────
-
-const _termHistory = [];
-let _termHistoryIdx = -1;
-
-function _initTerminalInput() {
-    const input = document.getElementById('terminal-cmd-input');
-    if (!input) return;
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); _termSubmit(); }
-        else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            if (_termHistoryIdx < _termHistory.length - 1) {
-                _termHistoryIdx++;
-                input.value = _termHistory[_termHistory.length - 1 - _termHistoryIdx];
-            }
-        } else if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            _termHistoryIdx > 0 ? (input.value = _termHistory[_termHistory.length - 1 - (--_termHistoryIdx)])
-                                : (_termHistoryIdx = -1, input.value = '');
+    if (meta?.status === 'closed') {
+        if (row) row.classList.add('opacity-40');
+        if (inp) inp.disabled = true;
+    } else {
+        if (row) row.classList.remove('opacity-40');
+        if (inp) {
+            inp.disabled = false;
+            inp.focus();
         }
-    });
-}
-
-async function _termSubmit() {
-    const input = document.getElementById('terminal-cmd-input');
-    const cmd = input.value.trim();
-    if (!cmd) return;
-    input.value = '';
-    _termHistoryIdx = -1;
-    _termHistory.push(cmd);
-    _termPrint(`<span class="text-primary">tirpan&gt;</span> ${_escHtml(cmd)}`);
-
-    if (cmd === '/help') {
-        _termPrint(`<span class="text-secondary-text">  /help            show this help
-  /shells          list active reverse shells
-  /clear           clear output
-  /status          show active session
-  /view &lt;name&gt;     switch to a view
-  anything else    inject into active agent as task instruction</span>`);
-        return;
     }
-    if (cmd === '/clear') {
-        const out = document.getElementById('terminal-output');
-        if (out) { const h = out.firstElementChild; out.innerHTML = ''; if (h) out.appendChild(h); }
-        return;
-    }
-    if (cmd === '/shells') {
-        const shells = document.querySelectorAll('.shell-subtab');
-        if (!shells.length) { _termPrint('<span class="text-secondary-text">No active shells</span>'); return; }
-        shells.forEach(s => _termPrint(`<span class="text-green-400">  ${_escHtml(s.textContent)}</span>`));
-        return;
-    }
-    if (cmd === '/status') {
-        _termPrint(`<span class="text-secondary-text">Session: ${activeMissionId || '(none)'}</span>`);
-        return;
-    }
-    if (cmd.startsWith('/view ')) {
-        switchView(cmd.slice(6).trim());
-        return;
-    }
-    if (!activeMissionId) {
-        _termPrint('<span class="text-danger">No active session — launch a mission first</span>');
-        return;
-    }
-    try {
-        const res = await fetch(`/api/v1/sessions/${activeMissionId}/inject`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: cmd }),
-        });
-        _termPrint(res.ok
-            ? '<span class="text-secondary-text/60 text-[10px]">→ injected into agent</span>'
-            : '<span class="text-danger">Injection failed</span>');
-    } catch (_) {
-        _termPrint('<span class="text-danger">Network error</span>');
-    }
-}
-
-function _termPrint(htmlLine) {
-    const out = document.getElementById('terminal-output');
-    if (!out) return;
-    const d = document.createElement('div');
-    d.innerHTML = htmlLine;
-    out.appendChild(d);
-    out.scrollTop = out.scrollHeight;
 }
 
 // ─── Reverse Shell Input ───────────────────────────────────────────────────────
@@ -8083,19 +10240,26 @@ async function sendShellCommand() {
     const input = document.getElementById('shell-cmd-input');
     const cmd = input.value;
     if (!_activeShellId) { showToast('No active shell', true); return; }
+
+    const meta = _shellSessionMeta[_activeShellId];
+    if (meta?.status === 'closed') {
+        showToast('This shell is closed', true);
+        return;
+    }
+
     input.value = '';
     _shellHistoryIdx = -1;
     if (cmd.trim()) _shellCmdHistory.push(cmd);
-    _shellPrint(`<span class="text-green-300 select-none"># </span>${_escHtml(cmd)}`);
+    _shellPrint(`<span class="text-green-300 select-none">operator$ </span>${_escHtml(cmd)}`, 'input');
     try {
         const res = await fetch(`/api/v1/shells/${_activeShellId}/send`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: cmd }),
         });
-        if (!res.ok) _shellPrint('<span class="text-danger">Send failed — shell may be closed</span>');
+        if (!res.ok) _shellPrint('<span class="text-danger">Send failed — shell may be closed</span>', 'system');
     } catch (_) {
-        _shellPrint('<span class="text-danger">Connection error</span>');
+        _shellPrint('<span class="text-danger">Connection error</span>', 'system');
     }
 }
 
@@ -8104,26 +10268,272 @@ const _shellOutputBuffers = {};
 
 // Called by WebSocket handler when shell output arrives
 function receiveShellOutput(shellId, data) {
-    // Always buffer
     if (!_shellOutputBuffers[shellId]) _shellOutputBuffers[shellId] = [];
     _shellOutputBuffers[shellId].push(data);
-    // Print immediately only if this shell is active
+
     if (_activeShellId === shellId) {
-        _shellPrint(_escHtml(data));
+        _shellPrint(_escHtml(data), 'output');
     } else {
-        // Flash the subtab to indicate new output
         const tab = document.querySelector(`.shell-subtab[data-shell-id="${shellId}"]`);
-        if (tab) tab.classList.add('text-yellow-300');
+        if (tab && !tab.classList.contains('shell-subtab-dead')) {
+            tab.classList.add('shell-subtab-unread');
+        }
     }
 }
 
-function _shellPrint(htmlContent) {
+function _shellPrint(htmlContent, kind = 'output') {
     const out = document.getElementById('shell-output-area');
     if (!out) return;
     const d = document.createElement('div');
+    d.className = `shell-line shell-line-${kind}`;
     d.innerHTML = htmlContent;
     out.appendChild(d);
     out.scrollTop = out.scrollHeight;
+}
+
+// ─── Native Terminal (PTY) ───────────────────────────────────────────────────
+
+let _nativeTerm = null;
+let _nativeFitAddon = null;
+let _nativeTerminalId = null;
+let _nativeTerminalKeepAlive = null;
+
+function _setNativeTerminalStatus(text, tone = 'muted') {
+    const statusText = document.getElementById('terminal-status-text');
+    const badge = document.getElementById('terminal-session-badge');
+    if (statusText) statusText.textContent = text;
+    if (!badge) return;
+
+    badge.classList.remove('text-secondary-text/60', 'text-primary', 'text-danger', 'text-yellow-400');
+    if (tone === 'live') {
+        badge.textContent = 'connected';
+        badge.classList.add('text-primary');
+    } else if (tone === 'error') {
+        badge.textContent = 'error';
+        badge.classList.add('text-danger');
+    } else if (tone === 'pending') {
+        badge.textContent = 'connecting';
+        badge.classList.add('text-yellow-400');
+    } else {
+        badge.textContent = 'disconnected';
+        badge.classList.add('text-secondary-text/60');
+    }
+}
+
+function _startNativeTerminalKeepAlive() {
+    _stopNativeTerminalKeepAlive();
+    _nativeTerminalKeepAlive = setInterval(() => {
+        if (_nativeTerminalId && ws && wsReady) {
+            ws.send(JSON.stringify({
+                type: 'terminal_ping',
+                terminal_id: _nativeTerminalId,
+            }));
+        }
+    }, 15000);
+}
+
+function _stopNativeTerminalKeepAlive() {
+    if (_nativeTerminalKeepAlive) {
+        clearInterval(_nativeTerminalKeepAlive);
+        _nativeTerminalKeepAlive = null;
+    }
+}
+
+function _setNativeTerminalButtons(connected) {
+    const openBtn = document.getElementById('terminal-open-btn');
+    const closeBtn = document.getElementById('terminal-close-btn');
+    if (openBtn) openBtn.classList.toggle('hidden', connected);
+    if (closeBtn) closeBtn.classList.toggle('hidden', !connected);
+}
+
+function _nativeTerminalRowsCols() {
+    if (_nativeTerm) {
+        return {
+            rows: Math.max(12, _nativeTerm.rows || 24),
+            cols: Math.max(40, _nativeTerm.cols || 80),
+        };
+    }
+    return { rows: 24, cols: 80 };
+}
+
+function _sendNativeTerminalResize() {
+    if (!_nativeTerminalId || !ws || !wsReady) return;
+    const { rows, cols } = _nativeTerminalRowsCols();
+    ws.send(JSON.stringify({
+        type: 'terminal_resize',
+        terminal_id: _nativeTerminalId,
+        rows,
+        cols,
+    }));
+}
+
+function _initNativeTerminal() {
+    const container = document.getElementById('terminal-native-shell');
+    const openBtn = document.getElementById('terminal-open-btn');
+    const closeBtn = document.getElementById('terminal-close-btn');
+    const clearBtn = document.getElementById('terminal-clear-btn');
+    if (!container || !openBtn || !closeBtn || !clearBtn) return;
+
+    openBtn.addEventListener('click', _openNativeTerminal);
+    closeBtn.addEventListener('click', _closeNativeTerminal);
+    clearBtn.addEventListener('click', () => {
+        if (_nativeTerm) _nativeTerm.clear();
+    });
+
+    if (typeof window.Terminal === 'undefined') {
+        _setNativeTerminalStatus('Terminal library failed to load.', 'error');
+        return;
+    }
+
+    _nativeTerm = new window.Terminal({
+        cursorBlink: true,
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: 12,
+        lineHeight: 1.35,
+        scrollback: 8000,
+        convertEol: true,
+        theme: {
+            background: '#050505',
+            foreground: '#d6d6d6',
+            cursor: '#ccff00',
+            selectionBackground: 'rgba(204,255,0,0.22)',
+        },
+    });
+
+    if (window.FitAddon && window.FitAddon.FitAddon) {
+        _nativeFitAddon = new window.FitAddon.FitAddon();
+        _nativeTerm.loadAddon(_nativeFitAddon);
+    }
+
+    _nativeTerm.open(container);
+    if (_nativeFitAddon) _nativeFitAddon.fit();
+    _nativeTerm.writeln('\x1b[90mNative terminal ready. Click Connect to start bash.\x1b[0m');
+
+    _nativeTerm.onData(data => {
+        if (!_nativeTerminalId || !ws || !wsReady) return;
+        ws.send(JSON.stringify({
+            type: 'terminal_input',
+            terminal_id: _nativeTerminalId,
+            data,
+        }));
+    });
+
+    _nativeTerm.onResize(({ rows, cols }) => {
+        if (!_nativeTerminalId || !ws || !wsReady) return;
+        ws.send(JSON.stringify({
+            type: 'terminal_resize',
+            terminal_id: _nativeTerminalId,
+            rows,
+            cols,
+        }));
+    });
+
+    window.addEventListener('resize', () => {
+        if (_nativeFitAddon) {
+            _nativeFitAddon.fit();
+            _sendNativeTerminalResize();
+        }
+    });
+
+    _setNativeTerminalStatus('Connect to open an interactive bash session.');
+    _setNativeTerminalButtons(false);
+}
+
+function _openNativeTerminal() {
+    if (_nativeTerminalId) return;
+    if (!ws || !wsReady) {
+        showToast('WebSocket not connected', true);
+        _setNativeTerminalStatus('WebSocket disconnected. Retrying soon…', 'error');
+        return;
+    }
+    if (_nativeFitAddon) _nativeFitAddon.fit();
+
+    const { rows, cols } = _nativeTerminalRowsCols();
+    const sessionId = activeMissionId || 'operator-local';
+    ws.send(JSON.stringify({
+        type: 'terminal_open',
+        session_id: sessionId,
+        rows,
+        cols,
+        shell: 'bash',
+    }));
+    _setNativeTerminalStatus('Connecting native bash…', 'pending');
+}
+
+function _closeNativeTerminal() {
+    if (!_nativeTerminalId) {
+        _setNativeTerminalStatus('Terminal already disconnected.');
+        _setNativeTerminalButtons(false);
+        return;
+    }
+    if (ws && wsReady) {
+        ws.send(JSON.stringify({
+            type: 'terminal_close',
+            terminal_id: _nativeTerminalId,
+        }));
+    }
+    _nativeTerminalId = null;
+    _stopNativeTerminalKeepAlive();
+    _setNativeTerminalButtons(false);
+    _setNativeTerminalStatus('Terminal disconnected by operator.');
+}
+
+function _handleNativeTerminalMessage(msg) {
+    if (msg.type === 'terminal_opened') {
+        _nativeTerminalId = msg.terminal_id;
+        _setNativeTerminalButtons(true);
+        _setNativeTerminalStatus(`Connected (${msg.shell || 'bash'}) — interactive mode enabled.`, 'live');
+        _startNativeTerminalKeepAlive();
+        if (_nativeFitAddon) _nativeFitAddon.fit();
+        if (_nativeTerm) {
+            _nativeTerm.focus();
+            _nativeTerm.writeln('\r\n\x1b[32m[connected]\x1b[0m interactive shell is live\r\n');
+        }
+        return;
+    }
+
+    if (msg.type === 'terminal_output') {
+        if (!_nativeTerminalId || msg.terminal_id !== _nativeTerminalId) return;
+        if (_nativeTerm) _nativeTerm.write(msg.data || '');
+        return;
+    }
+
+    if (msg.type === 'terminal_resized') {
+        return;
+    }
+
+    if (msg.type === 'terminal_pong') {
+        return;
+    }
+
+    if (msg.type === 'terminal_error') {
+        if (_nativeTerm && msg.message) {
+            _nativeTerm.writeln(`\r\n\x1b[31m[error]\x1b[0m ${msg.message}`);
+        }
+        _setNativeTerminalStatus(msg.message || 'Terminal error', 'error');
+        return;
+    }
+
+    if (msg.type === 'terminal_closed' || msg.type === 'terminal_exit') {
+        if (_nativeTerminalId && msg.terminal_id && msg.terminal_id !== _nativeTerminalId) return;
+        _nativeTerminalId = null;
+        _stopNativeTerminalKeepAlive();
+        _setNativeTerminalButtons(false);
+        const reason = msg.reason || 'session closed';
+        _setNativeTerminalStatus(`Terminal closed: ${reason}`);
+        if (_nativeTerm) {
+            _nativeTerm.writeln(`\r\n\x1b[33m[closed]\x1b[0m ${reason}`);
+        }
+    }
+}
+
+function _handleNativeSocketClose() {
+    _stopNativeTerminalKeepAlive();
+    if (_nativeTerminalId) {
+        _nativeTerminalId = null;
+        _setNativeTerminalButtons(false);
+        _setNativeTerminalStatus('Socket dropped. Reconnect and press Connect again.', 'error');
+    }
 }
 
 
@@ -8160,11 +10570,101 @@ const _AG = {
     error:      { color:'#ef4444', bg:'#1a0000', bgL:'#fff0f0', icon:'error',           r:26, stroke:1.5 },
 };
 
+const _AG_FRIENDLY = {
+    tirpan: 'Mission Controller',
+    target: 'Target Scope',
+    thinking: 'Reasoning Step',
+    reflecting: 'Reflection Stream',
+    reflection: 'Reflection Insight',
+    tool_nmap: 'Network Scan Action',
+    tool_msf: 'Exploit Action',
+    tool_bash: 'Command Execution',
+    tool_ssh: 'Credential / Access Action',
+    tool_spy: 'Vulnerability Lookup',
+    tool_other: 'Tool Action',
+    parallel: 'Parallel Action Group',
+    result_ok: 'Successful Result',
+    result_fail: 'Failed Result',
+    done: 'Mission Completed',
+    error: 'Error Event',
+};
+
+const _AG_PHASE_LABELS = {
+    1: 'Discovery',
+    2: 'Port Scan',
+    3: 'Exploit Search',
+    4: 'Exploitation',
+    5: 'Reporting',
+};
+
 function _agS(type) { return _AG[type] || _AG.tool_other; }
 function _agIsLight() { return document.documentElement.classList.contains('light'); }
 function _agBg(type) { return _agIsLight() ? _agS(type).bgL : _agS(type).bg; }
 function _agSvgBg() { return _agIsLight() ? '#f7f7f7' : '#030303'; }
 function _agEdgeColor(main) { return _agIsLight() ? (main ? '#ccc' : '#ddd') : (main ? '#1e1e1e' : '#111'); }
+
+function _agFriendlyType(type) {
+    return _AG_FRIENDLY[type] || String(type || 'Unknown').replace(/_/g, ' ');
+}
+
+function _agNarrative(node) {
+    if (!node) return 'This step has no details yet.';
+    switch (node.type) {
+        case 'tirpan':
+            return 'This node represents the central mission controller coordinating the entire operation.';
+        case 'target':
+            return 'This node marks the target scope currently being assessed.';
+        case 'thinking':
+            return 'The agent is analyzing evidence and deciding the safest next action.';
+        case 'parallel':
+            return 'Multiple actions were launched in parallel to reduce mission time.';
+        case 'tool_msf':
+            return 'An exploitation or validation action was attempted against a discovered weakness.';
+        case 'tool_nmap':
+            return 'A discovery scan collected host, port, and service evidence.';
+        case 'result_ok':
+            return 'The previous action completed successfully and produced usable evidence.';
+        case 'result_fail':
+            return 'The previous action did not succeed. This helps refine the next decision.';
+        case 'reflection':
+        case 'reflecting':
+            return 'The agent summarized lessons learned before moving forward.';
+        case 'done':
+            return 'Mission objectives were completed and reporting phase is ready.';
+        case 'error':
+            return 'An error occurred at this step and may require operator review.';
+        default:
+            return 'This node records a mission event in the execution chain.';
+    }
+}
+
+function _agUpdateMeta() {
+    const nodeEl = document.getElementById('ag-kpi-nodes');
+    const riskEl = document.getElementById('ag-kpi-risk');
+    const phaseEl = document.getElementById('ag-kpi-phase');
+    const captionEl = document.getElementById('ag-graph-caption');
+
+    if (nodeEl) nodeEl.textContent = String(_agNodes.length || 0);
+
+    const riskyCount = _agNodes.filter((n) =>
+        n.type === 'result_fail' ||
+        n.type === 'tool_msf' ||
+        n.type === 'error'
+    ).length;
+    if (riskEl) riskEl.textContent = String(riskyCount || 0);
+
+    const phaseLabel = _AG_PHASE_LABELS[_currentPhase] || 'Idle';
+    if (phaseEl) phaseEl.textContent = phaseLabel;
+
+    if (captionEl) {
+        const lastNode = _agNodes.length ? _agNodes[_agNodes.length - 1] : null;
+        if (!lastNode) {
+            captionEl.textContent = 'Select any node to see what happened, why it happened, and what it means.';
+        } else {
+            captionEl.textContent = `Latest milestone: ${_agFriendlyType(lastNode.type)} — ${lastNode.label || 'event'}.`;
+        }
+    }
+}
 
 function _agToolType(name) {
     const n = (name || '').toLowerCase();
@@ -8190,7 +10690,7 @@ function _agAddNode(type, label, detail, parentId) {
         _agEdges.push({ from:parentId, to:id });
         if (par) par._children.push(id);
     }
-    if (_agView === 'graph') _agScheduleRender();
+    if (_agView === 'graph' || _agView === 'timeline') _agScheduleRender();
     return id;
 }
 
@@ -8200,27 +10700,43 @@ function _agReset() {
     _agParallelGrpId=null; _agParallelActive=false;
     const cnt = document.getElementById('ag-node-count');
     if (cnt) cnt.textContent = '';
+    const timelineContainer = document.getElementById('ag-timeline-container');
+    const timelineEmpty = document.getElementById('ag-timeline-empty');
+    if (timelineContainer) {
+        timelineContainer.innerHTML = '';
+        timelineContainer.classList.add('hidden');
+    }
+    if (timelineEmpty) timelineEmpty.classList.remove('hidden');
+    _agUpdateMeta();
     if (_agView === 'graph') _agRender();
+    if (_agView === 'timeline') _agRenderTimeline();
 }
 
 let _agRenderTimer = null;
 function _agScheduleRender() {
     if (_agRenderTimer) clearTimeout(_agRenderTimer);
-    _agRenderTimer = setTimeout(_agRender, 60);
+    _agRenderTimer = setTimeout(() => {
+        if (_agView === 'graph') _agRender();
+        else if (_agView === 'timeline') _agRenderTimeline();
+        else if (_agView === 'simple') _agRenderSimple();
+    }, 60);
 }
 
 // ── View switch ────────────────────────────────────────────────────────────────
 
 function switchAgentView(v) {
+    if (v === 'timeline') v = 'feed';
+    if (!['feed', 'graph', 'simple'].includes(v)) v = 'feed';
     _agView = v;
-    try { localStorage.setItem('agView', v); } catch(e) {}
-    const feedArea      = document.getElementById('agent-scroll-area');
-    const minimap       = document.getElementById('ag-minimap-col');
-    const graphView     = document.getElementById('ag-graph-view');
-    const orchestraView = document.getElementById('ag-orchestra-view');
-    const btnFeed       = document.getElementById('ag-view-btn-feed');
-    const btnGraph      = document.getElementById('ag-view-btn-graph');
-    const btnOrchestra  = document.getElementById('ag-view-btn-orchestra');
+    _agSaveViewPreference(v, _agCurrentSessionPrefId());
+    const feedArea    = document.getElementById('agent-scroll-area');
+    const minimap     = document.getElementById('ag-minimap-col');
+    const graphView   = document.getElementById('ag-graph-view');
+    const timelineView= document.getElementById('ag-timeline-view');
+    const simpleView  = document.getElementById('ag-simple-view');
+    const btnFeed     = document.getElementById('ag-view-btn-feed');
+    const btnGraph    = document.getElementById('ag-view-btn-graph');
+    const btnSimple   = document.getElementById('ag-view-btn-simple');
 
     const isLight = _agIsLight();
     const limePrimary = isLight ? '#4a7c00' : '#ccff00';
@@ -8228,13 +10744,14 @@ function switchAgentView(v) {
     const inactiveS = 'border-color:#333;color:#444;background:transparent;';
 
     // Hide all panels first
-    if (feedArea)       feedArea.style.display  = 'none';
-    if (minimap)        minimap.style.display   = 'none';
-    if (graphView)      graphView.style.display = 'none';
-    if (orchestraView)  orchestraView.style.display = 'none';
-    if (btnFeed)        btnFeed.setAttribute('style',       inactiveS);
-    if (btnGraph)       btnGraph.setAttribute('style',      inactiveS);
-    if (btnOrchestra)   btnOrchestra.setAttribute('style',  inactiveS);
+    if (feedArea)       feedArea.style.display    = 'none';
+    if (minimap)        minimap.style.display     = 'none';
+    if (graphView)      graphView.style.display   = 'none';
+    if (timelineView)   timelineView.style.display= 'none';
+    if (simpleView)     simpleView.style.display  = 'none';
+    if (btnFeed)        btnFeed.setAttribute('style',     inactiveS);
+    if (btnGraph)       btnGraph.setAttribute('style',    inactiveS);
+    if (btnSimple)      btnSimple.setAttribute('style',   inactiveS);
 
     if (v === 'graph') {
         if (graphView)  { graphView.style.display = 'flex'; graphView.style.flex = '1'; }
@@ -8242,153 +10759,276 @@ function switchAgentView(v) {
         const svgEl = document.getElementById('ag-graph-svg');
         if (svgEl) svgEl.style.background = _agSvgBg();
         _agRender();
-    } else if (v === 'orchestra') {
-        if (orchestraView) { orchestraView.style.display = 'flex'; orchestraView.style.flex = '1'; }
-        if (btnOrchestra)  btnOrchestra.setAttribute('style', activeS);
-        fetchAgentOrchestra();
+    } else if (v === 'simple') {
+        if (simpleView) {
+            simpleView.style.display = 'flex';
+            simpleView.style.flex = '1';
+        }
+        if (btnSimple) btnSimple.setAttribute('style', activeS);
+        _agRenderSimple();
     } else {
         // feed (default)
         if (feedArea)  feedArea.style.display  = '';
         if (minimap)   minimap.style.display   = 'flex';
         if (btnFeed)   btnFeed.setAttribute('style',  activeS);
     }
+
+    _agUpdateMeta();
 }
 
-// ── V2 Agent Orchestra ────────────────────────────────────────────────────────
+function _agTimelineWalk(node, depth, rows, maxDepth) {
+    if (!node || depth > maxDepth) return;
+    const children = Array.isArray(node._children)
+        ? node._children
+            .map((id) => _agNodes.find((n) => n.id === id))
+            .filter(Boolean)
+            .sort((a, b) => a.id - b.id)
+        : [];
 
-const _V2_AGENT_STATUS_COLORS = {
-    spawning: '#eab308',
-    running: '#ccff00',
-    done: '#3b82f6',
-    failed: '#ef4444',
-    paused: '#a855f7',
-};
-const _V2_AGENT_TYPE_ICONS = {
-    scanner: 'radar', exploit: 'bug_report', post_exploit: 'terminal',
-    webapp: 'web', osint: 'search', lateral: 'share', reporting: 'description',
-    brain: 'psychology',
-};
-
-async function fetchAgentOrchestra() {
-    const sid = _currentSessionId;
-    if (!sid) return;
-
-    try {
-        // Fetch agents
-        const agentsResp = await fetch(`/api/v1/sessions/${sid}/agents`);
-        if (agentsResp.ok) {
-            const { agents } = await agentsResp.json();
-            _renderAgentCards(agents || []);
-        }
-
-        // Fetch mission context for stats
-        const ctxResp = await fetch(`/api/v1/sessions/${sid}/mission-context`);
-        if (ctxResp.ok) {
-            const ctx = await ctxResp.json();
-            const h = ctx.hosts ? Object.keys(ctx.hosts).length : 0;
-            const v = ctx.vulnerabilities ? ctx.vulnerabilities.length : 0;
-            const s = ctx.active_sessions ? ctx.active_sessions.length : 0;
-            const c = ctx.credentials ? ctx.credentials.length : 0;
-            _setEl('v2-stat-hosts', h);
-            _setEl('v2-stat-vulns', v);
-            _setEl('v2-stat-sessions', s);
-            _setEl('v2-stat-creds', c);
-            if (ctx.current_phase) _setEl('v2-mission-phase', 'Phase: ' + ctx.current_phase);
-        }
-
-        // Fetch harvested credentials
-        const credResp = await fetch(`/api/v1/sessions/${sid}/credentials/harvested`);
-        if (credResp.ok) {
-            const { credentials } = await credResp.json();
-            _renderHarvestedCreds(credentials || []);
-        }
-
-        // Fetch loot
-        const lootResp = await fetch(`/api/v1/sessions/${sid}/loot`);
-        if (lootResp.ok) {
-            const { loot } = await lootResp.json();
-            _renderLoot(loot || []);
-        }
-    } catch(e) {
-        console.warn('Orchestra fetch error:', e);
-    }
+    children.forEach((child) => {
+        rows.push({ node: child, depth });
+        _agTimelineWalk(child, depth + 1, rows, maxDepth);
+    });
 }
 
-function _setEl(id, text) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = text;
-}
+function _agRenderTimeline() {
+    const timelineView = document.getElementById('ag-timeline-view');
+    const container   = document.getElementById('ag-timeline-container');
+    const empty       = document.getElementById('ag-timeline-empty');
+    if (!timelineView || !container || !empty) return;
 
-function _renderAgentCards(agents) {
-    const container = document.getElementById('v2-agent-cards');
-    if (!container) return;
-    if (!agents.length) {
-        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text col-span-2 py-4 text-center">No agents spawned yet</div>';
+    // All nodes except the root tirpan/target anchors, sorted by insertion id
+    const allNodes = _agNodes
+        .filter((n) => n.type !== 'tirpan' && n.type !== 'target')
+        .sort((a, b) => a.id - b.id);
+
+    if (!allNodes.length) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        empty.classList.remove('hidden');
         return;
     }
-    container.innerHTML = agents.map(a => {
-        const color = _V2_AGENT_STATUS_COLORS[a.status] || '#555';
-        const icon  = _V2_AGENT_TYPE_ICONS[a.agent_type] || 'smart_toy';
-        const dur   = a.finished_at ? ((a.finished_at - a.started_at) / 1000).toFixed(1) + 's' : 'running…';
-        return `<div class="bg-card border p-3 flex flex-col gap-1" style="border-color:${color}22;">
-          <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined" style="font-size:14px;color:${color};">${icon}</span>
-            <span class="text-[11px] font-bold uppercase tracking-wider" style="color:${color};">${a.agent_type}</span>
-            <span class="ml-auto text-[9px] mono-text" style="color:${color};">${a.status.toUpperCase()}</span>
-          </div>
-          <div class="text-[10px] text-secondary-text mono-text truncate">${a.target || '—'}</div>
-          <div class="flex items-center gap-2 mt-1">
-            <span class="text-[9px] text-secondary-text/50">${a.iterations || 0} iters · ${dur}</span>
-            <span class="text-[9px] text-secondary-text/50">${(a.findings||[]).length} findings</span>
-          </div>
-        </div>`;
-    }).join('');
-}
 
-function _renderHarvestedCreds(creds) {
-    const container = document.getElementById('v2-harvested-creds');
-    if (!container) return;
-    if (!creds.length) {
-        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>';
-        return;
+    empty.classList.add('hidden');
+    container.classList.remove('hidden');
+    container.innerHTML = '';
+
+    // Walk nodes: group under the nearest "thinking" ancestor as a Step
+    let stepIdx = 0;
+    let currentGroup = null; // { el, listEl, stepNum }
+
+    function _ensureGroup(thinkingNode) {
+        stepIdx++;
+        const st = _agS('thinking');
+        const groupEl = document.createElement('div');
+        groupEl.className = 'tl-group w-full mb-1';
+
+        // Step header — clickable to expand/collapse
+        const hdr = document.createElement('button');
+        hdr.type = 'button';
+        hdr.className = 'tl-step-hdr w-full flex items-center gap-2 px-3 py-2 bg-surface border border-border-color/60 hover:border-primary/30 text-left transition-colors';
+        const stepLabel = thinkingNode.detail?.action || thinkingNode.label || 'Reasoning';
+        hdr.innerHTML = `
+            <span class="material-symbols-outlined text-[13px] shrink-0" style="color:${st.color};font-variation-settings:'FILL' 1;">${st.icon}</span>
+            <span class="text-[9px] mono-text font-bold text-secondary-text shrink-0 w-[44px]">STEP ${stepIdx}</span>
+            <span class="text-[11px] mono-text text-yellow-300 truncate flex-1">${_esc(stepLabel)}</span>
+            <span class="material-symbols-outlined text-[13px] shrink-0 tl-chevron text-secondary-text" style="transition:transform .15s;">expand_more</span>
+        `;
+        groupEl.appendChild(hdr);
+
+        const listEl = document.createElement('div');
+        listEl.className = 'tl-step-body flex flex-col';
+        groupEl.appendChild(listEl);
+
+        hdr.addEventListener('click', (e) => {
+            const collapsed = listEl.style.display === 'none';
+            listEl.style.display = collapsed ? '' : 'none';
+            const chev = hdr.querySelector('.tl-chevron');
+            if (chev) chev.style.transform = collapsed ? '' : 'rotate(-90deg)';
+            // also show detail on the thinking node
+            if (!e.defaultPrevented) agShowDetail(thinkingNode);
+            e.preventDefault();
+        });
+
+        container.appendChild(groupEl);
+        currentGroup = { el: groupEl, listEl, stepNum: stepIdx };
+        return currentGroup;
     }
-    container.innerHTML = `<table class="w-full text-[10px] mono-text">
-      <thead><tr class="border-b border-border-color/30">
-        <th class="text-left p-2 text-secondary-text/50">Host</th>
-        <th class="text-left p-2 text-secondary-text/50">Type</th>
-        <th class="text-left p-2 text-secondary-text/50">Username</th>
-        <th class="text-left p-2 text-secondary-text/50">Service</th>
-      </tr></thead>
-      <tbody>${creds.map(c => `<tr class="border-b border-border-color/10">
-        <td class="p-2 text-primary/80">${c.source_host||'—'}</td>
-        <td class="p-2 text-secondary-text">${c.credential_type||'—'}</td>
-        <td class="p-2 text-yellow-400">${c.username||'—'}</td>
-        <td class="p-2 text-secondary-text">${c.service||'—'}</td>
-      </tr>`).join('')}</tbody>
-    </table>`;
-}
 
-function _renderLoot(loot) {
-    const container = document.getElementById('v2-loot');
-    if (!container) return;
-    if (!loot.length) {
-        container.innerHTML = '<div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>';
-        return;
+    function _appendRow(node, depth) {
+        const ns   = _agS(node.type);
+        const isOk   = node.type === 'result_ok';
+        const isFail = node.type === 'result_fail';
+        const indent = Math.min(depth, 4) * 14;
+
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'tl-row w-full text-left flex items-center gap-2 px-3 py-1.5 border-b border-border-color/20 hover:bg-white/5 transition-colors group';
+
+        // Left colored accent line
+        const accent = document.createElement('span');
+        accent.className = 'tl-accent shrink-0 self-stretch w-[3px] rounded-full';
+        accent.style.background = ns.color;
+        accent.style.opacity = '0.7';
+        row.appendChild(accent);
+
+        // Icon
+        const icon = document.createElement('span');
+        icon.className = 'material-symbols-outlined text-[13px] shrink-0';
+        icon.style.cssText = `color:${ns.color};font-variation-settings:'FILL' 1;`;
+        icon.textContent = ns.icon;
+        row.appendChild(icon);
+
+        // Label + type sublabel
+        const labelWrap = document.createElement('span');
+        labelWrap.className = 'flex-1 min-w-0 flex flex-col';
+        labelWrap.style.paddingLeft = `${indent}px`;
+
+        const labelEl = document.createElement('span');
+        labelEl.className = `text-[11px] mono-text truncate ${isOk ? 'text-primary' : isFail ? 'text-danger' : 'text-slate-200'}`;
+        labelEl.textContent = node.label || _agFriendlyType(node.type);
+        labelWrap.appendChild(labelEl);
+
+        const subEl = document.createElement('span');
+        subEl.className = 'text-[9px] mono-text text-secondary-text';
+        subEl.textContent = _agFriendlyType(node.type);
+        labelWrap.appendChild(subEl);
+
+        row.appendChild(labelWrap);
+
+        // Status badge
+        if (isOk || isFail) {
+            const badge = document.createElement('span');
+            badge.className = `shrink-0 text-[9px] mono-text font-bold px-1.5 py-0.5 rounded ${isOk ? 'bg-primary/20 text-primary' : 'bg-danger/20 text-danger'}`;
+            badge.textContent = isOk ? 'OK' : 'FAIL';
+            row.appendChild(badge);
+        }
+
+        row.addEventListener('click', () => agShowDetail(node));
+
+        if (currentGroup) {
+            currentGroup.listEl.appendChild(row);
+        } else {
+            container.appendChild(row);
+        }
     }
-    container.innerHTML = loot.map(l => `<div class="p-2 border-b border-border-color/20 flex items-center gap-2">
-      <span class="material-symbols-outlined text-purple-400" style="font-size:13px;">folder</span>
-      <div>
-        <div class="text-[10px] text-primary/80">${l.description||l.loot_type}</div>
-        <div class="text-[9px] text-secondary-text/50">${l.source_host} · ${l.source_path||''}</div>
-      </div>
-    </div>`).join('');
+
+    function _walkNode(node, depth) {
+        if (!node) return;
+
+        if (node.type === 'thinking') {
+            _ensureGroup(node);
+            // walk children of this thinking node
+            const children = Array.isArray(node._children)
+                ? node._children.map((id) => _agNodes.find((n) => n.id === id)).filter(Boolean).sort((a, b) => a.id - b.id)
+                : [];
+            children.forEach((c) => _walkNode(c, 0));
+        } else if (node.type === 'parallel') {
+            // Parallel group: show a compact header row then each child
+            const ns = _agS('parallel');
+            const children = Array.isArray(node._children)
+                ? node._children.map((id) => _agNodes.find((n) => n.id === id)).filter(Boolean).sort((a, b) => a.id - b.id)
+                : [];
+            const parRow = document.createElement('div');
+            parRow.className = 'tl-parallel-hdr flex items-center gap-2 px-3 py-1 bg-black/30 border-b border-border-color/20';
+            parRow.innerHTML = `
+                <span class="material-symbols-outlined text-[12px]" style="color:${ns.color};font-variation-settings:'FILL' 1;">${ns.icon}</span>
+                <span class="text-[9px] mono-text text-secondary-text flex-1">Parallel actions (${children.length})</span>
+            `;
+            if (currentGroup) currentGroup.listEl.appendChild(parRow);
+            else container.appendChild(parRow);
+
+            children.forEach((c) => _walkNode(c, depth + 1));
+        } else {
+            _appendRow(node, depth);
+            // recurse into children (e.g. result nodes)
+            const children = Array.isArray(node._children)
+                ? node._children.map((id) => _agNodes.find((n) => n.id === id)).filter(Boolean).sort((a, b) => a.id - b.id)
+                : [];
+            children.forEach((c) => _walkNode(c, depth + 1));
+        }
+    }
+
+    // Top-level nodes: children of tirpan/target roots
+    const rootChildren = _agNodes
+        .filter((n) => {
+            const parent = _agNodes.find((p) => p.id === n.parentId);
+            return !parent || parent.type === 'tirpan' || parent.type === 'target';
+        })
+        .sort((a, b) => a.id - b.id);
+
+    rootChildren.forEach((n) => _walkNode(n, 0));
 }
 
-// Auto-refresh orchestra view every 5s when visible
-setInterval(() => {
-    if (_agView === 'orchestra') fetchAgentOrchestra();
-}, 5000);
+// ── Simple View ───────────────────────────────────────────────────────────────
 
+function _agRenderSimple() {
+    const view = document.getElementById('ag-simple-view');
+    if (!view) return;
+
+    // Update stat counters from right-sidebar state
+    const hostsEl    = document.getElementById('sv-hosts-count');
+    const portsEl    = document.getElementById('sv-ports-count');
+    const findingsEl = document.getElementById('sv-findings-count');
+
+    // Count unique hosts from services list
+    const uniqueHosts = new Set(_rsbServices.map(s => s.host).filter(Boolean));
+    if (hostsEl)    hostsEl.textContent    = String(uniqueHosts.size || 0);
+    if (portsEl)    portsEl.textContent    = String(_rsbServices.length || 0);
+    if (findingsEl) findingsEl.textContent = String(_rsbFlags.length || 0);
+
+    // Active agents
+    const agentsList = document.getElementById('sv-agents-list');
+    if (agentsList) {
+        agentsList.innerHTML = '';
+        const agents = Object.values(_rsbAgents).filter(a => a.status !== 'done');
+        if (!agents.length) {
+            agentsList.innerHTML = '<div class="text-[11px] text-secondary-text mono-text text-center py-4 opacity-50">No agents active. Start a mission.</div>';
+        } else {
+            agents.forEach(ag => {
+                const card = document.createElement('div');
+                card.className = 'flex items-center gap-3 bg-surface border border-border-color px-3 py-2';
+                const icon = ag.type === 'scanner' ? 'radar' : ag.type === 'exploit' ? 'bug_report' : ag.type === 'webapp' ? 'language' : 'smart_toy';
+                const color = ag.status === 'running' ? '#ccff00' : '#666';
+                card.innerHTML = `
+                    <span class="material-symbols-outlined text-[16px]" style="color:${color};font-variation-settings:'FILL' 1;">${icon}</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-[11px] font-bold text-slate-200 capitalize">${ag.type || 'Agent'}</div>
+                        <div class="text-[10px] text-secondary-text truncate">${ag.task || 'Working…'}</div>
+                    </div>
+                    <span class="w-1.5 h-1.5 rounded-full shrink-0 ${ag.status === 'running' ? 'bg-primary animate-pulse' : 'bg-border-color'}"></span>
+                `;
+                agentsList.appendChild(card);
+            });
+        }
+    }
+
+    // Recent events from _agNodes (last 12, readable)
+    const eventsEl = document.getElementById('sv-events-list');
+    if (eventsEl) {
+        eventsEl.innerHTML = '';
+        const recent = [..._agNodes]
+            .filter(n => n.type !== 'tirpan' && n.type !== 'target')
+            .sort((a, b) => b.id - a.id)
+            .slice(0, 12);
+        if (!recent.length) {
+            eventsEl.innerHTML = '<div class="text-[10px] text-secondary-text mono-text text-center py-3 opacity-50">No activity yet</div>';
+        } else {
+            recent.forEach(node => {
+                const ns = _agS(node.type);
+                const isOk   = node.type === 'result_ok';
+                const isFail = node.type === 'result_fail';
+                const row = document.createElement('div');
+                row.className = 'flex items-start gap-2 text-[10px] mono-text';
+                row.innerHTML = `
+                    <span class="material-symbols-outlined text-[12px] shrink-0 mt-0.5" style="color:${ns.color};font-variation-settings:'FILL' 1;">${ns.icon}</span>
+                    <span class="${isOk ? 'text-primary' : isFail ? 'text-danger' : 'text-slate-300'} truncate">${_esc(node.label || _agFriendlyType(node.type))}</span>
+                `;
+                eventsEl.appendChild(row);
+            });
+        }
+    }
+}
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
@@ -8503,6 +11143,7 @@ function _agRender() {
     // Node count badge
     const cnt = document.getElementById('ag-node-count');
     if (cnt) cnt.textContent = _agNodes.length + ' nodes · ' + _agEdges.length + ' edges';
+    _agUpdateMeta();
 
     // ── Edges ──
     var visibleEdges = _agEdges.filter(function(e) {
@@ -8562,11 +11203,15 @@ function _agRender() {
         .style('font-family','Material Symbols Outlined')
         .style('font-variation-settings',"'FILL' 1,'wght' 300")
         .style('pointer-events','none');
-    // Label
+    // Label (main)
     nodeEnter.append('text').attr('class','ag-label')
         .attr('text-anchor','middle')
         .style('font-family','JetBrains Mono, monospace')
-        .style('text-transform','uppercase').style('letter-spacing','0.07em')
+        .style('pointer-events','none');
+    // Sub-label (type hint)
+    nodeEnter.append('text').attr('class','ag-sublabel')
+        .attr('text-anchor','middle')
+        .style('font-family','JetBrains Mono, monospace')
         .style('pointer-events','none');
     // Expand hint for parallel nodes
     nodeEnter.append('text').attr('class','ag-expand-hint')
@@ -8601,16 +11246,22 @@ function _agRender() {
         .attr('fill',      function(d){ return _agS(d.type).color; })
         .text(function(d){ return _agS(d.type).icon; });
     nodeMerge.select('.ag-label')
-        .attr('y',         function(d){ return _agS(d.type).r + 15; })
-        .attr('font-size', 9)
-        .attr('fill',      function(d){ return _agS(d.type).color; })
-        .attr('opacity',   isLight ? 0.8 : 0.7)
-        .text(function(d){ return d.label.length > 12 ? d.label.slice(0,11)+'...' : d.label; });
-    nodeMerge.select('.ag-expand-hint')
-        .attr('y',         function(d){ return _agS(d.type).r + 27; })
+        .attr('y',         function(d){ return _agS(d.type).r + 14; })
         .attr('font-size', 10)
         .attr('fill',      function(d){ return _agS(d.type).color; })
-        .attr('opacity',   function(d){ return d.type==='parallel' ? 0.45 : 0; })
+        .attr('opacity',   isLight ? 0.9 : 0.85)
+        .text(function(d){ return d.label.length > 22 ? d.label.slice(0,20)+'…' : d.label; });
+    nodeMerge.select('.ag-sublabel')
+        .attr('y',         function(d){ return _agS(d.type).r + 26; })
+        .attr('font-size', 8)
+        .attr('fill',      function(d){ return _agS(d.type).color; })
+        .attr('opacity',   0.4)
+        .text(function(d){ return _agFriendlyType(d.type).slice(0,18); });
+    nodeMerge.select('.ag-expand-hint')
+        .attr('y',         function(d){ return _agS(d.type).r + 40; })
+        .attr('font-size', 11)
+        .attr('fill',      function(d){ return _agS(d.type).color; })
+        .attr('opacity',   function(d){ return d.type==='parallel' ? 0.55 : 0; })
         .text(function(d){ return d.type==='parallel' ? (d._expanded ? 'unfold_less' : 'unfold_more') : ''; });
 
     // Hover effects
@@ -8672,6 +11323,7 @@ function agShowDetail(node) {
     var titleEl = document.getElementById('ag-detail-title');
     var iconEl  = document.getElementById('ag-detail-icon');
     var bodyEl  = document.getElementById('ag-detail-body');
+    var captionEl = document.getElementById('ag-graph-caption');
     if (!panel) return;
 
     var st = _agS(node.type);
@@ -8680,8 +11332,15 @@ function agShowDetail(node) {
     if (iconEl)  { iconEl.textContent = st.icon; iconEl.style.color = st.color; }
 
     var d   = node.detail || {};
+    var friendlyType = _agFriendlyType(node.type);
     var html = '<span class="ag-type-badge" style="border:1px solid '+st.color+'44;color:'+st.color+';">'
-             + node.type.replace(/_/g,' ') + '</span><br>';
+             + _esc(friendlyType) + '</span><br>';
+
+    html += _agKV('What This Means', _esc(_agNarrative(node)), isLight);
+
+    if (captionEl) {
+        captionEl.textContent = `${friendlyType}: ${node.label || 'event details are available on this panel.'}`;
+    }
 
     if (node.type === 'parallel') {
         var toolCount = node._children.length;
@@ -8729,6 +11388,7 @@ function _agSec(title, content, isLight) {
 function agCloseDetail() {
     var panel = document.getElementById('ag-detail-panel');
     if (panel) panel.style.width = '0';
+    _agUpdateMeta();
 }
 
 // ── Injection from graph view ─────────────────────────────────────────────────
@@ -8801,7 +11461,7 @@ function agOnParallelDone(data) {
     // Make the parallel group node the new "last tool" so next thinking connects to it
     if (_agParallelGrpId !== null) _agLastToolId = _agParallelGrpId;
     _agParallelGrpId = null;
-    if (_agView === 'graph') _agRender();
+    if (_agView === 'graph' || _agView === 'timeline') _agScheduleRender();
 }
 
 function agOnReflection(data) {
@@ -8816,4 +11476,689 @@ function agOnDone(data) {
     var lastId = _agNodes.length > 0 ? _agNodes[_agNodes.length-1].id : null;
     _agAddNode('done', 'DONE', data, lastId);
     if (_agView === 'graph') setTimeout(agZoomFit, 700);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V3 INTEL PANEL
+// ═══════════════════════════════════════════════════════════════════════════
+
+function v3SwitchPanel(name) {
+    document.querySelectorAll('.v3-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('.v3-panel-btn').forEach(b => b.classList.remove('active'));
+    const panel = document.getElementById(`v3-panel-${name}`);
+    const btn   = document.getElementById(`v3-btn-${name}`);
+    if (panel) panel.classList.remove('hidden');
+    if (btn)   btn.classList.add('active');
+}
+
+function v3RefreshAll() {
+    v3RagStats();
+    v3KgRefresh();
+    v3ReplayStats();
+    v3LessonRefresh();
+}
+
+// ── RAG ───────────────────────────────────────────────────────────────────
+
+async function v3RagStats() {
+    const el = document.getElementById('v3-rag-stats');
+    const st = document.getElementById('v3-rag-status');
+    if (!el) return;
+    try {
+        const r = await fetch('/v3/rag/stats');
+        if (!r.ok) { if (st) st.textContent = 'unavailable'; return; }
+        const d = await r.json();
+        if (st) st.textContent = `v${d.store_version || '?'} · ${d.sqlite_vss_available ? 'vss ✓' : 'fts only'}`;
+        el.innerHTML = '';
+        const cols = [
+            ['Collections', d.total_collections ?? '?'],
+            ['Chunks', d.total_chunks ?? '?'],
+            ['General KB', d.collections?.kb_general ?? '?'],
+        ];
+        cols.forEach(([label, val]) => {
+            const card = document.createElement('div');
+            card.className = 'border border-border-color/40 bg-card p-3 flex flex-col gap-1';
+            card.innerHTML = `<span class="text-[8px] uppercase tracking-widest text-secondary-text/60">${label}</span><span class="text-lg font-bold font-mono text-primary">${val}</span>`;
+            el.appendChild(card);
+        });
+    } catch(e) {
+        if (st) st.textContent = 'error';
+    }
+}
+
+async function v3RagQuery() {
+    const q = document.getElementById('v3-rag-query-input')?.value?.trim();
+    if (!q) return;
+    const res = document.getElementById('v3-rag-results');
+    if (!res) return;
+    res.innerHTML = '<span class="text-secondary-text/50 animate-pulse">Querying…</span>';
+    try {
+        const r = await fetch('/v3/rag/query', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: q, k: 5, scope: 'both'})
+        });
+        const d = await r.json();
+        if (!d.results?.length) { res.innerHTML = '<span class="text-secondary-text/50 italic">No results.</span>'; return; }
+        res.innerHTML = '';
+        d.results.forEach((chunk, i) => {
+            const div = document.createElement('div');
+            div.className = 'border border-border-color/30 bg-black/40 p-2.5 flex flex-col gap-1';
+            div.innerHTML = `
+              <div class="flex items-center gap-2">
+                <span class="text-[8px] text-primary/70 font-bold">#${i+1}</span>
+                <span class="text-[8px] text-secondary-text/60 font-mono">${_escHtml(chunk.source || '')}</span>
+                <span class="ml-auto text-[8px] text-secondary-text/40 font-mono">score ${(chunk.score ?? 0).toFixed(3)}</span>
+              </div>
+              <pre class="text-[10px] whitespace-pre-wrap text-secondary-text/80 leading-relaxed">${_escHtml((chunk.chunk_text || '').slice(0, 300))}${chunk.chunk_text?.length > 300 ? '…' : ''}</pre>`;
+            res.appendChild(div);
+        });
+    } catch(e) {
+        res.innerHTML = `<span class="text-danger text-[10px]">${_escHtml(String(e))}</span>`;
+    }
+}
+
+async function v3RagBootstrap() {
+    if (!confirm('Bootstrap RAG KB from souls + playbook? This may take a minute.')) return;
+    try {
+        const r = await fetch('/v3/rag/bootstrap', {method: 'POST'});
+        const d = await r.json();
+        alert(d.message || JSON.stringify(d));
+        v3RagStats();
+    } catch(e) { alert('Bootstrap failed: ' + e); }
+}
+
+// ── KG ────────────────────────────────────────────────────────────────────
+
+async function v3KgRefresh() {
+    const sid = window._currentSessionId;
+    const summary = document.getElementById('v3-kg-summary');
+    const statsEl = document.getElementById('v3-kg-stats');
+    const nodesEl = document.getElementById('v3-kg-nodes');
+    if (!sid) { if (summary) summary.textContent = 'No active session.'; return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/graph/summary`);
+        if (!r.ok) { if (summary) summary.textContent = 'No KG data yet.'; return; }
+        const d = await r.json();
+        if (summary) summary.textContent = d.summary_text || '(empty)';
+        if (statsEl) statsEl.textContent = `${d.node_count ?? 0} nodes · ${d.edge_count ?? 0} edges`;
+        if (nodesEl && d.nodes) {
+            nodesEl.innerHTML = '';
+            (d.nodes || []).slice(0, 30).forEach(n => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-2 px-2 py-1 border border-border-color/20 bg-black/30';
+                const typeColor = {host:'#3b82f6', credential:'#f97316', vuln:'#ef4444', session:'#ccff00', domain:'#a855f7'}[n.type] || '#6b7280';
+                row.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${typeColor};flex-shrink:0;display:inline-block;"></span>
+                  <span class="text-[9px] font-mono text-secondary-text w-16 shrink-0">${_escHtml(n.type || '')}</span>
+                  <span class="text-[10px] font-mono text-white truncate">${_escHtml(n.id || '')}</span>`;
+                nodesEl.appendChild(row);
+            });
+        }
+    } catch(e) {
+        if (summary) summary.textContent = 'Error: ' + e;
+    }
+}
+
+// ── Replay ────────────────────────────────────────────────────────────────
+
+async function v3ReplayStats() {
+    const sid = window._currentSessionId;
+    const el  = document.getElementById('v3-replay-table');
+    const st  = document.getElementById('v3-replay-stats');
+    if (!el) return;
+    if (!sid) { el.innerHTML = '<span class="text-secondary-text/50 italic">No active session.</span>'; return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/replay`);
+        if (!r.ok) { el.innerHTML = '<span class="text-secondary-text/50 italic">No replay data.</span>'; return; }
+        const d = await r.json();
+        if (st) st.textContent = `${d.total_calls ?? 0} calls · $${(d.total_cost_usd ?? 0).toFixed(4)} · ${d.failure_calls ?? 0} failed`;
+        el.innerHTML = '';
+        if (d.top_tools?.length) {
+            const header = document.createElement('div');
+            header.className = 'flex gap-3 px-2 py-1 text-[8px] uppercase tracking-widest text-secondary-text/50 border-b border-border-color/20';
+            header.innerHTML = '<span class="w-32">Tool</span><span class="w-12">Calls</span><span class="w-20">Avg (s)</span><span>Cost</span>';
+            el.appendChild(header);
+            d.top_tools.forEach(t => {
+                const row = document.createElement('div');
+                row.className = 'flex gap-3 px-2 py-1 border-b border-border-color/10 hover:bg-white/5';
+                row.innerHTML = `<span class="w-32 font-mono text-[10px] text-white truncate">${_escHtml(t.tool_name)}</span>
+                  <span class="w-12 text-[10px] text-secondary-text">${t.call_count}</span>
+                  <span class="w-20 text-[10px] text-secondary-text">${(t.avg_duration ?? 0).toFixed(2)}s</span>
+                  <span class="text-[10px] text-secondary-text">$${(t.total_cost ?? 0).toFixed(4)}</span>`;
+                el.appendChild(row);
+            });
+        } else {
+            el.innerHTML = '<span class="text-secondary-text/50 italic">No tool calls yet.</span>';
+        }
+    } catch(e) {
+        el.innerHTML = `<span class="text-danger text-[10px]">${_escHtml(String(e))}</span>`;
+    }
+}
+
+// ── Reflexion ─────────────────────────────────────────────────────────────
+
+async function v3LessonRefresh() {
+    const sid = window._currentSessionId;
+    const el  = document.getElementById('v3-lesson-content');
+    if (!el) return;
+    if (!sid) { el.textContent = 'No active session.'; return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/lesson`);
+        if (!r.ok) { el.textContent = 'Lesson captured at mission end.'; return; }
+        const d = await r.json();
+        el.textContent = JSON.stringify(d, null, 2);
+    } catch(e) { el.textContent = 'Error: ' + e; }
+}
+
+// ── OPSEC alerts feed ─────────────────────────────────────────────────────
+
+function v3PushOpsecAlert(alert) {
+    const feed  = document.getElementById('v3-opsec-feed');
+    const badge = document.getElementById('v3-opsec-badge');
+    if (!feed) return;
+    feed.querySelectorAll('.italic').forEach(e => e.remove());
+    const row = document.createElement('div');
+    const sev  = alert.severity || 'MEDIUM';
+    const color = sev === 'HIGH' ? '#ef4444' : sev === 'CRITICAL' ? '#ff3b3b' : '#f59e0b';
+    row.className = 'flex flex-col gap-0.5 p-2 border border-border-color/30';
+    row.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span style="color:${color}" class="text-[9px] font-bold uppercase">${_escHtml(sev)}</span>
+        <span class="text-[9px] font-mono text-secondary-text/60">${new Date().toLocaleTimeString()}</span>
+      </div>
+      <span class="text-[10px] text-white">${_escHtml(alert.message || alert.alert_type || '')}</span>
+      ${alert.tool ? `<span class="text-[9px] font-mono text-secondary-text/50">tool: ${_escHtml(alert.tool)}</span>` : ''}`;
+    feed.prepend(row);
+    if (badge) { badge.textContent = parseInt(badge.textContent || '0') + 1; badge.classList.remove('hidden'); }
+}
+
+// ── Shells: enhanced sidebar card with heartbeat ──────────────────────────
+
+async function v3EnrichShellSidebar() {
+    const sid = window._currentSessionId;
+    if (!sid) return;
+    try {
+        const r = await fetch(`/v3/shells?session_id=${sid}`);
+        if (!r.ok) return;
+        const shells = await r.json();
+        shells.forEach(sh => {
+            const card = document.querySelector(`[data-shell-key="${CSS.escape(sh.shell_key)}"]`);
+            if (!card) return;
+            let meta = card.querySelector('.v3-shell-meta');
+            if (!meta) {
+                meta = document.createElement('div');
+                meta.className = 'v3-shell-meta mt-1 flex flex-col gap-0.5';
+                card.appendChild(meta);
+            }
+            const hb = sh.last_heartbeat ? new Date(sh.last_heartbeat * 1000).toLocaleTimeString() : '–';
+            let pvecs = [];
+            try { pvecs = JSON.parse(sh.persistence_vectors_json || '[]'); } catch(_) {}
+            meta.innerHTML = `
+              <span class="text-[8px] font-mono text-secondary-text/50">heartbeat: ${_escHtml(hb)}</span>
+              ${pvecs.length ? `<span class="text-[8px] font-mono text-green-400/70">persist: ${pvecs.length} vector${pvecs.length > 1 ? 's' : ''}</span>` : ''}`;
+        });
+    } catch(_) {}
+}
+
+// ── Attack Graph: load from KG endpoint ──────────────────────────────────
+
+async function agLoadKGData() {
+    const sid = window._currentSessionId;
+    if (!sid) { alert('No active session.'); return; }
+    try {
+        const r = await fetch(`/v3/sessions/${sid}/graph`);
+        if (!r.ok) { alert('No KG graph data for this session yet.'); return; }
+        const d = await r.json();
+        if (typeof agIngestKGGraph === 'function') {
+            agIngestKGGraph(d.nodes || [], d.edges || []);
+        } else {
+            console.warn('[V3] agIngestKGGraph() not defined — raw data:', d);
+        }
+    } catch(e) { alert('KG load error: ' + e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RBAC — Expert Mode Role-Based Access Control
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _currentUser = null;
+
+const _ROLE_HIERARCHY_EX = { viewer: 10, analyst: 20, admin: 30, owner: 40 };
+const _ROLE_LABELS_EX = { viewer: 'Viewer', analyst: 'Analyst', admin: 'Admin', owner: 'Owner' };
+const _ROLE_COLORS_EX = {
+    viewer:  'text-secondary-text border-border-color',
+    analyst: 'text-blue-400 border-blue-400/40',
+    admin:   'text-purple-400 border-purple-400/40',
+    owner:   'text-primary border-primary/40',
+};
+
+function _rbacLevel(role) { return _ROLE_HIERARCHY_EX[role] || 0; }
+function _rbacHasMinRole(minRole) { return !!(_currentUser && _rbacLevel(_currentUser.role) >= _rbacLevel(minRole)); }
+function _rbacHasRole(...roles) { return !!(_currentUser && roles.includes(_currentUser.role)); }
+
+async function initRBAC() {
+    try {
+        const token = _getToken();
+        if (!token) return;
+        const res = await _origFetch('/api/v1/auth/me', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (!res.ok) return;
+        _currentUser = await res.json();
+        try { localStorage.setItem('tirpan_user', JSON.stringify(_currentUser)); } catch {}
+    } catch {
+        try {
+            const cached = localStorage.getItem('tirpan_user');
+            if (cached) _currentUser = JSON.parse(cached);
+        } catch {}
+    }
+    applyRBACVisibility();
+}
+
+function applyRBACVisibility() {
+    if (!_currentUser) return;
+    const isAnalystOrAbove = _rbacHasMinRole('analyst');
+    const isAdminOrOwner   = _rbacHasMinRole('admin');
+
+    // ── New Mission button (sidebar) ──────────────────────────────────────
+    const newMissionBtn = document.getElementById('new-mission-btn');
+    if (newMissionBtn) newMissionBtn.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Mission nav (full-page config view) ───────────────────────────────
+    const missionNav = document.querySelector('.bottom-nav-item[data-view="mission"]');
+    if (missionNav) missionNav.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Resume from session button ────────────────────────────────────────
+    const resumeBtn = document.getElementById('resume-from-session-btn');
+    if (resumeBtn) resumeBtn.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Emergency stop / pause ────────────────────────────────────────────
+    ['emergency-stop-btn', 'emergency-stop-btn-mobile', 'pause-mission-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+    });
+
+    // ── Agent injection input (inject into running agent) ─────────────────
+    const injectArea = document.getElementById('agent-inject-input-area');
+    if (injectArea) injectArea.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Configuration nav (viewers don't need to configure system) ────────
+    const configNav = document.querySelector('.bottom-nav-item[data-view="config"]');
+    if (configNav) configNav.classList.toggle('rbac-hidden', !isAnalystOrAbove);
+
+    // ── Team nav — only admin/owner ───────────────────────────────────────
+    const teamNav = document.getElementById('nav-team');
+    if (teamNav) teamNav.classList.toggle('hidden', !isAdminOrOwner);
+
+    // ── Invite button inside team view ────────────────────────────────────
+    const inviteBtn = document.getElementById('team-invite-btn');
+    if (inviteBtn) inviteBtn.classList.toggle('hidden', !isAdminOrOwner);
+
+    // Update user badge with role color
+    _rbacUpdateBadge();
+}
+
+function _rbacUpdateBadge() {
+    if (!_currentUser) return;
+    const badge = document.getElementById('dev-user-badge');
+    if (!badge) return;
+    const roleColor = {
+        viewer:  'text-secondary-text',
+        analyst: 'text-blue-400',
+        admin:   'text-purple-400',
+        owner:   'text-primary',
+    }[_currentUser.role] || 'text-secondary-text';
+    badge.innerHTML = `
+        <span class="text-secondary-text">${_esc(_currentUser.full_name || _currentUser.email)}</span>
+        <span class="w-px h-3 bg-border-color mx-1"></span>
+        <span class="${roleColor} font-bold uppercase text-[9px] tracking-widest">${_esc(_ROLE_LABELS_EX[_currentUser.role] || _currentUser.role)}</span>
+    `;
+    badge.classList.remove('hidden');
+    badge.classList.add('md:flex');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TEAM MANAGEMENT VIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function teamLoad() {
+    applyRBACVisibility();
+    await Promise.all([teamLoadOrg(), teamLoadMembers(), teamLoadInvitations()]);
+}
+
+async function teamLoadOrg() {
+    const card = document.getElementById('team-org-card');
+    if (!card) return;
+    try {
+        const res = await fetch('/api/v1/auth/org');
+        if (!res.ok) { card.innerHTML = '<span class="text-secondary-text text-xs p-4 block">No organization linked.</span>'; return; }
+        const org = await res.json();
+        const isOwner = _rbacHasRole('owner');
+        card.innerHTML = `
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+                <div class="w-10 h-10 bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
+                    <span class="material-symbols-outlined text-primary">domain</span>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-sm font-bold text-white truncate">${_esc(org.name || 'Unnamed Organization')}</p>
+                    ${org.allowed_email_domain
+                        ? `<p class="text-[10px] text-secondary-text font-mono">Restricted to @${_esc(org.allowed_email_domain)}</p>`
+                        : '<p class="text-[10px] text-secondary-text">No email domain restriction</p>'}
+                </div>
+            </div>
+            ${isOwner ? `<button onclick="teamEditOrg()" class="flex items-center gap-1.5 text-xs text-secondary-text hover:text-primary transition-colors border border-border-color px-3 py-1.5 shrink-0">
+                <span class="material-symbols-outlined text-[13px]">edit</span>Edit Org
+            </button>` : ''}
+        `;
+    } catch { card.innerHTML = '<span class="text-secondary-text text-xs p-4 block">Could not load org.</span>'; }
+}
+
+async function teamLoadMembers() {
+    const list = document.getElementById('team-members-list');
+    if (!list) return;
+    list.innerHTML = `<div class="flex items-center gap-2 p-6 text-secondary-text text-xs">
+        <span class="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>Loading members...
+    </div>`;
+    try {
+        const res = await fetch('/api/v1/auth/users');
+        if (!res.ok) {
+            list.innerHTML = '<div class="p-6 text-secondary-text text-xs">Access denied — admin/owner only.</div>';
+            return;
+        }
+        const users = await res.json();
+        if (!users.length) {
+            list.innerHTML = '<div class="p-6 text-secondary-text text-xs">No members found.</div>';
+            return;
+        }
+
+        list.innerHTML = `
+            <div class="grid grid-cols-[1fr_auto_auto] gap-0 text-[9px] uppercase tracking-widest text-secondary-text/60 px-4 py-2 border-b border-border-color/40">
+                <span>Member</span><span class="text-right pr-6">Role</span><span></span>
+            </div>
+        `;
+
+        users.forEach(u => {
+            const isMe = _currentUser && u.id === _currentUser.id;
+            const myLevel = _rbacLevel(_currentUser?.role);
+            const theirLevel = _rbacLevel(u.role);
+            const canManage = _rbacHasMinRole('admin') && !isMe && myLevel > theirLevel;
+            const roleColorClass = _ROLE_COLORS_EX[u.role] || _ROLE_COLORS_EX.viewer;
+
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 px-4 py-3 border-b border-border-color/30 hover:bg-white/[0.02] transition-colors group';
+            row.innerHTML = `
+                <div class="w-8 h-8 rounded-full bg-surface border border-border-color flex items-center justify-center shrink-0 text-xs font-bold text-secondary-text">
+                    ${_esc((u.full_name || u.email || '?')[0].toUpperCase())}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-medium text-white truncate">${_esc(u.full_name || u.email)}</span>
+                        ${isMe ? '<span class="text-[9px] text-primary border border-primary/40 px-1.5 py-0.5 uppercase tracking-wider shrink-0">You</span>' : ''}
+                        ${!u.is_active ? '<span class="text-[9px] text-danger border border-danger/40 px-1.5 py-0.5 uppercase tracking-wider shrink-0">Inactive</span>' : ''}
+                    </div>
+                    <span class="text-[10px] text-secondary-text font-mono">${_esc(u.email)}</span>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    ${canManage ? `
+                    <select data-uid="${u.id}" onchange="teamChangeRole('${u.id}', this.value)"
+                        class="bg-background-dark border border-border-color text-slate-100 text-[10px] px-2 py-1 mono-text opacity-0 group-hover:opacity-100 transition-opacity">
+                        ${['viewer','analyst',...(_rbacHasMinRole('admin') && _rbacHasRole('owner') ? ['admin'] : []),...(_rbacHasRole('owner') ? ['owner'] : [])]
+                            .map(r => `<option value="${r}" ${r===u.role?'selected':''}>${_ROLE_LABELS_EX[r]}</option>`).join('')}
+                    </select>
+                    <button onclick="teamToggleActive('${u.id}', ${!u.is_active})"
+                        title="${u.is_active ? 'Deactivate user' : 'Activate user'}"
+                        class="w-7 h-7 flex items-center justify-center text-secondary-text hover:text-${u.is_active ? 'danger' : 'primary'} transition-colors opacity-0 group-hover:opacity-100">
+                        <span class="material-symbols-outlined text-[14px]">${u.is_active ? 'person_off' : 'person_check'}</span>
+                    </button>
+                    ` : '<div class="w-[88px]"></div>'}
+                    <span class="text-[9px] border px-1.5 py-0.5 uppercase tracking-wider font-bold ${roleColorClass} shrink-0">${_esc(_ROLE_LABELS_EX[u.role] || u.role)}</span>
+                </div>
+            `;
+            list.appendChild(row);
+        });
+    } catch(e) {
+        list.innerHTML = `<div class="p-6 text-danger text-xs">${_esc(String(e))}</div>`;
+    }
+}
+
+async function teamChangeRole(userId, newRole) {
+    try {
+        const res = await fetch(`/api/v1/auth/users/${userId}/role`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: newRole }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Role change failed');
+            teamLoadMembers();
+            return;
+        }
+        showToast('Role updated');
+        teamLoadMembers();
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+}
+
+async function teamToggleActive(userId, activate) {
+    try {
+        const res = await fetch(`/api/v1/auth/users/${userId}/active?is_active=${activate}`, {
+            method: 'PATCH',
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Failed');
+            return;
+        }
+        showToast(activate ? 'User activated' : 'User deactivated');
+        teamLoadMembers();
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+}
+
+async function teamLoadInvitations() {
+    const section = document.getElementById('team-invitations-section');
+    const list = document.getElementById('team-invitations-list');
+    if (!section || !list) return;
+    try {
+        const res = await fetch('/api/v1/auth/org/invitations');
+        if (!res.ok) { section.classList.add('hidden'); return; }
+        const invites = await res.json();
+        const pending = invites.filter(i => !i.used_at && i.expires_at > Date.now() / 1000);
+        if (!pending.length) { section.classList.add('hidden'); return; }
+        section.classList.remove('hidden');
+        list.innerHTML = '';
+        pending.forEach(inv => {
+            const item = document.createElement('div');
+            item.className = 'flex items-center gap-3 px-4 py-3 border-b border-border-color/30 group';
+            const exp = new Date(inv.expires_at * 1000).toLocaleDateString();
+            const roleColorClass = _ROLE_COLORS_EX[inv.role] || _ROLE_COLORS_EX.viewer;
+            item.innerHTML = `
+                <span class="material-symbols-outlined text-[16px] text-secondary-text/60 shrink-0">mail</span>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        ${inv.email
+                            ? `<span class="text-sm text-white font-mono truncate">${_esc(inv.email)}</span>`
+                            : '<span class="text-sm text-secondary-text italic">Open link</span>'}
+                        <span class="text-[9px] border px-1.5 py-0.5 uppercase tracking-wider font-bold ${roleColorClass} shrink-0">${_esc(_ROLE_LABELS_EX[inv.role] || inv.role)}</span>
+                    </div>
+                    <span class="text-[10px] text-secondary-text">Expires ${_esc(exp)}</span>
+                </div>
+                <button onclick="teamCopyInviteLink('${_esc(inv.token)}')" title="Copy invite link"
+                    class="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center text-secondary-text hover:text-primary transition-all">
+                    <span class="material-symbols-outlined text-[14px]">content_copy</span>
+                </button>
+                <button onclick="teamRevokeInvite('${_esc(inv.id)}')" title="Revoke invite"
+                    class="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center text-secondary-text hover:text-danger transition-all">
+                    <span class="material-symbols-outlined text-[14px]">delete</span>
+                </button>
+            `;
+            list.appendChild(item);
+        });
+    } catch { section.classList.add('hidden'); }
+}
+
+function teamCopyInviteLink(token) {
+    const link = `${location.origin}/normal/signup?invite=${token}`;
+    navigator.clipboard.writeText(link)
+        .then(() => showToast('Invite link copied to clipboard!'))
+        .catch(() => showPrompt({
+            title: 'Invite Link',
+            label: 'Copy this link and share it:',
+            defaultValue: link,
+            onConfirm: () => {},
+        }));
+}
+
+async function teamRevokeInvite(inviteId) {
+    showConfirm({
+        title: 'Revoke Invitation',
+        message: 'Revoke this invitation? It will no longer work.',
+        onConfirm: async () => {
+            try {
+                await fetch(`/api/v1/auth/org/invitations/${inviteId}`, { method: 'DELETE' });
+                showToast('Invitation revoked');
+                teamLoadInvitations();
+            } catch { showToast('Failed to revoke invitation'); }
+        },
+    });
+}
+
+function teamOpenInvite() {
+    const modal = document.getElementById('team-invite-modal');
+    if (modal) {
+        document.getElementById('team-invite-error').textContent = '';
+        document.getElementById('team-invite-email').value = '';
+        document.getElementById('team-invite-role').value = 'analyst';
+        document.getElementById('team-invite-expire').value = '72';
+        modal.classList.remove('hidden');
+        document.getElementById('team-invite-email').focus();
+    }
+}
+
+function teamCloseInvite() {
+    const modal = document.getElementById('team-invite-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function teamCreateInvite() {
+    const email = document.getElementById('team-invite-email')?.value?.trim() || null;
+    const role = document.getElementById('team-invite-role')?.value || 'analyst';
+    const hours = parseInt(document.getElementById('team-invite-expire')?.value || '72', 10);
+    const errEl = document.getElementById('team-invite-error');
+    if (errEl) errEl.textContent = '';
+
+    try {
+        const res = await fetch('/api/v1/auth/org/invitations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email || null, role, expire_hours: hours }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            if (errEl) errEl.textContent = err.detail || 'Failed to create invitation';
+            return;
+        }
+        const inv = await res.json();
+        teamCloseInvite();
+        teamCopyInviteLink(inv.token);
+        teamLoadInvitations();
+    } catch(e) {
+        if (errEl) errEl.textContent = String(e);
+    }
+}
+
+async function teamEditOrg() {
+    try {
+        const res = await fetch('/api/v1/auth/org');
+        if (!res.ok) return;
+        const org = await res.json();
+        showPrompt({
+            title: 'Edit Organization',
+            label: 'Organization Name',
+            defaultValue: org.name || '',
+            onConfirm: async (name) => {
+                if (!name.trim()) return;
+                try {
+                    await fetch('/api/v1/auth/org', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: name.trim() }),
+                    });
+                    showToast('Organization name updated');
+                    teamLoadOrg();
+                } catch { showToast('Failed to update organization'); }
+            },
+        });
+    } catch { showToast('Could not load org details'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MISSION ASSIGNMENT MODAL
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _assignModalUsers = [];
+
+async function openAssignModal(sessionId, currentAssignedTo) {
+    const modal = document.getElementById('assign-modal');
+    const select = document.getElementById('assign-user-select');
+    const titleEl = document.getElementById('assign-modal-session');
+    if (!modal || !select) return;
+
+    if (titleEl) titleEl.textContent = sessionId.slice(0, 8).toUpperCase();
+
+    select.innerHTML = '<option value="">— Unassign (no assignee) —</option>';
+    select.disabled = true;
+    modal.dataset.sessionId = sessionId;
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/v1/auth/users');
+        _assignModalUsers = res.ok ? await res.json() : [];
+    } catch { _assignModalUsers = []; }
+
+    select.disabled = false;
+    _assignModalUsers.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        const roleLabel = _ROLE_LABELS_EX[u.role] || u.role;
+        opt.textContent = `${u.full_name || u.email} — ${roleLabel}`;
+        if (u.id === currentAssignedTo) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function closeAssignModal() {
+    const modal = document.getElementById('assign-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function confirmAssign() {
+    const modal = document.getElementById('assign-modal');
+    const select = document.getElementById('assign-user-select');
+    if (!modal || !select) return;
+
+    const sid = modal.dataset.sessionId;
+    const userId = select.value || null;
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${sid}/assign`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assigned_to: userId }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || 'Assignment failed');
+            return;
+        }
+        const assigneeName = userId
+            ? (_assignModalUsers.find(u => u.id === userId)?.full_name || _assignModalUsers.find(u => u.id === userId)?.email || 'user')
+            : null;
+        showToast(assigneeName ? `Mission assigned to ${assigneeName}` : 'Assignment removed');
+        closeAssignModal();
+        openSessionSwitcher();
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
 }

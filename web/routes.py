@@ -3,27 +3,40 @@ REST API routes.
 """
 
 import asyncio
+import json
 import logging
+import re
 import subprocess
 import time
+import uuid
+from pathlib import Path
 from typing import Optional
 
 import httpx
 import psutil
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from web.auth.dependencies import get_current_user, require_min_role, require_role
 
 from config import SafetyConfig, settings
+from core.agent_model_config import normalize_agent_models
+from core.session_data_recovery import recover_session_findings_from_events
 from core.session_orchestration import (
     run_agent_task as _run_agent_task_service,
     run_v2_agent_task as _run_v2_agent_task_service,
 )
 from core.secure_store import async_get_secret, async_set_secret, get_secret
+from core.targeting import infer_local_scope_targets, normalize_targets
 from database import db as database
 from database.repositories import (
+    AgentInstanceRepository,
     AuditLogRepository,
     ExploitResultRepository,
+    HarvestedCredentialRepository,
+    LootRepository,
+    MissionContextRepository,
+    NetworkGraphRepository,
     ScanResultRepository,
     SessionEventRepository,
     SessionRepository,
@@ -42,6 +55,114 @@ _scan_repo = ScanResultRepository()
 _vuln_repo = VulnerabilityRepository()
 _exploit_repo = ExploitResultRepository()
 _event_repo = SessionEventRepository()
+_agent_instance_repo = AgentInstanceRepository()
+_harvested_cred_repo = HarvestedCredentialRepository()
+_loot_repo = LootRepository()
+_network_graph_repo = NetworkGraphRepository()
+_mission_ctx_repo = MissionContextRepository()
+
+_REPORT_CACHE_TTL_SECONDS = 900.0
+_REPORT_CACHE_MAX_ITEMS = 48
+_REPORT_CACHE: dict[tuple[str, str, str], tuple[float, str | bytes]] = {}
+_REPORT_RENDER_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+
+_BRANDING_MAX_BYTES = 5 * 1024 * 1024
+_BRANDING_ALLOWED_EXTS = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+_BRANDING_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _report_cache_version(session: dict) -> str:
+    return "|".join(
+        [
+            str(session.get("updated_at") or 0),
+            str(session.get("finished_at") or 0),
+            str(session.get("status") or ""),
+            str(session.get("hosts_found") or 0),
+            str(session.get("ports_found") or 0),
+            str(session.get("vulns_found") or 0),
+            str(session.get("exploits_run") or 0),
+        ]
+    )
+
+
+def _report_cache_get(sid: str, fmt: str, version: str) -> str | bytes | None:
+    now = time.time()
+    key = (sid, fmt, version)
+    entry = _REPORT_CACHE.get(key)
+    if not entry:
+        return None
+    cached_at, payload = entry
+    if (now - cached_at) > _REPORT_CACHE_TTL_SECONDS:
+        _REPORT_CACHE.pop(key, None)
+        return None
+    return payload
+
+
+def _report_cache_put(sid: str, fmt: str, version: str, payload: str | bytes) -> None:
+    now = time.time()
+    _REPORT_CACHE[(sid, fmt, version)] = (now, payload)
+
+    # Remove stale entries first.
+    stale = [
+        key for key, (cached_at, _) in _REPORT_CACHE.items()
+        if (now - cached_at) > _REPORT_CACHE_TTL_SECONDS
+    ]
+    for key in stale:
+        _REPORT_CACHE.pop(key, None)
+
+    # Cap cache size.
+    if len(_REPORT_CACHE) > _REPORT_CACHE_MAX_ITEMS:
+        ordered = sorted(_REPORT_CACHE.items(), key=lambda item: item[1][0])
+        overflow = len(_REPORT_CACHE) - _REPORT_CACHE_MAX_ITEMS
+        for key, _ in ordered[:overflow]:
+            _REPORT_CACHE.pop(key, None)
+
+
+def _report_lock(sid: str, fmt: str) -> asyncio.Lock:
+    key = (sid, fmt)
+    lock = _REPORT_RENDER_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _REPORT_RENDER_LOCKS[key] = lock
+    return lock
+
+
+def _branding_dir() -> Path:
+    path = Path(database.DB_PATH).parent / "branding"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _branding_safe_stem(filename: str) -> str:
+    stem = Path(filename or "logo").stem
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_")
+    return (stem or "logo")[:48]
+
+
+def _detect_branding_ext(content: bytes) -> str | None:
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _delete_branding_file(file_name: str) -> None:
+    if not file_name or not _BRANDING_FILE_RE.fullmatch(file_name):
+        return
+    base = _branding_dir().resolve()
+    candidate = (base / file_name).resolve()
+    if base not in candidate.parents:
+        return
+    if candidate.exists() and candidate.is_file():
+        candidate.unlink(missing_ok=True)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -53,20 +174,58 @@ async def health():
 
 # ── Ollama status ─────────────────────────────────────────────────────────────
 
+def _wsl2_host_ip() -> str | None:
+    """Return the Windows host IP for WSL2, or None if not on WSL2."""
+    try:
+        import os
+        if not os.path.exists("/proc/version"):
+            return None
+        with open("/proc/version") as f:
+            if "microsoft" not in f.read().lower():
+                return None
+        with open("/etc/resolv.conf") as f:
+            for line in f:
+                if line.startswith("nameserver"):
+                    return line.split()[1].strip()
+    except Exception:
+        pass
+    return None
+
+
+async def _try_url(client: httpx.AsyncClient, url: str) -> httpx.Response | None:
+    try:
+        resp = await client.get(url)
+        if resp.status_code == 200:
+            return resp
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/ollama/status")
 async def ollama_status(base_url: str | None = None):
     """Check if Ollama is reachable and list available models.
 
     Accepts optional ``base_url`` query param so the config page can probe a
     URL that hasn't been saved yet (avoids requiring a Save before Fetch).
+    On WSL2, also tries the Windows host IP as a fallback when localhost fails.
     """
     url = (base_url or settings.ollama.base_url).rstrip("/")
+    candidate_urls = [url]
+
+    # WSL2 fallback: if the URL points to localhost/127.0.0.1, also try the Windows host IP
+    wsl_ip = _wsl2_host_ip()
+    if wsl_ip and any(h in url for h in ("127.0.0.1", "localhost")):
+        port = url.rsplit(":", 1)[-1] if ":" in url.split("//")[-1] else "11434"
+        candidate_urls.append(f"http://{wsl_ip}:{port}")
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{url}/api/tags")
-            if resp.status_code == 200:
-                models = [m["name"] for m in resp.json().get("models", [])]
-                return {"online": True, "models": models, "current": settings.ollama.model}
+            for candidate in candidate_urls:
+                resp = await _try_url(client, f"{candidate}/api/tags")
+                if resp is not None:
+                    models = [m["name"] for m in resp.json().get("models", [])]
+                    return {"online": True, "models": models, "current": settings.ollama.model}
             return {"online": False, "models": [], "current": settings.ollama.model}
     except Exception as e:
         return {"online": False, "models": [], "current": settings.ollama.model, "error": str(e)}
@@ -178,6 +337,26 @@ async def delete_conversation(cid: str):
 
 # ── Persistent Settings ────────────────────────────────────────────────────────
 
+# Keys writable via the generic PUT /settings/{key} endpoint.
+# Dedicated config endpoints (safety, nmap, MSF, LLM, branding) use set_setting
+# internally but are not listed here — they have their own validation.
+_ALLOWED_SETTINGS_KEYS: frozenset[str] = frozenset({
+    "active_provider",
+    "active_model",
+    "agent_models",
+    "cloud_model",
+    "collect_training_data",
+    "last_mission_config",
+    "lmstudio_base_url",
+    "lmstudio_model",
+    "ollama_base_url",
+    "ollama_model",
+    "opencode_go_api_key",
+    "opencode_go_model",
+    "openrouter_api_key",
+})
+
+
 @router.get("/settings")
 async def get_settings():
     return await database.get_all_settings()
@@ -185,8 +364,118 @@ async def get_settings():
 
 @router.put("/settings/{key}")
 async def set_setting(key: str, body: dict):
+    if key not in _ALLOWED_SETTINGS_KEYS:
+        raise HTTPException(400, f"Unknown setting key: '{key}'")
     await database.set_setting(key, body.get("value"))
     return {"ok": True}
+
+
+class BrandingConfigRequest(BaseModel):
+    company_name: str = ""
+
+
+@router.get("/config/branding")
+async def get_branding_config():
+    saved = await database.get_all_settings()
+    company_name = str(saved.get("branding_company_name", "") or "").strip()
+    logo_file = str(saved.get("branding_logo_file", "") or "").strip()
+    if logo_file and not _BRANDING_FILE_RE.fullmatch(logo_file):
+        logo_file = ""
+    logo_url = f"/api/v1/branding/{logo_file}" if logo_file else ""
+    return {
+        "company_name": company_name,
+        "logo_file": logo_file,
+        "logo_url": logo_url,
+        "has_logo": bool(logo_file),
+    }
+
+
+@router.post("/config/branding")
+async def save_branding_config(body: BrandingConfigRequest):
+    company_name = (body.company_name or "").strip()[:120]
+    await database.set_setting("branding_company_name", company_name)
+    return {"ok": True, "company_name": company_name}
+
+
+@router.post("/config/branding/upload")
+async def upload_branding_logo(file: UploadFile = File(...)):
+    if not file or not file.filename:
+        raise HTTPException(400, "Logo file is required")
+
+    original_ext = Path(file.filename).suffix.lower()
+    if original_ext not in _BRANDING_ALLOWED_EXTS:
+        raise HTTPException(400, "Unsupported file format. Use PNG, JPG, JPEG, or WEBP")
+
+    content = await file.read(_BRANDING_MAX_BYTES + 1)
+    if not content:
+        raise HTTPException(400, "Uploaded file is empty")
+    if len(content) > _BRANDING_MAX_BYTES:
+        raise HTTPException(400, "Logo is too large (max 5MB)")
+
+    detected_ext = _detect_branding_ext(content)
+    if not detected_ext:
+        raise HTTPException(400, "Uploaded file is not a valid PNG/JPG/WEBP image")
+
+    # JPEG accepts both .jpg and .jpeg extensions.
+    if detected_ext == ".jpg":
+        if original_ext not in (".jpg", ".jpeg"):
+            raise HTTPException(400, "File extension does not match image content")
+        final_ext = original_ext
+    else:
+        if detected_ext != original_ext:
+            raise HTTPException(400, "File extension does not match image content")
+        final_ext = detected_ext
+
+    safe_name = f"{uuid.uuid4().hex[:12]}_{_branding_safe_stem(file.filename)}{final_ext}"
+    base = _branding_dir().resolve()
+    target = (base / safe_name).resolve()
+    if base not in target.parents:
+        raise HTTPException(400, "Invalid file path")
+
+    target.write_bytes(content)
+
+    previous_logo = str(await database.get_setting("branding_logo_file", "") or "").strip()
+    await database.set_setting("branding_logo_file", safe_name)
+    if previous_logo and previous_logo != safe_name:
+        _delete_branding_file(previous_logo)
+
+    return {
+        "ok": True,
+        "logo_file": safe_name,
+        "logo_url": f"/api/v1/branding/{safe_name}",
+    }
+
+
+@router.delete("/config/branding/logo")
+async def delete_branding_logo():
+    logo_file = str(await database.get_setting("branding_logo_file", "") or "").strip()
+    if logo_file:
+        _delete_branding_file(logo_file)
+    await database.set_setting("branding_logo_file", "")
+    return {"ok": True}
+
+
+@router.get("/branding/{filename}")
+async def get_branding_logo(filename: str):
+    if not _BRANDING_FILE_RE.fullmatch(filename):
+        raise HTTPException(400, "Invalid filename")
+
+    base = _branding_dir().resolve()
+    target = (base / filename).resolve()
+    if base not in target.parents:
+        raise HTTPException(400, "Invalid filename")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "Logo not found")
+
+    media_type = _BRANDING_ALLOWED_EXTS.get(target.suffix.lower())
+    if not media_type:
+        raise HTTPException(404, "Unsupported logo format")
+
+    return Response(
+        content=target.read_bytes(),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.post("/config/ollama")
@@ -212,15 +501,24 @@ async def lmstudio_status(base_url: str | None = None):
 
     Accepts optional ``base_url`` query param so the config page can probe a
     URL that hasn't been saved yet.
+    On WSL2, also tries the Windows host IP as a fallback when localhost fails.
     """
     url = (base_url or settings.lmstudio.base_url).rstrip("/")
+    candidate_urls = [url]
+
+    wsl_ip = _wsl2_host_ip()
+    if wsl_ip and any(h in url for h in ("127.0.0.1", "localhost")):
+        port = url.rsplit(":", 1)[-1] if ":" in url.split("//")[-1] else "1234"
+        candidate_urls.append(f"http://{wsl_ip}:{port}")
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{url}/v1/models")
-            if resp.status_code == 200:
-                data = resp.json()
-                models = [m["id"] for m in data.get("data", [])]
-                return {"online": True, "models": models, "current": settings.lmstudio.model}
+            for candidate in candidate_urls:
+                resp = await _try_url(client, f"{candidate}/v1/models")
+                if resp is not None:
+                    data = resp.json()
+                    models = [m["id"] for m in data.get("data", [])]
+                    return {"online": True, "models": models, "current": settings.lmstudio.model}
             return {"online": False, "models": [], "current": settings.lmstudio.model}
     except Exception as e:
         return {"online": False, "models": [], "current": settings.lmstudio.model, "error": str(e)}
@@ -266,18 +564,24 @@ _SEVERITY_TO_CVSS = {"LOW": 3.9, "MEDIUM": 6.9, "HIGH": 8.9, "CRITICAL": 10.0}
 @router.get("/config/safety")
 async def get_safety_config():
     saved = await database.get_all_settings()
+    def _safe_int(val, default: int) -> int:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
     return {
         "allowed_cidr": saved.get("safety_allowed_cidr", settings.safety.allowed_cidr),
-        "allowed_port_min": int(saved.get("safety_port_min", settings.safety.allowed_port_min)),
-        "allowed_port_max": int(saved.get("safety_port_max", settings.safety.allowed_port_max)),
+        "allowed_port_min": _safe_int(saved.get("safety_port_min"), settings.safety.allowed_port_min),
+        "allowed_port_max": _safe_int(saved.get("safety_port_max"), settings.safety.allowed_port_max),
         "excluded_ips": saved.get("safety_excluded_ips", ""),
         "excluded_ports": saved.get("safety_excluded_ports", ""),
         "allow_exploit": saved.get("safety_allow_exploit", "true") == "true",
         "block_dos_exploits": saved.get("safety_block_dos", "true") == "true",
         "block_destructive": saved.get("safety_block_destructive", "true") == "true",
         "max_severity": saved.get("safety_max_severity", "CRITICAL"),
-        "session_max_seconds": int(saved.get("safety_time_limit", 7200)),
-        "max_requests_per_second": int(saved.get("safety_rate_limit", 50)),
+        "session_max_seconds": _safe_int(saved.get("safety_time_limit"), 7200),
+        "max_requests_per_second": _safe_int(saved.get("safety_rate_limit"), 50),
     }
 
 
@@ -408,6 +712,7 @@ async def get_openrouter_config():
     return {
         "cloud_model": saved.get("cloud_model", settings.llm.cloud_model),
         "has_api_key": bool(api_key),
+        "api_key": api_key,
     }
 
 
@@ -447,6 +752,68 @@ async def openrouter_models():
         return {"models": [], "error": str(e)}
 
 
+# ── OpenCode Go Config ──────────────────────────────────────────────────────────
+
+class OpenCodeGoSettings(BaseModel):
+    api_key: str = ""
+    model: str = ""
+
+
+def _resolve_opencode_go_key(saved: dict) -> str:
+    """Resolve OpenCode Go API key: keychain → DB fallback → env/settings."""
+    key = get_secret("opencode_go_api_key")
+    if not key:
+        key = saved.get("opencode_go_api_key", "") or settings.opencode_go.api_key
+    return _sanitize_api_key(key)
+
+
+@router.get("/config/opencode-go")
+async def get_opencode_go_config():
+    saved = await database.get_all_settings()
+    api_key = _resolve_opencode_go_key(saved)
+    return {
+        "model": saved.get("opencode_go_model", settings.opencode_go.model),
+        "has_api_key": bool(api_key),
+        "api_key": api_key,
+    }
+
+
+@router.post("/config/opencode-go")
+async def save_opencode_go_config(body: OpenCodeGoSettings):
+    if body.api_key:
+        clean_key = _sanitize_api_key(body.api_key)
+        if clean_key:
+            await async_set_secret("opencode_go_api_key", clean_key)
+            await database.set_setting("opencode_go_api_key", clean_key)
+            settings.opencode_go.api_key = clean_key
+    if body.model:
+        await database.set_setting("opencode_go_model", body.model)
+        settings.opencode_go.model = body.model
+    return {"ok": True}
+
+
+@router.get("/opencode-go/models")
+async def opencode_go_models():
+    """Fetch available models from OpenCode Go API."""
+    saved = await database.get_all_settings()
+    key = _resolve_opencode_go_key(saved)
+    if not key or key.startswith("oc-go-..."):
+        return {"models": [], "error": "No API key configured"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{settings.opencode_go.base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            models = sorted(m.get("id", m if isinstance(m, str) else "") for m in data.get("data", []))
+            models = [m for m in models if m]
+            return {"models": models}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+
 # ── Nmap Config ────────────────────────────────────────────────────────────────
 
 @router.get("/config/nmap")
@@ -460,11 +827,14 @@ async def get_nmap_config():
     }
 
 
+class NmapConfigRequest(BaseModel):
+    nmap_sudo: bool = False
+
+
 @router.post("/config/nmap")
-async def save_nmap_config(body: dict):
-    nmap_sudo = bool(body.get("nmap_sudo", False))
-    await database.set_setting("nmap_sudo", "true" if nmap_sudo else "false")
-    settings.nmap_sudo = nmap_sudo
+async def save_nmap_config(body: NmapConfigRequest):
+    await database.set_setting("nmap_sudo", "true" if body.nmap_sudo else "false")
+    settings.nmap_sudo = "true" if body.nmap_sudo else "false"
     return {"ok": True}
 
 
@@ -488,7 +858,7 @@ def _cred_fernet():
     try:
         return Fernet(key.encode() if isinstance(key, str) else key)
     except Exception as exc:
-        raise RuntimeError(f"Invalid credential encryption key: {exc}") from exc
+        raise RuntimeError("Invalid credential encryption key format") from exc
 
 
 def encrypt_cred_data(data: str) -> str:
@@ -670,7 +1040,7 @@ async def tools_status():
 # ── Pentest Sessions ───────────────────────────────────────────────────────────
 
 class StartSessionRequest(BaseModel):
-    target: str = ""   # optional when resume_from_session_id is set
+    target: str = ""   # optional: if empty, target scope is inferred automatically
     mode: str = "scan_only"
     mission_name: str = ""
 
@@ -710,6 +1080,8 @@ class StartSessionRequest(BaseModel):
     allow_lateral_movement: bool = False
     allow_docker_escape: bool = False
     allow_browser_recon: bool = False
+    allow_persistence: bool = False          # install persistence backdoors
+    v3_features: bool = True                 # enable squad leaders + RAG + KG
 
     # Known intelligence
     known_tech: list[str] = []
@@ -725,8 +1097,43 @@ class StartSessionRequest(BaseModel):
     provider: str = ""
     model: str = ""
 
+    # Execution control
+    confirm_every_step: bool = False
+
+    # Per-agent model overrides — keyed by agent_type
+    # e.g. {"brain": {"provider": "openrouter", "model": "..."}, "reporting": {...}}
+    agent_models: dict = Field(default_factory=dict)
+
     # Profile load
     profile_id: Optional[str] = None
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, v: str) -> str:
+        allowed = {"full_auto", "ask_before_exploit", "scan_only", "v2_auto"}
+        if v not in allowed:
+            raise ValueError(f"mode must be one of {sorted(allowed)}")
+        return v
+
+    @field_validator("speed_profile")
+    @classmethod
+    def _validate_speed_profile(cls, v: str) -> str:
+        allowed = {"stealth", "normal", "aggressive", "fast"}
+        if v not in allowed:
+            raise ValueError(f"speed_profile must be one of {sorted(allowed)}")
+        if v == "fast":
+            v = "aggressive"
+        return v
+
+    @field_validator("scan_type")
+    @classmethod
+    def _validate_scan_type(cls, v: str) -> str:
+        allowed = {"syn", "connect", "udp", "full", "service"}
+        if v not in allowed:
+            raise ValueError(f"scan_type must be one of {sorted(allowed)}")
+        if v == "service":
+            v = "full"
+        return v
 
 
 async def _run_v2_agent_task(
@@ -765,8 +1172,12 @@ async def _run_agent_task(
     )
 
 @router.post("/sessions")
-async def start_session(body: StartSessionRequest, background_tasks: BackgroundTasks):
-    """Create and start a new pentest session."""
+async def start_session(
+    body: StartSessionRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(require_min_role("analyst")),
+):
+    """Create and start a new pentest session. Requires at least analyst role."""
     import json as _json
     from web import session_manager
     from core.agent import PentestAgent
@@ -778,7 +1189,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     from models.session import Session
 
     # Validate mode
-    _VALID_MODES = ("full_auto", "ask_before_exploit", "scan_only", "v2_auto")
+    _VALID_MODES = ("full_auto", "ask_before_exploit", "scan_only", "v2_auto", "v3_auto")
     if body.mode not in _VALID_MODES:
         raise HTTPException(400, f"Invalid mode: {body.mode}")
 
@@ -835,8 +1246,46 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
                 body.resume_from_session_id[:8], len(resume_scan_results), len(resume_vulnerabilities),
             )
 
-    if not body.target.strip():
-        raise HTTPException(400, "Target IP or CIDR is required (or set resume_from_session_id)")
+    # Resolve mission scope targets.
+    # - If explicit target(s) provided, use them.
+    # - If omitted, infer private local subnets and run a full-scope engagement.
+    requested_targets = normalize_targets([
+        body.target,
+        *(body.additional_targets or []),
+    ])
+
+    auto_targeting = False
+    if not requested_targets:
+        inferred_targets = infer_local_scope_targets()
+        if not inferred_targets:
+            raise HTTPException(
+                400,
+                "Target not provided and auto-discovery found no private local subnet. "
+                "Provide target IP/CIDR/domain manually.",
+            )
+        requested_targets = inferred_targets
+        auto_targeting = True
+        auto_note = (
+            "AUTO-TARGET MODE: No explicit target was provided. "
+            f"Discovered scope: {', '.join(requested_targets)}. "
+            "Enumerate all hosts/services/vulnerabilities across the full scope."
+        )
+        body.scope_notes = f"{auto_note}\n{body.scope_notes}" if body.scope_notes else auto_note
+
+    # Canonicalized mission targets.
+    body.target = requested_targets[0]
+    body.additional_targets = requested_targets[1:]
+    # Agent execution target expression supports multiple scope entries.
+    # nmap_scan now accepts whitespace/comma-separated targets.
+    agent_target_expr = " ".join(requested_targets)
+
+    effective_allowed_cidr = body.allowed_cidr
+    if not effective_allowed_cidr:
+        if auto_targeting or len(requested_targets) > 1:
+            # Keep global policy when running broad/multi-scope missions.
+            effective_allowed_cidr = settings.safety.allowed_cidr
+        else:
+            effective_allowed_cidr = body.target
 
     # If a scan profile was selected, load and merge its config
     if body.profile_id:
@@ -856,7 +1305,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
     # Build SafetyConfig — start from global settings, apply per-session overrides
     safety_cfg = SafetyConfig(
-        allowed_cidr=body.allowed_cidr or body.target,
+        allowed_cidr=effective_allowed_cidr,
         allowed_port_min=settings.safety.allowed_port_min,
         allowed_port_max=settings.safety.allowed_port_max,
         excluded_ips=list(settings.safety.excluded_ips),
@@ -943,6 +1392,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             ))
 
     # Build MissionBrief
+    normalized_body_agent_models = normalize_agent_models(body.agent_models or {})
     mission = MissionBrief(
         target_type=body.target_type,
         objectives=body.objectives,
@@ -961,9 +1411,13 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         allow_lateral_movement=body.allow_lateral_movement,
         allow_docker_escape=body.allow_docker_escape,
         allow_browser_recon=body.allow_browser_recon,
+        allow_persistence=body.allow_persistence,
+        v3_features=body.v3_features,
         port_range=body.port_range,
         scan_type=body.scan_type,
         nse_categories=body.nse_categories,
+        confirm_every_step=body.confirm_every_step,
+        agent_models=normalized_body_agent_models,
     )
 
     # Set global speed profile for this session
@@ -975,17 +1429,25 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         existing = list(settings.safety.excluded_ports)
         settings.safety.excluded_ports = list(set(existing) | set(per_session_ports))
 
-    # Persist session record
-    session_data = await _session_repo.create(body.target.strip(), body.mode)
+    # Persist session record (track who created it)
+    session_data = await _session_repo.create(
+        agent_target_expr,
+        body.mode,
+        created_by=current_user.get("id"),
+        assigned_to=getattr(body, "assigned_to", None) or None,
+    )
     session_id = session_data["id"]
 
+    mission_label = (body.mission_name or "").strip()
+    if mission_label:
+        await _session_repo.update_name(session_id, mission_label)
+
     # Save the per-session safety config so rollback can restore the exact same settings
-    import json as _json_safety
-    await _session_repo.save_safety_cfg(session_id, _json_safety.dumps(safety_cfg.model_dump()))
+    await _session_repo.save_safety_cfg(session_id, json.dumps(safety_cfg.model_dump()))
 
     session_obj = Session(
         id=session_id,
-        target=body.target.strip(),
+        target=agent_target_expr,
         mode=body.mode,
         status="idle",
         created_at=session_data["created_at"],
@@ -993,12 +1455,12 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     )
 
     # Apply LLM provider/model overrides
-    # Supported: ollama | openrouter | lmstudio | anthropic (direct Anthropic API)
+    # Supported: ollama | openrouter | opencode_go | lmstudio | anthropic (direct Anthropic API)
     _provider = body.provider.lower() if body.provider else ""
-    if _provider in ("ollama", "openrouter", "lmstudio", "anthropic"):
+    if _provider in ("ollama", "openrouter", "opencode_go", "lmstudio", "anthropic"):
         settings.llm.provider = _provider
     if body.model:
-        if _provider in ("openrouter", "anthropic"):
+        if _provider in ("openrouter", "anthropic", "opencode_go"):
             settings.llm.cloud_model = body.model
         elif _provider == "ollama":
             settings.ollama.model = body.model
@@ -1019,22 +1481,28 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
     # Run tool health checks once before the agent starts
     await registry.run_health_checks()
 
-    if body.mode == "v2_auto":
-        # ── V2 BrainAgent path ────────────────────────────────────────────────
+    if body.mode in ("v2_auto", "v3_auto"):
+        # ── V2/V3 BrainAgent path ─────────────────────────────────────────────
         import core.debug_logger as dbg; dbg.print_banner()
         # Register session for UI debug log streaming (unregistered on session end)
         dbg.register_session(session_id, progress_cb)
-        dbg.info("routes", f"V2 session started | target={body.target} session={session_id[:8]}")
+        mode_label = "V3" if body.mode == "v3_auto" else "V2"
+        dbg.info("routes", f"{mode_label} session started | target={agent_target_expr} session={session_id[:8]}")
         from core.brain_agent import BrainAgent, make_brain
         from core.message_bus import AgentMessageBus
         from core.mission_context import MissionContext
 
+        mission_scope = list(requested_targets)
+        if body.allowed_cidr and body.allowed_cidr not in mission_scope:
+            mission_scope.append(body.allowed_cidr)
+
         mission_ctx = MissionContext(
             mission_id=session_id,
-            target=body.target.strip(),
-            scope=[body.allowed_cidr or body.target.strip()],
+            target=agent_target_expr,
+            scope=mission_scope,
             mode=body.mode,
             operator_notes=body.scope_notes or body.notes,
+            auto_targeting=auto_targeting,
             allow_exploitation=mission.allow_exploitation,
             allow_post_exploitation=mission.allow_post_exploitation,
             allow_lateral_movement=mission.allow_lateral_movement,
@@ -1049,8 +1517,25 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             mission_ctx.objectives = list(mission.objectives)
 
         bus = AgentMessageBus()
+        # Merge per-mission agent_models with global defaults from DB settings.
+        # Mission-level overrides always win; global defaults are fallback only.
+        _agent_models = normalize_agent_models(mission.agent_models or {})
+        if not _agent_models:
+            try:
+                _saved_am = await database.get_all_settings()
+                _global_am_raw = _saved_am.get("agent_models", "{}")
+                _global_am = json.loads(_global_am_raw) if isinstance(_global_am_raw, str) else (_global_am_raw or {})
+                _agent_models = normalize_agent_models(_global_am)
+                if _agent_models:
+                    logger.info(
+                        "Session %s started with global agent model defaults (mission overrides absent)",
+                        session_id,
+                    )
+            except Exception as exc:
+                logger.warning("Failed to load global agent model defaults: %s", exc)
+
         agent = make_brain(
-            target=body.target.strip(),
+            target=agent_target_expr,
             session_id=session_id,
             mission_brief=mission,
             mission_ctx=mission_ctx,
@@ -1059,6 +1544,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
             safety=guard,
             progress_callback=progress_cb,
             audit_repo=_audit_repo,
+            agent_models=_agent_models or None,
         )
         # Attach bus and ctx so the /mission-context endpoint can read them
         agent._mission_ctx = mission_ctx
@@ -1071,7 +1557,7 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
         # ── V1 PentestAgent path (existing) ───────────────────────────────────
         agent = PentestAgent(
             session=session_obj,
-            target=body.target.strip(),
+            target=agent_target_expr,
             mode=body.mode,
             registry=registry,
             safety=guard,
@@ -1100,7 +1586,9 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
     return {
         "session_id": session_id,
-        "target": body.target,
+        "target": agent_target_expr,
+        "resolved_targets": requested_targets,
+        "auto_targeting": auto_targeting,
         "mode": body.mode,
         "speed_profile": body.speed_profile,
         "status": "running",
@@ -1109,12 +1597,31 @@ async def start_session(body: StartSessionRequest, background_tasks: BackgroundT
 
 
 @router.get("/sessions")
-async def list_sessions():
-    sessions = await _session_repo.list_all()
-    # Annotate with live running status
+async def list_sessions(current_user: dict = Depends(get_current_user)):
     from web import session_manager
-    for s in sessions:
-        s["is_running"] = session_manager.is_running(s["id"])
+    sessions = await _session_repo.list_for_user(
+        user_id=current_user["id"],
+        role=current_user["role"],
+    )
+    # Enrich with assigned_to_name for admin/owner
+    if current_user["role"] in ("owner", "admin"):
+        from database.repositories import UserRepository
+        _urepo = UserRepository()
+        _user_cache: dict = {}
+        for s in sessions:
+            s["is_running"] = session_manager.is_running(s["id"])
+            uid = s.get("assigned_to")
+            if uid:
+                if uid not in _user_cache:
+                    u = await _urepo.get_by_id(uid)
+                    _user_cache[uid] = (u.get("full_name") or u.get("email") or uid) if u else uid
+                s["assigned_to_name"] = _user_cache[uid]
+            else:
+                s["assigned_to_name"] = None
+    else:
+        for s in sessions:
+            s["is_running"] = session_manager.is_running(s["id"])
+            s["assigned_to_name"] = None
     return sessions
 
 
@@ -1124,22 +1631,95 @@ async def get_session(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    from web import session_manager
+    is_running = session_manager.is_running(sid)
+
     # Attach findings
     scan_results = await _scan_repo.get_for_session(sid)
     vulns = await _vuln_repo.get_for_session(sid)
     exploits = await _exploit_repo.get_for_session(sid)
 
-    from web import session_manager
-    session["is_running"] = session_manager.is_running(sid)
+    # For running V2 sessions, normalized tables may be empty because agents emit
+    # findings via events rather than writing directly to tables. Derive live data
+    # from the event stream so the attack graph can display current progress.
+    needs_recovery = (
+        not scan_results
+        or not vulns
+        or not exploits
+        or int(session.get("hosts_found") or 0) == 0
+        or int(session.get("ports_found") or 0) == 0
+        or int(session.get("vulns_found") or 0) == 0
+    )
+
+    if needs_recovery:
+        try:
+            recovered = await recover_session_findings_from_events(
+                session_id=sid,
+                target=str(session.get("target") or ""),
+                session_repo=_session_repo,
+                scan_repo=_scan_repo,
+                vuln_repo=_vuln_repo,
+                exploit_repo=_exploit_repo,
+                event_repo=_event_repo,
+                # Only persist when the session is finished; while running we
+                # just derive in-memory so the attack graph stays live without
+                # hammering the DB on every poll.
+                persist=not is_running,
+            )
+            scan_results = recovered.get("scan_results", scan_results)
+            vulns = recovered.get("vulnerabilities", vulns)
+            exploits = recovered.get("exploit_results", exploits)
+            if not is_running:
+                session = await _session_repo.get(sid) or session
+        except Exception as exc:
+            logger.warning("Session recovery failed for %s: %s", sid, exc)
+    elif is_running:
+        # Tables can be non-empty while events still carry additional findings (e.g. scan-only
+        # rows that were never written to vulnerabilities). Merge event-derived view on each poll.
+        try:
+            recovered = await recover_session_findings_from_events(
+                session_id=sid,
+                target=str(session.get("target") or ""),
+                session_repo=_session_repo,
+                scan_repo=_scan_repo,
+                vuln_repo=_vuln_repo,
+                exploit_repo=_exploit_repo,
+                event_repo=_event_repo,
+                persist=False,
+            )
+            vulns = recovered.get("vulnerabilities", vulns)
+            if not scan_results:
+                scan_results = recovered.get("scan_results", scan_results)
+            if not exploits:
+                exploits = recovered.get("exploit_results", exploits)
+        except Exception as exc:
+            logger.warning("Live session merge failed for %s: %s", sid, exc)
+
+    session["is_running"] = is_running
     session["scan_results"] = scan_results
     session["vulnerabilities"] = vulns
     session["exploit_results"] = exploits
+
+    # Attach V2 mission context if available
+    mission_ctx_raw = session.get("mission_context_json")
+    if mission_ctx_raw:
+        try:
+            import json as _json
+            session["mission_context"] = _json.loads(mission_ctx_raw)
+        except Exception:
+            pass
+    else:
+        # Try live in-memory context for running sessions
+        from web import session_manager
+        agent = session_manager.get_agent(sid)
+        if agent and hasattr(agent, "_mission_ctx") and agent._mission_ctx is not None:
+            session["mission_context"] = agent._mission_ctx.to_dict()
 
     return session
 
 
 @router.post("/sessions/{sid}/kill")
-async def kill_session(sid: str):
+async def kill_session(sid: str, current_user: dict = Depends(require_min_role("analyst"))):
     """Trigger emergency stop on a running session."""
     from web import session_manager
 
@@ -1149,9 +1729,13 @@ async def kill_session(sid: str):
 
     kill_details = session_manager.kill_with_details(sid)
     if kill_details.get("killed"):
-        # Status will be updated to "stopped" via CancelledError handler in _run_agent_task
-        # but we pre-set it here in case the task was already done
         await _session_repo.update_status(sid, "stopped", "Emergency stop triggered by user")
+        await session_manager.broadcast(sid, {
+            "type": "session_event",
+            "session_id": sid,
+            "event": "kill_switch",
+            "data": {"resumable": bool(kill_details.get("resumable", False))},
+        })
         await _audit_repo.log(
             "KILL_SWITCH",
             session_id=sid,
@@ -1159,6 +1743,7 @@ async def kill_session(sid: str):
                 "reason": "Emergency stop triggered by user",
                 "killed_in_ms": kill_details.get("killed_in_ms", 0),
                 "child_agents_cancelled": kill_details.get("child_agents_cancelled", 0),
+                "resumable": bool(kill_details.get("resumable", False)),
             },
         )
         return {
@@ -1167,6 +1752,7 @@ async def kill_session(sid: str):
             "killed_in_ms": kill_details.get("killed_in_ms", 0),
             "child_agents_cancelled": kill_details.get("child_agents_cancelled", 0),
             "task_cancelled": kill_details.get("task_cancelled", False),
+            "resumable": bool(kill_details.get("resumable", False)),
         }
 
     return {
@@ -1177,12 +1763,35 @@ async def kill_session(sid: str):
 
 
 @router.delete("/sessions/{sid}")
-async def delete_session(sid: str):
+async def delete_session(sid: str, current_user: dict = Depends(require_min_role("analyst"))):
     session = await _session_repo.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
+    # Analyst yalnızca kendi oluşturduğu session'ı silebilir
+    if current_user["role"] == "analyst" and session.get("created_by") != current_user["id"]:
+        raise HTTPException(403, "Yalnızca kendi oluşturduğunuz session'ları silebilirsiniz.")
     await _session_repo.delete(sid)
     return {"ok": True}
+
+
+class AssignSessionRequest(BaseModel):
+    assigned_to: str | None = None
+
+
+@router.patch("/sessions/{sid}/assign")
+async def assign_session(
+    sid: str,
+    body: AssignSessionRequest,
+    current_user: dict = Depends(require_role("owner", "admin")),
+):
+    """Session'ı bir kullanıcıya ata (owner / admin)."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    ok = await _session_repo.assign(sid, body.assigned_to)
+    if not ok:
+        raise HTTPException(500, "Atama başarısız")
+    return {"ok": True, "assigned_to": body.assigned_to}
 
 
 class RenameSessionRequest(BaseModel):
@@ -1233,6 +1842,7 @@ async def pause_session(sid: str):
 
     ok = session_manager.pause_session(sid)
     if ok:
+        await _session_repo.update_status(sid, "paused")
         await session_manager.broadcast(sid, {
             "type": "session_event",
             "session_id": sid,
@@ -1253,6 +1863,7 @@ async def resume_session(sid: str):
 
     ok = session_manager.resume_session(sid)
     if ok:
+        await _session_repo.update_status(sid, "running")
         await session_manager.broadcast(sid, {
             "type": "session_event",
             "session_id": sid,
@@ -1420,11 +2031,24 @@ async def get_report_html(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    version = _report_cache_version(session)
+    cached_html = _report_cache_get(sid, "html", version)
+    if isinstance(cached_html, str):
+        return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+
     try:
         from reporting.report_generator import ReportGenerator
-        generator = ReportGenerator()
-        html = await generator.generate_html(sid)
-        return HTMLResponse(content=html)
+
+        lock = _report_lock(sid, "html")
+        async with lock:
+            cached_html = _report_cache_get(sid, "html", version)
+            if isinstance(cached_html, str):
+                return HTMLResponse(content=cached_html, headers={"X-Report-Cache": "HIT"})
+
+            generator = ReportGenerator()
+            html = await generator.generate_html(sid)
+            _report_cache_put(sid, "html", version, html)
+            return HTMLResponse(content=html, headers={"X-Report-Cache": "MISS"})
     except Exception as exc:
         logger.error("Report HTML generation failed: %s", exc)
         raise HTTPException(500, f"Report generation failed: {exc}")
@@ -1437,17 +2061,50 @@ async def get_report_pdf(sid: str):
     if not session:
         raise HTTPException(404, "Session not found")
 
-    try:
-        from reporting.report_generator import ReportGenerator
-        generator = ReportGenerator()
-        pdf_bytes = await generator.generate_pdf(sid)
+    version = _report_cache_version(session)
+    cached_pdf = _report_cache_get(sid, "pdf", version)
+    if isinstance(cached_pdf, (bytes, bytearray)):
         return Response(
-            content=pdf_bytes,
+            content=bytes(cached_pdf),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"'
+                "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                "X-Report-Cache": "HIT",
             },
         )
+
+    try:
+        from reporting.report_generator import ReportGenerator
+
+        lock = _report_lock(sid, "pdf")
+        async with lock:
+            cached_pdf = _report_cache_get(sid, "pdf", version)
+            if isinstance(cached_pdf, (bytes, bytearray)):
+                return Response(
+                    content=bytes(cached_pdf),
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                        "X-Report-Cache": "HIT",
+                    },
+                )
+
+            generator = ReportGenerator()
+            cached_html = _report_cache_get(sid, "html", version)
+            if isinstance(cached_html, str):
+                pdf_bytes = await generator.generate_pdf_from_html(cached_html)
+            else:
+                pdf_bytes = await generator.generate_pdf(sid)
+
+            _report_cache_put(sid, "pdf", version, pdf_bytes)
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="tirpan-report-{sid[:8]}.pdf"',
+                    "X-Report-Cache": "MISS",
+                },
+            )
     except Exception as exc:
         logger.error("Report PDF generation failed: %s", exc)
         raise HTTPException(500, f"PDF generation failed: {exc}")
@@ -1483,12 +2140,34 @@ async def get_audit_log(
     event_type: str = "",
     search: str = "",
     limit: int = 200,
+    current_user: dict = Depends(get_current_user),
 ):
-    """Return audit log entries with optional filtering."""
+    """Return audit log entries — filtered by role."""
+    role = current_user["role"]
+    uid  = current_user["id"]
+
     if session_id:
+        # Explicit session filter: verify user can see this session first
+        if role not in ("owner", "admin"):
+            allowed = await _session_repo.list_for_user(user_id=uid, role=role)
+            allowed_ids = {s["id"] for s in allowed}
+            if session_id not in allowed_ids:
+                return {"entries": [], "total": 0}
         entries = await _audit_repo.get_for_session(session_id, limit=limit)
-    else:
+    elif role in ("owner", "admin"):
         entries = await _audit_repo.get_recent(limit=limit)
+    else:
+        # analyst / viewer — only own/assigned sessions
+        allowed = await _session_repo.list_for_user(user_id=uid, role=role)
+        allowed_ids = [s["id"] for s in allowed]
+        if not allowed_ids:
+            return {"entries": [], "total": 0}
+        all_entries: list[dict] = []
+        for sid in allowed_ids:
+            chunk = await _audit_repo.get_for_session(sid, limit=limit)
+            all_entries.extend(chunk)
+        all_entries.sort(key=lambda e: e.get("created_at", 0), reverse=True)
+        entries = all_entries[:limit]
 
     # Filter by event category (prefix/keyword matching for grouped filters)
     if event_type and event_type.upper() != "ALL":
@@ -1520,20 +2199,6 @@ async def get_audit_log(
 # ── V2 Multi-Agent Endpoints ───────────────────────────────────────────────────
 # These endpoints expose V2-only data: agent instances, mission context,
 # attack graph, harvested credentials, loot, and shell sessions.
-
-from database.repositories import (
-    AgentInstanceRepository,
-    HarvestedCredentialRepository,
-    LootRepository,
-    NetworkGraphRepository,
-    MissionContextRepository,
-)
-
-_agent_instance_repo = AgentInstanceRepository()
-_harvested_cred_repo = HarvestedCredentialRepository()
-_loot_repo = LootRepository()
-_network_graph_repo = NetworkGraphRepository()
-_mission_ctx_repo = MissionContextRepository()
 
 
 @router.get("/sessions/{sid}/agents")

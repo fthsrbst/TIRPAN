@@ -231,3 +231,32 @@ class TestExecute:
                 result = await tool.execute({"target": "10.0.0.1"})
         assert result["success"] is False
         assert "timed out" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_sudo_prompt_falls_back_without_privileged_flags(self):
+      tool = NmapTool()
+
+      fail_proc = MagicMock()
+      fail_proc.returncode = 1
+      fail_proc.communicate = AsyncMock(return_value=(b"", b"[sudo] password for fatih-root:"))
+
+      ok_proc = make_proc(SERVICE_XML)
+      calls: list[tuple] = []
+
+      async def _fake_create(*cmd, **kwargs):
+        calls.append(cmd)
+        return fail_proc if len(calls) == 1 else ok_proc
+
+      first_cmd = [
+        "sudo", "-S", "-k", "nmap", "-oX", "-", "-Pn", "-sS", "-O", "-p", "1-1024", "10.0.0.1"
+      ]
+      with patch("asyncio.create_subprocess_exec", side_effect=_fake_create):
+        xml = await tool._run_nmap(first_cmd)
+
+      assert "<nmaprun>" in xml
+      assert len(calls) == 2
+      retry = list(calls[1])
+      assert retry[0] == "nmap"
+      assert "-sS" not in retry
+      assert "-O" not in retry
+      assert "-sV" in retry

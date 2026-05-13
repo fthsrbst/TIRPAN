@@ -123,6 +123,38 @@
       color: var(--ink-muted);
       margin-bottom: 64px;
     }
+    .cover-branding {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .cover-branding img {
+      max-height: 46px;
+      max-width: 180px;
+      object-fit: contain;
+      border: 1px solid var(--border);
+      padding: 6px;
+      background: #0b0f14;
+    }
+    .cover-brand-text {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .cover-brand-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--ink-muted);
+    }
+    .cover-brand-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+      word-break: break-word;
+    }
     .cover-grid {
       display: table;
       width: 100%;
@@ -647,7 +679,7 @@
 
     @page {
       size: A4;
-      margin: 15mm 18mm;
+      margin: 12mm 12mm;
       background: #080a0e;
     }
 
@@ -658,6 +690,60 @@
         print-color-adjust: exact !important;
         color-adjust: exact !important;
       }
+      html         { font-size: 11px !important; }
+      body         { font-size: 11px !important; line-height: 1.45 !important; background: #080a0e; }
+      .cover,
+      .toc-page,
+      .page {
+        padding: 9mm 7mm !important;
+        max-width: none !important;
+        margin: 0 !important;
+      }
+      .cover h1 { font-size: 30px !important; }
+      .cover .cover-subtitle { font-size: 13px !important; margin-bottom: 28px !important; }
+
+      .risk-bar {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px !important;
+      }
+      .risk-card {
+        min-width: 0 !important;
+        padding: 10px 8px !important;
+      }
+      .risk-card .rc-num { font-size: 24px !important; }
+      .risk-card .rc-label { font-size: 9px !important; }
+
+      .data-table {
+        table-layout: fixed;
+        width: 100%;
+      }
+      .data-table thead th,
+      .data-table tbody td {
+        padding: 6px 8px !important;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      code,
+      .mono {
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+      }
+
+      .pre-block,
+      pre {
+        max-height: none !important;
+        overflow: visible !important;
+        overflow-x: visible !important;
+        overflow-y: visible !important;
+        white-space: pre-wrap !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+      }
+
+      .cvss-metric { width: calc(50% - 4px); }
+      .roadmap-row { break-inside: avoid; }
       .cover {
         page-break-after: always;
         break-after: page;
@@ -665,7 +751,6 @@
       .toc-page    { page-break-after: always; break-after: page; }
       .page-break  { page-break-before: always; break-before: page; }
       .finding     { page-break-inside: avoid; break-inside: avoid; }
-      body         { font-size: 12px; background: #080a0e; }
     }
   </style>
 </head>
@@ -676,6 +761,18 @@
 ══════════════════════════════════════════════════════════════════════ -->
 <div class="cover">
   <div class="cover-badge">&#x1F512; CONFIDENTIAL</div>
+
+  {% if branding.has_logo or branding.company_name %}
+  <div class="cover-branding">
+    {% if branding.has_logo %}
+    <img src="{{ branding.logo_data_url }}" alt="Company logo">
+    {% endif %}
+    <div class="cover-brand-text">
+      <span class="cover-brand-label">Client</span>
+      <span class="cover-brand-name">{{ branding.company_name or 'Confidential Client' }}</span>
+    </div>
+  </div>
+  {% endif %}
 
   <h1>Penetration Test Report</h1>
   <p class="cover-subtitle">TIRPAN Autonomous Security Assessment &mdash; {{ session.target }}</p>
@@ -747,18 +844,24 @@
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.1 Engagement Overview</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.2 Risk Distribution</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.3 Key Findings Summary</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.4 Engagement Metrics</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">1.5 Evidence Timeline</span></div>
   <div class="toc-entry"><span class="toc-num">2.</span><span class="toc-title">Scope &amp; Methodology</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.1 Engagement Scope</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.2 Testing Methodology (PTES)</span></div>
   <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">2.3 Tools Used</span></div>
   <div class="toc-entry"><span class="toc-num">3.</span><span class="toc-title">Discovered Hosts &amp; Services</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">3.1 Service Exposure Inventory</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">3.2 Host Exposure Prioritization</span></div>
   <div class="toc-entry"><span class="toc-num">4.</span><span class="toc-title">Vulnerability Findings</span></div>
   {% if exploit_results %}
   <div class="toc-entry"><span class="toc-num">5.</span><span class="toc-title">Exploitation Results</span></div>
   <div class="toc-entry"><span class="toc-num">6.</span><span class="toc-title">Remediation Roadmap</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">6.1 Prioritized Action Plan</span></div>
   <div class="toc-entry"><span class="toc-num">7.</span><span class="toc-title">Compliance Mapping</span></div>
   {% else %}
   <div class="toc-entry"><span class="toc-num">5.</span><span class="toc-title">Remediation Roadmap</span></div>
+  <div class="toc-entry toc-sub"><span class="toc-num"></span><span class="toc-title">5.1 Prioritized Action Plan</span></div>
   <div class="toc-entry"><span class="toc-num">6.</span><span class="toc-title">Compliance Mapping</span></div>
   {% endif %}
 </div>
@@ -883,6 +986,50 @@
     The assessment did not identify any vulnerabilities against the target.
     This may indicate that the scan is still in progress or the target has no open ports within the configured scope.
   </div>
+  {% endif %}
+
+  <h3 class="sub-title">1.4 Engagement Metrics</h3>
+  <div class="info-grid">
+    <div class="info-row">
+      <label>Assessment Start</label>
+      <div class="info-val">{{ engagement.started_at }}</div>
+    </div>
+    <div class="info-row">
+      <label>Assessment End</label>
+      <div class="info-val">{{ engagement.ended_at }}</div>
+    </div>
+    <div class="info-row">
+      <label>Total Duration</label>
+      <div class="info-val">{{ engagement.duration }}</div>
+    </div>
+    <div class="info-row">
+      <label>Unique Services</label>
+      <div class="info-val">{{ engagement.unique_services }}</div>
+    </div>
+    <div class="info-row">
+      <label>Vulnerable Hosts</label>
+      <div class="info-val">{{ engagement.vulnerable_hosts }}</div>
+    </div>
+    <div class="info-row">
+      <label>Exploited Hosts</label>
+      <div class="info-val">{{ engagement.exploited_hosts }}</div>
+    </div>
+    <div class="info-row full">
+      <label>Exploit Success Rate</label>
+      <div class="info-val">{{ engagement.exploit_success_rate }}</div>
+    </div>
+  </div>
+
+  {% if evidence_timeline %}
+  <h3 class="sub-title">1.5 Evidence Timeline</h3>
+  <ul class="timeline" style="margin-bottom: 8px;">
+    {% for ev in evidence_timeline %}
+    <li>
+      <div class="tl-time">{{ ev.date }} {{ ev.time }} UTC</div>
+      <div class="tl-text"><strong>{{ ev.label }}</strong> - {{ ev.detail }}</div>
+    </li>
+    {% endfor %}
+  </ul>
   {% endif %}
 </div>
 
@@ -1030,6 +1177,71 @@
       {% endfor %}
     </tbody>
   </table>
+
+  {% if service_inventory %}
+  <h3 class="sub-title">3.1 Service Exposure Inventory</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th>Hosts</th>
+        <th>Open Ports</th>
+        <th>Findings</th>
+        <th>Critical</th>
+        <th>Max CVSS</th>
+        <th>Observed Versions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for svc in service_inventory %}
+      <tr>
+        <td><strong>{{ svc.service }}</strong></td>
+        <td>{{ svc.host_count }}</td>
+        <td>{{ svc.open_port_count }}</td>
+        <td>{{ svc.vuln_count }}</td>
+        <td {% if svc.critical_count > 0 %}style="color:var(--critical); font-weight:700;"{% endif %}>{{ svc.critical_count }}</td>
+        <td style="font-weight:700; color:{{ '#ff4444' if svc.max_cvss >= 9 else '#ff8c42' if svc.max_cvss >= 7 else '#ffd43b' if svc.max_cvss >= 4 else '#69db7c' }};">{{ "%.1f"|format(svc.max_cvss or 0) }}</td>
+        <td style="color:var(--ink-muted);">{{ svc.versions }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if host_exposure %}
+  <h3 class="sub-title">3.2 Host Exposure Prioritization</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Host</th>
+        <th>Risk</th>
+        <th>Open Ports</th>
+        <th>Services</th>
+        <th>Findings</th>
+        <th>Max CVSS</th>
+        <th>Exploit Attempts</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for host in host_exposure[:20] %}
+      <tr>
+        <td><code>{{ host.ip }}</code></td>
+        <td><strong style="color: {{ host.risk_color }};">{{ host.risk_label }}</strong></td>
+        <td>{{ host.open_port_count }}</td>
+        <td style="color:var(--ink-muted);">{{ host.services }}</td>
+        <td>{{ host.vuln_count }}</td>
+        <td style="font-weight:700; color:{{ host.risk_color }};">{{ "%.1f"|format(host.max_cvss or 0) }}</td>
+        <td>
+          {{ host.exploit_attempts }}
+          {% if host.exploited %}
+          <span class="result-fail" style="margin-left:4px;">(Compromised)</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -1134,20 +1346,24 @@
       </div>
 
       <!-- Proof of Concept -->
-      {% if vuln.exploit_path %}
       <div class="finding-section">
-        <div class="fs-label">Proof of Concept (Metasploit)</div>
-        <div class="pre-block">
-<span class="cmt"># Metasploit Framework — validated exploit path</span>
-<span class="kw">msf6</span> &gt; <span class="val">use {{ vuln.exploit_path }}</span>
-<span class="kw">msf6</span> exploit(<span class="val">{{ vuln.exploit_path.split('/')[-1] }}</span>) &gt; <span class="val">set RHOSTS {{ vuln.host_ip or '&lt;target&gt;' }}</span>
-{% if vuln.exploit_port %}<span class="kw">msf6</span> exploit(<span class="val">{{ vuln.exploit_path.split('/')[-1] }}</span>) &gt; <span class="val">set RPORT {{ vuln.exploit_port }}</span>
-{% endif %}<span class="kw">msf6</span> exploit(<span class="val">{{ vuln.exploit_path.split('/')[-1] }}</span>) &gt; <span class="val">run</span>
-<span class="cmt">#
-# Expected result: {{ 'Meterpreter session opened' if vuln.severity in ('CRITICAL','HIGH') else 'Service banner / version confirmed' }}</span>
+        <div class="fs-label">Proof of Concept Evidence</div>
+        {% if vuln.poc_captured and vuln.poc_evidence %}
+        <p style="margin-bottom:8px; color:var(--ink-muted);">
+          Evidence captured during controlled testing
+          {% if vuln.poc_module %}using <code>{{ vuln.poc_module }}</code>{% endif %}.
+          {% if vuln.poc_success %}<span class="result-success">Validated successful exploit path.</span>{% else %}
+          <span class="result-fail">Captured output did not indicate full compromise.</span>{% endif %}
+        </p>
+        <pre style="margin:0; padding:14px 16px; background:var(--bg); color:#a8d8a0; font-family:'JetBrains Mono','SFMono-Regular',monospace; font-size:11.5px; line-height:1.7; white-space:pre-wrap; word-break:break-all; max-height:360px; overflow-y:auto; border:1px solid var(--border); border-radius:4px;">{{ vuln.poc_evidence }}</pre>
+        {% else %}
+        <div class="callout callout-warning" style="margin-top:6px;">
+          <div class="callout-title">No Live PoC Evidence Captured</div>
+          This finding is based on vulnerability intelligence and service fingerprinting.
+          No terminal/session evidence was captured for this finding during this run.
         </div>
+        {% endif %}
       </div>
-      {% endif %}
 
       <!-- Impact Analysis -->
       <div class="finding-section">
@@ -1189,6 +1405,11 @@
             {% else %}Planned (next cycle)
             {% endif %}
           </div>
+          <p style="font-size:11px; color:var(--ink-muted); margin-bottom:8px;">
+            Source: {{ vuln.recommendation_source or 'Rule-based baseline' }}
+            {% if vuln.recommendation_owner %}&nbsp;|&nbsp; Owner: {{ vuln.recommendation_owner }}{% endif %}
+            {% if vuln.recommendation_sla %}&nbsp;|&nbsp; SLA: {{ vuln.recommendation_sla }}{% endif %}
+          </p>
           <p>{{ vuln.recommendation }}</p>
         </div>
       </div>
@@ -1291,14 +1512,14 @@
   </table>
 
   {# ── Proof of Concept output per successful exploit ── #}
-  {% set poc_exploits = exploit_results | selectattr('poc_output') | list %}
+  {% set poc_exploits = exploit_results | selectattr('poc_evidence') | list %}
   {% if poc_exploits %}
   <h3 style="margin-top:36px; margin-bottom:16px; font-size:16px; color:var(--ink);">
-    5.1 &nbsp; Proof of Concept Output
+    5.1 &nbsp; Captured Exploit Evidence
   </h3>
   <p style="color:var(--ink-muted); font-size:12px; margin-bottom:20px;">
-    The following terminal output was captured live during exploitation and constitutes
-    evidence of successful remote code execution / privilege escalation.
+    The following terminal output was captured live during exploitation and is presented as
+    raw evidence from this assessment run.
   </p>
 
   {% for e in poc_exploits %}
@@ -1315,7 +1536,7 @@
       {% endif %}
     </div>
     <!-- Terminal output -->
-    <pre style="margin:0; padding:14px 16px; background:var(--bg); color:#a8d8a0; font-family:'JetBrains Mono','SFMono-Regular',monospace; font-size:11.5px; line-height:1.7; white-space:pre-wrap; word-break:break-all; max-height:420px; overflow-y:auto;">{{ e.poc_output }}</pre>
+    <pre style="margin:0; padding:14px 16px; background:var(--bg); color:#a8d8a0; font-family:'JetBrains Mono','SFMono-Regular',monospace; font-size:11.5px; line-height:1.7; white-space:pre-wrap; word-break:break-all; max-height:420px; overflow-y:auto;">{{ e.poc_evidence }}</pre>
   </div>
   {% endfor %}
   {% endif %}
@@ -1337,7 +1558,53 @@
     before moving to Medium and Low items.
   </p>
 
+  {% if reporting_ai %}
+  <div class="callout {% if reporting_ai.enabled %}callout-info{% else %}callout-warning{% endif %}" style="margin-top:0;">
+    <div class="callout-title">Remediation Intelligence Mode</div>
+    {% if reporting_ai.enabled %}
+    AI-assisted recommendations active ({{ reporting_ai.provider or 'LLM' }}):
+    {{ reporting_ai.applied_count }}/{{ reporting_ai.total_findings }} findings received tailored guidance.
+    {% else %}
+    Baseline deterministic recommendations active:
+    {{ reporting_ai.note }}
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% if vulnerabilities %}
+
+  {% if priority_actions %}
+  <h3 class="sub-title">{% if exploit_results %}6.1{% else %}5.1{% endif %} Prioritized Action Plan</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Priority</th>
+        <th>Owner</th>
+        <th>SLA</th>
+        <th>Action</th>
+        <th>Rationale</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for action in priority_actions %}
+      <tr>
+        <td>
+          <span class="roadmap-priority {% if action.priority in ('IMMEDIATE', 'CRITICAL') %}rp-immediate{% elif action.priority == 'HIGH' %}rp-short{% elif action.priority == 'MEDIUM' %}rp-medium{% else %}rp-long{% endif %}">
+            {{ action.priority }}
+          </span>
+        </td>
+        <td>{{ action.owner }}</td>
+        <td>{{ action.due_window }}</td>
+        <td>
+          <strong>{{ action.title }}</strong><br>
+          <span style="font-size:12px; color:var(--ink-muted);">{{ action.recommendation }}</span>
+        </td>
+        <td style="color:var(--ink-muted);">{{ action.rationale }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 
   {% set crit_vulns = vulnerabilities | selectattr('severity', 'eq', 'CRITICAL') | list %}
   {% set high_vulns = vulnerabilities | selectattr('severity', 'eq', 'HIGH') | list %}
@@ -1486,7 +1753,7 @@
       TIRPAN Autonomous Penetration Testing Agent &nbsp;&middot;&nbsp;
       Session <code>{{ session.id }}</code>
     </span>
-    <span class="footer-logo">TIRPAN v0.1.0</span>
+    <span class="footer-logo">{{ branding.company_name or 'TIRPAN v0.1.0' }}</span>
     <span>{{ generated_at }}</span>
   </div>
 

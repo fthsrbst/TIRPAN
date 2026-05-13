@@ -168,6 +168,10 @@ class BaseAgent(ABC):
         self.mission_id: str = mission_id
         # Fallback: treat mission_id as session_id for backward-compat audit calls
         self.session_id: str = session_id or mission_id
+        if not self.session_id:
+            logger.warning(
+                "BaseAgent created with empty session_id — audit logs will have no session reference"
+            )
 
         self.memory = SessionMemory(
             max_messages=memory_max_messages,
@@ -789,6 +793,10 @@ class BaseAgent(ABC):
         except Exception as exc:
             self._log.error("Agent %s reason() failed: %s", self.agent_id, exc)
             self.emit_event("error", {"error": str(exc)})
+            # Rate-limit / quota errors are not recoverable by retrying — propagate up
+            _emsg = str(exc)
+            if "429" in _emsg or "rate limit" in _emsg.lower() or "usage limit" in _emsg.lower() or "quota" in _emsg.lower():
+                raise
             return None
 
     async def act(self, action_dict: dict) -> dict:

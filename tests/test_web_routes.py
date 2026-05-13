@@ -27,6 +27,7 @@ def app() -> FastAPI:
     import asyncio
     import tempfile
     import database.db as db_module
+    from core.tool_registry import ToolRegistry
     from web.app import create_app  # we'll add this helper below if missing
 
     tmp = tempfile.mkdtemp()
@@ -35,8 +36,12 @@ def app() -> FastAPI:
     db_module.DB_PATH = db_path
     asyncio.run(db_module.init_db(db_path))
 
-    application = create_app()
-    yield application
+    with (
+        patch("web.app._start_msfrpcd", new=AsyncMock(return_value=None)),
+        patch("web.app.build_tool_registry", return_value=ToolRegistry()),
+    ):
+        application = create_app()
+        yield application
 
     db_module.DB_PATH = original
 
@@ -133,6 +138,56 @@ class TestConfig:
         r = client.post("/api/v1/config/safety", json=payload)
         assert r.status_code == 200
         assert r.json().get("ok") is True
+
+    def test_branding_config_roundtrip(self, client: TestClient):
+        r = client.post("/api/v1/config/branding", json={"company_name": "Acme Security"})
+        assert r.status_code == 200
+        assert r.json().get("company_name") == "Acme Security"
+
+        r2 = client.get("/api/v1/config/branding")
+        assert r2.status_code == 200
+        data = r2.json()
+        assert data.get("company_name") == "Acme Security"
+        assert data.get("has_logo") is False
+
+    def test_branding_upload_rejects_invalid_image(self, client: TestClient):
+        files = {
+            "file": ("bad.png", b"not-an-image", "image/png"),
+        }
+        r = client.post("/api/v1/config/branding/upload", files=files)
+        assert r.status_code == 400
+
+    def test_branding_logo_upload_and_delete(self, client: TestClient):
+        # Valid PNG signature is enough for this route-level validation.
+        png_bytes = b"\x89PNG\r\n\x1a\n" + (b"\x00" * 48)
+        files = {
+            "file": ("logo.png", png_bytes, "image/png"),
+        }
+
+        up = client.post("/api/v1/config/branding/upload", files=files)
+        assert up.status_code == 200
+        up_data = up.json()
+        assert up_data.get("ok") is True
+        assert up_data.get("logo_file")
+        assert up_data.get("logo_url", "").startswith("/api/v1/branding/")
+
+        cfg = client.get("/api/v1/config/branding")
+        assert cfg.status_code == 200
+        cfg_data = cfg.json()
+        assert cfg_data.get("has_logo") is True
+        assert cfg_data.get("logo_url", "").startswith("/api/v1/branding/")
+
+        logo_resp = client.get(cfg_data["logo_url"])
+        assert logo_resp.status_code == 200
+        assert logo_resp.headers.get("content-type", "").startswith("image/png")
+
+        rm = client.delete("/api/v1/config/branding/logo")
+        assert rm.status_code == 200
+        assert rm.json().get("ok") is True
+
+        cfg2 = client.get("/api/v1/config/branding")
+        assert cfg2.status_code == 200
+        assert cfg2.json().get("has_logo") is False
 
 
 # ── Audit log ─────────────────────────────────────────────────────────────────

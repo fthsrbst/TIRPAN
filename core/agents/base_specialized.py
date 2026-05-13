@@ -13,11 +13,15 @@ Adds:
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from core.base_agent import AgentResult, BaseAgent
+from core.finding_classifier import finding_classifier
 from core.message_bus import AgentMessage, AgentMessageBus, MessageType
+
+logger = logging.getLogger(__name__)
 
 
 class BaseSpecializedAgent(BaseAgent):
@@ -42,15 +46,33 @@ class BaseSpecializedAgent(BaseAgent):
     # ── Bus helpers ───────────────────────────────────────────────────────────
 
     async def publish_finding(self, finding: dict) -> None:
-        """Send a FINDING message to Brain (non-blocking)."""
+        """
+        Send a FINDING message to Brain (non-blocking).
+
+        Before publishing, the finding is enriched with a "_cls" block produced
+        by FindingClassifier (LLM zero-shot, fallback to rule-based).  The
+        classifier runs with a hard timeout so it never blocks the agent loop.
+        """
+        enriched = await self._enrich_finding(finding)
         if self.bus is None:
             return
         await self.bus.send(AgentMessage(
             msg_type=MessageType.FINDING,
             sender_id=self.agent_id,
-            payload={**finding, "agent_id": self.agent_id,
+            payload={**enriched, "agent_id": self.agent_id,
                      "agent_type": self.agent_type, "target": self.target},
         ))
+
+    async def _enrich_finding(self, finding: dict) -> dict:
+        """Attach classification metadata to a finding dict under '_cls'."""
+        if "_cls" in finding:
+            return finding   # already classified upstream
+        try:
+            cls = await finding_classifier.classify(finding)
+            return {**finding, "_cls": cls.to_dict()}
+        except Exception as exc:
+            logger.debug("_enrich_finding failed: %s", exc)
+            return finding
 
     async def publish_done(self, result: AgentResult) -> None:
         """Notify Brain that this agent completed (normally called by _run_child in Brain)."""
@@ -77,6 +99,8 @@ class BaseSpecializedAgent(BaseAgent):
 
         Reads from the validated tool result (action_dict["parameters"]) and
         safely coerces the data field to a dict so that **unpacking never fails.
+        The finding is classified before being stored and published so that both
+        the in-memory findings list and the Brain bus message carry "_cls".
         Subclasses may override for custom logic.
         """
         params = action_dict.get("parameters", action_dict)
@@ -85,8 +109,9 @@ class BaseSpecializedAgent(BaseAgent):
         if not isinstance(data, dict):
             data = {"note": str(data)}
         finding = {"type": finding_type, **data}
-        self._add_finding(finding)
-        await self.publish_finding(finding)
+        enriched = await self._enrich_finding(finding)
+        self._add_finding(enriched)
+        await self.publish_finding(enriched)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

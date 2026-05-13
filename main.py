@@ -33,6 +33,7 @@ from rich.table import Table
 
 from config import SafetyConfig, settings
 from core.registry_builder import build_tool_registry
+from core.targeting import infer_local_scope_targets
 from core.tool_registry import ToolRegistry
 
 console = Console()
@@ -143,8 +144,11 @@ examples:
         description="Run the TIRPAN pentest agent directly in the terminal.",
     )
     run_p.add_argument(
-        "--target", "-t", required=True,
-        help="target IP address or CIDR range (e.g. 192.168.1.0/24)",
+        "--target", "-t", default="",
+        help=(
+            "target IP/CIDR/domain. If omitted, TIRPAN auto-discovers private "
+            "local subnets and scans full local scope"
+        ),
     )
     run_p.add_argument(
         "--mode", "-m",
@@ -211,10 +215,30 @@ async def run_pentest(args: argparse.Namespace, registry: ToolRegistry) -> int:
     from models.session import Session
 
     excluded_ips = [ip.strip() for ip in args.exclude_ips.split(",") if ip.strip()]
-    excluded_ports = [
-        int(p.strip()) for p in args.exclude_ports.split(",")
-        if p.strip().isdigit()
-    ]
+    excluded_ports = []
+    for _p in args.exclude_ports.split(","):
+        _p = _p.strip()
+        if not _p:
+            continue
+        if _p.isdigit() and 1 <= int(_p) <= 65535:
+            excluded_ports.append(int(_p))
+        elif _p:
+            console.print(f"[yellow]Warning: ignored invalid excluded port: {_p!r}[/yellow]")
+
+    target_expr = (args.target or "").strip()
+    if not target_expr:
+        inferred = infer_local_scope_targets()
+        if not inferred:
+            console.print(
+                "[red]No target provided and auto-discovery found no private local subnet.[/red]"
+            )
+            console.print("[dim]Provide --target explicitly (IP/CIDR/domain).[/dim]")
+            return 2
+        target_expr = " ".join(inferred)
+        console.print(
+            "[cyan]Auto-targeting enabled:[/cyan] "
+            + ", ".join(inferred)
+        )
 
     safety_cfg = SafetyConfig(
         allowed_cidr=args.scope,
@@ -227,19 +251,19 @@ async def run_pentest(args: argparse.Namespace, registry: ToolRegistry) -> int:
         max_requests_per_second=args.rate_limit,
     )
 
-    print_run_config(args.target, args.mode, safety_cfg, registry)
+    print_run_config(target_expr, args.mode, safety_cfg, registry)
     console.print()
 
     session = Session(
         id=str(uuid.uuid4()),
-        target=args.target,
+        target=target_expr,
         mode=args.mode,
     )
 
     safety = SafetyGuard(safety_cfg)
     agent = PentestAgent(
         session=session,
-        target=args.target,
+        target=target_expr,
         mode=args.mode,
         registry=registry,
         safety=safety,
@@ -266,6 +290,9 @@ async def run_pentest(args: argparse.Namespace, registry: ToolRegistry) -> int:
 
     try:
         ctx = await agent.run()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        console.print("\n[yellow]Mission cancelled by user.[/yellow]")
+        return 130
     except Exception as exc:
         console.print(f"\n[bold red]MISSION FAILED:[/bold red] {exc}")
         logger.exception("Agent run failed")
@@ -366,15 +393,32 @@ async def _save_terminal_report(session, ctx, report_dir: Path) -> None:
         out_path = report_dir / f"{session.id[:8]}_report.html"
         out_path.write_text(html, encoding="utf-8")
         console.print(f"\n[green]Report saved:[/green] {out_path}")
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        raise
     except Exception as exc:
         console.print(f"[yellow]Report generation skipped:[/yellow] {exc}")
 
 
 # ── Entry Point ────────────────────────────────────────────────────────────────
 
+def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Validate argument values that argparse cannot enforce natively."""
+    if not (1 <= args.port <= 65535):
+        parser.error(f"--port must be between 1 and 65535 (got {args.port})")
+
+    if args.command == "run":
+        if args.time_limit < 0:
+            parser.error(f"--time-limit must be >= 0 (got {args.time_limit})")
+        if args.rate_limit <= 0:
+            parser.error(f"--rate-limit must be >= 1 (got {args.rate_limit})")
+        if args.max_iterations <= 0:
+            parser.error(f"--max-iterations must be >= 1 (got {args.max_iterations})")
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    _validate_args(parser, args)
 
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
