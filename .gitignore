@@ -13,10 +13,23 @@ env/
 # Database
 *.db
 *.sqlite
+
+# Sensitive runtime data — never commit
 data/.credkey
+data/sessions/
+data/training/
+data/playbook.jsonl
+data/branding/
+
+# Build artifacts
+site/
+web/static/normal/
 
 # Reports output
 reports/
+
+# Logs
+*.log
 
 # Coverage
 .coverage
