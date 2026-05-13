@@ -65,7 +65,8 @@ class ToolRegistry:
         """
         result = []
         for tool in self._tools.values():
-            status = self._health.get(tool.metadata.name)
+            name = tool.metadata.name
+            status = self._health.get(name)
             if healthy_only and status and not status.available:
                 continue  # exclude unavailable tools from the LLM
             result.append(tool.to_llm_dict(health=status))

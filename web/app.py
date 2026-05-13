@@ -261,6 +261,21 @@ async def lifespan(app: FastAPI):
 
     _pty_idle_task = asyncio.create_task(_pty_idle_worker())
 
+    # Periodic WAL checkpoint to prevent the WAL file growing unbounded
+    async def _wal_checkpoint_worker() -> None:
+        from database.sqlite_conn import _shared_conn
+        while True:
+            await asyncio.sleep(60)
+            try:
+                from database.sqlite_conn import _shared_conn as _conn, _shared_lock
+                if _conn is not None and _shared_lock is not None:
+                    async with _shared_lock:
+                        await _conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception as exc:
+                _logger.debug("WAL checkpoint skipped: %s", exc)
+
+    _wal_task = asyncio.create_task(_wal_checkpoint_worker())
+
     # Import specialized agents so they self-register into BrainAgent registry
     import core.agents.scanner_agent      # noqa: F401
     import core.agents.exploit_agent      # noqa: F401
@@ -271,13 +286,14 @@ async def lifespan(app: FastAPI):
     import core.agents.reporting_agent    # noqa: F401
     yield
 
-    # ── Shutdown: close PTY sessions and worker ─────────────────────────────
-    if _pty_idle_task is not None:
-        _pty_idle_task.cancel()
-        try:
-            await _pty_idle_task
-        except asyncio.CancelledError:
-            pass
+    # ── Shutdown: close PTY sessions and workers ────────────────────────────
+    for _task in (_pty_idle_task, _wal_task):
+        if _task is not None:
+            _task.cancel()
+            try:
+                await _task
+            except asyncio.CancelledError:
+                pass
 
     try:
         if app_state.pty_manager is not None:
