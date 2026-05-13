@@ -197,6 +197,7 @@ class BaseAgent(ABC):
 
         # Operator inject
         self._has_pending_inject: bool = False
+        self._inject_event = asyncio.Event()
 
         # Hard-block registry: "tool_name" or "tool_name:module" → block count
         self._session_blocked_calls: dict[str, int] = {}
@@ -405,6 +406,7 @@ class BaseAgent(ABC):
         """
         self.memory.add_user(f"[OPERATOR INTERRUPT]\n{message}")
         self._has_pending_inject = True
+        self._inject_event.set()
         self.emit_event("injected", {"message": message[:300]})
         self._log.info("Operator message injected into agent %s", self.agent_id)
 

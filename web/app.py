@@ -27,6 +27,7 @@ from web.v3_routes import router as v3_router
 from web.auth.router import router as auth_router
 from web.websocket_handler import handle_websocket
 from database.db import init_db
+from database.sqlite_conn import init_shared_connection, close_shared_connection
 
 _logger = logging.getLogger(__name__)
 
@@ -132,7 +133,11 @@ async def _start_msfrpcd() -> "asyncio.subprocess.Process | None":
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Migrations first (uses per-call connections, no shared conn yet)
     await init_db()
+    # Open shared connection for the remainder of the app lifetime
+    from database.db import DB_PATH
+    await init_shared_connection(DB_PATH)
 
     # Load secrets from OS keychain into live settings (DB fallback if keyring unavailable)
     import re as _re
@@ -281,6 +286,9 @@ async def lifespan(app: FastAPI):
         _logger.debug("PTY shutdown cleanup skipped: %s", exc)
     finally:
         app_state.pty_manager = None
+
+    # ── Shutdown: close shared SQLite connection ─────────────────────────────
+    await close_shared_connection()
 
     # ── Shutdown: stop msfrpcd if we launched it ──────────────────────────────
     if _msfrpcd_proc is not None:

@@ -170,14 +170,16 @@ class SessionMemory:
             if remaining_budget <= 0:
                 break
             if msg.estimated_tokens <= remaining_budget:
-                selected_normal.insert(0, msg)
+                selected_normal.append(msg)
                 remaining_budget -= msg.estimated_tokens
+        selected_normal.reverse()
 
         # Merge: pinned first (in original order), then normal
         pinned_set = {id(m) for m in pinned}
+        selected_ids = {id(m) for m in selected_normal}
         result: list[Message] = []
         for msg in all_messages:
-            if id(msg) in pinned_set or msg in selected_normal:
+            if id(msg) in pinned_set or id(msg) in selected_ids:
                 result.append(msg)
 
         # OpenAI-compatible APIs only accept "system", "user", "assistant" roles.
