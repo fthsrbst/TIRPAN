@@ -9,7 +9,6 @@ CVSS enrichment: static table for well-known CVEs + file-header parsing.
 import asyncio
 import json
 import re
-import subprocess
 from pathlib import Path
 
 from models.vulnerability import Vulnerability
@@ -179,23 +178,22 @@ class SearchSploitTool(BaseTool):
 
     async def _run_searchsploit(self, query: str) -> dict:
         """Run searchsploit -j <query> and return the JSON output."""
-        cmd = ["searchsploit", "--json", query]
-
-        loop = asyncio.get_running_loop()
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )),
-            timeout=35,
+        proc = await asyncio.create_subprocess_exec(
+            "searchsploit", "--json", query,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise TimeoutError("searchsploit timed out")
 
-        if not result.stdout.strip():
+        raw = stdout.decode(errors="replace").strip()
+        if not raw:
             return {"RESULTS_EXPLOIT": [], "RESULTS_SHELLCODE": []}
-
-        return json.loads(result.stdout)
+        return json.loads(raw)
 
     @staticmethod
     def _read_exploit_header(path: str) -> tuple[str, float | None]:

@@ -11,6 +11,12 @@ from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 
 logger = logging.getLogger(__name__)
 
+_RE_REGISTRAR    = re.compile(r"Registrar:\s*(.+)", re.IGNORECASE)
+_RE_CREATED      = re.compile(r"Creation Date:\s*(.+)", re.IGNORECASE)
+_RE_EXPIRES      = re.compile(r"(?:Expir\w+ Date|Registry Expiry Date):\s*(.+)", re.IGNORECASE)
+_RE_ORG          = re.compile(r"Registrant Organization:\s*(.+)", re.IGNORECASE)
+_RE_NAME_SERVERS = re.compile(r"Name Server:\s*(.+)", re.IGNORECASE)
+
 
 class WhoisTool(BaseTool):
 
@@ -52,16 +58,17 @@ class WhoisTool(BaseTool):
             "output": {
                 "domain": domain,
                 "raw": raw[:4096],
-                "registrar":    self._extract(raw, r"Registrar:\s*(.+)"),
-                "name_servers": re.findall(r"Name Server:\s*(.+)", raw, re.IGNORECASE),
-                "created":      self._extract(raw, r"Creation Date:\s*(.+)"),
-                "expires":      self._extract(raw, r"(?:Expir\w+ Date|Registry Expiry Date):\s*(.+)"),
-                "org":          self._extract(raw, r"Registrant Organization:\s*(.+)"),
+                "registrar":    self._extract(_RE_REGISTRAR, raw),
+                "name_servers": [m.group(1).strip() for m in _RE_NAME_SERVERS.finditer(raw)],
+                "created":      self._extract(_RE_CREATED, raw),
+                "expires":      self._extract(_RE_EXPIRES, raw),
+                "org":          self._extract(_RE_ORG, raw),
             },
         }
 
-    def _extract(self, text: str, pattern: str) -> str:
-        m = re.search(pattern, text, re.IGNORECASE)
+    @staticmethod
+    def _extract(pattern: re.Pattern, text: str) -> str:
+        m = pattern.search(text)
         return m.group(1).strip() if m else ""
 
     async def health_check(self) -> ToolHealthStatus:
