@@ -18,8 +18,13 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
+from core.pty_manager import PTYManager
 from core.registry_builder import build_tool_registry
 from web.routes import router
+from web.defense_routes import defense_router
+from web.ddos_routes import ddos_router
+from web.v3_routes import router as v3_router
+from web.auth.router import router as auth_router
 from web.websocket_handler import handle_websocket
 from database.db import init_db
 
@@ -34,7 +39,17 @@ def _resolve_cors_origins() -> list[str]:
     if raw == "*":
         unsafe_env = os.getenv("SERVER_UNSAFE_CORS_WILDCARD", "").strip().lower()
         unsafe = unsafe_env in {"1", "true", "yes", "on"}
-        if settings.server.reload or unsafe:
+        if settings.server.reload:
+            _logger.warning(
+                "CORS wildcard ('*') active because reload/dev mode is enabled. "
+                "Set SERVER_RELOAD=false for production."
+            )
+            return ["*"]
+        if unsafe:
+            _logger.warning(
+                "CORS wildcard ('*') enabled via SERVER_UNSAFE_CORS_WILDCARD. "
+                "All origins accepted — do not use in production."
+            )
             return ["*"]
         _logger.warning(
             "SERVER_ALLOWED_ORIGINS='*' ignored in non-dev mode. "
@@ -134,10 +149,41 @@ async def lifespan(app: FastAPI):
     if _or_key:
         settings.llm.api_key = _or_key
 
+    # Load OpenCode Go API key
+    _ocg_key = _re.sub(r"[\s\x00-\x1f\x7f]", "", _load_secret_sync("opencode_go_api_key"))
+    if _ocg_key:
+        settings.opencode_go.api_key = _ocg_key
+
     # Restore cloud model saved via the configure page (not loaded by default on startup)
     _cloud_model = _all_settings.get("cloud_model", "")
     if _cloud_model:
         settings.llm.cloud_model = _cloud_model
+
+    # Restore LM Studio URL/model from DB (env default is 127.0.0.1 which breaks WSL)
+    _lms_url = _all_settings.get("lmstudio_base_url", "")
+    if _lms_url:
+        settings.lmstudio.base_url = _lms_url
+    _lms_model = _all_settings.get("lmstudio_model", "")
+    if _lms_model:
+        settings.lmstudio.model = _lms_model
+
+    # Restore Ollama URL from DB if user changed it from default
+    _ollama_url = _all_settings.get("ollama_base_url", "")
+    if _ollama_url:
+        settings.ollama.base_url = _ollama_url
+    _ollama_model = _all_settings.get("ollama_model", "")
+    if _ollama_model:
+        settings.ollama.model = _ollama_model
+
+    # Restore OpenCode Go model saved via the configure page
+    _ocg_model = _all_settings.get("opencode_go_model", "")
+    if _ocg_model:
+        settings.opencode_go.model = _ocg_model
+
+    # Restore active LLM provider
+    _provider = _all_settings.get("active_provider", "")
+    if _provider in ("ollama", "lmstudio", "openrouter", "opencode_go", "anthropic"):
+        settings.llm.provider = _provider
 
     _msf_pw = _load_secret_sync("msf_password")
     if _msf_pw:
@@ -166,20 +212,49 @@ async def lifespan(app: FastAPI):
     # Cleanup sessions that were left in "running" or "idle" state from a previous crash/restart.
     # "idle" sessions were created but the background task was killed before it could set status
     # to "running" (e.g. server reloaded immediately after a mission was launched).
-    from database.repositories import SessionRepository
+    from database.repositories import SessionRepository, AgentInstanceRepository
     _repo = SessionRepository()
+    _agent_repo = AgentInstanceRepository()
     try:
         _orphans = await _repo.list_all()
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except Exception as exc:
         _logger.warning("Startup orphan-session cleanup skipped (DB unavailable/locked): %s", exc)
         _orphans = []
     for _s in _orphans:
         if _s.get("status") in ("running", "idle"):
             await _repo.update_status(_s["id"], "error", "Server restarted — session interrupted")
+            try:
+                _active_agents = await _agent_repo.get_active(_s["id"])
+            except Exception as exc:
+                _logger.warning("Startup orphan-agent cleanup skipped for %s: %s", _s.get("id"), exc)
+                _active_agents = []
+            for _a in _active_agents:
+                try:
+                    await _agent_repo.update_status(
+                        agent_id=_a.get("id", ""),
+                        status="failed",
+                        error="Server restarted — session interrupted",
+                    )
+                except Exception as exc:
+                    _logger.warning("Startup orphan-agent update skipped for %s: %s", _a.get("id", "?"), exc)
 
     # Bootstrap shared tool registry
     from web import app_state
     app_state.tool_registry = build_tool_registry(include_extended=True, load_plugins=True)
+    app_state.pty_manager = PTYManager(idle_timeout_seconds=900, max_sessions=8)
+
+    async def _pty_idle_worker() -> None:
+        while True:
+            await asyncio.sleep(30)
+            try:
+                if app_state.pty_manager is not None:
+                    await app_state.pty_manager.close_idle()
+            except Exception as exc:
+                _logger.debug("PTY idle cleanup skipped: %s", exc)
+
+    _pty_idle_task = asyncio.create_task(_pty_idle_worker())
 
     # Import specialized agents so they self-register into BrainAgent registry
     import core.agents.scanner_agent      # noqa: F401
@@ -190,6 +265,22 @@ async def lifespan(app: FastAPI):
     import core.agents.lateral_agent      # noqa: F401
     import core.agents.reporting_agent    # noqa: F401
     yield
+
+    # ── Shutdown: close PTY sessions and worker ─────────────────────────────
+    if _pty_idle_task is not None:
+        _pty_idle_task.cancel()
+        try:
+            await _pty_idle_task
+        except asyncio.CancelledError:
+            pass
+
+    try:
+        if app_state.pty_manager is not None:
+            await app_state.pty_manager.close_all()
+    except Exception as exc:
+        _logger.debug("PTY shutdown cleanup skipped: %s", exc)
+    finally:
+        app_state.pty_manager = None
 
     # ── Shutdown: stop msfrpcd if we launched it ──────────────────────────────
     if _msfrpcd_proc is not None:
@@ -219,20 +310,48 @@ def create_app() -> FastAPI:
         logging.getLogger("tirpan.validation").error(
             "422 on %s: %s", request.url.path, exc.errors()
         )
-        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+        # Serialize errors safely — replace non-serializable objects with their string repr
+        safe_errors = []
+        for e in exc.errors():
+            se = {k: (str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v) for k, v in e.items()}
+            safe_errors.append(se)
+        return JSONResponse(status_code=422, content={"detail": safe_errors})
 
     application.add_middleware(
         CORSMiddleware,
         allow_origins=_resolve_cors_origins(),
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    application.include_router(auth_router)
     application.include_router(router)
+    application.include_router(defense_router)
+    application.include_router(ddos_router)
+    application.include_router(v3_router)
 
     @application.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         await handle_websocket(websocket)
+
+    from starlette.responses import RedirectResponse
+
+    @application.get("/normal")
+    async def normal_mode_redirect():
+        return RedirectResponse(url="/normal/")
+
+    normal_dir = settings.static_dir / "normal"
+
+    @application.get("/normal/{full_path:path}")
+    async def normal_spa_fallback(full_path: str):
+        _resolved_base = normal_dir.resolve()
+        file_path = (_resolved_base / full_path).resolve()
+        if not file_path.is_relative_to(_resolved_base):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(normal_dir / "index.html")
 
     application.mount(
         "/",

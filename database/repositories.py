@@ -67,18 +67,67 @@ class SessionRepository:
         target: str,
         mode: str = "scan_only",
         session_id: str | None = None,
+        created_by: str | None = None,
+        assigned_to: str | None = None,
     ) -> dict:
         sid = session_id or _uid()
         now = _now()
         async with _connect(self._path) as db:
             await db.execute(
                 """INSERT INTO pentest_sessions
-                   (id, target, mode, status, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?)""",
-                (sid, target, mode, "idle", now, now),
+                   (id, target, mode, status, created_at, updated_at, created_by, assigned_to)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (sid, target, mode, "idle", now, now, created_by, assigned_to),
             )
             await db.commit()
         return await self.get(sid)
+
+    async def assign(self, session_id: str, user_id: str | None) -> bool:
+        """Assign (or unassign) a session to a user."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE pentest_sessions SET assigned_to=?, updated_at=? WHERE id=?",
+                (user_id, _now(), session_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def list_for_user(
+        self,
+        user_id: str,
+        role: str,
+        limit: int = 50,
+    ) -> list[dict]:
+        """
+        Role-based session listing:
+        - owner / admin : tüm session'lar
+        - analyst       : kendi oluşturduğu veya kendine atananlar
+        - viewer        : kendine atanan session'lar (assigned_to = user_id)
+        """
+        async with _connect(self._path) as db:
+            if role in ("owner", "admin"):
+                async with db.execute(
+                    "SELECT * FROM pentest_sessions ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ) as cur:
+                    rows = await cur.fetchall()
+            elif role == "analyst":
+                async with db.execute(
+                    """SELECT * FROM pentest_sessions
+                       WHERE created_by=? OR assigned_to=?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (user_id, user_id, limit),
+                ) as cur:
+                    rows = await cur.fetchall()
+            else:  # viewer
+                async with db.execute(
+                    """SELECT * FROM pentest_sessions
+                       WHERE assigned_to=?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (user_id, limit),
+                ) as cur:
+                    rows = await cur.fetchall()
+        return [dict(r) for r in rows]
 
     async def get(self, session_id: str) -> dict | None:
         async with _connect(self._path) as db, db.execute(
@@ -907,3 +956,711 @@ class MissionContextRepository:
             return json.loads(row[0])
         except Exception:
             return None
+
+
+# ── DefenseSessionRepository ───────────────────────────────────────────────────
+
+class DefenseSessionRepository:
+    """CRUD for defense_sessions table."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        network: str,
+        name: str = "",
+        mode: str = "manual",
+        session_id: str | None = None,
+    ) -> dict:
+        sid = session_id or _uid()
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO defense_sessions
+                   (id, name, network, mode, status, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (sid, name or f"Defense-{network}", network, mode, "idle", now),
+            )
+            await db.commit()
+        return await self.get(sid)
+
+    async def get(self, session_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM defense_sessions WHERE id=?", (session_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_all(self, limit: int = 50) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM defense_sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def update_status(
+        self, session_id: str, status: str,
+        started_at: float | None = None,
+        stopped_at: float | None = None,
+    ) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                """UPDATE defense_sessions
+                   SET status=?, started_at=COALESCE(?,started_at),
+                       stopped_at=COALESCE(?,stopped_at)
+                   WHERE id=?""",
+                (status, started_at, stopped_at, session_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_mode(self, session_id: str, mode: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_sessions SET mode=? WHERE id=?",
+                (mode, session_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def delete(self, session_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute("DELETE FROM defense_sessions WHERE id=?", (session_id,))
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── DefenseAlertRepository ─────────────────────────────────────────────────────
+
+class DefenseAlertRepository:
+    """CRUD for defense_alerts table."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        defense_sid: str,
+        alert_type: str,
+        severity: str,
+        src_ip: str | None = None,
+        dst_ip: str | None = None,
+        dst_port: int | None = None,
+        protocol: str | None = None,
+        details: dict | None = None,
+        mitre_tactic: str | None = None,
+        mitre_technique: str | None = None,
+    ) -> dict:
+        aid = _uid()
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO defense_alerts
+                   (id, defense_sid, alert_type, severity, src_ip, dst_ip,
+                    dst_port, protocol, details, status, mitre_tactic,
+                    mitre_technique, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    aid, defense_sid, alert_type, severity,
+                    src_ip, dst_ip, dst_port, protocol,
+                    json.dumps(details or {}),
+                    "open", mitre_tactic, mitre_technique, now,
+                ),
+            )
+            await db.commit()
+        row = await self.get(aid)
+        return row
+
+    async def get(self, alert_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM defense_alerts WHERE id=?", (alert_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        r = dict(row)
+        r["details"] = json.loads(r.get("details") or "{}")
+        return r
+
+    async def list_for_session(
+        self, defense_sid: str, limit: int = 200, severity: str | None = None
+    ) -> list[dict]:
+        if severity:
+            query = ("SELECT * FROM defense_alerts WHERE defense_sid=? AND severity=? "
+                     "ORDER BY created_at DESC LIMIT ?")
+            params = (defense_sid, severity, limit)
+        else:
+            query = ("SELECT * FROM defense_alerts WHERE defense_sid=? "
+                     "ORDER BY created_at DESC LIMIT ?")
+            params = (defense_sid, limit)
+        async with _connect(self._path) as db, db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["details"] = json.loads(d.get("details") or "{}")
+            result.append(d)
+        return result
+
+    async def update_status(self, alert_id: str, status: str) -> bool:
+        resolved_at = _now() if status == "resolved" else None
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_alerts SET status=?, resolved_at=COALESCE(?,resolved_at) WHERE id=?",
+                (status, resolved_at, alert_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_mitre(
+        self, alert_id: str, mitre_tactic: str, mitre_technique: str
+    ) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_alerts SET mitre_tactic=?, mitre_technique=? WHERE id=?",
+                (mitre_tactic, mitre_technique, alert_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── UserRepository ─────────────────────────────────────────────────────────────
+# users table schema (migration v11):
+#   id, email, full_name, hashed_password, role, is_active, is_verified,
+#   created_at, last_login, org_id, avatar_color, failed_login_attempts, locked_until
+
+class UserRepository:
+    """CRUD for the users table."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        email: str,
+        full_name: str,
+        hashed_password: str,
+        role: str = "viewer",
+        org_id: str | None = None,
+    ) -> dict:
+        uid = _uid()
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO users
+                   (id, email, full_name, hashed_password, role, is_active, is_verified, created_at, org_id)
+                   VALUES (?,?,?,?,?,1,1,?,?)""",
+                (uid, email.lower(), full_name, hashed_password, role, now, org_id),
+            )
+            await db.commit()
+        return await self.get_by_id(uid)
+
+    async def get_by_id(self, user_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM users WHERE id=?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def get_by_email(self, email: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM users WHERE email=?", (email.lower(),)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_all(self) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM users ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def list_by_org(self, org_id: str) -> list[dict]:
+        """Return all users belonging to the given organization."""
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM users WHERE org_id=? ORDER BY created_at DESC", (org_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def update_role(self, user_id: str, role: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET role=? WHERE id=?",
+                (role, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_active(self, user_id: str, is_active: bool) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET is_active=? WHERE id=?",
+                (1 if is_active else 0, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_last_login(self, user_id: str) -> None:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET last_login=? WHERE id=?",
+                (_now(), user_id),
+            )
+            await db.commit()
+
+    async def email_exists(self, email: str) -> bool:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT 1 FROM users WHERE email=?", (email.lower(),)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    async def set_org(self, user_id: str, org_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET org_id=? WHERE id=?",
+                (org_id, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── OrganizationRepository ─────────────────────────────────────────────────────
+
+class OrganizationRepository:
+    """CRUD for the organizations table."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    def _slugify(self, name: str) -> str:
+        import re
+        slug = name.lower().strip()
+        slug = re.sub(r"[^\w\s-]", "", slug)
+        slug = re.sub(r"[\s_-]+", "-", slug)
+        return slug[:64]
+
+    async def create(
+        self,
+        name: str,
+        owner_id: str,
+        plan: str = "free",
+        allowed_email_domain: str = "",
+    ) -> dict:
+        oid = _uid()
+        now = _now()
+        base_slug = self._slugify(name)
+        slug = base_slug
+        # Ensure slug uniqueness by appending counter when needed
+        counter = 1
+        while True:
+            async with _connect(self._path) as db, db.execute(
+                "SELECT 1 FROM organizations WHERE slug=?", (slug,)
+            ) as cur:
+                exists = await cur.fetchone()
+            if not exists:
+                break
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO organizations (id, name, slug, plan, owner_id, allowed_email_domain, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (oid, name, slug, plan, owner_id, allowed_email_domain.lower(), now),
+            )
+            await db.commit()
+        return await self.get(oid)
+
+    async def get(self, org_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM organizations WHERE id=?", (org_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def get_by_slug(self, slug: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM organizations WHERE slug=?", (slug,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def update(
+        self,
+        org_id: str,
+        name: str | None = None,
+        allowed_email_domain: str | None = None,
+        owner_id: str | None = None,
+    ) -> bool:
+        fields: list[str] = []
+        params: list = []
+        if name is not None:
+            fields.append("name=?")
+            params.append(name)
+        if allowed_email_domain is not None:
+            fields.append("allowed_email_domain=?")
+            params.append(allowed_email_domain.lower())
+        if owner_id is not None:
+            fields.append("owner_id=?")
+            params.append(owner_id)
+        if not fields:
+            return False
+        params.append(org_id)
+        async with _connect(self._path) as db:
+            await db.execute(
+                f"UPDATE organizations SET {', '.join(fields)} WHERE id=?", params
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── InvitationRepository ───────────────────────────────────────────────────────
+
+class InvitationRepository:
+    """CRUD for org_invitations."""
+
+    _DEFAULT_EXPIRE_HOURS = 72
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    def _generate_token(self) -> str:
+        import secrets
+        return secrets.token_urlsafe(32)
+
+    async def create(
+        self,
+        org_id: str,
+        invited_by: str,
+        role: str = "viewer",
+        email: str = "",
+        expire_hours: int = _DEFAULT_EXPIRE_HOURS,
+    ) -> dict:
+        iid = _uid()
+        token = self._generate_token()
+        now = _now()
+        expires_at = now + expire_hours * 3600
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO org_invitations
+                   (id, token, org_id, role, invited_by, email, expires_at, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (iid, token, org_id, role, invited_by, email.lower(), expires_at, now),
+            )
+            await db.commit()
+        return await self.get_by_id(iid)
+
+    async def get_by_id(self, invite_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM org_invitations WHERE id=?", (invite_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def get_by_token(self, token: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM org_invitations WHERE token=?", (token,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_for_org(self, org_id: str) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM org_invitations WHERE org_id=? ORDER BY created_at DESC",
+            (org_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def mark_used(self, token: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE org_invitations SET used_at=? WHERE token=?",
+                (_now(), token),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def revoke(self, invite_id: str) -> bool:
+        """Revoke (delete) an unused invitation."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "DELETE FROM org_invitations WHERE id=? AND used_at IS NULL",
+                (invite_id,),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── DefenseBlockRepository ─────────────────────────────────────────────────────
+
+class DefenseBlockRepository:
+    """CRUD for defense_blocks table."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        defense_sid: str,
+        block_type: str,
+        target_ip: str,
+        reason: str,
+        target_port: int | None = None,
+        rule_id: str | None = None,
+        alert_id: str | None = None,
+    ) -> dict:
+        bid = _uid()
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO defense_blocks
+                   (id, defense_sid, block_type, target_ip, target_port,
+                    rule_id, reason, alert_id, active, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (bid, defense_sid, block_type, target_ip, target_port,
+                 rule_id, reason, alert_id, 1, now),
+            )
+            await db.commit()
+        return await self.get(bid)
+
+    async def get(self, block_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM defense_blocks WHERE id=?", (block_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_for_session(
+        self, defense_sid: str, active_only: bool = False
+    ) -> list[dict]:
+        if active_only:
+            query = ("SELECT * FROM defense_blocks WHERE defense_sid=? AND active=1 "
+                     "ORDER BY created_at DESC")
+        else:
+            query = ("SELECT * FROM defense_blocks WHERE defense_sid=? "
+                     "ORDER BY created_at DESC")
+        async with _connect(self._path) as db, db.execute(query, (defense_sid,)) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def deactivate(self, block_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_blocks SET active=0, removed_at=? WHERE id=?",
+                (_now(), block_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── DefenseDeceptionRepository ─────────────────────────────────────────────────
+
+class DefenseDeceptionRepository:
+    """CRUD for defense_deceptions table."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        defense_sid: str,
+        deception_type: str,
+        target_ip: str | None = None,
+        bind_port: int | None = None,
+        fake_service: str | None = None,
+        details: dict | None = None,
+    ) -> dict:
+        did = _uid()
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO defense_deceptions
+                   (id, defense_sid, deception_type, target_ip, bind_port,
+                    fake_service, details, triggered, status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (did, defense_sid, deception_type, target_ip, bind_port,
+                 fake_service, json.dumps(details or {}), 0, "active", now),
+            )
+            await db.commit()
+        return await self.get(did)
+
+    async def get(self, deception_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM defense_deceptions WHERE id=?", (deception_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["details"] = json.loads(d.get("details") or "{}")
+        return d
+
+    async def list_for_session(self, defense_sid: str) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM defense_deceptions WHERE defense_sid=? ORDER BY created_at DESC",
+            (defense_sid,),
+        ) as cur:
+            rows = await cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["details"] = json.loads(d.get("details") or "{}")
+            result.append(d)
+        return result
+
+    async def increment_triggered(self, deception_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_deceptions SET triggered=triggered+1, status='triggered' WHERE id=?",
+                (deception_id,),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def remove(self, deception_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE defense_deceptions SET status='removed', removed_at=? WHERE id=?",
+                (_now(), deception_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── AttackerProfileRepository ──────────────────────────────────────────────────
+
+class AttackerProfileRepository:
+    """CRUD for attacker_profiles table (one row per src_ip per defense session)."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def upsert(
+        self,
+        defense_sid: str,
+        src_ip: str,
+        ttps: list[str] | None = None,
+        known_ports: list | None = None,
+        known_hosts: list[str] | None = None,
+        deceived_with: list | None = None,
+        actor_guess: str | None = None,
+        actor_conf: float | None = None,
+        next_move: str | None = None,
+        next_move_conf: float | None = None,
+    ) -> dict:
+        now = _now()
+        existing = await self.get_by_ip(defense_sid, src_ip)
+        if existing:
+            # Merge lists, overwrite scalars only if new value provided
+            merged_ttps = list(set(existing.get("ttps", []) + (ttps or [])))
+            merged_ports = list(set(
+                [str(p) for p in existing.get("known_ports", [])] +
+                [str(p) for p in (known_ports or [])]
+            ))
+            merged_hosts = list(set(existing.get("known_hosts", []) + (known_hosts or [])))
+            merged_dec = list(set(existing.get("deceived_with", []) + (deceived_with or [])))
+            async with _connect(self._path) as db:
+                await db.execute(
+                    """UPDATE attacker_profiles
+                       SET ttps=?, known_ports=?, known_hosts=?, deceived_with=?,
+                           actor_guess=COALESCE(?,actor_guess),
+                           actor_conf=COALESCE(?,actor_conf),
+                           next_move=COALESCE(?,next_move),
+                           next_move_conf=COALESCE(?,next_move_conf),
+                           last_seen=?
+                       WHERE defense_sid=? AND src_ip=?""",
+                    (
+                        json.dumps(merged_ttps), json.dumps(merged_ports),
+                        json.dumps(merged_hosts), json.dumps(merged_dec),
+                        actor_guess, actor_conf, next_move, next_move_conf,
+                        now, defense_sid, src_ip,
+                    ),
+                )
+                await db.commit()
+        else:
+            pid = _uid()
+            async with _connect(self._path) as db:
+                await db.execute(
+                    """INSERT INTO attacker_profiles
+                       (id, defense_sid, src_ip, ttps, known_ports, known_hosts,
+                        deceived_with, actor_guess, actor_conf, next_move,
+                        next_move_conf, last_seen, created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        pid, defense_sid, src_ip,
+                        json.dumps(ttps or []), json.dumps(known_ports or []),
+                        json.dumps(known_hosts or []), json.dumps(deceived_with or []),
+                        actor_guess, actor_conf or 0.0,
+                        next_move, next_move_conf or 0.0,
+                        now, now,
+                    ),
+                )
+                await db.commit()
+        return await self.get_by_ip(defense_sid, src_ip)
+
+    def _decode(self, row: dict) -> dict:
+        for field in ("ttps", "known_ports", "known_hosts", "deceived_with"):
+            row[field] = json.loads(row.get(field) or "[]")
+        return row
+
+    async def get_by_ip(self, defense_sid: str, src_ip: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM attacker_profiles WHERE defense_sid=? AND src_ip=?",
+            (defense_sid, src_ip),
+        ) as cur:
+            row = await cur.fetchone()
+        return self._decode(dict(row)) if row else None
+
+    async def list_for_session(self, defense_sid: str) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM attacker_profiles WHERE defense_sid=? ORDER BY last_seen DESC",
+            (defense_sid,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [self._decode(dict(r)) for r in rows]
+
+
+# ── DefenseEventRepository ─────────────────────────────────────────────────────
+
+class DefenseEventRepository:
+    """Append-only store for defense agent event stream."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def append(self, defense_sid: str, event_type: str, payload: dict) -> dict:
+        eid = _uid()
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO defense_events (id, defense_sid, event_type, payload, created_at)
+                   VALUES (?,?,?,?,?)""",
+                (eid, defense_sid, event_type, json.dumps(payload), now),
+            )
+            await db.commit()
+        return {"id": eid, "defense_sid": defense_sid, "event_type": event_type,
+                "payload": payload, "created_at": now}
+
+    async def list_for_session(
+        self, defense_sid: str, since: float | None = None, limit: int = 500
+    ) -> list[dict]:
+        if since is not None:
+            query = ("SELECT * FROM defense_events WHERE defense_sid=? AND created_at>? "
+                     "ORDER BY created_at ASC LIMIT ?")
+            params = (defense_sid, since, limit)
+        else:
+            query = ("SELECT * FROM defense_events WHERE defense_sid=? "
+                     "ORDER BY created_at ASC LIMIT ?")
+            params = (defense_sid, limit)
+        async with _connect(self._path) as db, db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["payload"] = json.loads(d.get("payload") or "{}")
+            result.append(d)
+        return result

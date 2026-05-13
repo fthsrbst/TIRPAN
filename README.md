@@ -65,22 +65,27 @@ Every step is visible in the web UI in real time. Every action is logged for aud
 
 ---
 
-## Current Capabilities (V1)
+## Current Capabilities (V1 + V2 beta)
 
 | Capability | Detail |
 |------------|--------|
-| Network discovery | Ping sweep across any CIDR range |
-| Service enumeration | Full port scan with version and OS detection, NSE scripting |
-| Exploit search | SearchSploit / ExploitDB queries per discovered service and version |
-| Exploitation | Metasploit RPC and msfconsole fallback; auto payload selection; parallel exploit batches |
-| Post-exploitation | Inline post-commands, persistent SSH sessions, bind and reverse shells, script upload and execution |
-| Reporting | HTML and PDF reports with CVSS v3.1 scoring per finding |
-| Real-time UI | WebSocket-based streaming of every agent thought, action, and result |
-| Knowledge base | Cross-session memory of which exploits succeeded against which service versions |
-| Audit logging | Append-only log of every action with timestamp, target, and outcome |
-| Kill switch | Immediate halt of all operations with one click or signal |
+| Network discovery | Nmap-based discovery + optional Masscan fast sweep |
+| Service enumeration | Port/service/version detection, NSE scripting, SMB enum helpers |
+| Exploit search | SearchSploit/ExploitDB queries per service/version |
+| Exploitation | Metasploit RPC or msfconsole fallback, rsh/distcc/webdav helpers |
+| Web testing (V2) | WhatWeb, Nikto, Nuclei, ffuf/gobuster, Arjun, sqlmap, WPScan, Commix |
+| OSINT (V2) | theHarvester, subfinder, WHOIS, DNS enumeration |
+| Post-exploitation | `ssh_exec` + `shell_exec` (bind/reverse/ssh), optional file read | 
+| Lateral movement (V2) | CrackMapExec/Impacket helpers (when installed) |
+| Reporting | HTML/PDF reports (plus JSON/markdown via reporting tool) |
+| Real-time UI | WebSocket streaming of agent reasoning, tool calls, and results |
+| Knowledge base | Per-service exploit success memory + audit log |
+| Safety | 10 guardrails + never-scan list + kill switch |
+| Defense module | Blue-team monitor with detector engine and response tools |
 
-**Tools registered at runtime:** `nmap_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`
+**Core tools registered at runtime:** `nmap_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`, `local_exec`
+
+**Extended tools (if binaries are installed):** masscan, nuclei, ffuf, whatweb, nikto, theHarvester, subfinder, whois, dns, crackmapexec, impacket, sqlmap, wpscan, commix, gobuster, arjun, hashcat, john, hydra, and more. Use `/api/v1/tools/status` to see what's available in your environment.
 
 ---
 
@@ -125,8 +130,10 @@ Every step is visible in the web UI in real time. Every action is logged for aud
 +----------------------------------------------------------+
 ```
 
-**Design principle: small core, large plugin surface.**
-The ReAct loop, safety layer, and LLM client are stable. Every attack capability is a plugin.
+**Design principle: small core, large tool surface.**
+The ReAct loop, safety layer, and LLM client are stable. Core + extended tools live in `tools/` and can be augmented with `plugins/`.
+
+V2 adds a Brain agent, a mission context shared across agents, and specialized agents (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting). See [docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md).
 
 ---
 
@@ -148,14 +155,14 @@ pip install -r requirements.txt
 cp .env.example .env
 # Set OPENROUTER_API_KEY for cloud LLM, or configure OLLAMA_MODEL for local inference
 
-# Start Metasploit RPC (required for exploitation; skip for scan-only mode)
+# Start Metasploit RPC (required for exploitation; scan-only mode can skip)
 msfrpcd -P your_password -S
 
-# Launch web UI
+# Launch web UI (supports V1 and V2)
 python3 main.py
 # Open http://localhost:8000
 
-# Or run headless from the terminal
+# Or run headless from the terminal (V1 single-agent)
 python3 main.py run --target 192.168.1.0/24 --mode full_auto --scope 192.168.1.0/24
 ```
 
@@ -173,7 +180,7 @@ python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Netwo
 
 ## CLI Reference
 
-TIRPAN operates in two modes: **web UI** (default) and **terminal** (headless).
+TIRPAN operates in two modes: **web UI** (default, supports V1 and V2) and **terminal** (V1 headless).
 
 ### Web UI
 
@@ -229,16 +236,18 @@ TIRPAN enforces ten configurable safety constraints on every action. These canno
 
 | Guardrail | Default | Description |
 |-----------|---------|-------------|
-| `target_scope` | required | CIDR boundary — agent cannot target IPs outside this range |
-| `allow_exploits` | `true` | Set `false` for reconnaissance-only mode |
-| `no_dos` | `true` | Blocks all denial-of-service exploit categories |
-| `no_destructive` | `true` | Blocks exploits that modify or delete data |
-| `max_exploit_severity` | `critical` | CVSS ceiling — will not attempt exploits above this level |
-| `max_duration_seconds` | `7200` | Automatic stop after N seconds |
+| `allowed_cidr` | `0.0.0.0/0` | CIDR boundary — agent cannot target IPs outside this range |
+| `allow_exploit` | `true` | Set `false` for reconnaissance-only mode |
+| `block_dos_exploits` | `true` | Blocks denial-of-service exploit categories |
+| `block_destructive` | `true` | Blocks destructive modules (wipe/encrypt) |
+| `max_cvss_score` | `10.0` | CVSS ceiling for exploit attempts |
+| `session_max_seconds` | `0` | Auto-stop after N seconds (0 = unlimited) |
 | `max_requests_per_second` | `50` | Rate limit to prevent network disruption |
 | `excluded_ips` | `[]` | IPs that are always skipped |
 | `excluded_ports` | `[]` | Ports that are always skipped |
-| `port_scope` | `1-65535` | Constrain scanning to a specific port range |
+| `allowed_port_min/max` | `1-65535` | Constrain scanning to a specific port range |
+
+**Never-scan list:** A hard block list loaded from the DB plus per-session exclusions. Violations are logged as CRITICAL and always blocked.
 
 ---
 
@@ -258,6 +267,9 @@ For structured engagements, TIRPAN accepts a `MissionBrief` configuration that c
   "allow_exploitation": true,
   "allow_post_exploitation": true,
   "allow_lateral_movement": false,
+  "allow_persistence": false,
+  "allow_credential_harvest": false,
+  "allow_data_exfil": false,
   "excluded_targets": ["10.0.0.1", "10.0.0.254"]
 }
 ```
@@ -291,7 +303,7 @@ TIRPAN is built in three phases. V1 is the network-level foundation — everythi
 - Speed profiles: stealth / normal / aggressive
 - Plugin architecture (infrastructure ready)
 
-### V2 — Full Attack Lifecycle (planned)
+### V2 — Multi-Agent Attack Lifecycle (beta)
 
 **Passive Reconnaissance**
 - OSINT: theHarvester, subfinder, amass, crt.sh certificate transparency, Shodan, WHOIS
@@ -364,7 +376,7 @@ TIRPAN is built in three phases. V1 is the network-level foundation — everythi
 
 ## Writing a Plugin
 
-Any new attack capability is a plugin. Three files are required; core code is never touched.
+Plugins are optional add-ons. Core and extended tools live in `tools/`, while custom integrations can be added in `plugins/` without touching core code.
 
 **Python class plugin** (complex logic):
 

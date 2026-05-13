@@ -1,11 +1,11 @@
 import time
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class Session(BaseModel):
-    id: str
-    target: str
+    id: str = Field(min_length=1)
+    target: str = Field(min_length=1)
     mode: str = "scan_only"        # "full_auto" | "ask_before_exploit" | "scan_only"
     status: str = "idle"           # "idle" | "running" | "paused" | "done" | "error"
     created_at: float = 0.0
@@ -20,7 +20,7 @@ class Session(BaseModel):
     @field_validator("mode")
     @classmethod
     def validate_mode(cls, v: str) -> str:
-        allowed = {"full_auto", "ask_before_exploit", "scan_only", "v2_auto"}
+        allowed = {"full_auto", "ask_before_exploit", "scan_only", "v2_auto", "v3_auto"}
         if v not in allowed:
             raise ValueError(f"mode must be one of {allowed}")
         return v

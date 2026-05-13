@@ -47,6 +47,10 @@ class AgentAction:
     timestamp: float = field(default_factory=time.time)
     extra: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.target_port < 0:
+            self.target_port = 0
+
 
 class SafetyGuard:
     """

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _SERVICE = "TIRPAN"
 
 # Keys that should NEVER be stored in plain-text SQLite
-SENSITIVE_KEYS: frozenset[str] = frozenset({"openrouter_api_key", "msf_password"})
+SENSITIVE_KEYS: frozenset[str] = frozenset({"openrouter_api_key", "opencode_go_api_key", "msf_password"})
 
 
 def _kr():

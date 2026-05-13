@@ -48,12 +48,16 @@ import uuid
 from typing import Any
 
 from core.base_agent import AgentResult, AgentState, BaseAgent
+from core.agent_model_config import normalize_agent_models
 from core.message_bus import AgentMessage, AgentMessageBus, MessageType
 from core.soul_loader import SoulLoader
 from core.playbook import get_playbook
 from core.training_data import get_collector as _get_training_collector
 import core.debug_logger as dbg
 from core.session_tracer import get_tracer as _get_tracer
+from database.repositories import AgentInstanceRepository as _AgentInstanceRepo
+
+_agent_instance_repo = _AgentInstanceRepo()
 from core.mission_context import (
     AgentStatus,
     AttackEdge,
@@ -82,6 +86,23 @@ _AGENT_REGISTRY: dict[str, tuple[str, str]] = {
     "osint":        ("core.agents.osint_agent",      "OSINTAgent"),
     "lateral":      ("core.agents.lateral_agent",    "LateralMovementAgent"),
     "reporting":    ("core.agents.reporting_agent",  "ReportingAgent"),
+}
+
+_AGENT_TYPE_TO_MODEL_KEY: dict[str, str] = {
+    "scanner": "scanner",
+    "exploit": "exploit",
+    "webapp": "webapp",
+    "post_exploit": "postexploit",
+    "lateral": "lateral",
+    "osint": "osint",
+    "reporting": "reporting",
+}
+
+_LEGACY_CHILD_MODEL_FALLBACK: dict[str, tuple[str, ...]] = {
+    "exploit": ("scanner",),
+    "webapp": ("scanner",),
+    "lateral": ("osint",),
+    "post_exploit": ("post_exploit",),
 }
 
 
@@ -125,6 +146,8 @@ class BrainAgent(BaseAgent):
         message_bus: AgentMessageBus,
         # Optional dict of agent-type → constructor kwargs overrides
         agent_constructor_kwargs: dict[str, dict] | None = None,
+        # Per-agent model overrides: agent_type → {provider, model}
+        agent_models: dict | None = None,
         **base_kwargs,
     ):
         # Force agent_type = "brain"
@@ -134,6 +157,7 @@ class BrainAgent(BaseAgent):
         self.ctx = mission_context
         self.bus = message_bus
         self._agent_ctor_kwargs = agent_constructor_kwargs or {}
+        self._agent_models: dict = normalize_agent_models(agent_models or {})
 
         # Track spawned child agents: agent_id → asyncio.Task
         self._child_tasks: dict[str, asyncio.Task] = {}
@@ -178,11 +202,29 @@ class BrainAgent(BaseAgent):
         system = self._build_system_prompt()
         msgs: list[dict] = [{"role": "system", "content": system}]
         if not self.memory._messages:
+            scope = [str(s).strip() for s in getattr(self.ctx, "scope", []) if str(s).strip()]
+            scope_text = ", ".join(scope) if scope else "(scope not provided)"
             # First iteration — LLMs require at least one user message
-            msgs.append({"role": "user", "content":
-                f"Mission target: {self.ctx.target}. Begin the engagement now. "
-                f"Spawn the appropriate first agent."
-            })
+            if getattr(self.ctx, "auto_targeting", False):
+                msgs.append({
+                    "role": "user",
+                    "content": (
+                        "No explicit target was provided by the operator. "
+                        f"Mission scope: {scope_text}. "
+                        "Act like a professional pentester: discover every reachable host in scope, "
+                        "enumerate services/versions, identify vulnerabilities for each system, and "
+                        "produce complete evidence-driven reporting. "
+                        "Begin by spawning scanner agents for the full scope."
+                    ),
+                })
+            else:
+                msgs.append({
+                    "role": "user",
+                    "content": (
+                        f"Mission target: {self.ctx.target}. Begin the engagement now. "
+                        "Spawn the appropriate first agent."
+                    ),
+                })
         else:
             # Use build_context() for proper role mapping (tool_result → user)
             # and token budget enforcement
@@ -233,13 +275,45 @@ class BrainAgent(BaseAgent):
 
     def _cancel_all_children(self, reason: str) -> int:
         """Cancel all running child agents immediately."""
+        def _schedule(coro_factory) -> None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            loop.create_task(coro_factory())
+
         cancelled = 0
         for aid, task in list(self._child_tasks.items()):
             if task.done():
                 continue
+            atype = self._active_agents.get(aid, "")
             task.cancel()
             cancelled += 1
             self.emit_event("agent_killed", {"agent_id": aid, "reason": reason})
+            # Resolve any pending wait_for_agents join immediately.
+            _schedule(lambda: self.bus.send(AgentMessage(
+                msg_type=MessageType.AGENT_ERROR,
+                sender_id=aid,
+                payload={
+                    "agent_id": aid,
+                    "agent_type": atype,
+                    "status": "cancelled",
+                    "findings": [],
+                    "iterations": 0,
+                    "error": f"cancelled: {reason}",
+                },
+            )))
+
+            # Best-effort DB status update for UI consistency.
+            if self.session_id:
+                async def _mark_cancelled(agent_id: str, cancel_reason: str) -> None:
+                    with contextlib.suppress(Exception):
+                        await _agent_instance_repo.update_status(
+                            agent_id=agent_id,
+                            status="failed",
+                            error=f"cancelled: {cancel_reason}",
+                        )
+                _schedule(lambda: _mark_cancelled(aid, reason))
         if cancelled:
             self.emit_event("stop_propagation", {
                 "reason": reason,
@@ -531,6 +605,28 @@ class BrainAgent(BaseAgent):
         }
         mem_defaults = _AGENT_MEMORY.get(agent_type, {"memory_max_tokens": 16384, "memory_max_messages": 30})
 
+        # Resolve per-agent LLM — use explicit override if configured.
+        # By default children use the global active router (not Brain's forced override).
+        from core.llm_client import make_agent_llm
+        child_llm = make_agent_llm("", "")
+        _model_cfg = None
+        _model_key = _AGENT_TYPE_TO_MODEL_KEY.get(agent_type, agent_type)
+        if _model_key in self._agent_models:
+            _model_cfg = self._agent_models[_model_key]
+        elif agent_type in self._agent_models:
+            # Safety net for non-canonical direct keys.
+            _model_cfg = self._agent_models[agent_type]
+        else:
+            for legacy_key in _LEGACY_CHILD_MODEL_FALLBACK.get(agent_type, ()):
+                if legacy_key in self._agent_models:
+                    _model_cfg = self._agent_models[legacy_key]
+                    break
+        if _model_cfg and (_model_cfg.get("provider") or _model_cfg.get("model")):
+            child_llm = make_agent_llm(
+                _model_cfg.get("provider", ""),
+                _model_cfg.get("model", ""),
+            )
+
         # Build constructor kwargs for the child agent
         child_kwargs = {
             "agent_type":         agent_type,
@@ -538,7 +634,7 @@ class BrainAgent(BaseAgent):
             "mission_id":         self.mission_id,
             "tool_registry":      self._registry,
             "safety":             self._safety,
-            "llm":                self._llm,
+            "llm":                child_llm,
             "progress_callback":  self._progress_cb,
             "audit_repo":         self._audit_repo,
             "session_id":         self.session_id,
@@ -590,6 +686,18 @@ class BrainAgent(BaseAgent):
         })
         dbg.agent_spawn(self.agent_id, agent_id, agent_type, target)
         logger.info("BrainAgent: spawned %s (id=%s) for %s", agent_type, agent_id, target)
+
+        # Persist to DB so the Agent page can display this agent
+        if self.session_id:
+            try:
+                await _agent_instance_repo.create(
+                    session_id=self.session_id,
+                    agent_id=agent_id,
+                    agent_type=agent_type,
+                    target=target,
+                )
+            except Exception:
+                pass  # non-critical — don't break spawn if DB write fails
 
         spawn_result = {
             "success": True,
@@ -682,6 +790,11 @@ class BrainAgent(BaseAgent):
         await self.ctx.update_agent_status(AgentStatus(
             agent_id=agent_id, agent_type=agent_type, status="running"
         ))
+        if self.session_id:
+            try:
+                await _agent_instance_repo.update_status(agent_id=agent_id, status="running")
+            except Exception:
+                pass
         try:
             result: AgentResult = await agent.run()
         except Exception as exc:
@@ -712,11 +825,26 @@ class BrainAgent(BaseAgent):
         ))
         dbg.agent_done(agent_id, agent_type, result.status,
                        len(result.findings), result.iterations)
+        final_status = "done" if result.status in ("success", "partial") else "failed"
         await self.ctx.update_agent_status(AgentStatus(
             agent_id=agent_id,
             agent_type=agent_type,
-            status="done" if result.status in ("success", "partial") else "failed",
+            status=final_status,
         ))
+
+        # Update DB record so the Agent page reflects the final state
+        if self.session_id:
+            try:
+                await _agent_instance_repo.update_status(
+                    agent_id=agent_id,
+                    status=final_status,
+                    iterations=result.iterations,
+                    findings=result.findings,
+                    error=result.error or "",
+                )
+            except Exception:
+                pass  # non-critical
+
         return result
 
     # ── wait_for_agents ──────────────────────────────────────────────────────
@@ -768,6 +896,24 @@ class BrainAgent(BaseAgent):
 
         # Poll loop: check pause state every 0.5s while waiting
         while not wait_task.done():
+            if self._mission_done:
+                wait_task.cancel()
+                with contextlib.suppress(Exception):
+                    await wait_task
+                done_now = [aid for aid, r in done_results.items() if r is not None]
+                return {
+                    "success": True,
+                    "status": "aborted",
+                    "completed": done_now,
+                    "timed_out": [],
+                    "results": {
+                        aid: (r.payload if r else None)
+                        for aid, r in done_results.items()
+                    },
+                    "reason": "mission_done",
+                    "error": None,
+                }
+
             if self._dispatch_blocked_reason == "objective_confirmed":
                 wait_task.cancel()
                 with contextlib.suppress(Exception):
@@ -828,9 +974,27 @@ class BrainAgent(BaseAgent):
         agent_id = params.get("agent_id", "")
         task = self._child_tasks.get(agent_id)
         if task and not task.done():
+            atype = self._active_agents.get(agent_id, "")
             task.cancel()
             self._child_tasks.pop(agent_id, None)
             self.emit_event("agent_killed", {"agent_id": agent_id})
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                loop.create_task(self.bus.send(AgentMessage(
+                    msg_type=MessageType.AGENT_ERROR,
+                    sender_id=agent_id,
+                    payload={
+                        "agent_id": agent_id,
+                        "agent_type": atype,
+                        "status": "cancelled",
+                        "findings": [],
+                        "iterations": 0,
+                        "error": "cancelled: kill_agent",
+                    },
+                )))
             return {"success": True, "status": "killed", "agent_id": agent_id, "error": None}
         return {"success": False, "status": "not_found", "agent_id": agent_id, "error": f"Agent not found: {agent_id}"}
 
@@ -924,6 +1088,159 @@ class BrainAgent(BaseAgent):
                 item.get("description", ""),
             )
 
+    @staticmethod
+    def _finding_value(payload: dict, *keys: str, default=None):
+        nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        for key in keys:
+            if payload.get(key) not in (None, ""):
+                return payload.get(key)
+            if nested.get(key) not in (None, ""):
+                return nested.get(key)
+        return default
+
+    async def _integrate_finding_from_bus(self, payload: dict) -> None:
+        """Best-effort automatic context integration for child-agent findings."""
+        finding_type = str(self._finding_value(payload, "finding_type", "type", default="")).lower().strip()
+        if not finding_type:
+            return
+
+        if finding_type == "subdomain":
+            subdomain = str(self._finding_value(payload, "subdomain", "domain", default="")).strip()
+            if subdomain:
+                await self.ctx.add_subdomain(subdomain)
+            return
+
+        if finding_type == "email":
+            email = str(self._finding_value(payload, "email", default="")).strip()
+            if email:
+                await self.ctx.add_email(email)
+            return
+
+        if finding_type in ("host", "host_discovered"):
+            ip = str(self._finding_value(payload, "ip", "host_ip", "host", "target_ip", default="")).strip()
+            if not ip:
+                return
+            ports: list[PortInfo] = []
+            for p in (self._finding_value(payload, "ports", default=[]) or []):
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    number = int(p.get("number", p.get("port", p.get("portid", 0))))
+                except Exception:
+                    continue
+                if number <= 0:
+                    continue
+                state = str(p.get("state", "open") or "open").lower()
+                if state and state != "open":
+                    continue
+                ports.append(PortInfo(
+                    number=number,
+                    state="open",
+                    service=str(p.get("service", p.get("name", "")) or ""),
+                    version=str(p.get("version", "") or ""),
+                ))
+
+            os_raw = self._finding_value(payload, "os_type", "os", default="")
+            os_type = str(os_raw.get("name", "") if isinstance(os_raw, dict) else (os_raw or ""))
+            await self.ctx.update_host(HostInfo(
+                ip=ip,
+                hostname=str(self._finding_value(payload, "hostname", default="") or ""),
+                os_type=os_type,
+                ports=ports,
+            ))
+            return
+
+        if finding_type in ("port_scan", "service_scan"):
+            ip = str(self._finding_value(payload, "host", "ip", "host_ip", default="")).strip()
+            if not ip:
+                return
+            ports: list[PortInfo] = []
+            for svc in (self._finding_value(payload, "services", default=[]) or []):
+                if not isinstance(svc, dict):
+                    continue
+                try:
+                    number = int(svc.get("port", svc.get("number", svc.get("portid", 0))))
+                except Exception:
+                    continue
+                if number <= 0:
+                    continue
+                ports.append(PortInfo(
+                    number=number,
+                    state="open",
+                    service=str(svc.get("service", svc.get("name", "")) or ""),
+                    version=str(svc.get("version", "") or ""),
+                ))
+            await self.ctx.update_host(HostInfo(ip=ip, ports=ports))
+            return
+
+        if finding_type == "os_detection":
+            ip = str(self._finding_value(payload, "host", "ip", "host_ip", default="")).strip()
+            if not ip:
+                return
+            os_raw = self._finding_value(payload, "os", default="")
+            os_type = str(os_raw.get("name", "") if isinstance(os_raw, dict) else (os_raw or ""))
+            await self.ctx.update_host(HostInfo(ip=ip, os_type=os_type))
+            return
+
+        if finding_type in ("vulnerability", "vuln", "cve"):
+            await self.ctx.add_vulnerability(VulnInfo(
+                title=str(self._finding_value(payload, "title", "name", "description", default="Potential vulnerability") or "Potential vulnerability"),
+                host_ip=str(self._finding_value(payload, "host_ip", "ip", "host", default="") or ""),
+                port=int(self._finding_value(payload, "port", default=0) or 0),
+                service=str(self._finding_value(payload, "service", default="") or ""),
+                cve_id=str(self._finding_value(payload, "cve_id", "cve", default="") or ""),
+                cvss=float(self._finding_value(payload, "cvss_score", "cvss", "score", default=0.0) or 0.0),
+                exploit_path=str(self._finding_value(payload, "exploit_path", "module", default="") or ""),
+                description=str(self._finding_value(payload, "description", default="") or ""),
+            ))
+            return
+
+        if finding_type in ("session", "session_opened", "shell_opened"):
+            session_raw = self._finding_value(payload, "session_id", "msf_session_id", default="")
+            session_id = str(session_raw) if session_raw not in (None, "") else str(uuid.uuid4())
+            await self.ctx.add_session(SessionInfo(
+                session_id=session_id,
+                host_ip=str(self._finding_value(payload, "host_ip", "ip", "host", default=self.ctx.target) or self.ctx.target),
+                session_type=str(self._finding_value(payload, "session_type", default="shell") or "shell"),
+                privilege_level=int(self._finding_value(payload, "privilege_level", default=0) or 0),
+                username=str(self._finding_value(payload, "username", default="") or ""),
+            ))
+            return
+
+        if finding_type in ("credential", "credential_found"):
+            hash_value = str(self._finding_value(payload, "hash", default="") or "")
+            cred_type = str(self._finding_value(payload, "credential_type", default=("hash" if hash_value else "plaintext")) or "plaintext")
+            await self.ctx.add_credential(HarvestedCredential(
+                source_host=str(self._finding_value(payload, "source_host", "host_ip", "ip", default=self.ctx.target) or self.ctx.target),
+                username=str(self._finding_value(payload, "username", default="") or ""),
+                password=str(self._finding_value(payload, "password", default="") or ""),
+                hash=hash_value,
+                credential_type=cred_type,
+                service=str(self._finding_value(payload, "service", default="") or ""),
+            ))
+            return
+
+        if finding_type in ("flag", "loot", "file_found"):
+            loot_type = "flag" if finding_type == "flag" else ("file" if finding_type == "file_found" else "data")
+            await self.ctx.add_loot(LootItem(
+                source_host=str(self._finding_value(payload, "host_ip", "ip", "host", default=self.ctx.target) or self.ctx.target),
+                loot_type=loot_type,
+                description=str(self._finding_value(payload, "description", "path", default=finding_type) or finding_type),
+                file_path=str(self._finding_value(payload, "path", "file_path", default="") or ""),
+                content=str(self._finding_value(payload, "content", default="") or ""),
+            ))
+            return
+
+        if finding_type == "lateral_edge":
+            from_ip = str(self._finding_value(payload, "from_ip", "source_ip", default="") or "")
+            to_ip = str(self._finding_value(payload, "to_ip", "host_ip", "ip", default="") or "")
+            if from_ip and to_ip:
+                await self.ctx.add_lateral_edge(
+                    from_ip,
+                    to_ip,
+                    str(self._finding_value(payload, "description", default="") or ""),
+                )
+
     # ── ask_operator ──────────────────────────────────────────────────────────
 
     async def _ask_operator(self, params: dict) -> dict:
@@ -975,18 +1292,29 @@ class BrainAgent(BaseAgent):
         """
         if msg.msg_type == MessageType.FINDING:
             # Queue finding for integration into next Brain iteration
-            finding_type = msg.payload.get("finding_type") or msg.payload.get("type", "?")
+            payload = msg.payload if isinstance(msg.payload, dict) else {}
+            finding_type = payload.get("finding_type") or payload.get("type", "?")
             dbg.bus_finding(msg.sender_id, finding_type,
-                            str(msg.payload.get("data", msg.payload))[:200])
-            self._add_finding(msg.payload)
+                            str(payload.get("data", payload))[:200])
+
+            # Keep findings in the Brain result list, but avoid re-emitting
+            # another "finding" UI event (specialized agents already emitted it).
+            self._findings.append(payload)
+
+            # Integrate into canonical MissionContext immediately.
+            try:
+                await self._integrate_finding_from_bus(payload)
+            except Exception as exc:
+                logger.debug("BrainAgent: finding integration failed: %s", exc)
+
             # Track shell sessions and broadcast to UI
             if finding_type in ("session", "session_opened", "shell_opened"):
-                await self._register_shell(msg.payload)
+                await self._register_shell(payload)
                 # Cancel other exploit agents for the same target — one shell is enough.
                 # Exploit agents running reverse/bind handlers will otherwise hang until timeout.
                 if not self._mission_done:
-                    _pd = msg.payload.get("data") if isinstance(msg.payload.get("data"), dict) else {}
-                    host_ip_for_cancel = msg.payload.get("host_ip") or _pd.get("host_ip", "")
+                    _pd = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                    host_ip_for_cancel = payload.get("host_ip") or _pd.get("host_ip", "")
                     for aid, task in list(self._child_tasks.items()):
                         if task.done():
                             continue
@@ -1003,8 +1331,8 @@ class BrainAgent(BaseAgent):
                 # This runs even while Brain is blocked in wait_for_agents, so the shell
                 # doesn't sit idle waiting for the whole batch to finish.
                 if not self._mission_done and self.ctx.allow_post_exploitation:
-                    _nested = msg.payload.get("data") if isinstance(msg.payload.get("data"), dict) else {}
-                    host_ip = msg.payload.get("host_ip") or _nested.get("host_ip", "")
+                    _nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                    host_ip = payload.get("host_ip") or _nested.get("host_ip", "")
                     # Only spawn if no post_exploit agent is already active for this target
                     already_running = any(
                         atype == "post_exploit" and tgt == host_ip
@@ -1014,7 +1342,7 @@ class BrainAgent(BaseAgent):
                         )
                     )
                     if not already_running and host_ip:
-                        shell_key = msg.payload.get("shell_key") or _nested.get("shell_key", "")
+                        shell_key = payload.get("shell_key") or _nested.get("shell_key", "")
                         obj_str = "; ".join(self.ctx.objectives) if self.ctx.objectives else ""
                         task = f"post_exploitation | objectives: {obj_str}" if obj_str else "post_exploitation"
                         opts: dict = {}
@@ -1030,10 +1358,10 @@ class BrainAgent(BaseAgent):
             # Auto-stop: flag finding → mission achieved, cancel all children immediately
             if finding_type == "flag" and not self._mission_done:
                 content = (
-                    msg.payload.get("content")
-                    or msg.payload.get("data", {}).get("content", "")
-                    if isinstance(msg.payload.get("data"), dict)
-                    else msg.payload.get("content", "")
+                    payload.get("content")
+                    or payload.get("data", {}).get("content", "")
+                    if isinstance(payload.get("data"), dict)
+                    else payload.get("content", "")
                 )
                 self._mission_done = True
                 self._cancel_all_children("flag_found")
@@ -1154,7 +1482,7 @@ class BrainAgent(BaseAgent):
         if str(msf_sid).startswith("msf-"):
             msf_sid = str(msf_sid)[4:]
         try:
-            msf_sid = int(msf_sid) if msf_sid else None
+            msf_sid = int(msf_sid) if msf_sid not in ("", None) else None
         except (ValueError, TypeError):
             msf_sid = None
 
@@ -1494,12 +1822,23 @@ def make_brain(
     progress_callback=None,
     audit_repo=None,
     max_iterations: int = 100,
+    agent_models: dict | None = None,
 ) -> "BrainAgent":
     """
     Convenience factory for creating a BrainAgent with all required deps.
 
     Used by web/routes.py start_session (mode=v2_auto).
     """
+    normalized_agent_models = normalize_agent_models(agent_models or {})
+
+    # Apply brain's own model override if configured
+    brain_llm = None
+    if normalized_agent_models.get("brain"):
+        cfg = normalized_agent_models["brain"]
+        if cfg.get("provider") or cfg.get("model"):
+            from core.llm_client import make_agent_llm
+            brain_llm = make_agent_llm(cfg.get("provider", ""), cfg.get("model", ""))
+
     return BrainAgent(
         mission_context=mission_ctx,
         message_bus=message_bus,
@@ -1508,9 +1847,11 @@ def make_brain(
         session_id=session_id,
         tool_registry=tool_registry,
         safety=safety,
+        llm=brain_llm,
         progress_callback=progress_callback,
         audit_repo=audit_repo,
         max_iterations=max_iterations,
+        agent_models=normalized_agent_models,
         # Brain needs more memory than child agents — it coordinates the
         # entire mission and must retain findings, agent results, and
         # strategic context across many iterations.

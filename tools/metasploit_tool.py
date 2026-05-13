@@ -1848,7 +1848,12 @@ class MetasploitTool(BaseTool):
 
     async def _session_exec_via_msfconsole(self, params: dict) -> dict:
         """Execute a command on a session via msfconsole subprocess."""
-        session_id = int(params["session_id"])
+        try:
+            session_id = int(params.get("session_id", -1))
+            if session_id < 0:
+                return {"success": False, "error": "Missing or invalid session_id"}
+        except (ValueError, TypeError):
+            return {"success": False, "error": "session_id must be a valid integer"}
         command = params["command"].strip()
 
         commands = [

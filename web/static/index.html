@@ -4,12 +4,16 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>TIRPAN</title>
-<link rel="icon" type="image/png" href="logo.png"/>
+
+<link rel="icon" type="image/png" href="scythe.png"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.10.0/lib/xterm-addon-fit.min.js"></script>
 <script id="tailwind-config">
     tailwind.config = {
         darkMode: "class",
@@ -45,8 +49,8 @@
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      MAIN LAYOUT
-════════════════════════════════════════════════════════════════════════════ -->
-<div class="flex flex-1 overflow-hidden relative">
+═════════════════════════════════════════════════════════════════════════════ -->
+<div id="main-app" class="flex flex-1 overflow-hidden relative">
 
 <div id="mobile-overlay" onclick="closeMobileSidebar()"></div>
 
@@ -65,47 +69,26 @@
       <h1 class="font-display font-bold text-xl tracking-tight uppercase">TIRPAN</h1>
     </div>
 
-    <!-- Pentest / Defense toggle -->
-    <div class="px-6 mb-6">
-      <div class="flex border border-border-color p-0.5 rounded-sm bg-background-dark">
-        <button id="mode-pentest" class="flex-1 flex items-center justify-center gap-2 py-1.5 bg-primary text-black rounded-sm transition-all">
-          <span class="material-symbols-outlined text-[16px]" style='font-variation-settings: "FILL" 1;'>swords</span>
-          <span class="text-[10px] font-display font-bold tracking-widest uppercase">Pentest</span>
-        </button>
-        <button id="mode-defense" class="flex-1 flex items-center justify-center gap-2 py-1.5 text-secondary-text hover:text-white transition-all">
-          <span class="material-symbols-outlined text-[16px]">shield</span>
-          <span class="text-[10px] font-display font-bold tracking-widest uppercase">Defense</span>
-        </button>
-      </div>
-    </div>
 
     <!-- Mission config -->
     <div class="px-6 flex flex-col gap-6">
       <div class="flex flex-col gap-3">
 
         <!-- New Mission → full-page config view -->
-        <button onclick="openAdvModal()"
+        <button id="new-mission-btn" onclick="openAdvModal()"
           class="w-full bg-primary text-black font-display font-bold text-sm py-3 uppercase tracking-tighter hover:brightness-90 transition-all flex items-center justify-center gap-2">
           <span class="material-symbols-outlined text-[18px]">add_circle</span>
           New Mission
         </button>
 
-        <!-- Quick launch row (last-used target) -->
-        <div class="flex gap-2">
-          <input id="mission-target" class="flex-1 min-w-0 bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-xs font-mono focus:border-primary transition-colors" placeholder="quick target override…" type="text"/>
-          <button id="start-mission-btn" title="Quick launch (last settings)"
-            class="shrink-0 w-9 h-9 flex items-center justify-center border border-border-color text-secondary-text hover:border-primary hover:text-primary transition-colors">
-            <span class="material-symbols-outlined text-[18px]">play_arrow</span>
-          </button>
-        </div>
-        <p class="text-[9px] text-secondary-text -mt-1">Quick launch reuses last settings · <button class="text-primary/60 hover:text-primary underline" onclick="openAdvModal()">full config →</button></p>
-
-        <!-- Hidden compat fields consumed by startMission() -->
+        <!-- Hidden compat fields consumed by mission helpers -->
+        <input id="mission-target" class="hidden" type="text" value=""/>
+        <button id="start-mission-btn" class="hidden" type="button" aria-hidden="true">Start Mission</button>
         <select id="mission-mode" class="hidden">
           <option value="scan_only">SCAN ONLY</option>
           <option value="full_auto">FULL AUTO</option>
           <option value="ask_before_exploit">ASK BEFORE EXPLOIT</option>
-          <option value="v2_auto">V2 AUTO (Multi-Agent)</option>
+          <option value="v2_auto">Multi-agent orchestration</option>
         </select>
         <input id="mission-port-range" type="hidden" value="1-65535"/>
       </div>
@@ -113,20 +96,20 @@
       <!-- Stats grid -->
       <div class="grid grid-cols-2 gap-2 mt-4">
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-red-500/70 uppercase font-bold mb-1">Vulns</p>
-          <p id="stat-vulns" class="mono-text text-2xl font-bold text-red-400">—</p>
+          <p class="text-[10px] text-secondary-text/70 uppercase font-bold mb-1">Vulns</p>
+          <p id="stat-vulns" class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-blue-400/70 uppercase font-bold mb-1">Hosts</p>
-          <p id="stat-hosts" class="mono-text text-2xl font-bold text-blue-400">—</p>
+          <p class="text-[10px] text-secondary-text/70 uppercase font-bold mb-1">Hosts</p>
+          <p id="stat-hosts" class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-amber-400/70 uppercase font-bold mb-1">Ports</p>
-          <p id="stat-ports" class="mono-text text-2xl font-bold text-amber-400">—</p>
+          <p class="text-[10px] text-secondary-text/70 uppercase font-bold mb-1">Ports</p>
+          <p id="stat-ports" class="mono-text text-2xl font-bold text-secondary-text">—</p>
         </div>
         <div class="bg-card border border-border-color p-3">
-          <p class="text-[10px] text-green-400/70 uppercase font-bold mb-1">Shells</p>
-          <p id="stat-shells" class="mono-text text-2xl font-bold text-green-400">0</p>
+          <p class="text-[10px] text-secondary-text/70 uppercase font-bold mb-1">Shells</p>
+          <p id="stat-shells" class="mono-text text-2xl font-bold text-secondary-text">0</p>
         </div>
         <!-- Uptime — full width below -->
         <div class="col-span-2 bg-card border border-border-color px-3 py-2 flex items-center justify-between gap-2">
@@ -172,6 +155,10 @@
         <span class="material-symbols-outlined text-sm">terminal</span>
         <span class="text-xs font-medium uppercase tracking-wider">Console</span>
       </div>
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="logs">
+        <span class="material-symbols-outlined text-sm">list_alt</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Logs</span>
+      </div>
       <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="audit">
         <span class="material-symbols-outlined text-sm">description</span>
         <span class="text-xs font-medium uppercase tracking-wider">Audit Logs</span>
@@ -180,17 +167,17 @@
         <span class="material-symbols-outlined text-sm">summarize</span>
         <span class="text-xs font-medium uppercase tracking-wider">Report</span>
       </div>
+      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="outputs">
+        <span class="material-symbols-outlined text-sm">folder_open</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Outputs</span>
+      </div>
       <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="config">
         <span class="material-symbols-outlined text-sm">settings</span>
         <span class="text-xs font-medium uppercase tracking-wider">Configuration</span>
       </div>
-      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="intel">
-        <span class="material-symbols-outlined text-sm">monitoring</span>
-        <span class="text-xs font-medium uppercase tracking-wider">Intel</span>
-      </div>
-      <div class="bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="outputs">
-        <span class="material-symbols-outlined text-sm">folder_open</span>
-        <span class="text-xs font-medium uppercase tracking-wider">Outputs</span>
+      <div id="nav-team" class="hidden bottom-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-view="team">
+        <span class="material-symbols-outlined text-sm">group</span>
+        <span class="text-xs font-medium uppercase tracking-wider">Team</span>
       </div>
     </div>
   </aside>
@@ -215,16 +202,56 @@
             <span id="mission-status-text" class="font-display font-bold text-xs md:text-sm tracking-widest uppercase text-secondary-text max-w-[140px] sm:max-w-none truncate">No Mission</span>
             <span class="material-symbols-outlined text-[13px] text-secondary-text group-hover:text-primary transition-colors">expand_more</span>
           </button>
-          <!-- Session history dropdown -->
-          <div id="session-switcher-dropdown" class="hidden absolute top-full left-0 mt-1 bg-surface border border-border-color z-50 min-w-[320px] shadow-lg">
-            <div class="px-3 py-2 border-b border-border-color flex items-center justify-between shrink-0">
-              <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Mission History</span>
-              <button id="session-dropdown-close" class="text-secondary-text hover:text-primary transition-colors">
-                <span class="material-symbols-outlined text-[14px]">close</span>
-              </button>
-            </div>
-            <div id="session-switcher-list" class="flex flex-col max-h-64 overflow-y-auto scrollbar-hide">
-              <div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading sessions...</div>
+          <!-- Session history popup -->
+          <div id="session-switcher-dropdown" class="hidden fixed inset-0 z-[320]">
+            <div id="session-switcher-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+            <div id="session-switcher-panel" class="absolute left-1/2 top-[74px] -translate-x-1/2 w-[min(760px,calc(100vw-24px))] max-h-[78vh] bg-surface border border-border-color shadow-2xl flex flex-col">
+              <div class="px-4 py-3 border-b border-border-color flex items-center justify-between shrink-0 gap-3">
+                <span class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">Mission History</span>
+                <button id="session-dropdown-close" class="text-secondary-text hover:text-primary transition-colors" type="button" aria-label="Close mission history">
+                  <span class="material-symbols-outlined text-[15px]">close</span>
+                </button>
+              </div>
+
+              <div class="px-4 py-3 border-b border-border-color flex flex-col gap-3 shrink-0">
+                <div class="relative">
+                  <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-secondary-text text-[15px]">search</span>
+                  <input
+                    id="session-switcher-search"
+                    type="text"
+                    class="w-full bg-background-dark border border-border-color text-slate-100 pl-9 pr-3 py-2 text-xs mono-text"
+                    placeholder="Search by mission name, target, mode..."
+                    autocomplete="off"
+                  />
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-1" id="session-switcher-status-filters">
+                    <button type="button" class="session-switcher-filter-btn active" data-status="all">ALL</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="running">RUNNING</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="done">DONE</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="error">ERROR</button>
+                    <button type="button" class="session-switcher-filter-btn" data-status="stopped">STOPPED</button>
+                  </div>
+
+                  <div class="flex items-center gap-2">
+                    <label for="session-switcher-sort" class="text-[10px] mono-text text-secondary-text uppercase tracking-wider">Sort</label>
+                    <select id="session-switcher-sort" class="bg-background-dark border border-border-color text-slate-100 px-2 py-1.5 text-[10px] mono-text">
+                      <option value="recent">Recent</option>
+                      <option value="name">Name</option>
+                      <option value="target">Target</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="px-4 py-2 border-b border-border-color/60 text-[10px] mono-text text-secondary-text/80 shrink-0" id="session-switcher-summary">
+                Loading sessions...
+              </div>
+
+              <div id="session-switcher-list" class="flex flex-col overflow-y-auto scrollbar-hide min-h-0 max-h-[52vh]">
+                <div class="px-4 py-3 text-[10px] mono-text text-secondary-text">Loading sessions...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -243,12 +270,23 @@
         <button id="emergency-stop-btn-mobile" class="md:hidden border border-danger text-danger font-display font-bold text-[9px] py-1 px-2.5 rounded-full uppercase tracking-tighter hover:bg-danger hover:text-white transition-all">
           Stop
         </button>
-        <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200">
+        <!-- User badge -->
+        <div id="dev-user-badge" class="hidden md:flex items-center gap-1.5 text-secondary-text text-[11px] font-mono"></div>
+        
+        <button id="dev-logout-btn"
+           class="hidden md:flex items-center gap-1 border border-border-color text-secondary-text font-display font-bold text-[10px] py-1.5 px-3 rounded-full uppercase tracking-tighter hover:border-danger hover:text-danger transition-all"
+           title="Sign out">
+          <span class="material-symbols-outlined text-[13px]">logout</span>
+        </button>
+        <a href="/normal/" id="normal-mode-link"
+          class="h-9 flex items-center gap-1.5 pl-2 pr-2 sm:pl-2.5 sm:pr-3 bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200 shrink-0"
+          title="Switch to Normal Mode">
+          <span class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors shrink-0">dashboard</span>
+          <span class="hidden sm:inline font-display font-bold text-[10px] uppercase tracking-tighter text-secondary-text group-hover:text-primary">Normal Mode</span>
+        </a>
+        <button id="theme-toggle-btn" class="w-9 h-9 flex items-center justify-center bg-[#111111] border border-[#1A1A1A] hover:border-primary group transition-all duration-200 shrink-0">
           <span id="theme-toggle-icon" class="material-symbols-outlined text-[18px] text-white group-hover:text-primary transition-colors">dark_mode</span>
         </button>
-        <div class="w-8 h-8 rounded-full border border-border-color flex items-center justify-center cursor-pointer hover:border-primary transition-colors">
-          <span class="material-symbols-outlined text-lg">person</span>
-        </div>
       </div>
     </header>
 
@@ -321,10 +359,9 @@
             class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
             <span class="material-symbols-outlined" style="font-size:11px;">account_tree</span>GRAPH
           </button>
-          <button onclick="switchAgentView('orchestra')" id="ag-view-btn-orchestra"
-            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors"
-            title="V2 Agent Orchestra — shows spawned sub-agents">
-            <span class="material-symbols-outlined" style="font-size:11px;">hub</span>AGENTS
+          <button onclick="switchAgentView('simple')" id="ag-view-btn-simple"
+            class="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest font-display border border-border-color text-secondary-text hover:text-primary hover:border-primary/40 transition-colors">
+            <span class="material-symbols-outlined" style="font-size:11px;">dashboard</span>SIMPLE
           </button>
         </div>
       </div>
@@ -386,61 +423,31 @@
         </div>
         </div><!-- end minimap column -->
 
-        <!-- ── V2 Agent Orchestra View ──────────────────────────────── -->
-        <div id="ag-orchestra-view" style="display:none;flex:1;min-width:0;flex-direction:column;overflow-y:auto;" class="p-4">
-          <div class="max-w-4xl mx-auto w-full">
-            <!-- Brain header -->
-            <div class="flex items-center gap-3 mb-4">
-              <span class="material-symbols-outlined" style="color:#ccff00;font-size:20px;">psychology</span>
-              <div>
-                <div class="text-[11px] font-bold uppercase tracking-widest" style="color:#ccff00;">TIRPAN V2 · Brain Agent</div>
-                <div id="v2-mission-phase" class="text-[10px] text-secondary-text mono-text">Phase: —</div>
-              </div>
-              <button onclick="fetchAgentOrchestra()" class="ml-auto text-[9px] mono-text text-secondary-text/40 hover:text-secondary-text px-2 py-1 border border-border-color/30 hover:border-border-color transition-colors">↻ Refresh</button>
-            </div>
-
-            <!-- Mission context stats -->
-            <div id="v2-ctx-stats" class="grid grid-cols-4 gap-2 mb-4">
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold" style="color:#ccff00;" id="v2-stat-hosts">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Hosts</div>
-              </div>
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold text-red-400" id="v2-stat-vulns">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Vulns</div>
-              </div>
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold text-blue-400" id="v2-stat-sessions">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Sessions</div>
-              </div>
-              <div class="bg-card border border-border-color p-2 text-center">
-                <div class="text-[18px] font-bold text-purple-400" id="v2-stat-creds">0</div>
-                <div class="text-[9px] text-secondary-text uppercase tracking-wider">Creds</div>
-              </div>
-            </div>
-
-            <!-- Agent cards grid -->
-            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Active Sub-Agents</div>
-            <div id="v2-agent-cards" class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-6">
-              <div class="text-[11px] text-secondary-text/40 mono-text col-span-2 py-4 text-center">No agents spawned yet</div>
-            </div>
-
-            <!-- Harvested credentials -->
-            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Harvested Credentials</div>
-            <div id="v2-harvested-creds" class="bg-card border border-border-color mb-4">
-              <div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>
-            </div>
-
-            <!-- Loot -->
-            <div class="text-[9px] uppercase tracking-widest text-secondary-text/50 font-bold mb-2">Loot</div>
-            <div id="v2-loot" class="bg-card border border-border-color">
-              <div class="text-[11px] text-secondary-text/40 mono-text p-3 text-center">None yet</div>
-            </div>
-          </div>
-        </div>
-
         <!-- ── Attack Graph View ─────────────────────────────────── -->
         <div id="ag-graph-view" style="display:none;flex:1;min-width:0;flex-direction:column;">
+          <div class="ag-pro-header">
+            <div class="ag-pro-title-wrap">
+              <p class="ag-pro-eyebrow">Mission Map</p>
+              <h3 class="ag-pro-title">Node-Based Attack Storyboard</h3>
+              <p id="ag-graph-caption" class="ag-pro-caption">
+                Select any node to see what happened, why it happened, and what it means.
+              </p>
+            </div>
+            <div class="ag-pro-kpi-wrap">
+              <div class="ag-pro-kpi-card">
+                <span class="ag-pro-kpi-label">Active Nodes</span>
+                <span id="ag-kpi-nodes" class="ag-pro-kpi-value">0</span>
+              </div>
+              <div class="ag-pro-kpi-card">
+                <span class="ag-pro-kpi-label">Critical Paths</span>
+                <span id="ag-kpi-risk" class="ag-pro-kpi-value">0</span>
+              </div>
+              <div class="ag-pro-kpi-card">
+                <span class="ag-pro-kpi-label">Current Phase</span>
+                <span id="ag-kpi-phase" class="ag-pro-kpi-value">Idle</span>
+              </div>
+            </div>
+          </div>
           <!-- SVG + detail panel row -->
           <div style="flex:1;min-height:0;display:flex;overflow:hidden;">
             <!-- Canvas area -->
@@ -448,17 +455,18 @@
               <svg id="ag-graph-svg" style="width:100%;height:100%;display:block;"></svg>
               <!-- Legend -->
               <div id="ag-legend" style="position:absolute;top:12px;left:14px;display:flex;flex-direction:column;gap:5px;pointer-events:none;">
-                <div class="ag-legend-row" data-color="#ccff00"><span class="ag-ld"></span><span class="ag-lt">Agent / OK</span></div>
-                <div class="ag-legend-row" data-color="#eab308"><span class="ag-ld"></span><span class="ag-lt">Thinking</span></div>
-                <div class="ag-legend-row" data-color="#3b82f6"><span class="ag-ld"></span><span class="ag-lt">Tool</span></div>
-                <div class="ag-legend-row" data-color="#a855f7"><span class="ag-ld"></span><span class="ag-lt">Reflection</span></div>
-                <div class="ag-legend-row" data-color="#f97316"><span class="ag-ld"></span><span class="ag-lt">Parallel</span></div>
+                <div class="ag-legend-row" data-color="#ccff00"><span class="ag-ld"></span><span class="ag-lt">Mission Start / Success</span></div>
+                <div class="ag-legend-row" data-color="#eab308"><span class="ag-ld"></span><span class="ag-lt">Reasoning Step</span></div>
+                <div class="ag-legend-row" data-color="#3b82f6"><span class="ag-ld"></span><span class="ag-lt">Tool Action</span></div>
+                <div class="ag-legend-row" data-color="#a855f7"><span class="ag-ld"></span><span class="ag-lt">Reflection Insight</span></div>
+                <div class="ag-legend-row" data-color="#f97316"><span class="ag-ld"></span><span class="ag-lt">Parallel Branch</span></div>
               </div>
               <!-- Zoom controls -->
               <div style="position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:3px;">
                 <button onclick="agZoom(1.3)" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">add</span></button>
                 <button onclick="agZoomFit()" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">fit_screen</span></button>
                 <button onclick="agZoom(0.77)" class="ag-zoom-btn"><span class="material-symbols-outlined" style="font-size:14px;">remove</span></button>
+                <button onclick="agLoadKGData()" class="ag-zoom-btn" title="Load KG data"><span class="material-symbols-outlined" style="font-size:14px;">account_tree</span></button>
               </div>
               <!-- Node count badge -->
               <div id="ag-node-count" style="position:absolute;top:12px;right:14px;font-size:9px;font-family:monospace;text-transform:uppercase;letter-spacing:.1em;opacity:0.4;"></div>
@@ -478,6 +486,50 @@
         </div>
         <!-- ── End Attack Graph View ──────────────────────────────── -->
 
+        <!-- ── Agent Alternative Timeline View ────────────────────── -->
+        <div id="ag-timeline-view" class="hidden flex-1 min-w-0 overflow-auto bg-black/80">
+          <div id="ag-timeline-empty" class="h-full flex items-center justify-center text-[11px] mono-text text-secondary-text px-6 text-center">
+            No timeline data yet. Start a mission to populate this view.
+          </div>
+          <div id="ag-timeline-container" class="hidden w-full p-4 md:p-6 flex flex-col gap-0"></div>
+        </div>
+        <!-- ── End Agent Alternative Timeline View ────────────────── -->
+
+        <!-- ── Simple View (beginner-friendly dashboard) ─────────── -->
+        <div id="ag-simple-view" class="hidden flex-1 min-w-0 overflow-auto bg-black/80 p-4 flex flex-col gap-4">
+          <!-- Stat summary row -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="bg-surface border border-border-color p-3 flex flex-col items-center gap-1">
+              <span class="material-symbols-outlined text-[20px] text-primary">radar</span>
+              <span id="sv-hosts-count" class="text-[20px] font-bold mono-text text-slate-100">0</span>
+              <span class="text-[8px] text-secondary-text uppercase tracking-wider">Hosts</span>
+            </div>
+            <div class="bg-surface border border-border-color p-3 flex flex-col items-center gap-1">
+              <span class="material-symbols-outlined text-[20px] text-yellow-400">lan</span>
+              <span id="sv-ports-count" class="text-[20px] font-bold mono-text text-slate-100">0</span>
+              <span class="text-[8px] text-secondary-text uppercase tracking-wider">Open Ports</span>
+            </div>
+            <div class="bg-surface border border-border-color p-3 flex flex-col items-center gap-1">
+              <span class="material-symbols-outlined text-[20px] text-danger">flag</span>
+              <span id="sv-findings-count" class="text-[20px] font-bold mono-text text-slate-100">0</span>
+              <span class="text-[8px] text-secondary-text uppercase tracking-wider">Findings</span>
+            </div>
+          </div>
+          <!-- Active agents -->
+          <div class="flex flex-col gap-2">
+            <div class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">What's running</div>
+            <div id="sv-agents-list" class="flex flex-col gap-2">
+              <div class="text-[11px] text-secondary-text mono-text text-center py-6 opacity-50">No agents active. Start a mission.</div>
+            </div>
+          </div>
+          <!-- Plain-English recent events -->
+          <div class="flex flex-col gap-2">
+            <div class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Recent activity</div>
+            <div id="sv-events-list" class="flex flex-col gap-1.5 max-h-[240px] overflow-y-auto scrollbar-hide"></div>
+          </div>
+        </div>
+        <!-- ── End Simple View ─────────────────────────────────────── -->
+
         <!-- Scroll-to-bottom button (hidden when already at bottom) -->
         <button id="agent-scroll-btn"
           onclick="agentForceScrollToBottom()"
@@ -492,7 +544,7 @@
       </div>
 
       <!-- Agent injection input (only active when mission is running) -->
-      <div class="p-4 md:p-8 pb-[72px] md:pb-8 shrink-0">
+      <div id="agent-inject-input-area" class="p-4 md:p-8 pb-[72px] md:pb-8 shrink-0">
         <div class="max-w-4xl mx-auto flex flex-col gap-2">
 
           <!-- Injection mode badge (always shown in agent view) -->
@@ -528,22 +580,12 @@
         </div>
         <div class="flex items-center gap-3">
           <!-- Model selector -->
-          <div id="model-selector-wrapper" class="relative">
-            <button id="model-selector-btn"
-              class="flex items-center gap-1.5 border border-border-color px-2.5 py-1 text-[10px] mono-text text-secondary-text hover:border-primary hover:text-primary transition-colors group">
-              <span class="material-symbols-outlined text-[13px] group-hover:text-primary transition-colors">smart_toy</span>
-              <span id="model-label">—</span>
-              <span class="material-symbols-outlined text-[12px]" id="model-chevron">expand_more</span>
-            </button>
-            <div id="model-dropdown"
-              class="hidden absolute top-full right-0 mt-1 bg-surface border border-border-color z-50 min-w-[220px] shadow-lg">
-              <div id="model-dropdown-list" class="flex flex-col py-1">
-                <div class="px-4 py-2 text-[10px] mono-text text-secondary-text">Loading models...</div>
-              </div>
-            </div>
-          </div>
-          <div id="ollama-dot" class="w-1.5 h-1.5 rounded-full bg-border-color transition-colors"></div>
-          <span id="ollama-status-text" class="text-[10px] mono-text text-secondary-text">—</span>
+          <button id="model-selector-btn"
+            class="flex items-center gap-1.5 border border-border-color px-2.5 py-1 text-[10px] mono-text text-secondary-text hover:border-primary hover:text-primary transition-colors group max-w-[180px]">
+            <span class="material-symbols-outlined text-[13px] group-hover:text-primary transition-colors shrink-0">smart_toy</span>
+            <span id="model-label" class="truncate">—</span>
+            <span class="material-symbols-outlined text-[12px] shrink-0">expand_more</span>
+          </button>
         </div>
       </div>
 
@@ -588,99 +630,176 @@
     <!-- ── VIEW: CONSOLE (hidden by default) ─────────────────────────────── -->
     <div id="view-console" class="hidden flex-1 flex flex-col bg-black overflow-hidden border-t border-border-color min-h-0">
 
-      <!-- Terminal tab bar -->
-      <div class="flex items-center bg-surface border-b border-border-color h-9 px-2 shrink-0">
-        <div class="flex items-center h-full">
+      <!-- Console tab bar: Terminal · Shells · Logs -->
+      <div class="flex items-center bg-surface border-b border-border-color h-9 shrink-0">
 
-          <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color bg-black text-primary border-t-2 border-t-primary cursor-pointer" data-tab="bash">
-            <span class="material-symbols-outlined text-[14px]">terminal</span>
-            <span class="text-[10px] font-mono font-bold tracking-wider">BASH</span>
-            <span class="material-symbols-outlined text-[12px] cursor-pointer hover:text-white">close</span>
-          </div>
+        <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="terminal">
+          <span class="material-symbols-outlined text-[14px]">keyboard</span>
+          <span class="text-[10px] font-mono font-bold tracking-wider">TERMINAL</span>
+        </div>
 
-          <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="nmap">
-            <span class="material-symbols-outlined text-[14px]">search</span>
-            <span class="text-[10px] font-mono font-bold tracking-wider">NMAP</span>
-          </div>
+        <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="shells">
+          <span class="material-symbols-outlined text-[14px]">cable</span>
+          <span class="text-[10px] font-mono font-bold tracking-wider">SHELLS</span>
+          <span id="shell-count-badge" class="hidden bg-danger text-white text-[8px] font-bold px-1.5 rounded-full leading-tight animate-pulse">0</span>
+        </div>
 
-          <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="msf">
-            <span class="material-symbols-outlined text-[14px]">bolt</span>
-            <span class="text-[10px] font-mono font-bold tracking-wider">MSFCONSOLE</span>
-          </div>
+        <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="logs">
+          <span class="material-symbols-outlined text-[14px]">list_alt</span>
+          <span class="text-[10px] font-mono font-bold tracking-wider">LOGS</span>
+          <span id="logs-new-badge" class="hidden bg-primary/80 text-black text-[8px] font-bold px-1.5 rounded-full leading-tight">●</span>
+        </div>
 
-          <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="shells">
-            <span class="material-symbols-outlined text-[14px]">cable</span>
-            <span class="text-[10px] font-mono font-bold tracking-wider">SHELLS</span>
-            <span id="shell-count-badge" class="hidden bg-danger text-white text-[8px] font-bold px-1.5 rounded-full leading-tight animate-pulse">0</span>
-          </div>
+        <div class="console-tab px-4 h-full flex items-center gap-2 border-r border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="v3intel">
+          <span class="material-symbols-outlined text-[14px]">psychology</span>
+          <span class="text-[10px] font-mono font-bold tracking-wider">V3 INTEL</span>
+          <span id="v3-opsec-badge" class="hidden bg-warning text-black text-[8px] font-bold px-1.5 rounded-full leading-tight animate-pulse">!</span>
+        </div>
 
-          <div class="console-tab px-4 h-full flex items-center gap-2 border-border-color text-secondary-text hover:bg-white/5 transition-colors cursor-pointer" data-tab="terminal">
-            <span class="material-symbols-outlined text-[14px]">keyboard</span>
-            <span class="text-[10px] font-mono font-bold tracking-wider">TERMINAL</span>
+      </div>
+
+      <!-- LOGS body — merged bash+nmap+msf with filter chips -->
+      <div id="console-logs" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="logs">
+        <!-- Filter bar -->
+        <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border-color/50 bg-black/60 shrink-0">
+          <span class="text-[9px] uppercase tracking-widest text-secondary-text/60 font-bold mr-1">Filter</span>
+          <button class="log-filter-btn active px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border transition-colors" data-filter="all">ALL</button>
+          <button class="log-filter-btn px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border border-border-color text-secondary-text hover:text-white transition-colors" data-filter="nmap">NMAP</button>
+          <button class="log-filter-btn px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border border-border-color text-secondary-text hover:text-white transition-colors" data-filter="msf">MSF</button>
+          <button class="log-filter-btn px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border border-border-color text-secondary-text hover:text-white transition-colors" data-filter="bash">BASH</button>
+          <button id="logs-clear-btn" class="ml-auto text-[9px] text-secondary-text hover:text-danger transition-colors uppercase tracking-wider">Clear</button>
+        </div>
+        <!-- Log output -->
+        <div id="console-logs-output" class="flex-1 p-3 font-mono text-xs text-primary overflow-y-auto scrollbar-hide flex flex-col gap-0.5">
+          <div id="console-logs-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none">
+            <span class="material-symbols-outlined text-3xl opacity-40">list_alt</span>
+            <span class="text-[11px] tracking-widest uppercase opacity-60">No logs yet — start a mission</span>
           </div>
         </div>
       </div>
 
-      <!-- Terminal body: BASH — live agent event log -->
-      <div id="console-bash" class="console-body flex-1 p-4 font-mono text-xs text-primary overflow-y-auto scrollbar-hide flex flex-col gap-0.5" data-tab="bash">
-        <div id="console-bash-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none">
-          <span class="material-symbols-outlined text-3xl opacity-40">terminal</span>
-          <span class="text-[11px] tracking-widest uppercase opacity-60">No active session — start a mission to see live output</span>
-        </div>
-      </div>
-
-      <!-- Terminal body: NMAP — filtered nmap_scan events -->
-      <div id="console-nmap" class="console-body hidden flex-1 p-4 font-mono text-xs text-primary overflow-y-auto scrollbar-hide flex flex-col gap-0.5" data-tab="nmap">
-        <div id="console-nmap-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none">
-          <span class="material-symbols-outlined text-3xl opacity-40">search</span>
-          <span class="text-[11px] tracking-widest uppercase opacity-60">No nmap results yet</span>
-        </div>
-      </div>
-
-      <!-- Terminal body: MSFCONSOLE — filtered metasploit events -->
-      <div id="console-msf" class="console-body hidden flex-1 p-4 font-mono text-xs text-primary overflow-y-auto scrollbar-hide flex flex-col gap-0.5" data-tab="msf">
-        <div id="console-msf-empty" class="flex flex-col items-center justify-center h-full gap-3 text-secondary-text select-none">
-          <span class="material-symbols-outlined text-3xl opacity-40">bolt</span>
-          <span class="text-[11px] tracking-widest uppercase opacity-60">No Metasploit activity yet</span>
-        </div>
-      </div>
+      <!-- Keep legacy hidden containers so existing log-append code still works -->
+      <div id="console-bash" class="hidden" data-tab="bash" aria-hidden="true"></div>
+      <div id="console-nmap" class="hidden" data-tab="nmap" aria-hidden="true"></div>
+      <div id="console-msf"  class="hidden" data-tab="msf"  aria-hidden="true"></div>
 
       <!-- Terminal body: SHELLS — reverse shell session manager -->
       <div id="console-shells" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="shells">
-        <!-- Sub-tab bar for individual shell sessions -->
-        <div id="shell-subtab-bar" class="flex items-center bg-black/80 border-b border-border-color shrink-0 px-2 h-8 gap-1 overflow-x-auto scrollbar-hide">
-          <div id="shell-empty-msg" class="flex items-center gap-2 text-[10px] text-secondary-text italic px-2">
-            <span class="material-symbols-outlined text-[14px] opacity-40">cable</span>
-            Waiting for reverse shell… set up listener with <code class="text-primary/70 bg-white/5 px-1">nc -lvnp 4444</code>
-          </div>
-        </div>
-        <!-- Shell output -->
-        <div id="shell-output-area" class="flex-1 overflow-y-auto p-4 font-mono text-xs text-green-400 scrollbar-hide leading-relaxed"></div>
-        <!-- Shell input line -->
-        <div id="shell-input-row" class="hidden border-t border-border-color bg-black/90 px-3 py-2.5 flex items-center gap-3 shrink-0">
-          <span id="shell-prompt" class="text-green-400 font-mono text-xs shrink-0 select-none">shell#</span>
-          <input id="shell-cmd-input" class="flex-1 bg-transparent text-green-300 font-mono text-xs outline-none border-none caret-green-400" placeholder="type command and press Enter…" type="text" autocomplete="off" spellcheck="false"/>
-          <button onclick="sendShellCommand()" class="text-secondary-text hover:text-primary transition-colors shrink-0">
-            <span class="material-symbols-outlined text-[16px]">send</span>
-          </button>
+        <div class="shells-layout flex-1 min-h-0 flex overflow-hidden">
+          <aside class="shells-sidebar w-[290px] max-w-[42%] border-r border-border-color bg-black/70 flex flex-col min-h-0">
+            <div class="px-3 py-2 border-b border-border-color flex items-center justify-between shrink-0">
+              <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Active Shells</span>
+              <span class="text-[10px] mono-text text-secondary-text/60" id="shell-sidebar-count">0 online</span>
+            </div>
+            <div id="shell-empty-msg" class="flex flex-col gap-2 text-[10px] text-secondary-text italic px-3 py-3 border-b border-border-color/40">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[14px] opacity-40">cable</span>
+                Waiting for reverse shell
+              </div>
+              <p class="text-secondary-text/70 not-italic">Listener hint: <span class="text-primary/80 mono-text">nc -lvnp 4444</span></p>
+            </div>
+            <div id="shell-subtab-bar" class="flex-1 min-h-0 overflow-y-auto scrollbar-hide p-2 flex flex-col gap-1"></div>
+          </aside>
+
+          <section class="shells-main flex-1 min-h-0 flex flex-col bg-black">
+            <div id="shell-active-header" class="px-4 py-2.5 border-b border-border-color bg-black/80 shrink-0">
+              <div class="flex items-center justify-between gap-2">
+                <span id="shell-active-title" class="text-[11px] font-bold uppercase tracking-wider text-secondary-text">No shell selected</span>
+                <span id="shell-active-status" class="text-[10px] font-bold uppercase tracking-widest text-secondary-text/70">IDLE</span>
+              </div>
+              <p id="shell-active-meta" class="text-[10px] text-secondary-text/70 mono-text mt-1">Shell output will appear here when a session becomes active.</p>
+            </div>
+
+            <div id="shell-output-area" class="flex-1 overflow-y-auto p-4 font-mono text-xs text-green-400 scrollbar-hide leading-relaxed whitespace-pre-wrap"></div>
+
+            <div id="shell-input-row" class="hidden border-t border-border-color bg-black/90 px-3 py-2.5 flex items-center gap-3 shrink-0">
+              <span id="shell-prompt" class="text-green-400 font-mono text-xs shrink-0 select-none">shell#</span>
+              <input id="shell-cmd-input" class="flex-1 bg-transparent text-green-300 font-mono text-xs outline-none border-none caret-green-400" placeholder="type command and press Enter…" type="text" autocomplete="off" spellcheck="false"/>
+              <button onclick="sendShellCommand()" class="text-secondary-text hover:text-primary transition-colors shrink-0" title="Send command">
+                <span class="material-symbols-outlined text-[16px]">send</span>
+              </button>
+            </div>
+          </section>
         </div>
       </div>
 
-      <!-- Terminal body: TERMINAL — interactive agent terminal -->
-      <div id="console-terminal" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="terminal">
-        <!-- Output history -->
-        <div id="terminal-output" class="flex-1 overflow-y-auto p-4 font-mono text-xs scrollbar-hide flex flex-col gap-0.5">
-          <div class="text-secondary-text select-none mb-3 border-b border-border-color pb-3">
-            <p class="text-primary font-bold mb-1">TIRPAN Interactive Terminal</p>
-            <p>Commands typed here are injected directly into the active agent session.</p>
-            <p class="text-secondary-text/60 mt-1">Type <span class="text-primary">/help</span> for built-in commands · <span class="text-primary">/shells</span> to list active reverse shells</p>
+      <!-- V3 INTEL body -->
+      <div id="console-v3intel" class="console-body hidden flex-1 flex flex-col min-h-0 bg-black/95" data-tab="v3intel">
+
+        <div class="flex items-center border-b border-border-color/40 bg-black/60 shrink-0">
+          <button onclick="v3SwitchPanel('rag')"    id="v3-btn-rag"    class="v3-panel-btn active px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">RAG</button>
+          <button onclick="v3SwitchPanel('kg')"     id="v3-btn-kg"     class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">KG</button>
+          <button onclick="v3SwitchPanel('replay')" id="v3-btn-replay" class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">REPLAY</button>
+          <button onclick="v3SwitchPanel('lesson')" id="v3-btn-lesson" class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider border-r border-border-color/30 text-secondary-text hover:text-white transition-colors">REFLEXION</button>
+          <button onclick="v3SwitchPanel('opsec')"  id="v3-btn-opsec"  class="v3-panel-btn px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-secondary-text hover:text-white transition-colors">OPSEC</button>
+          <button onclick="v3RefreshAll()" class="ml-auto mr-2 text-[9px] text-secondary-text hover:text-primary transition-colors uppercase tracking-wider flex items-center gap-1">
+            <span class="material-symbols-outlined text-[11px]">refresh</span> Refresh
+          </button>
+        </div>
+
+        <div id="v3-panel-rag" class="v3-panel flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <div class="flex items-center gap-3">
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">RAG Store</span>
+            <span id="v3-rag-status" class="text-[9px] text-secondary-text/60 font-mono"></span>
+            <button onclick="v3RagBootstrap()" class="ml-auto px-2.5 py-1 text-[9px] border border-border-color text-secondary-text hover:text-white hover:border-primary transition-colors uppercase tracking-wider">Bootstrap KB</button>
+          </div>
+          <div id="v3-rag-stats" class="grid grid-cols-3 gap-2"></div>
+          <div class="flex gap-2">
+            <input id="v3-rag-query-input" class="flex-1 bg-black/60 border border-border-color text-white text-xs font-mono px-3 py-1.5 outline-none focus:border-primary/60" placeholder="Query RAG store (e.g. vsftpd backdoor)…" type="text"/>
+            <button onclick="v3RagQuery()" class="px-3 py-1.5 text-[9px] border border-primary/60 text-primary hover:bg-primary/10 transition-colors uppercase tracking-wider">Query</button>
+          </div>
+          <div id="v3-rag-results" class="flex flex-col gap-2 font-mono text-[10px] text-secondary-text"></div>
+        </div>
+
+        <div id="v3-panel-kg" class="v3-panel hidden flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Knowledge Graph</span>
+            <span id="v3-kg-stats" class="text-[9px] text-secondary-text/60 font-mono ml-2"></span>
+            <button onclick="v3KgRefresh()" class="ml-auto px-2.5 py-1 text-[9px] border border-border-color text-secondary-text hover:text-white hover:border-primary transition-colors uppercase tracking-wider">Refresh</button>
+          </div>
+          <pre id="v3-kg-summary" class="text-[10px] font-mono text-secondary-text/80 whitespace-pre-wrap bg-black/40 border border-border-color/30 p-3 leading-relaxed min-h-[80px]">No active session.</pre>
+          <div id="v3-kg-nodes" class="flex flex-col gap-1"></div>
+        </div>
+
+        <div id="v3-panel-replay" class="v3-panel hidden flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Replay Log</span>
+            <span id="v3-replay-stats" class="text-[9px] text-secondary-text/60 font-mono ml-2"></span>
+          </div>
+          <div id="v3-replay-table" class="flex flex-col gap-1 font-mono text-[10px]"></div>
+        </div>
+
+        <div id="v3-panel-lesson" class="v3-panel hidden flex-1 flex flex-col gap-3 p-4 overflow-y-auto scrollbar-hide">
+          <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Reflexion / Lesson</span>
+          <pre id="v3-lesson-content" class="text-[10px] font-mono text-secondary-text/80 whitespace-pre-wrap bg-black/40 border border-border-color/30 p-3 leading-relaxed min-h-[80px]">Lesson captured at mission end.</pre>
+        </div>
+
+        <div id="v3-panel-opsec" class="v3-panel hidden flex-1 flex flex-col gap-2 p-4 overflow-y-auto scrollbar-hide">
+          <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">OPSEC Alerts</span>
+          <div id="v3-opsec-feed" class="flex flex-col gap-1.5 font-mono text-[10px]">
+            <span class="text-secondary-text/50 italic">No alerts yet.</span>
           </div>
         </div>
-        <!-- Input bar -->
-        <div class="border-t border-border-color bg-black/90 px-4 py-2.5 flex items-center gap-3 shrink-0">
-          <span class="text-primary font-mono text-xs shrink-0 select-none">tirpan&gt;</span>
-          <input id="terminal-cmd-input" class="flex-1 bg-transparent text-slate-200 font-mono text-xs outline-none border-none caret-primary" placeholder="inject task, instruction, or command to active agent…" type="text" autocomplete="off" spellcheck="false"/>
-          <kbd class="text-[9px] text-secondary-text font-mono shrink-0 select-none">↵ Enter</kbd>
+
+      </div>
+
+      <!-- Terminal body: TERMINAL — native bash PTY -->
+      <div id="console-terminal" class="console-body hidden flex-1 flex flex-col min-h-0" data-tab="terminal">
+        <div class="px-4 py-2 border-b border-border-color bg-black/80 shrink-0 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[14px]">terminal</span>
+            <span class="text-[10px] uppercase tracking-widest text-secondary-text font-bold">Native Bash</span>
+            <span id="terminal-session-badge" class="text-[10px] mono-text text-secondary-text/60">disconnected</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="terminal-clear-btn" class="px-2 py-1 text-[10px] border border-border-color text-secondary-text hover:text-white hover:border-primary transition-colors" type="button">Clear</button>
+            <button id="terminal-open-btn" class="px-2.5 py-1 text-[10px] border border-primary/60 text-primary hover:bg-primary/10 transition-colors" type="button">Connect</button>
+            <button id="terminal-close-btn" class="hidden px-2.5 py-1 text-[10px] border border-danger/70 text-danger hover:bg-danger/10 transition-colors" type="button">Disconnect</button>
+          </div>
+        </div>
+        <div id="terminal-native-shell" class="flex-1 min-h-0 p-2"></div>
+        <div class="px-4 py-2 border-t border-border-color bg-black/90 text-[10px] mono-text text-secondary-text/70 shrink-0" id="terminal-status-text">
+          Connect to open an interactive bash session.
         </div>
       </div>
     </div>
@@ -932,7 +1051,7 @@
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">OpenRouter API Key</label>
                 <div class="relative">
-                  <input id="cfg-openrouter-key" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-10" type="password" placeholder="sk-or-..."/>
+                  <input id="cfg-openrouter-key" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-10" type="password" placeholder="sk-or-..." autocomplete="off"/>
                   <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] cursor-pointer hover:text-primary transition-colors" id="toggle-api-key">visibility</span>
                 </div>
               </div>
@@ -960,6 +1079,38 @@
                 </div>
               </div>
 
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2">
+                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">OpenCode Go API Key</label>
+                <div class="relative">
+                  <input id="cfg-opencodego-key" class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text pr-10" type="password" placeholder="oc-go-..." autocomplete="off"/>
+                  <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] cursor-pointer hover:text-primary transition-colors" id="toggle-ocg-api-key">visibility</span>
+                </div>
+                <p class="text-[9px] text-secondary-text mt-0.5">$10/month — open coding models. Get your key at opencode.ai/auth</p>
+              </div>
+
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2">
+                <div class="flex items-center justify-between">
+                  <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">OpenCode Go Model</label>
+                  <button id="fetch-ocg-models-btn" type="button" class="text-[10px] mono-text text-secondary-text hover:text-primary transition-colors flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[13px]">refresh</span>
+                    Fetch Models
+                  </button>
+                </div>
+                <div class="relative" id="cfg-ocg-model-wrapper">
+                  <button id="cfg-ocg-model-btn" type="button"
+                    class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
+                    <span id="cfg-ocg-model-label" class="truncate">opencode-go/deepseek-v4-pro</span>
+                    <span class="material-symbols-outlined text-secondary-text text-[16px]" id="cfg-ocg-model-chevron">expand_more</span>
+                  </button>
+                  <input type="hidden" id="cfg-ocg-model" value="opencode-go/deepseek-v4-pro"/>
+                  <div id="cfg-ocg-model-dropdown" class="hidden absolute top-full left-0 right-0 bg-card border border-border-color border-t-0 z-50 max-h-56 overflow-y-auto scrollbar-hide">
+                    <div id="cfg-ocg-model-list">
+                      <div class="px-3 py-2 text-[10px] mono-text text-secondary-text">Enter API key and click Fetch Models</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <div class="flex items-center justify-between">
                   <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Local LLM (Ollama)</label>
@@ -972,22 +1123,15 @@
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Local Model (Ollama)</label>
-                <div class="relative" id="cfg-model-wrapper">
-                  <button id="cfg-model-btn" type="button"
-                    class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
-                    <span id="cfg-model-label" class="truncate">—</span>
-                    <div class="flex items-center gap-2 shrink-0 ml-2">
-                      <span id="cfg-ollama-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
-                      <span class="material-symbols-outlined text-secondary-text text-[16px]" id="cfg-model-chevron">expand_more</span>
-                    </div>
-                  </button>
-                  <input type="hidden" id="cfg-ollama-model" value=""/>
-                  <div id="cfg-model-dropdown" class="hidden absolute top-full left-0 right-0 bg-card border border-border-color border-t-0 z-50 max-h-48 overflow-y-auto scrollbar-hide">
-                    <div id="cfg-model-list">
-                      <div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found</div>
-                    </div>
+                <button id="cfg-model-btn" type="button" data-picker="ollama"
+                  class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
+                  <span id="cfg-model-label" class="truncate">—</span>
+                  <div class="flex items-center gap-2 shrink-0 ml-2">
+                    <span id="cfg-ollama-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
+                    <span class="material-symbols-outlined text-secondary-text text-[16px]">expand_more</span>
                   </div>
-                </div>
+                </button>
+                <input type="hidden" id="cfg-ollama-model" value=""/>
               </div>
 
               <!-- LM Studio row -->
@@ -1003,22 +1147,15 @@
 
               <div class="bg-card border border-border-color p-4 flex flex-col gap-2">
                 <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">LM Studio Model</label>
-                <div class="relative" id="cfg-lmstudio-model-wrapper">
-                  <button id="cfg-lmstudio-model-btn" type="button"
-                    class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
-                    <span id="cfg-lmstudio-model-label" class="truncate">—</span>
-                    <div class="flex items-center gap-2 shrink-0 ml-2">
-                      <span id="cfg-lmstudio-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
-                      <span class="material-symbols-outlined text-secondary-text text-[16px]" id="cfg-lmstudio-model-chevron">expand_more</span>
-                    </div>
-                  </button>
-                  <input type="hidden" id="cfg-lmstudio-model" value=""/>
-                  <div id="cfg-lmstudio-model-dropdown" class="hidden absolute top-full left-0 right-0 bg-card border border-border-color border-t-0 z-50 max-h-48 overflow-y-auto scrollbar-hide">
-                    <div id="cfg-lmstudio-model-list">
-                      <div class="px-3 py-2 text-[10px] mono-text text-secondary-text">No models found — is LM Studio running?</div>
-                    </div>
+                <button id="cfg-lmstudio-model-btn" type="button" data-picker="lmstudio"
+                  class="w-full flex items-center justify-between bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text hover:border-primary transition-colors">
+                  <span id="cfg-lmstudio-model-label" class="truncate">—</span>
+                  <div class="flex items-center gap-2 shrink-0 ml-2">
+                    <span id="cfg-lmstudio-status-dot" class="w-2 h-2 rounded-full bg-border-color"></span>
+                    <span class="material-symbols-outlined text-secondary-text text-[16px]">expand_more</span>
                   </div>
-                </div>
+                </button>
+                <input type="hidden" id="cfg-lmstudio-model" value=""/>
               </div>
 
               <div class="bg-card border border-border-color p-4 flex items-center gap-4 col-span-2">
@@ -1032,6 +1169,207 @@
                 </label>
               </div>
 
+            </div>
+          </div>
+
+          <!-- ── SECTION: Per-Agent Models ─────────────────────────────── -->
+          <div>
+            <div class="flex items-center gap-4 mb-6">
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Per-Agent Models</span>
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+            </div>
+            <p class="text-[10px] text-secondary-text mb-4">Override which model each agent type uses. Click a row to pick from available models. Leave empty to inherit the global active model.</p>
+            <div class="flex flex-col gap-2">
+
+              <!-- brain -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_brain')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">psychology</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Brain</p>
+                  <p class="text-[9px] text-secondary-text">orchestrator</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-brain-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_brain" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_brain')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-brain-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-brain-model" value=""/>
+              </div>
+
+              <!-- scanner -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_scanner')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">manage_search</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Scanner</p>
+                  <p class="text-[9px] text-secondary-text">discovery, vuln scan</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-scanner-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_scanner" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_scanner')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-scanner-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-scanner-model" value=""/>
+              </div>
+
+              <!-- exploit -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_exploit')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">bug_report</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Exploit</p>
+                  <p class="text-[9px] text-secondary-text">metasploit execution</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-exploit-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_exploit" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_exploit')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-exploit-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-exploit-model" value=""/>
+              </div>
+
+              <!-- webapp -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_webapp')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">language</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">WebApp</p>
+                  <p class="text-[9px] text-secondary-text">http app testing</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-webapp-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_webapp" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_webapp')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-webapp-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-webapp-model" value=""/>
+              </div>
+
+              <!-- postexploit -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_postexploit')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">terminal</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Post-Exploit</p>
+                  <p class="text-[9px] text-secondary-text">priv-esc, loot</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-postexploit-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_postexploit" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_postexploit')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-postexploit-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-postexploit-model" value=""/>
+              </div>
+
+              <!-- lateral -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_lateral')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">account_tree</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Lateral</p>
+                  <p class="text-[9px] text-secondary-text">pivot movement</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-lateral-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_lateral" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_lateral')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-lateral-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-lateral-model" value=""/>
+              </div>
+
+              <!-- osint -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_osint')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">travel_explore</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">OSINT</p>
+                  <p class="text-[9px] text-secondary-text">open-source recon</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-osint-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_osint" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_osint')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-osint-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-osint-model" value=""/>
+              </div>
+
+              <!-- reporting -->
+              <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('cfg_agent_reporting')">
+                <span class="material-symbols-outlined text-primary text-[16px] shrink-0">description</span>
+                <div class="w-32 shrink-0">
+                  <p class="text-[11px] font-bold">Reporting</p>
+                  <p class="text-[9px] text-secondary-text">report generation</p>
+                </div>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  <span id="cfg-agent-model-reporting-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+                </div>
+                <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+                <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="cfg_agent_reporting" onclick="event.stopPropagation(); clearAgentModel('cfg_agent_reporting')" title="Clear override">
+                  <span class="material-symbols-outlined text-[16px]">close</span>
+                </button>
+                <input type="hidden" id="cfg-agent-model-reporting-provider" value=""/>
+                <input type="hidden" id="cfg-agent-model-reporting-model" value=""/>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ── SECTION: Nmap ───────────────────────────────────────────── -->
+          <div>
+            <div class="flex items-center gap-4 mb-6">
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+              <span class="text-[11px] mono-text text-secondary-text uppercase tracking-[0.2em]">Branding</span>
+              <div class="h-[1px] flex-1 bg-border-color"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2">
+                <label class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Company Name</label>
+                <input
+                  id="cfg-branding-company"
+                  class="w-full bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-xs mono-text"
+                  type="text"
+                  maxlength="120"
+                  placeholder="Acme Security"
+                />
+                <p class="text-[10px] text-secondary-text">Displayed on report cover and footer.</p>
+              </div>
+
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-3 col-span-2 lg:col-span-1">
+                <div>
+                  <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Report Logo</p>
+                  <p class="text-[10px] text-secondary-text mt-1">PNG/JPG/WEBP up to 5MB.</p>
+                </div>
+                <input id="cfg-branding-logo-input" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" />
+                <button id="cfg-branding-logo-btn" type="button" class="self-start px-3 py-1.5 bg-background-dark border border-border-color text-secondary-text hover:text-primary hover:border-primary transition-colors text-[11px] mono-text">
+                  Upload Logo
+                </button>
+                <button id="cfg-branding-logo-remove" type="button" class="hidden self-start px-3 py-1.5 border border-danger/50 text-danger hover:bg-danger/10 transition-colors text-[11px] mono-text">
+                  Remove Logo
+                </button>
+              </div>
+
+              <div class="bg-card border border-border-color p-4 flex flex-col gap-2 col-span-2 lg:col-span-1">
+                <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Logo Preview</p>
+                <div id="cfg-branding-logo-preview" class="h-32 border border-border-color bg-background-dark flex items-center justify-center p-3 overflow-hidden">
+                  <span class="text-[10px] mono-text text-secondary-text">No logo uploaded</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1321,27 +1659,6 @@
     <!-- ── VIEW: INTEL (expanded intelligence) ───────────────────────────── -->
     <div id="view-intel" class="hidden flex-1 flex flex-col min-h-0">
 
-      <!-- Intel header -->
-      <div class="px-6 py-3 bg-surface border-b border-border-color flex items-center justify-between shrink-0">
-        <div class="flex items-center gap-4">
-          <button id="intel-back-btn" class="flex items-center gap-1.5 text-secondary-text hover:text-primary transition-colors">
-            <span class="material-symbols-outlined text-[18px]">arrow_back</span>
-            <span class="text-[10px] font-bold uppercase tracking-widest">Back</span>
-          </button>
-          <div class="w-px h-4 bg-border-color"></div>
-          <span class="material-symbols-outlined text-primary text-[18px]" id="intel-view-icon">monitoring</span>
-          <span class="font-display font-bold text-sm tracking-widest uppercase" id="intel-view-title">Analysis</span>
-        </div>
-        <div class="flex border border-border-color">
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase bg-primary text-black" data-intel-tab="analysis">Analysis</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="network">Network</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="shield">Shield</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="history">History</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="nodes">Nodes</button>
-          <button class="intel-tab px-4 py-1.5 text-[10px] font-bold mono-text uppercase text-secondary-text hover:text-white border-l border-border-color transition-colors" data-intel-tab="kb">Knowledge Base</button>
-        </div>
-      </div>
-
       <div class="flex-1 overflow-y-auto scrollbar-hide">
 
         <!-- ── Analysis expanded ──────────────────────────────────────────── -->
@@ -1549,76 +1866,59 @@
 
         </div>
 
-        <!-- ── Shield expanded ────────────────────────────────────────────── -->
-        <div class="intel-tab-body hidden p-8" data-intel-tab="shield">
+        <!-- ── DDoS expanded ────────────────────────────────────────────────── -->
+        <div class="intel-tab-body hidden p-8" data-intel-tab="ddos">
           <div class="max-w-6xl mx-auto flex flex-col gap-8">
 
             <div class="grid grid-cols-4 gap-4">
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Alerts Today</p><p class="mono-text text-3xl font-bold text-danger">7</p></div>
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Blocked IPs</p><p class="mono-text text-3xl font-bold text-primary">3</p></div>
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Detectors</p><p class="mono-text text-3xl font-bold">4</p></div>
-              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Packets/s</p><p class="mono-text text-3xl font-bold text-primary">1.2K</p></div>
+              <div class="bg-card border border-border-color p-4" id="ddos-exp-stat-req"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Total Requests</p><p class="mono-text text-3xl font-bold text-danger">0</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Bandwidth</p><p id="ddos-exp-stat-bw" class="mono-text text-3xl font-bold">0 MB</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Active Workers</p><p id="ddos-exp-stat-w" class="mono-text text-3xl font-bold text-primary">0</p></div>
+              <div class="bg-card border border-border-color p-4"><p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Success Rate</p><p id="ddos-exp-stat-sr" class="mono-text text-3xl font-bold text-primary">—%</p></div>
             </div>
 
             <div class="grid grid-cols-[260px_1fr] gap-6">
               <div class="flex flex-col gap-4">
                 <div class="bg-card border border-border-color p-4">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Detector Status</p>
-                  <div class="flex flex-col gap-2">
-                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">Port Scan</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
-                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">ARP Spoof</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
-                    <div class="flex items-center justify-between py-2 border-b border-border-color"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-primary"></div><span class="text-xs mono-text">DoS / DDoS</span></div><span class="text-[8px] text-primary uppercase font-bold">Active</span></div>
-                    <div class="flex items-center justify-between py-2"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full" style="background:#555"></div><span class="text-xs mono-text text-secondary-text">Brute Force</span></div><span class="text-[8px] text-secondary-text uppercase font-bold">Idle</span></div>
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Target Config</p>
+                  <div class="flex flex-col gap-2 text-[10px] mono-text">
+                    <div class="flex justify-between"><span class="text-secondary-text">Target</span><span id="ddos-exp-target" class="text-slate-300">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Vector</span><span id="ddos-exp-vector" class="text-primary font-bold uppercase">HTTP Flood</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Workers</span><span id="ddos-exp-workers" class="text-slate-300">100</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Duration</span><span id="ddos-exp-duration" class="text-slate-300">30s</span></div>
                   </div>
                 </div>
                 <div class="bg-card border border-border-color p-4">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Blocked Connections</p>
-                  <div class="flex flex-col gap-2 mono-text text-[10px]">
-                    <div class="flex justify-between py-1 border-b border-border-color"><span class="text-secondary-text">10.0.0.1</span><span class="text-danger">iptables DROP</span></div>
-                    <div class="flex justify-between py-1 border-b border-border-color"><span class="text-secondary-text">172.16.0.5</span><span class="text-danger">iptables DROP</span></div>
-                    <div class="flex justify-between py-1"><span class="text-secondary-text">192.168.5.99</span><span class="text-orange-400">REDIRECT</span></div>
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Response Breakdown</p>
+                  <div class="flex flex-col gap-2 text-[10px] mono-text">
+                    <div class="flex justify-between"><span class="text-green-400">2XX Success</span><span id="ddos-exp-resp-2xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-orange-400">3XX Redirect</span><span id="ddos-exp-resp-3xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-danger">4XX Client Err</span><span id="ddos-exp-resp-4xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">5XX Server Err</span><span id="ddos-exp-resp-5xx">0</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Timeout</span><span id="ddos-exp-resp-err">0</span></div>
                   </div>
                 </div>
               </div>
 
-              <div class="bg-card border border-border-color">
+              <div class="bg-card border border-border-color flex flex-col">
                 <div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
-                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Alert Log</p>
-                  <span class="mono-text text-[9px] text-danger">7 alerts</span>
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Attack Log</p>
+                  <span id="ddos-exp-log-count" class="mono-text text-[9px] text-secondary-text">0 entries</span>
                 </div>
-                <table class="w-full border-collapse">
-                  <thead>
-                    <tr class="border-b border-border-color">
-                      <th class="text-left px-5 py-2 text-[8px] font-bold text-secondary-text uppercase">Time</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Type</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Source</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Target</th>
-                      <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody class="mono-text text-xs">
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors bg-danger/5">
-                      <td class="px-5 py-2.5 text-secondary-text">14:42:01</td><td class="px-4 py-2.5 text-danger font-bold">PORT_SCAN</td><td class="px-4 py-2.5 text-slate-300">192.168.1.55</td><td class="px-4 py-2.5 text-slate-400">192.168.1.102</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
-                    </tr>
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:40:33</td><td class="px-4 py-2.5 text-orange-400 font-bold">BRUTE_FORCE</td><td class="px-4 py-2.5 text-slate-300">10.0.0.1</td><td class="px-4 py-2.5 text-slate-400">192.168.1.55:22</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
-                    </tr>
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:38:44</td><td class="px-4 py-2.5 text-orange-400 font-bold">BRUTE_FORCE</td><td class="px-4 py-2.5 text-slate-300">172.16.0.5</td><td class="px-4 py-2.5 text-slate-400">192.168.1.1:80</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-danger uppercase px-1.5 py-0.5 border border-danger/30">BLOCK</span></td>
-                    </tr>
-                    <tr class="border-b border-border-color hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:35:12</td><td class="px-4 py-2.5 text-secondary-text font-bold">ARP_SPOOF</td><td class="px-4 py-2.5 text-slate-300">192.168.5.99</td><td class="px-4 py-2.5 text-slate-400">Broadcast</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-orange-400 uppercase px-1.5 py-0.5 border border-orange-400/30">ALERT</span></td>
-                    </tr>
-                    <tr class="hover:bg-surface transition-colors">
-                      <td class="px-5 py-2.5 text-secondary-text">14:32:08</td><td class="px-4 py-2.5 text-secondary-text font-bold">PORT_SCAN</td><td class="px-4 py-2.5 text-slate-300">192.168.1.55</td><td class="px-4 py-2.5 text-slate-400">192.168.1.0/24</td>
-                      <td class="px-4 py-2.5"><span class="text-[7px] text-primary uppercase px-1.5 py-0.5 border border-primary/30">LOG</span></td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div class="overflow-auto flex-1">
+                  <table class="w-full border-collapse">
+                    <thead>
+                      <tr class="border-b border-border-color">
+                        <th class="text-left px-5 py-2 text-[8px] font-bold text-secondary-text uppercase">Time</th>
+                        <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Event</th>
+                        <th class="text-left px-4 py-2 text-[8px] font-bold text-secondary-text uppercase">Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ddos-exp-log-tbody" class="mono-text text-xs">
+                      <tr><td class="px-5 py-4 text-secondary-text text-center" colspan="3">No attack launched yet</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -1948,7 +2248,9 @@
         <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="credentials">03 Credentials</button>
         <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="discovery">04 Discovery</button>
         <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-r border-border-color" data-tab="policy">05 Policy</button>
-        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap" data-tab="profiles">06 Profiles</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-l border-border-color" data-tab="profiles">06 Profiles</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-l border-border-color" data-tab="models">07 Models</button>
+        <button class="adv-tab-btn px-6 py-3 text-[10px] font-display font-bold uppercase tracking-widest whitespace-nowrap border-l border-border-color" data-tab="tools">08 Tools</button>
       </div>
 
       <!-- Tab bodies (scrollable area) -->
@@ -2022,9 +2324,24 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
               <button class="adv-mode-btn active flex-1" data-mode="scan_only">Scan Only</button>
               <button class="adv-mode-btn flex-1" data-mode="ask_before_exploit">Ask Before Exploit</button>
               <button class="adv-mode-btn flex-1" data-mode="full_auto">Full Auto</button>
-              <button class="adv-mode-btn flex-1" data-mode="v2_auto" title="V2 multi-agent: BrainAgent coordinates specialized sub-agents">V2 Auto ✦</button>
+              <button class="adv-mode-btn flex-1" data-mode="v2_auto" title="Multi-agent orchestration — BrainAgent coordinates specialized sub-agents">Multi-agent orchestration</button>
             </div>
             <p id="adv-mode-desc" class="text-[9px] text-secondary-text">Scan and identify vulnerabilities — no exploitation.</p>
+          </div>
+
+          <!-- Step-by-step execution toggle -->
+          <div class="flex items-center gap-4 p-4 bg-card border border-border-color">
+            <div class="flex-1">
+              <p class="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <span class="material-symbols-outlined text-[14px]">step</span>
+                Step-by-Step Execution
+              </p>
+              <p class="text-[10px] text-secondary-text mt-0.5">Agent pauses and asks for your approval before every tool call. Disable for fully autonomous operation.</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" id="adv-step-by-step" class="sr-only peer"/>
+              <div class="w-10 h-5 bg-border-color peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+            </label>
           </div>
 
           <div class="flex flex-col gap-2">
@@ -2262,11 +2579,11 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
                 <input type="checkbox" class="accent-primary" id="pol-allow-docker" disabled/>
                 <div><span class="font-semibold">Allow Docker Escape</span><p class="text-[9px] text-secondary-text">Attempt container escape if containerised environment detected</p></div>
               </label>
-              <label class="adv-check-row">
-                <input type="checkbox" class="accent-primary" id="pol-allow-browser"/>
-                <div><span class="font-semibold">Allow Browser Recon</span><p class="text-[9px] text-secondary-text">Playwright headless browser for web application recon</p></div>
-              </label>
-            </div>
+<label class="adv-check-row">
+                 <input type="checkbox" class="accent-primary" id="pol-allow-browser"/>
+                 <div><span class="font-semibold">Allow Browser Recon</span><p class="text-[9px] text-secondary-text">Playwright headless browser for web application recon</p></div>
+               </label>
+             </div>
           </div>
 
           <div class="border-t border-border-color pt-4 grid grid-cols-2 gap-4">
@@ -2354,6 +2671,258 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
           </div>
         </div>
 
+        <!-- ── TAB 7: MODELS ───────────────────────────────────────────── -->
+        <div id="adv-tab-models" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-5">
+
+          <p class="text-[10px] text-secondary-text">Override which AI model each agent uses for this mission. Click a row to pick from available models. Leave empty to inherit the global active model.</p>
+
+          <div class="flex flex-col gap-2">
+
+            <!-- Brain -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_brain')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">psychology</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Brain</p>
+                <p class="text-[9px] text-secondary-text">V2 orchestrator</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-brain-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_brain" onclick="event.stopPropagation(); clearAgentModel('adv_agent_brain')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-brain-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-brain-model" value=""/>
+            </div>
+
+            <!-- Scanner -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_scanner')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">manage_search</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Scanner</p>
+                <p class="text-[9px] text-secondary-text">port, service, vuln scan</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-scanner-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_scanner" onclick="event.stopPropagation(); clearAgentModel('adv_agent_scanner')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-scanner-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-scanner-model" value=""/>
+            </div>
+
+            <!-- Exploit -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_exploit')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">bug_report</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Exploit</p>
+                <p class="text-[9px] text-secondary-text">metasploit modules</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-exploit-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_exploit" onclick="event.stopPropagation(); clearAgentModel('adv_agent_exploit')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-exploit-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-exploit-model" value=""/>
+            </div>
+
+            <!-- WebApp -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_webapp')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">language</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">WebApp</p>
+                <p class="text-[9px] text-secondary-text">http app exploitation</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-webapp-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_webapp" onclick="event.stopPropagation(); clearAgentModel('adv_agent_webapp')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-webapp-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-webapp-model" value=""/>
+            </div>
+
+            <!-- Post-Exploit -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_postexploit')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">terminal</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Post-Exploit</p>
+                <p class="text-[9px] text-secondary-text">post-exploit, loot</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-postexploit-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_postexploit" onclick="event.stopPropagation(); clearAgentModel('adv_agent_postexploit')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-postexploit-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-postexploit-model" value=""/>
+            </div>
+
+            <!-- Lateral -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_lateral')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">account_tree</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Lateral</p>
+                <p class="text-[9px] text-secondary-text">pivot, internal movement</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-lateral-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_lateral" onclick="event.stopPropagation(); clearAgentModel('adv_agent_lateral')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-lateral-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-lateral-model" value=""/>
+            </div>
+
+            <!-- Reporting -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_reporting')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">description</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">Reporting</p>
+                <p class="text-[9px] text-secondary-text">report generation</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-reporting-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_reporting" onclick="event.stopPropagation(); clearAgentModel('adv_agent_reporting')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-reporting-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-reporting-model" value=""/>
+            </div>
+
+            <!-- OSINT -->
+            <div class="agent-model-row flex items-center gap-3 bg-card border border-border-color p-3 hover:border-primary/40 transition-colors cursor-pointer" onclick="openAgentModelPicker('adv_agent_osint')">
+              <span class="material-symbols-outlined text-primary text-[16px] shrink-0">travel_explore</span>
+              <div class="w-40 shrink-0">
+                <p class="text-[11px] font-bold">OSINT</p>
+                <p class="text-[9px] text-secondary-text">open-source intelligence</p>
+              </div>
+              <div class="flex-1 flex items-center gap-2 min-w-0">
+                <span id="adv-agent-model-osint-label" class="text-[11px] mono-text text-secondary-text truncate">— inherit global —</span>
+              </div>
+              <span class="material-symbols-outlined text-secondary-text text-[16px] shrink-0">unfold_more</span>
+              <button class="agent-model-clear shrink-0 text-secondary-text hover:text-danger transition-colors hidden" data-key="adv_agent_osint" onclick="event.stopPropagation(); clearAgentModel('adv_agent_osint')" title="Clear">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+              <input type="hidden" id="adv-agent-model-osint-provider" value=""/>
+              <input type="hidden" id="adv-agent-model-osint-model" value=""/>
+            </div>
+
+          </div>
+
+          <div class="border-t border-border-color pt-4">
+            <button onclick="advLoadAgentModelDefaults()" class="adv-btn-sm flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[13px]">download</span>
+              Load from Global Config Defaults
+            </button>
+          </div>
+        </div>
+
+        <!-- ── TAB 8: TOOLS ────────────────────────────────────────────────── -->
+        <div id="adv-tab-tools" class="adv-tab-body hidden max-w-5xl mx-auto px-8 py-6 flex flex-col gap-6">
+
+          <p class="text-[10px] text-secondary-text">Control which tools agents are allowed to use in this mission. Disabling a tool prevents agents from calling it entirely — useful for scope-limited engagements.</p>
+
+          <!-- Scanning Tools -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest border-b border-border-color pb-2">Scanning Tools</h3>
+            <div class="flex flex-col gap-2">
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">Nmap</div><div class="text-[9px] text-secondary-text">Port, service, OS and script scanning</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="nmap" role="switch" aria-checked="true" aria-label="Toggle Nmap"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">Masscan</div><div class="text-[9px] text-secondary-text">High-speed port scanning</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="masscan" role="switch" aria-checked="true" aria-label="Toggle Masscan"></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Web Tools -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest border-b border-border-color pb-2">Web Tools</h3>
+            <div class="flex flex-col gap-2">
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">ffuf</div><div class="text-[9px] text-secondary-text">Web fuzzer — directory & file bruteforce</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="ffuf" role="switch" aria-checked="true" aria-label="Toggle ffuf"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">Nikto</div><div class="text-[9px] text-secondary-text">Web server vulnerability scanner</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="nikto" role="switch" aria-checked="true" aria-label="Toggle Nikto"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">SQLmap</div><div class="text-[9px] text-secondary-text">SQL injection detection and exploitation</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="sqlmap" role="switch" aria-checked="true" aria-label="Toggle SQLmap"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">WPScan</div><div class="text-[9px] text-secondary-text">WordPress vulnerability scanner</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="wpscan" role="switch" aria-checked="true" aria-label="Toggle WPScan"></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Exploitation Tools -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest border-b border-border-color pb-2">Exploitation Tools</h3>
+            <div class="flex flex-col gap-2">
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">Metasploit</div><div class="text-[9px] text-secondary-text">Framework exploitation modules</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="metasploit" role="switch" aria-checked="true" aria-label="Toggle Metasploit"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">SearchSploit</div><div class="text-[9px] text-secondary-text">Exploit-DB offline search</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="searchsploit" role="switch" aria-checked="true" aria-label="Toggle SearchSploit"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">Hydra</div><div class="text-[9px] text-secondary-text">Credential brute-force (SSH, FTP, HTTP…)</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="hydra" role="switch" aria-checked="true" aria-label="Toggle Hydra"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">Shell Exec</div><div class="text-[9px] text-secondary-text">Direct bash command execution</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="local_exec" role="switch" aria-checked="true" aria-label="Toggle Shell Exec"></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Post-Exploitation Tools -->
+          <div class="flex flex-col gap-3">
+            <h3 class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest border-b border-border-color pb-2">Post-Exploitation</h3>
+            <div class="flex flex-col gap-2">
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">SSH</div><div class="text-[9px] text-secondary-text">SSH session management</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="ssh_connect" role="switch" aria-checked="true" aria-label="Toggle SSH"></button>
+              </div>
+              <div class="tool-toggle-row bg-card border border-border-color px-3 py-2.5 flex items-center justify-between gap-3 hover:border-border-color/80 transition-colors">
+                <div><div class="text-[11px] font-semibold text-slate-200">File Read</div><div class="text-[9px] text-secondary-text">Read remote files via shell</div></div>
+                <button type="button" class="tool-toggle-btn tool-permission active" data-tool="file_read" role="switch" aria-checked="true" aria-label="Toggle File Read"></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick presets -->
+          <div class="border-t border-border-color pt-4 flex items-center gap-3">
+            <span class="text-[10px] text-secondary-text font-bold uppercase tracking-widest shrink-0">Preset:</span>
+            <button onclick="advToolPreset('all')" class="adv-btn-sm px-3 text-[9px]">All Enabled</button>
+            <button onclick="advToolPreset('scan_only')" class="adv-btn-sm px-3 text-[9px]">Scan Only</button>
+            <button onclick="advToolPreset('no_exploit')" class="adv-btn-sm px-3 text-[9px]">No Exploitation</button>
+          </div>
+
+        </div><!-- end tab tools -->
+
       </div><!-- end tab bodies -->
     </div><!-- end view-mission -->
 
@@ -2380,6 +2949,502 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
       <div id="outputs-list" class="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-0"></div>
     </div><!-- end view-outputs -->
 
+    <!-- ─── TEAM VIEW ────────────────────────────────────────────────────── -->
+    <div id="view-team" class="hidden flex-1 flex flex-col min-h-0 bg-background-dark">
+      <!-- Header -->
+      <div class="px-6 py-4 border-b border-border-color bg-surface shrink-0 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary">group</span>
+          <h2 class="text-sm font-bold uppercase tracking-widest text-primary">Team Management</h2>
+        </div>
+        <button id="team-invite-btn" onclick="teamOpenInvite()"
+          class="flex items-center gap-1.5 bg-primary text-black font-display font-bold text-xs py-2 px-5 uppercase tracking-tighter hover:brightness-90 transition-all">
+          <span class="material-symbols-outlined text-[14px]">person_add</span>
+          Invite Member
+        </button>
+      </div>
+
+      <!-- Scrollable content -->
+      <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6 max-w-4xl mx-auto w-full">
+
+        <!-- Org card -->
+        <div class="border border-border-color bg-surface">
+          <div class="px-4 py-2.5 border-b border-border-color/60 flex items-center gap-2">
+            <span class="material-symbols-outlined text-[13px] text-secondary-text">domain</span>
+            <span class="text-[10px] font-bold uppercase tracking-widest text-secondary-text">Organization</span>
+          </div>
+          <div id="team-org-card" class="flex items-center gap-3 p-4">
+            <span class="text-secondary-text text-xs animate-pulse">Loading…</span>
+          </div>
+        </div>
+
+        <!-- Members section -->
+        <div class="border border-border-color bg-surface">
+          <div class="px-4 py-2.5 border-b border-border-color/60 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[13px] text-secondary-text">people</span>
+              <span class="text-[10px] font-bold uppercase tracking-widest text-secondary-text">Members</span>
+            </div>
+            <button onclick="teamLoadMembers()" class="text-secondary-text hover:text-primary transition-colors" title="Refresh">
+              <span class="material-symbols-outlined text-[14px]">refresh</span>
+            </button>
+          </div>
+          <div id="team-members-list" class="flex flex-col">
+            <div class="p-6 text-secondary-text text-xs flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>Loading…
+            </div>
+          </div>
+        </div>
+
+        <!-- Pending invitations section -->
+        <div id="team-invitations-section" class="hidden border border-border-color bg-surface">
+          <div class="px-4 py-2.5 border-b border-border-color/60 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[13px] text-secondary-text">mail</span>
+              <span class="text-[10px] font-bold uppercase tracking-widest text-secondary-text">Pending Invitations</span>
+            </div>
+            <button onclick="teamLoadInvitations()" class="text-secondary-text hover:text-primary transition-colors" title="Refresh">
+              <span class="material-symbols-outlined text-[14px]">refresh</span>
+            </button>
+          </div>
+          <div id="team-invitations-list" class="flex flex-col"></div>
+          <div class="px-4 py-3 border-t border-border-color/40 text-[9px] text-secondary-text/60">
+            Hover over a pending invite to copy the link or revoke it.
+          </div>
+        </div>
+
+        <!-- Role legend -->
+        <div class="border border-border-color/40 bg-surface/40 p-4">
+          <p class="text-[9px] uppercase tracking-widest text-secondary-text/60 mb-3">Role Permissions</p>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px]">
+            <div class="flex flex-col gap-1">
+              <span class="text-primary font-bold uppercase tracking-wider border border-primary/40 px-1.5 py-0.5 self-start text-[9px]">Owner</span>
+              <span class="text-secondary-text">Full control, billing, org settings, can assign Owner role</span>
+            </div>
+            <div class="flex flex-col gap-1">
+              <span class="text-purple-400 font-bold uppercase tracking-wider border border-purple-400/40 px-1.5 py-0.5 self-start text-[9px]">Admin</span>
+              <span class="text-secondary-text">Assign missions, manage members, invite analysts/viewers</span>
+            </div>
+            <div class="flex flex-col gap-1">
+              <span class="text-blue-400 font-bold uppercase tracking-wider border border-blue-400/40 px-1.5 py-0.5 self-start text-[9px]">Analyst</span>
+              <span class="text-secondary-text">Create &amp; run missions, manage own sessions</span>
+            </div>
+            <div class="flex flex-col gap-1">
+              <span class="text-secondary-text font-bold uppercase tracking-wider border border-border-color px-1.5 py-0.5 self-start text-[9px]">Viewer</span>
+              <span class="text-secondary-text">Read-only access to assigned sessions</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div><!-- end view-team -->
+
+    <!-- ─── INVITE MEMBER MODAL ──────────────────────────────────────────── -->
+    <div id="team-invite-modal" class="hidden fixed inset-0 z-[500] flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="teamCloseInvite()"></div>
+      <div class="relative bg-surface border border-border-color shadow-2xl w-[min(480px,calc(100vw-24px))] flex flex-col">
+        <!-- Modal header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-border-color">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[18px]">person_add</span>
+            <span class="font-display font-bold text-sm uppercase tracking-widest">Invite Team Member</span>
+          </div>
+          <button onclick="teamCloseInvite()" class="text-secondary-text hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        </div>
+        <!-- Modal body -->
+        <div class="p-5 flex flex-col gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-bold uppercase tracking-wider text-secondary-text">Email Address <span class="font-normal normal-case">(optional — leave blank for open link)</span></label>
+            <input id="team-invite-email" type="email" placeholder="user@company.com"
+              class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm mono-text focus:border-primary outline-none transition-colors"/>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="flex flex-col gap-1.5">
+              <label class="text-[10px] font-bold uppercase tracking-wider text-secondary-text">Role</label>
+              <select id="team-invite-role" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm">
+                <option value="viewer">Viewer</option>
+                <option value="analyst" selected>Analyst</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <label class="text-[10px] font-bold uppercase tracking-wider text-secondary-text">Expires In</label>
+              <select id="team-invite-expire" class="bg-background-dark border border-border-color text-slate-100 px-3 py-2 text-sm">
+                <option value="24">24 hours</option>
+                <option value="72" selected>3 days</option>
+                <option value="168">7 days</option>
+                <option value="720">30 days</option>
+              </select>
+            </div>
+          </div>
+          <p id="team-invite-error" class="text-danger text-xs min-h-[1rem]"></p>
+        </div>
+        <!-- Modal footer -->
+        <div class="flex items-center justify-end gap-3 px-5 py-4 border-t border-border-color">
+          <button onclick="teamCloseInvite()"
+            class="border border-border-color text-secondary-text font-display font-bold text-xs py-2 px-5 uppercase tracking-tighter hover:border-primary hover:text-primary transition-all">
+            Cancel
+          </button>
+          <button onclick="teamCreateInvite()"
+            class="bg-primary text-black font-display font-bold text-xs py-2 px-6 uppercase tracking-tighter hover:brightness-90 transition-all flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[13px]">link</span>
+            Create &amp; Copy Link
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── MISSION ASSIGN MODAL ─────────────────────────────────────────── -->
+    <div id="assign-modal" class="hidden fixed inset-0 z-[500] flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="closeAssignModal()"></div>
+      <div class="relative bg-surface border border-border-color shadow-2xl w-[min(420px,calc(100vw-24px))] flex flex-col">
+        <!-- Modal header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-border-color">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-purple-400 text-[18px]">person_add</span>
+            <div>
+              <span class="font-display font-bold text-sm uppercase tracking-widest">Assign Mission</span>
+              <span id="assign-modal-session" class="ml-2 text-[10px] font-mono text-secondary-text"></span>
+            </div>
+          </div>
+          <button onclick="closeAssignModal()" class="text-secondary-text hover:text-primary transition-colors">
+            <span class="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        </div>
+        <!-- Modal body -->
+        <div class="p-5 flex flex-col gap-4">
+          <p class="text-xs text-secondary-text">Assign this mission to a team member. They will be able to view and interact with it.</p>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-bold uppercase tracking-wider text-secondary-text">Assignee</label>
+            <select id="assign-user-select"
+              class="bg-background-dark border border-border-color text-slate-100 px-3 py-2.5 text-sm">
+              <option value="">Loading…</option>
+            </select>
+          </div>
+        </div>
+        <!-- Modal footer -->
+        <div class="flex items-center justify-end gap-3 px-5 py-4 border-t border-border-color">
+          <button onclick="closeAssignModal()"
+            class="border border-border-color text-secondary-text font-display font-bold text-xs py-2 px-5 uppercase tracking-tighter hover:border-primary hover:text-primary transition-all">
+            Cancel
+          </button>
+          <button onclick="confirmAssign()"
+            class="bg-purple-500 text-white font-display font-bold text-xs py-2 px-6 uppercase tracking-tighter hover:brightness-90 transition-all flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[13px]">check</span>
+            Confirm Assign
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── DEFENSE DASHBOARD ────────────────────────────────────────────── -->
+    <div id="defense-dashboard" class="hidden flex-1 flex flex-col min-h-0 bg-background-dark">
+
+      <!-- Defense top bar -->
+      <div class="flex items-center gap-4 px-6 py-3 border-b border-border-color bg-surface shrink-0">
+        <span class="material-symbols-outlined text-primary text-[20px]">shield</span>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] font-display font-bold tracking-widest uppercase text-secondary-text">Network:</span>
+          <select id="def-network-select" class="bg-transparent text-xs font-mono text-primary border border-border-color px-2 py-1 focus:outline-none">
+            <option value="">-- Select session --</option>
+          </select>
+        </div>
+        <div id="def-status-badge" class="flex items-center gap-1.5 px-3 py-1 border border-border-color text-secondary-text text-[10px] font-bold uppercase tracking-widest">
+          <span class="w-1.5 h-1.5 rounded-full bg-secondary-text"></span>
+          <span id="def-status-text">IDLE</span>
+        </div>
+        <div class="ml-auto flex items-center gap-3">
+          <!-- Mode toggle -->
+          <div class="flex border border-border-color p-0.5 rounded-sm">
+            <button id="def-mode-manual" onclick="defenseSetMode('manual')"
+              class="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-black bg-primary rounded-sm transition-all">Manual</button>
+            <button id="def-mode-auto" onclick="defenseSetMode('auto')"
+              class="px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-secondary-text hover:text-white transition-all">Auto</button>
+          </div>
+          <!-- Start / Stop -->
+          <button id="def-start-btn" onclick="defenseStartSession()"
+            class="px-4 py-1.5 bg-primary text-black text-[10px] font-bold uppercase tracking-widest hover:brightness-90 transition-all flex items-center gap-2">
+            <span class="material-symbols-outlined text-[14px]">play_arrow</span>
+            Start
+          </button>
+          <button id="def-stop-btn" onclick="defenseStopSession()"
+            class="hidden px-4 py-1.5 border border-border-color text-[10px] font-bold uppercase tracking-widest hover:border-white hover:text-white transition-all flex items-center gap-2">
+            <span class="material-symbols-outlined text-[14px]">stop</span>
+            Stop
+          </button>
+          <!-- New session -->
+          <button onclick="defenseNewSession()"
+            class="p-1.5 border border-border-color text-secondary-text hover:text-white hover:border-white transition-all">
+            <span class="material-symbols-outlined text-[16px]">add</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 3-column defense layout -->
+      <div class="flex-1 flex min-h-0 overflow-hidden">
+
+        <!-- ── LEFT: Threat Feed + Detectors + Deceptions ── -->
+        <div class="w-[240px] shrink-0 border-r border-border-color flex flex-col overflow-y-auto bg-surface">
+
+          <!-- Threat Feed -->
+          <div class="p-4 border-b border-border-color">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Threat Feed</span>
+              <span id="def-alert-count" class="mono-text text-[9px] text-primary">0</span>
+            </div>
+            <div id="def-alert-feed" class="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+              <p class="text-[10px] text-secondary-text text-center py-3">No alerts</p>
+            </div>
+          </div>
+
+          <!-- Detectors -->
+          <div class="p-4 border-b border-border-color">
+            <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest block mb-3">Detectors</span>
+            <div id="def-detectors" class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] mono-text">Port Scan</span>
+                <button onclick="defenseToggleDetector('port_scan')" class="def-detector-toggle px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase" data-detector="port_scan" data-enabled="true">ON</button>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] mono-text">Brute Force</span>
+                <button onclick="defenseToggleDetector('brute_force')" class="def-detector-toggle px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase" data-detector="brute_force" data-enabled="true">ON</button>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] mono-text">ARP Spoof</span>
+                <button onclick="defenseToggleDetector('arp_spoof')" class="def-detector-toggle px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase" data-detector="arp_spoof" data-enabled="true">ON</button>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] mono-text">DoS / DDoS</span>
+                <button onclick="defenseToggleDetector('dos')" class="def-detector-toggle px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase" data-detector="dos" data-enabled="true">ON</button>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] mono-text">Lateral Move</span>
+                <button onclick="defenseToggleDetector('lateral')" class="def-detector-toggle px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase" data-detector="lateral" data-enabled="true">ON</button>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] mono-text">Data Exfil</span>
+                <button onclick="defenseToggleDetector('exfil')" class="def-detector-toggle px-2 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase" data-detector="exfil" data-enabled="true">ON</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Deceptions -->
+          <div class="p-4 border-b border-border-color">
+            <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest block mb-3">Deceptions</span>
+            <div id="def-deceptions-list" class="flex flex-col gap-1.5">
+              <p class="text-[10px] text-secondary-text text-center py-2">No active deceptions</p>
+            </div>
+          </div>
+
+          <!-- Stats -->
+          <div class="p-4">
+            <div class="grid grid-cols-2 gap-2">
+              <div class="bg-card border border-border-color p-2 text-center">
+                <span class="text-[8px] text-secondary-text uppercase tracking-widest block">Blocked</span>
+                <span id="def-stat-blocks" class="mono-text text-lg font-bold text-primary">0</span>
+              </div>
+              <div class="bg-card border border-border-color p-2 text-center">
+                <span class="text-[8px] text-secondary-text uppercase tracking-widest block">Deceived</span>
+                <span id="def-stat-deceptions" class="mono-text text-lg font-bold text-primary">0</span>
+              </div>
+              <div class="bg-card border border-border-color p-2 text-center">
+                <span class="text-[8px] text-secondary-text uppercase tracking-widest block">Alerts</span>
+                <span id="def-stat-alerts" class="mono-text text-lg font-bold text-primary">0</span>
+              </div>
+              <div class="bg-card border border-border-color p-2 text-center">
+                <span class="text-[8px] text-secondary-text uppercase tracking-widest block">Profiles</span>
+                <span id="def-stat-profiles" class="mono-text text-lg font-bold text-primary">0</span>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- end left panel -->
+
+        <!-- ── CENTER: LLM Blue Team Agent ── -->
+        <div class="flex-1 flex flex-col min-h-0 min-w-0">
+
+          <!-- Agent reasoning stream -->
+          <div class="flex-1 overflow-y-auto p-4 font-mono text-xs space-y-2" id="def-reasoning-feed">
+            <div class="text-center text-secondary-text py-8">
+              <span class="material-symbols-outlined text-[48px] opacity-20">security</span>
+              <p class="mt-4 text-[11px] uppercase tracking-widest">Defense agent idle</p>
+              <p class="text-[10px] mt-2 opacity-60">Start monitoring to activate</p>
+            </div>
+          </div>
+
+          <!-- Attacker profile card -->
+          <div id="def-profile-card" class="hidden border-t border-border-color p-4 bg-surface shrink-0">
+            <div class="flex items-center gap-3 mb-3">
+              <span class="material-symbols-outlined text-[16px] text-primary">person_alert</span>
+              <span id="def-profile-ip" class="mono-text text-xs text-primary font-bold">—</span>
+              <span class="ml-auto text-[9px] font-bold uppercase tracking-widest text-secondary-text">Attacker Profile</span>
+            </div>
+            <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-[10px]">
+              <div>
+                <span class="text-secondary-text">Actor: </span>
+                <span id="def-profile-actor" class="mono-text text-white">—</span>
+                <span id="def-profile-actor-conf" class="text-secondary-text"></span>
+              </div>
+              <div>
+                <span class="text-secondary-text">Next move: </span>
+                <span id="def-profile-next" class="mono-text text-primary">—</span>
+              </div>
+              <div class="col-span-2">
+                <span class="text-secondary-text">TTPs: </span>
+                <span id="def-profile-ttps" class="mono-text text-white">—</span>
+              </div>
+              <div class="col-span-2">
+                <span class="text-secondary-text">Knows: </span>
+                <span id="def-profile-knows" class="mono-text text-white">—</span>
+              </div>
+              <div class="col-span-2">
+                <span class="text-secondary-text">Fell for: </span>
+                <span id="def-profile-deceived" class="mono-text text-primary">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Response console -->
+          <div class="border-t border-border-color p-4 shrink-0 bg-background-dark">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Response Console</span>
+              <span id="def-agent-state" class="text-[9px] text-secondary-text mono-text">IDLE</span>
+            </div>
+            <div id="def-action-log" class="font-mono text-[10px] space-y-0.5 max-h-28 overflow-y-auto">
+              <span class="text-secondary-text">Ready.</span>
+            </div>
+          </div>
+
+          <!-- Operator message input -->
+          <div class="border-t border-border-color p-3 shrink-0 flex gap-2">
+            <input id="def-operator-input" type="text" placeholder="Send operator instruction to agent..."
+              class="flex-1 bg-background-dark border border-border-color px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary text-white placeholder-secondary-text"
+              onkeydown="if(event.key==='Enter') defenseSendMessage()"/>
+            <button onclick="defenseSendMessage()"
+              class="px-4 py-2 bg-primary text-black text-[10px] font-bold uppercase tracking-widest hover:brightness-90">
+              Send
+            </button>
+          </div>
+
+          <!-- Manual approval card (shown when agent requests approval) -->
+          <div id="def-approval-card" class="hidden border-t border-primary/30 bg-primary/5 p-4 shrink-0">
+            <div class="flex items-center gap-2 mb-3">
+              <span class="material-symbols-outlined text-primary text-[16px]">warning</span>
+              <span class="text-[10px] font-bold uppercase tracking-widest text-primary">Action Requires Approval</span>
+            </div>
+            <div id="def-approval-details" class="mono-text text-[10px] text-secondary-text mb-3"></div>
+            <div class="flex gap-2">
+              <button id="def-approve-btn" onclick="defenseApprove(true)"
+                class="flex-1 py-2 bg-primary text-black text-[10px] font-bold uppercase tracking-widest">
+                Approve
+              </button>
+              <button id="def-deny-btn" onclick="defenseApprove(false)"
+                class="flex-1 py-2 border border-border-color text-[10px] font-bold uppercase tracking-widest hover:border-red-500 hover:text-red-400">
+                Deny
+              </button>
+            </div>
+          </div>
+
+        </div><!-- end center panel -->
+
+        <!-- ── RIGHT: Network Map + Blocks ── -->
+        <div class="w-[260px] shrink-0 border-l border-border-color flex flex-col overflow-y-auto bg-surface">
+
+          <!-- Network map placeholder -->
+          <div class="p-4 border-b border-border-color">
+            <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest block mb-3">Network Map</span>
+            <div id="def-network-map" class="bg-background-dark border border-border-color relative overflow-hidden" style="height: 200px;">
+              <svg id="def-topology-svg" width="100%" height="100%" viewBox="0 0 240 200">
+                <text x="120" y="100" text-anchor="middle" fill="#555" font-size="11" font-family="monospace">Waiting for scan data</text>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Active blocks -->
+          <div class="p-4 border-b border-border-color">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Active Blocks</span>
+              <span id="def-block-count" class="mono-text text-[9px] text-primary">0</span>
+            </div>
+            <div id="def-blocks-list" class="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
+              <p class="text-[10px] text-secondary-text text-center py-2">No blocks</p>
+            </div>
+          </div>
+
+          <!-- Honeypot hits -->
+          <div class="p-4 border-b border-border-color">
+            <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest block mb-3">Honeypot Hits</span>
+            <div id="def-honeypot-hits" class="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
+              <p class="text-[10px] text-secondary-text text-center py-2">No hits</p>
+            </div>
+          </div>
+
+          <!-- Battle mode -->
+          <div class="p-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Battle Mode</span>
+              <span id="def-battle-badge" class="hidden px-2 py-0.5 bg-red-500/20 border border-red-500/40 text-red-400 text-[7px] font-bold uppercase">ACTIVE</span>
+            </div>
+            <p class="text-[10px] text-secondary-text mb-3">Connect defense to an active pentest session for real-time red vs blue engagement.</p>
+            <select id="def-battle-session" class="w-full bg-background-dark border border-border-color px-2 py-1.5 text-[10px] font-mono focus:outline-none focus:border-primary text-secondary-text mb-2">
+              <option value="">-- No pentest session --</option>
+            </select>
+            <button onclick="defenseToggleBattleMode()"
+              class="w-full py-2 border border-border-color text-[9px] font-bold uppercase tracking-widest hover:border-primary hover:text-primary transition-all" id="def-battle-btn">
+              Enable Battle Mode
+            </button>
+          </div>
+
+        </div><!-- end right panel -->
+
+      </div><!-- end 3-column -->
+
+      <!-- New session modal -->
+      <div id="def-new-session-modal" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+        <div class="bg-surface border border-border-color w-[400px] p-6">
+          <h3 class="text-sm font-display font-bold uppercase tracking-widest mb-6">New Defense Session</h3>
+          <div class="flex flex-col gap-4">
+            <div>
+              <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest block mb-2">Network (CIDR)</label>
+              <input id="def-new-network" type="text" placeholder="192.168.1.0/24"
+                class="w-full bg-background-dark border border-border-color px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary text-white"/>
+            </div>
+            <div>
+              <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest block mb-2">Session Name (optional)</label>
+              <input id="def-new-name" type="text" placeholder="Home Lab Defense"
+                class="w-full bg-background-dark border border-border-color px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary text-white"/>
+            </div>
+            <div>
+              <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest block mb-2">Mode</label>
+              <div class="flex gap-2">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="def-new-mode" value="manual" checked class="accent-[#ccff00]"/>
+                  <span class="text-xs">Manual (approve actions)</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="def-new-mode" value="auto" class="accent-[#ccff00]"/>
+                  <span class="text-xs">Auto (agent acts freely)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-3 mt-6">
+            <button onclick="defenseCreateSession()"
+              class="flex-1 py-2 bg-primary text-black text-[10px] font-bold uppercase tracking-widest hover:brightness-90">
+              Create Session
+            </button>
+            <button onclick="document.getElementById('def-new-session-modal').classList.add('hidden')"
+              class="flex-1 py-2 border border-border-color text-[10px] font-bold uppercase tracking-widest hover:border-white">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end defense-dashboard -->
+
   </main>
 
   <!-- ─── RIGHT SIDEBAR ─────────────────────────────────────────────────── -->
@@ -2391,39 +3456,101 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
       <span class="material-symbols-outlined text-secondary-text text-sm group-hover:text-primary transition-colors">chevron_right</span>
     </button>
 
-    <div class="p-6 overflow-y-auto scrollbar-hide flex flex-col gap-0 flex-1">
-      <h2 class="text-[12px] font-display font-bold text-secondary-text uppercase tracking-widest mb-6">System Intelligence</h2>
+    <div class="overflow-y-auto scrollbar-hide flex flex-col flex-1">
 
-      <!-- Intel nav -->
-      <div class="flex flex-col gap-6 mb-8">
-        <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-primary" data-panel="analysis">
-          <span class="material-symbols-outlined text-[22px]">monitoring</span>
-          <span class="text-[13px] font-medium uppercase tracking-wider">Analysis</span>
+      <!-- Header + nav (old GitHub style) -->
+      <div class="p-6 pb-0 flex flex-col gap-0">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-[12px] font-display font-bold text-secondary-text uppercase tracking-widest">System Intelligence</h2>
+          <span id="rsb-mission-status" class="text-[9px] mono-text text-secondary-text/60 uppercase">Idle</span>
         </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="network">
-          <span class="material-symbols-outlined text-[22px]">hub</span>
-          <span class="text-[13px] font-medium uppercase tracking-wider">Network</span>
-        </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="shield">
-          <span class="material-symbols-outlined text-[22px]">security</span>
-          <span class="text-[13px] font-medium uppercase tracking-wider">Shield</span>
-        </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="history">
-          <span class="material-symbols-outlined text-[22px]">history</span>
-          <span class="text-[13px] font-medium uppercase tracking-wider">History</span>
-        </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="nodes">
-          <span class="material-symbols-outlined text-[22px]">account_tree</span>
-          <span class="text-[13px] font-medium uppercase tracking-wider">Nodes</span>
-        </div>
-        <div class="intel-nav-item flex items-center gap-3 text-secondary-text cursor-pointer hover:text-primary transition-colors" data-panel="kb">
-          <span class="material-symbols-outlined text-[22px]">auto_stories</span>
-          <span class="text-[13px] font-medium uppercase tracking-wider">Knowledge Base</span>
+
+        <!-- Intel nav -->
+        <div class="flex flex-col gap-6 mb-8">
+          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="analysis">
+            <span class="material-symbols-outlined text-[22px]">monitoring</span>
+            <span class="text-[13px] font-medium uppercase tracking-wider">Analysis</span>
+          </div>
+          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="network">
+            <span class="material-symbols-outlined text-[22px]">hub</span>
+            <span class="text-[13px] font-medium uppercase tracking-wider">Network</span>
+          </div>
+          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="history">
+            <span class="material-symbols-outlined text-[22px]">history</span>
+            <span class="text-[13px] font-medium uppercase tracking-wider">History</span>
+          </div>
         </div>
       </div>
 
-      <!-- ─── PANEL: ANALYSIS (default) ──────────────────────────────────── -->
-      <div id="intel-panel-analysis" class="intel-panel flex flex-col gap-6">
+      <!-- Divider -->
+      <div class="border-t border-border-color mx-6 mb-0"></div>
+
+      <!-- ── Live section — always visible, pinned below nav ── -->
+      <div id="rsb-live-section" class="flex flex-col border-b border-border-color/40">
+
+        <!-- Section 1: Active Agents -->
+        <div class="rsb-section border-b border-border-color">
+          <button class="rsb-section-toggle w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-white/3 transition-colors" data-section="agents">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px] text-primary">smart_toy</span>
+              <span class="text-[10px] font-bold uppercase tracking-widest text-primary">Agents</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="rsb-agent-count" class="text-[9px] mono-text text-secondary-text">0 active</span>
+              <span class="material-symbols-outlined text-[14px] text-secondary-text rsb-chevron">expand_more</span>
+            </div>
+          </button>
+          <div id="rsb-agents-body" class="px-4 pb-3 flex flex-col gap-1.5">
+            <div id="rsb-agents-empty" class="text-[10px] text-secondary-text mono-text text-center py-3 opacity-60">No agents running</div>
+            <div id="rsb-agents-list" class="flex flex-col gap-1"></div>
+          </div>
+        </div>
+
+        <!-- Section 2: Ports & Services -->
+        <div class="rsb-section border-b border-border-color">
+          <button class="rsb-section-toggle w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-white/3 transition-colors" data-section="services">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px] text-secondary-text">lan</span>
+              <span class="text-[10px] font-bold uppercase tracking-widest text-secondary-text">Services</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="rsb-svc-count" class="text-[9px] mono-text text-secondary-text">0 open</span>
+              <span class="material-symbols-outlined text-[14px] text-secondary-text rsb-chevron">expand_more</span>
+            </div>
+          </button>
+          <div id="rsb-services-body" class="px-4 pb-3 flex flex-col gap-1 hidden">
+            <div id="rsb-services-empty" class="text-[10px] text-secondary-text mono-text text-center py-3 opacity-60">No services discovered</div>
+            <div id="rsb-services-list" class="flex flex-col gap-1"></div>
+          </div>
+        </div>
+
+        <!-- Section 3: Flags & Findings -->
+        <div class="rsb-section">
+          <button class="rsb-section-toggle w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-white/3 transition-colors" data-section="flags">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px] text-secondary-text">flag</span>
+              <span class="text-[10px] font-bold uppercase tracking-widest text-secondary-text">Findings</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="rsb-flags-count" class="text-[9px] mono-text text-secondary-text">0 found</span>
+              <span class="material-symbols-outlined text-[14px] text-secondary-text rsb-chevron">expand_more</span>
+            </div>
+          </button>
+          <div id="rsb-flags-body" class="px-4 pb-3 flex flex-col gap-1.5 hidden">
+            <div id="rsb-flags-empty" class="text-[10px] text-secondary-text mono-text text-center py-3 opacity-60">No findings yet</div>
+            <div id="rsb-flags-list" class="flex flex-col gap-2"></div>
+          </div>
+        </div>
+
+      </div><!-- end rsb-live-section -->
+
+      <!-- ── Secondary panel — shown when a non-live tab is clicked ── -->
+      <div id="rsb-secondary-panel" class="hidden flex flex-col">
+
+      <!-- ─── PANELS: Analysis, Network, DDoS, History, Nodes, KB ────────── -->
+      <!-- intel-panel-live kept as hidden dummy for JS compat -->
+      <div id="intel-panel-live" class="intel-panel hidden"></div>
+      <div id="intel-panel-analysis" class="intel-panel hidden p-5 flex flex-col gap-6">
 
         <div class="flex items-center justify-between -mt-1">
           <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Analysis</span>
@@ -2487,7 +3614,7 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
       </div>
 
       <!-- ─── PANEL: NETWORK ─────────────────────────────────────────────── -->
-      <div id="intel-panel-network" class="intel-panel hidden flex flex-col gap-4">
+      <div id="intel-panel-network" class="intel-panel hidden p-5 flex flex-col gap-4">
 
         <div class="flex items-center justify-between -mt-1">
           <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Network</span>
@@ -2626,103 +3753,211 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
 
       </div>
 
-      <!-- ─── PANEL: SHIELD ──────────────────────────────────────────────── -->
-      <div id="intel-panel-shield" class="intel-panel hidden flex flex-col gap-4">
+      <!-- ─── PANEL: DDOS ─────────────────────────────────────────────────── -->
+      <div id="intel-panel-ddos" class="intel-panel hidden p-5 flex flex-col gap-4">
 
         <div class="flex items-center justify-between -mt-1">
-          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Shield</span>
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">DDoS</span>
         </div>
 
         <!-- Status header -->
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 border border-primary flex items-center justify-center shrink-0">
-            <span class="material-symbols-outlined text-primary text-[20px]">security</span>
+          <div class="w-10 h-10 border border-danger flex items-center justify-center shrink-0" id="ddos-status-icon-box">
+            <span class="material-symbols-outlined text-danger text-[20px]">bolt</span>
           </div>
           <div>
-            <p class="text-xs font-bold uppercase tracking-wider">Defense Module</p>
-            <p class="text-[9px] text-secondary-text mt-0.5">Optional — separate process</p>
+            <p class="text-xs font-bold uppercase tracking-wider" id="ddos-status-label">DDoS Engine</p>
+            <p class="text-[9px] text-secondary-text mt-0.5" id="ddos-status-sub">Idle — Ready</p>
           </div>
         </div>
 
-        <!-- Detectors -->
+        <!-- Target input -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Target URL</label>
+          <div class="flex gap-2">
+            <input id="ddos-target-input" type="text" placeholder="https://target.com:443" class="flex-1 bg-card border border-border-color px-3 py-2 text-xs mono-text focus:border-primary outline-none transition-colors">
+            <button id="ddos-analyze-btn" class="bg-card border border-primary/30 text-primary text-[9px] font-bold uppercase tracking-wider px-3 py-2 hover:bg-primary/10 transition-colors flex items-center gap-1" title="AI Analyze Target">
+              <span class="material-symbols-outlined text-[14px]">psychology</span>
+              AI
+            </button>
+          </div>
+        </div>
+
+        <!-- Attack vector selector -->
         <div class="flex flex-col gap-2">
-          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Detectors</p>
+          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Attack Vector</p>
+          <div class="grid grid-cols-2 gap-1.5" id="ddos-vector-btns">
+            <button data-vector="http-flood" class="ddos-vector-btn bg-card border border-primary/30 text-primary text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase font-bold">HTTP Flood</button>
+            <button data-vector="slowloris" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">Slowloris</button>
+            <button data-vector="udp-flood" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">UDP Flood</button>
+            <button data-vector="syn-flood" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">SYN Flood</button>
+            <button data-vector="http-post" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">HTTP POST</button>
+            <button data-vector="mixed" class="ddos-vector-btn bg-card border border-border-color text-secondary-text text-[10px] mono-text px-2 py-1.5 hover:bg-primary/10 transition-colors uppercase">Mixed Mode</button>
+          </div>
+        </div>
+
+        <!-- Workers + Duration -->
+        <div class="grid grid-cols-2 gap-3">
           <div class="flex flex-col gap-1.5">
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">Port Scan</span>
-              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
-            </div>
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">ARP Spoof</span>
-              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
-            </div>
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">DoS / DDoS</span>
-              <span class="px-1.5 py-0.5 bg-primary/10 border border-primary/20 text-primary text-[7px] font-bold uppercase">Active</span>
-            </div>
-            <div class="flex items-center justify-between bg-card border border-border-color px-3 py-2">
-              <span class="text-[10px] mono-text">Brute Force</span>
-              <span class="px-1.5 py-0.5 bg-white/5 border border-border-color text-secondary-text text-[7px] font-bold uppercase">Idle</span>
-            </div>
+            <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Workers</label>
+            <input id="ddos-workers-input" type="number" value="100" min="1" max="1000" class="bg-card border border-border-color px-3 py-2 text-xs mono-text focus:border-primary outline-none transition-colors">
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Duration (s)</label>
+            <input id="ddos-duration-input" type="number" value="30" min="1" max="3600" class="bg-card border border-border-color px-3 py-2 text-xs mono-text focus:border-primary outline-none transition-colors">
           </div>
         </div>
 
-        <!-- Recent alerts -->
-        <div class="flex flex-col gap-2">
-          <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Recent Alerts</p>
-          <p class="text-[10px] text-secondary-text mono-text text-center py-3">No alerts</p>
+        <!-- Action buttons -->
+        <div class="flex gap-2">
+          <button id="ddos-start-btn" class="flex-1 bg-danger text-black text-[10px] font-bold uppercase tracking-wider py-2.5 hover:bg-danger/80 transition-colors flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-[16px]">play_arrow</span>
+            Launch
+          </button>
+          <button id="ddos-stop-btn" class="flex-1 bg-card border border-border-color text-secondary-text text-[10px] font-bold uppercase tracking-wider py-2.5 hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed" disabled>
+            <span class="material-symbols-outlined text-[16px]">stop</span>
+            Stop
+          </button>
         </div>
 
-        <!-- Blocked connections -->
-        <div class="bg-card border border-border-color p-3">
-          <div class="flex justify-between mb-3">
-            <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Blocked</p>
-            <span class="mono-text text-[9px] text-secondary-text">0 total</span>
+        <!-- Live stats -->
+        <div id="ddos-stats" class="hidden grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Packets/s</span>
+            <span id="ddos-stat-pps" class="mono-text text-sm font-bold text-danger">0</span>
           </div>
-          <p class="text-[10px] text-secondary-text mono-text text-center py-2">No blocked connections</p>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">MB/s</span>
+            <span id="ddos-stat-mbps" class="mono-text text-sm font-bold text-danger">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Status</span>
+            <span id="ddos-stat-status" class="mono-text text-sm font-bold text-primary">4XX</span>
+          </div>
         </div>
+
+        <!-- Error / message area -->
+        <div id="ddos-msg" class="hidden text-[10px] text-danger mono-text bg-danger/5 border border-danger/20 px-3 py-2"></div>
 
       </div>
 
       <!-- ─── PANEL: HISTORY ─────────────────────────────────────────────── -->
-      <div id="intel-panel-history" class="intel-panel hidden flex flex-col gap-3">
+      <div id="intel-panel-history" class="intel-panel hidden p-5 flex flex-col gap-3">
 
         <div class="flex items-center justify-between -mt-1">
           <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">History</span>
         </div>
 
-        <div class="flex items-center justify-between">
-          <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Past Sessions</p>
-          <span class="mono-text text-[9px] text-secondary-text">0 total</span>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Sessions</span>
+            <span id="intel-history-total-sessions" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Active</span>
+            <span id="intel-history-active-sessions" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Findings</span>
+            <span id="intel-history-total-findings" class="mono-text text-sm font-bold text-danger">0</span>
+          </div>
         </div>
 
-        <p class="text-[10px] text-secondary-text mono-text text-center py-4">No sessions yet</p>
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Recent Missions</p>
+            <span id="intel-history-total" class="mono-text text-[9px] text-secondary-text">0 total</span>
+          </div>
+          <div id="intel-history-list" class="max-h-[320px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-2">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No sessions yet</p>
+          </div>
+        </div>
 
         <!-- New session button -->
-        <button class="w-full border border-dashed border-border-color hover:border-primary text-secondary-text hover:text-primary transition-colors py-2.5 flex items-center justify-center gap-2 mt-1">
-          <span class="material-symbols-outlined text-[16px]">add</span>
-          <span class="text-[10px] font-bold uppercase tracking-widest">New Session</span>
+        <button id="intel-history-open-latest" class="w-full border border-dashed border-border-color hover:border-primary text-secondary-text hover:text-primary transition-colors py-2.5 flex items-center justify-center gap-2 mt-1">
+          <span class="material-symbols-outlined text-[16px]">history_toggle_off</span>
+          <span class="text-[10px] font-bold uppercase tracking-widest">Open Latest Mission</span>
         </button>
 
       </div>
 
       <!-- ─── PANEL: NODES ───────────────────────────────────────────────── -->
-      <div id="intel-panel-nodes" class="intel-panel hidden flex flex-col gap-3">
+      <div id="intel-panel-nodes" class="intel-panel hidden p-5 flex flex-col gap-3">
 
         <div class="flex items-center justify-between -mt-1">
           <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Nodes</span>
         </div>
 
-        <div class="flex items-center justify-between">
-          <p class="text-[10px] font-display font-bold text-secondary-text uppercase tracking-widest">Discovered Hosts</p>
-          <span class="mono-text text-[9px] text-secondary-text">0 online</span>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Hosts</span>
+            <span id="intel-nodes-total" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Vulnerable</span>
+            <span id="intel-nodes-vuln" class="mono-text text-sm font-bold text-danger">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Exploited</span>
+            <span id="intel-nodes-exploited" class="mono-text text-sm font-bold text-orange-400">0</span>
+          </div>
         </div>
 
-        <p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Discovered Hosts</p>
+            <span id="intel-nodes-online" class="mono-text text-[9px] text-secondary-text">0 online</span>
+          </div>
+          <div id="intel-nodes-list" class="max-h-[320px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-2">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No hosts discovered</p>
+          </div>
+        </div>
 
       </div>
 
-    </div>
+      <!-- ─── PANEL: KNOWLEDGE BASE ─────────────────────────────────────── -->
+      <div id="intel-panel-kb" class="intel-panel hidden p-5 flex flex-col gap-3">
+
+        <div class="flex items-center justify-between -mt-1">
+          <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">Knowledge Base</span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Entries</span>
+            <span id="intel-kb-entry-count" class="mono-text text-sm font-bold text-primary">0</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Success Rate</span>
+            <span id="intel-kb-success-rate" class="mono-text text-sm font-bold text-primary">0%</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Updated</span>
+            <span id="intel-kb-last-updated" class="mono-text text-sm font-bold text-secondary-text">—</span>
+          </div>
+        </div>
+
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Learned Attack Patterns</p>
+            <span class="mono-text text-[9px] text-secondary-text">Live</span>
+          </div>
+          <div id="intel-kb-list" class="max-h-[320px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-2">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No knowledge patterns yet</p>
+          </div>
+        </div>
+
+        <div class="bg-surface border border-border-color p-2.5">
+          <p id="intel-kb-summary" class="text-[10px] mono-text text-secondary-text leading-relaxed">
+            Knowledge Base captures what worked in previous missions and suggests repeatable remediation actions.
+          </p>
+        </div>
+
+      </div>
+
+      </div><!-- end rsb-secondary-panel -->
+
+    </div><!-- end right sidebar scroll -->
   </aside>
 
 </div>
@@ -2747,11 +3982,6 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
       </div>
     </div>
     <div class="flex items-center gap-6">
-      <div class="flex items-center gap-2">
-        <span class="opacity-50">TOKENS:</span>
-        <span class="text-primary" id="footer-tokens">0</span>
-      </div>
-      <div class="w-px h-2.5 bg-border-color"></div>
       <div class="flex items-center gap-2">
         <span class="material-symbols-outlined text-[12px] opacity-50">schedule</span>
         <span class="text-slate-300" id="footer-clock">00:00</span>
@@ -2884,9 +4114,118 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
   </div>
 </div>
 
+<!-- ── Model Picker Modal ────────────────────────────────────────────────── -->
+<div id="model-picker-overlay" class="hidden fixed inset-0 bg-black/80 z-[300] flex items-start justify-center pt-[8vh] px-4" style="backdrop-filter:blur(4px);">
+  <div class="bg-[#0a0a0a] border border-border-color w-full max-w-2xl flex flex-col shadow-2xl" style="max-height:80vh;">
+
+    <!-- Header -->
+    <div class="px-6 py-4 border-b border-border-color flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-3">
+        <span class="material-symbols-outlined text-primary text-[16px]">smart_toy</span>
+        <div>
+          <span class="font-display font-bold text-sm uppercase tracking-widest">Select Model</span>
+          <p id="model-picker-subtitle" class="text-[9px] text-secondary-text mono-text hidden"></p>
+        </div>
+      </div>
+      <button id="model-picker-close" class="material-symbols-outlined text-secondary-text hover:text-primary transition-colors text-[20px]">close</button>
+    </div>
+
+    <!-- Search -->
+    <div class="px-6 py-3 border-b border-border-color shrink-0">
+      <div class="relative">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-secondary-text text-[16px] pointer-events-none">search</span>
+        <input id="model-picker-search" type="text" autocomplete="off" placeholder="Search models…"
+          class="w-full bg-background-dark border border-border-color text-slate-100 pl-9 pr-4 py-2 text-xs mono-text focus:border-primary outline-none transition-colors"/>
+      </div>
+    </div>
+
+    <!-- Body: provider sidebar + model list -->
+    <div class="flex flex-1 min-h-0">
+
+      <!-- Provider sidebar -->
+      <div class="w-28 shrink-0 border-r border-border-color flex flex-col py-2 gap-0.5 bg-[#060606]">
+        <button data-picker-provider="all"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent"
+          style="border-left-color:transparent">
+          <span class="material-symbols-outlined text-[18px]">grid_view</span>
+          All
+        </button>
+        <button data-picker-provider="ollama"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent">
+          <span class="material-symbols-outlined text-[18px]">computer</span>
+          Ollama
+          <span id="picker-sidebar-ollama-dot" class="w-1.5 h-1.5 rounded-full bg-border-color mt-0.5"></span>
+        </button>
+        <button data-picker-provider="lmstudio"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent">
+          <span class="material-symbols-outlined text-[18px]">memory</span>
+          LM Studio
+          <span id="picker-sidebar-lmstudio-dot" class="w-1.5 h-1.5 rounded-full bg-border-color mt-0.5"></span>
+        </button>
+        <button data-picker-provider="openrouter"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent">
+          <span class="material-symbols-outlined text-[18px]">cloud</span>
+          OpenRouter
+          <span id="picker-sidebar-or-dot" class="w-1.5 h-1.5 rounded-full bg-border-color mt-0.5"></span>
+        </button>
+        <button data-picker-provider="opencode_go"
+          class="picker-provider-btn w-full flex flex-col items-center gap-1 px-2 py-3 text-[9px] mono-text uppercase tracking-widest text-secondary-text hover:text-primary hover:bg-primary/5 transition-colors border-l-2 border-transparent">
+          <span class="material-symbols-outlined text-[18px]">rocket_launch</span>
+          OpenCode Go
+          <span id="picker-sidebar-ocg-dot" class="w-1.5 h-1.5 rounded-full bg-border-color mt-0.5"></span>
+        </button>
+      </div>
+
+      <!-- Model list -->
+      <div id="model-picker-list" class="flex-1 overflow-y-auto scrollbar-hide">
+        <div class="px-6 py-8 text-center text-secondary-text text-xs mono-text">Loading models…</div>
+      </div>
+
+    </div>
+
+    <!-- Footer status -->
+    <div class="px-6 py-3 border-t border-border-color shrink-0 flex items-center gap-2">
+      <div id="model-picker-ollama-dot" class="w-2 h-2 rounded-full bg-border-color transition-colors"></div>
+      <span id="model-picker-status-text" class="text-[10px] mono-text text-secondary-text">—</span>
+      <button id="model-picker-refresh" class="ml-auto flex items-center gap-1 text-[10px] mono-text text-secondary-text hover:text-primary transition-colors">
+        <span class="material-symbols-outlined text-[13px]">refresh</span>Refresh
+      </button>
+    </div>
+
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=25"></script>
+<script src="defense.js?v=1"></script>
+<script src="ddos.js?v=1"></script>
+<script>
+(function () {
+  function _updateBadge() {
+    try {
+      var raw = localStorage.getItem('tirpan_user');
+      var user = raw ? JSON.parse(raw) : null;
+      var badge = document.getElementById('dev-user-badge');
+      if (badge && user) {
+        badge.textContent = (user.full_name || user.email) + ' · ' + user.role;
+        badge.classList.remove('hidden');
+        badge.classList.add('md:flex');
+      }
+    } catch (_) {}
+  }
+  _updateBadge();
+
+  document.getElementById('dev-logout-btn')?.addEventListener('click', function () {
+    if (confirm('Çıkış yapmak istiyor musunuz?')) {
+      localStorage.removeItem('tirpan_token');
+      localStorage.removeItem('tirpan_user');
+      window.location.reload();
+    }
+  });
+  window._updateAuthBadge = _updateBadge;
+})();
+</script>
 </body>
 </html>

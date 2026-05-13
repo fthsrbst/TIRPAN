@@ -14,6 +14,14 @@ class OllamaConfig(BaseSettings):
     timeout: float = Field(default=120.0)
 
 
+class OpenCodeGoConfig(BaseSettings):
+    model_config = _ENV
+    api_key: str = Field(default="", alias="OPENCODE_GO_API_KEY")
+    model: str = Field(default="deepseek-r1", alias="OPENCODE_GO_MODEL")
+    base_url: str = Field(default="https://opencode.ai/zen/go/v1", alias="OPENCODE_GO_BASE_URL")
+    timeout: float = Field(default=120.0)
+
+
 class LMStudioConfig(BaseSettings):
     model_config = _ENV
     base_url: str = Field(default="http://127.0.0.1:1234", alias="LMSTUDIO_BASE_URL")
@@ -23,7 +31,7 @@ class LMStudioConfig(BaseSettings):
 
 class LLMConfig(BaseSettings):
     model_config = _ENV
-    provider: str = Field(default="ollama", alias="LLM_PROVIDER")  # "ollama" | "openrouter"
+    provider: str = Field(default="ollama", alias="LLM_PROVIDER")  # "ollama" | "openrouter" | "opencode_go"
     api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
     cloud_model: str = Field(default="anthropic/claude-sonnet-4-6", alias="CLOUD_MODEL")
     use_local_for_classification: bool = Field(default=True)
@@ -138,6 +146,7 @@ class AppConfig(BaseSettings):
 
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     lmstudio: LMStudioConfig = Field(default_factory=LMStudioConfig)
+    opencode_go: OpenCodeGoConfig = Field(default_factory=OpenCodeGoConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     msf: MetasploitConfig = Field(default_factory=MetasploitConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -162,8 +171,22 @@ class AppConfig(BaseSettings):
     ws_buffer_ttl_seconds: int = Field(default=300, alias="WS_BUFFER_TTL_SECONDS")
     cred_encryption_key: str = Field(default="", alias="CRED_ENCRYPTION_KEY")
 
-    def model_post_init(self, __context):
+    # JWT authentication
+    jwt_secret: str = Field(default="", alias="JWT_SECRET")
+    token_expire_minutes: int = Field(default=480, alias="TOKEN_EXPIRE_MINUTES")
+
+    def model_post_init(self, __context) -> None:
         self.data_dir.mkdir(exist_ok=True)
+        if not self.jwt_secret:
+            import secrets
+            import logging
+            self.jwt_secret = secrets.token_hex(32)
+            logging.getLogger(__name__).warning(
+                "JWT_SECRET not set in .env — using an auto-generated ephemeral secret. "
+                "Tokens will be invalidated on every restart. "
+                "Set JWT_SECRET in your .env file for persistent sessions. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
 
     def get_speed_profile(self) -> SpeedProfile:
         """Return the active SpeedProfile object."""
@@ -183,10 +206,8 @@ class AppConfig(BaseSettings):
             if not hasattr(_os, "geteuid"):
                 return False  # Windows host process — not relevant
             return _os.geteuid() != 0
-        # Legacy bool support (True/False stored as "True"/"False" string)
-        if isinstance(self.nmap_sudo, str):
-            return self.nmap_sudo.lower() not in ("false", "0", "no")
-        return bool(self.nmap_sudo)
+        # nmap_sudo is always a str (Pydantic field type); accept "true"/"1"/"yes" → True
+        return self.nmap_sudo.lower() not in ("false", "0", "no")
 
 
 # Singleton

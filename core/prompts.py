@@ -356,7 +356,7 @@ Example 8 — SSH audit after shell obtained
   "reasoning": "Post-exploitation audit via SSH — collect system info, users, network, persistence opportunities."
 }
 
-Example 7 — Parallel exploit search for multiple services (best use of parallel_tools)
+Example 9 — Parallel exploit search for multiple services (best use of parallel_tools)
 {
   "thought": "Port scan complete on 192.168.1.5. Found 5 services: vsftpd/2.3.4, openssh/4.7p1, apache/2.2.8, samba/3.0.20, mysql/5.0.51. All searchsploit queries are independent — running them in parallel saves 4 LLM iterations.",
   "action": "parallel_tools",
@@ -370,7 +370,7 @@ Example 7 — Parallel exploit search for multiple services (best use of paralle
   "reasoning": "5 independent exploit searches — parallel_tools saves 4 sequential iterations."
 }
 
-Example 8 — Parallel exploit execution for multiple independent CVEs
+Example 10 — Parallel exploit execution for multiple independent CVEs
 {
   "thought": "EXPLOITATION phase. Found 3 independent CVEs on different ports: vsftpd:21, samba:445, distccd:3632. All are remote RCE, all independent — running them in parallel cuts 2 iterations. post_commands included so recon runs in the same msfconsole invocation.",
   "action": "parallel_tools",
