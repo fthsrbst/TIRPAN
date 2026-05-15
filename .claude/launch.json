@@ -4,8 +4,8 @@
     {
       "name": "tirpan-dev",
       "runtimeExecutable": "wsl",
-      "runtimeArgs": ["-e", "/home/fatih-root/TIRPAN/venv/bin/python", "/home/fatih-root/TIRPAN/main.py", "--no-reload"],
-      "port": 8000
+      "runtimeArgs": ["-d", "kali-linux", "-e", "bash", "-lc", "cd /home/fatih-root/TIRPAN && /home/fatih-root/TIRPAN/venv/bin/python -m uvicorn web.app:app --host 127.0.0.1 --port 8001 --log-level warning"],
+      "port": 8001
     },
     {
       "name": "attack-graph-vite",

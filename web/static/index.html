@@ -2217,6 +2217,177 @@
           </div>
         </div>
 
+        <!-- ── ML Engine expanded ────────────────────────────────────────── -->
+        <div class="intel-tab-body hidden p-8" data-intel-tab="ml">
+          <div class="max-w-6xl mx-auto flex flex-col gap-8">
+
+            <!-- Header -->
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="font-display font-bold text-2xl text-white tracking-tight flex items-center gap-3">
+                  <span class="material-symbols-outlined text-primary text-[26px]">neurology</span>
+                  ML Engine
+                </h2>
+                <p class="text-[11px] text-secondary-text mt-1 mono-text">Finding classifier · Exploit predictor · Attack path suggester</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="ml-exp-model-status" class="text-[10px] mono-text border border-border-color px-2 py-1 uppercase tracking-widest text-secondary-text">offline</span>
+                <button id="ml-exp-refresh-btn" onclick="mlViewRefresh()" class="flex items-center gap-1.5 text-secondary-text hover:text-primary transition-colors border border-border-color px-3 py-1.5 hover:border-primary text-[10px] uppercase font-bold tracking-wider">
+                  <span class="material-symbols-outlined text-[14px]">refresh</span>Refresh
+                </button>
+                <button id="ml-exp-retrain-btn" onclick="mlViewRetrain()" class="flex items-center gap-1.5 text-primary hover:text-black hover:bg-primary transition-colors border border-primary px-3 py-1.5 text-[10px] uppercase font-bold tracking-wider">
+                  <span class="material-symbols-outlined text-[14px]">model_training</span>Retrain
+                </button>
+              </div>
+            </div>
+
+            <!-- KPI grid -->
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Classifier Risk Acc</p>
+                <p id="ml-exp-clf-acc" class="mono-text text-3xl font-bold text-primary">—</p>
+                <p id="ml-exp-clf-sub" class="text-[9px] text-secondary-text mt-1">F1 macro —</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Exploit AUC</p>
+                <p id="ml-exp-auc" class="mono-text text-3xl font-bold text-primary">—</p>
+                <p id="ml-exp-auc-sub" class="text-[9px] text-secondary-text mt-1">recall — · prec —</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Phase Accuracy</p>
+                <p id="ml-exp-phase-acc" class="mono-text text-3xl font-bold text-primary">—</p>
+                <p id="ml-exp-phase-sub" class="text-[9px] text-secondary-text mt-1">Asset acc —</p>
+              </div>
+              <div class="bg-card border border-border-color p-4">
+                <p class="text-[10px] text-secondary-text uppercase tracking-widest font-bold mb-1">Path KB</p>
+                <p id="ml-exp-ttp-count" class="mono-text text-3xl font-bold text-primary">—</p>
+                <p id="ml-exp-ttp-sub" class="text-[9px] text-secondary-text mt-1">— svc keywords</p>
+              </div>
+            </div>
+
+            <!-- Two-column: suggestions + context -->
+            <div class="grid grid-cols-[1fr_320px] gap-6">
+
+              <!-- Suggestions table -->
+              <div class="bg-card border border-border-color">
+                <div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <span class="material-symbols-outlined text-primary text-[16px]">route</span>
+                    <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">Suggested Attack Path</p>
+                  </div>
+                  <div class="flex items-center gap-2 text-[9px] mono-text text-secondary-text">
+                    <span>Phase</span>
+                    <span id="ml-exp-phase-badge" class="border border-border-color px-2 py-0.5 uppercase text-primary">—</span>
+                  </div>
+                </div>
+                <table class="w-full border-collapse">
+                  <thead>
+                    <tr class="border-b border-border-color">
+                      <th class="text-left px-5 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">TTP</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Technique</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Tactic</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Conf</th>
+                      <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Why</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ml-exp-sugg-tbody" class="mono-text text-xs">
+                    <tr><td colspan="5" class="px-5 py-4 text-center text-secondary-text text-[10px]">No mission selected</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Mission context -->
+              <div class="flex flex-col gap-4">
+                <div class="bg-card border border-border-color p-4">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Mission Context</p>
+                  <div id="ml-exp-context" class="flex flex-col gap-1.5 text-[10px] mono-text">
+                    <div class="flex justify-between"><span class="text-secondary-text">Hosts</span><span id="ml-ctx-hosts" class="text-slate-200">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Services</span><span id="ml-ctx-services" class="text-slate-200">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Vulns</span><span id="ml-ctx-vulns" class="text-slate-200">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Exploits run</span><span id="ml-ctx-exploits" class="text-slate-200">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Success</span><span id="ml-ctx-success" class="text-primary">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Foothold</span><span id="ml-ctx-shell" class="text-slate-200">—</span></div>
+                    <div class="flex justify-between"><span class="text-secondary-text">Phase source</span><span id="ml-ctx-phase-src" class="text-slate-200">—</span></div>
+                  </div>
+                </div>
+
+                <div class="bg-card border border-border-color p-4">
+                  <p class="text-[9px] font-bold text-secondary-text uppercase tracking-widest mb-3">Risk Distribution</p>
+                  <div id="ml-exp-risk-bars" class="flex flex-col gap-1.5"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Exploit predictions table -->
+            <div class="bg-card border border-border-color">
+              <div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <span class="material-symbols-outlined text-primary text-[16px]">bolt</span>
+                  <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">Exploit Success Predictions</p>
+                </div>
+                <span id="ml-exp-exp-count" class="mono-text text-[9px] text-secondary-text">0 scored</span>
+              </div>
+              <table class="w-full border-collapse">
+                <thead>
+                  <tr class="border-b border-border-color">
+                    <th class="text-left px-5 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Module</th>
+                    <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Target</th>
+                    <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Port</th>
+                    <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">ML P(success)</th>
+                    <th class="text-left px-4 py-2.5 text-[9px] font-bold text-secondary-text uppercase tracking-widest">Result</th>
+                  </tr>
+                </thead>
+                <tbody id="ml-exp-exp-tbody" class="mono-text text-xs">
+                  <tr><td colspan="5" class="px-5 py-4 text-center text-secondary-text text-[10px]">No exploit predictions yet</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Finding classification matrix + TTP cloud -->
+            <div class="grid grid-cols-[1fr_1fr] gap-6">
+              <div class="bg-card border border-border-color">
+                <div class="px-5 py-3 border-b border-border-color">
+                  <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">Phase × Asset Matrix</p>
+                </div>
+                <div class="p-5">
+                  <div id="ml-exp-matrix" class="grid gap-1 text-[9px] mono-text" style="grid-template-columns: 90px repeat(7, 1fr)">
+                    <div></div>
+                    <div class="text-center text-secondary-text">recon</div>
+                    <div class="text-center text-secondary-text">scan</div>
+                    <div class="text-center text-secondary-text">exploit</div>
+                    <div class="text-center text-secondary-text">post-ex</div>
+                    <div class="text-center text-secondary-text">lateral</div>
+                    <div class="text-center text-secondary-text">exfil</div>
+                    <div class="text-center text-secondary-text">impact</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bg-card border border-border-color">
+                <div class="px-5 py-3 border-b border-border-color flex items-center justify-between">
+                  <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">Observed MITRE TTPs</p>
+                  <span id="ml-exp-ttp-cnt" class="mono-text text-[9px] text-secondary-text">0</span>
+                </div>
+                <div id="ml-exp-ttp-cloud" class="p-5 flex flex-wrap gap-1.5 min-h-[120px]">
+                  <span class="text-[10px] text-secondary-text mono-text">No classified findings</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- About the models -->
+            <div class="bg-surface border-l-2 border-l-primary border border-border-color p-5">
+              <div class="flex items-center gap-3 mb-3">
+                <span class="material-symbols-outlined text-primary text-[18px]">science</span>
+                <p class="text-[10px] font-bold text-secondary-text uppercase tracking-widest">How These Models Work</p>
+              </div>
+              <p class="text-sm leading-relaxed text-slate-300">
+                The <span class="text-primary mono-text">finding classifier</span> labels each finding's risk level, MITRE attack phase, and asset category from its text alone (CVSS isn't fed as a feature to avoid label leakage). The <span class="text-primary mono-text">exploit predictor</span> outputs P(success) for each Metasploit module using independent real-world signals (CISA KEV, EPSS scores, Exploit-DB verified flag, Metasploit module presence). The <span class="text-primary mono-text">attack path suggester</span> ranks MITRE TTPs by phase-correctness, service match, and platform compatibility — never recommending lateral movement during scanning, or Windows-only TTPs in a Linux environment.
+              </p>
+            </div>
+
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -3479,6 +3650,10 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
             <span class="material-symbols-outlined text-[22px]">history</span>
             <span class="text-[13px] font-medium uppercase tracking-wider">History</span>
           </div>
+          <div class="intel-nav-item flex items-center gap-3 cursor-pointer hover:text-primary transition-colors text-secondary-text" data-panel="ml">
+            <span class="material-symbols-outlined text-[22px]">neurology</span>
+            <span class="text-[13px] font-medium uppercase tracking-wider">ML Engine</span>
+          </div>
         </div>
       </div>
 
@@ -3950,6 +4125,87 @@ exfiltrate /home/admin/.ssh/id_rsa"></textarea>
         <div class="bg-surface border border-border-color p-2.5">
           <p id="intel-kb-summary" class="text-[10px] mono-text text-secondary-text leading-relaxed">
             Knowledge Base captures what worked in previous missions and suggests repeatable remediation actions.
+          </p>
+        </div>
+
+      </div>
+
+      <!-- ─── PANEL: ML ENGINE ────────────────────────────────────────────── -->
+      <div id="intel-panel-ml" class="intel-panel hidden p-5 flex flex-col gap-4">
+
+        <div class="flex items-center justify-between -mt-1">
+          <div class="flex items-center gap-2">
+            <span class="text-[9px] font-bold text-secondary-text uppercase tracking-widest">ML Engine</span>
+            <span id="ml-model-status" class="text-[8px] mono-text text-secondary-text/60 uppercase">offline</span>
+          </div>
+          <button id="ml-refresh-btn" onclick="mlPanelRefresh()" class="text-secondary-text hover:text-primary transition-colors" title="Refresh">
+            <span class="material-symbols-outlined text-[14px]">refresh</span>
+          </button>
+        </div>
+
+        <!-- Model status grid -->
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Classifier</span>
+            <span id="ml-stat-clf" class="mono-text text-[10px] font-bold text-secondary-text">—</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Exploit AUC</span>
+            <span id="ml-stat-exp" class="mono-text text-[10px] font-bold text-secondary-text">—</span>
+          </div>
+          <div class="bg-card border border-border-color px-2 py-2 flex flex-col items-center">
+            <span class="text-[8px] text-secondary-text uppercase tracking-widest">Path KB</span>
+            <span id="ml-stat-path" class="mono-text text-[10px] font-bold text-secondary-text">—</span>
+          </div>
+        </div>
+
+        <!-- Suggested Attack Path -->
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Suggested Attack Path</p>
+            <span id="ml-phase-badge" class="text-[8px] mono-text text-secondary-text uppercase border border-border-color px-1.5 py-0.5">—</span>
+          </div>
+          <div id="ml-suggestions-list" class="max-h-[320px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-1.5">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">Select a mission to see suggestions</p>
+          </div>
+          <div class="px-3 py-2 border-t border-border-color/60 flex items-center justify-between gap-2 text-[9px] mono-text text-secondary-text">
+            <span id="ml-ctx-summary">—</span>
+            <a id="ml-attack-link" class="hidden text-primary hover:underline" target="_blank" rel="noopener">attack.mitre.org</a>
+          </div>
+        </div>
+
+        <!-- Top Exploit Probabilities -->
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Top Exploit P(success)</p>
+            <span id="ml-exp-count" class="mono-text text-[9px] text-secondary-text">0</span>
+          </div>
+          <div id="ml-exploits-list" class="max-h-[220px] overflow-y-auto scrollbar-hide px-3 py-2 flex flex-col gap-1.5">
+            <p class="text-[10px] text-secondary-text mono-text text-center py-4">No exploits scored yet</p>
+          </div>
+        </div>
+
+        <!-- Finding Classification Distribution -->
+        <div class="bg-card border border-border-color">
+          <div class="px-3 py-2 border-b border-border-color flex items-center justify-between">
+            <p class="text-[9px] font-display font-bold text-secondary-text uppercase tracking-widest">Finding Classification</p>
+            <span id="ml-cls-count" class="mono-text text-[9px] text-secondary-text">0</span>
+          </div>
+          <div class="px-3 py-3 flex flex-col gap-2">
+            <div>
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest mb-1">Risk Distribution</p>
+              <div id="ml-risk-bars" class="flex flex-col gap-1"></div>
+            </div>
+            <div class="mt-2">
+              <p class="text-[8px] text-secondary-text uppercase tracking-widest mb-1">Top MITRE TTPs</p>
+              <div id="ml-ttp-cloud" class="flex flex-wrap gap-1"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-surface border border-border-color p-2.5">
+          <p class="text-[10px] mono-text text-secondary-text leading-relaxed">
+            ML engine combines a finding classifier (risk + ATT&amp;CK TTP labelling), exploit success predictor (KEV / EPSS / Metasploit signals), and attack path suggester (phase + service-aware MITRE rankings).
           </p>
         </div>
 

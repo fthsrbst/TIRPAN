@@ -60,127 +60,127 @@ const MODE_SHORT: Record<string, string> = {
 
 type TabId = "target" | "mode" | "credentials" | "safety" | "advanced";
 
-interface ScanProfileDef {
-  id: string;
-  label: string;
-  desc: string;
-  icon: typeof Target;
-  color: string;
-  apply: () => void;
+
+interface ProfileSettings {
+  mode: string; speedProfile: string; scanType: string; portRange: string;
+  versionDetection: boolean; osDetection: boolean; aggressiveScan: boolean; nmapScripts: string;
+  allowExploit: boolean; allowPostExploit: boolean; allowLateral: boolean;
+  allowDockerEscape: boolean; allowBrowserRecon: boolean;
+  timeLimit: number; rateLimit: number;
+  blockDos: boolean; blockDestructive: boolean; maxSeverity: string;
+  objectives: string; knownTech: string; scopeNotes: string;
 }
 
-const SCAN_PROFILE_DEFS = [
-  {
-    id: "host_discovery",
-    label: "Host Discovery",
-    desc: "Discover live hosts and open ports. Quick and lightweight.",
-    iconName: "Radio" as const,
-    color: "blue",
-    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top100", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 1800, rateLimit: 50 },
-  },
-  {
-    id: "basic_network",
-    label: "Basic Network Scan",
-    desc: "Full system scan — map hosts, ports, and services. Suitable for any host.",
-    iconName: "Network" as const,
-    color: "green",
-    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 50 },
-  },
-  {
-    id: "credentialed_audit",
-    label: "Credentialed Audit",
-    desc: "Authenticated scan — enumerate missing patches and misconfigurations.",
-    iconName: "KeyRound" as const,
-    color: "amber",
-    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "full", portRange: "top1000", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "default,safe", allowExploit: true, allowPostExploit: true, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 30 },
-  },
-  {
-    id: "web_app",
-    label: "Web App Tests",
-    desc: "Scan published and unknown web vulnerabilities on web-facing ports.",
-    iconName: "Globe" as const,
-    color: "purple",
-    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "80,443,8080,8443,3000,8000,8888,9000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,http-headers,http-methods,vuln", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: true, timeLimit: 3600, rateLimit: 20 },
-  },
-  {
-    id: "stealth_recon",
-    label: "Stealth Recon",
-    desc: "Slow, quiet scan to minimize detection. Ideal for sensitive environments.",
-    iconName: "EyeOff" as const,
-    color: "slate",
-    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "syn", portRange: "top1000", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 14400, rateLimit: 10 },
-  },
-  {
-    id: "full_auto",
-    label: "Full Auto Exploit",
-    desc: "Autonomous recon + exploit chain. Maximum coverage, full autonomy.",
-    iconName: "Zap" as const,
-    color: "red",
-    settings: { mode: "full_auto", speedProfile: "fast", scanType: "syn", portRange: "1-65535", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "vuln", allowExploit: true, allowPostExploit: true, allowLateral: true, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 100 },
-  },
-  {
-    id: "ad_audit",
-    label: "Active Directory",
-    desc: "Enumerate domain controllers, users, groups, SPNs, and GPOs. Detect Kerberoasting and privilege escalation paths.",
-    iconName: "Users" as const,
-    color: "cyan",
-    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "88,135,139,389,445,464,593,636,3268,3269,5985,9389", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "ldap-rootdse,smb-security-mode,smb2-security-mode", allowExploit: true, allowPostExploit: true, allowLateral: true, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 30 },
-  },
-  {
-    id: "external_perimeter",
-    label: "External Perimeter",
-    desc: "Assess internet-facing assets — DNS enumeration, certificate transparency, exposed services, and attack surface mapping.",
-    iconName: "Server" as const,
-    color: "orange",
-    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,ssl-cert,dns-brute", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: true, timeLimit: 3600, rateLimit: 30 },
-  },
-  {
-    id: "db_enum",
-    label: "Database Enumeration",
-    desc: "Find and probe database services — MySQL, MSSQL, PostgreSQL, MongoDB, Redis. Extract schemas and check for weak auth.",
-    iconName: "Database" as const,
-    color: "pink",
-    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "1433,1521,3306,5432,5984,6379,27017,27018,27019,28017", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "mysql-info,ms-sql-info,pgsql-brute", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 20 },
-  },
-  {
-    id: "container_cloud",
-    label: "Container / Cloud",
-    desc: "Detect exposed Docker APIs, Kubernetes dashboards, and cloud metadata endpoints. Test for container escape paths.",
-    iconName: "Monitor" as const,
-    color: "teal",
-    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "2375,2376,2377,6443,8001,8080,8443,10250,10255,10256,16443", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,ssl-cert", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: true, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 30 },
-  },
-  {
-    id: "wireless_recon",
-    label: "Wireless Recon",
-    desc: "Map wireless infrastructure — enumerate access points, clients, and rogue devices on 2.4 / 5 GHz bands.",
-    iconName: "Wifi" as const,
-    color: "indigo",
-    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "udp", portRange: "1900,5353,67,68", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 10 },
-  },
-  {
-    id: "iot_ot",
-    label: "IoT / OT Scan",
-    desc: "Target industrial and IoT protocols — Modbus, DNP3, BACnet, MQTT, CoAP. Minimal footprint, no disruption.",
-    iconName: "Terminal" as const,
-    color: "yellow",
-    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "udp", portRange: "102,502,1883,1911,2404,4840,20000,44818,47808", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "modbus-discover,bacnet-info", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 10800, rateLimit: 5 },
-  },
-] as const;
+interface ScanProfileDef {
+  id: string; label: string; desc: string;
+  iconName: keyof typeof PROFILE_ICONS;
+  color: string; settings: ProfileSettings;
+  custom?: boolean;
+}
 
-const PROFILE_COLORS: Record<string, string> = {
-  blue:   "border-blue-500/40 bg-blue-500/10 text-blue-400",
-  green:  "border-green-500/40 bg-green-500/10 text-green-400",
-  amber:  "border-amber-500/40 bg-amber-500/10 text-amber-400",
-  purple: "border-violet-500/40 bg-violet-500/10 text-violet-400",
-  slate:  "border-slate-500/40 bg-slate-500/10 text-slate-400",
-  red:    "border-red-500/40 bg-red-500/10 text-red-400",
-  cyan:   "border-cyan-500/40 bg-cyan-500/10 text-cyan-400",
-  orange: "border-orange-500/40 bg-orange-500/10 text-orange-400",
-  pink:   "border-pink-500/40 bg-pink-500/10 text-pink-400",
-  teal:   "border-teal-500/40 bg-teal-500/10 text-teal-400",
-  indigo: "border-indigo-500/40 bg-indigo-500/10 text-indigo-400",
-  yellow: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
+const SCAN_PROFILE_DEFS: ScanProfileDef[] = [
+  {
+    id: "host_discovery", label: "Host Discovery",
+    desc: "Discover live hosts and open ports. Quick and lightweight.",
+    iconName: "Radio", color: "blue",
+    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top100", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 1800, rateLimit: 50, blockDos: true, blockDestructive: true, maxSeverity: "CRITICAL", objectives: "Identify all live hosts\nMap open ports and services", knownTech: "", scopeNotes: "Quick reconnaissance — read-only, no exploitation" },
+  },
+  {
+    id: "basic_network", label: "Basic Network Scan",
+    desc: "Full system scan — map hosts, ports, and services. Suitable for any host.",
+    iconName: "Network", color: "green",
+    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 50, blockDos: true, blockDestructive: true, maxSeverity: "CRITICAL", objectives: "Full network map\nIdentify running services and versions\nDetect open management interfaces", knownTech: "", scopeNotes: "Standard network scan — read-only" },
+  },
+  {
+    id: "credentialed_audit", label: "Credentialed Audit",
+    desc: "Authenticated scan — enumerate missing patches and misconfigurations.",
+    iconName: "KeyRound", color: "amber",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "full", portRange: "top1000", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "default,safe", allowExploit: true, allowPostExploit: true, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 30, blockDos: true, blockDestructive: true, maxSeverity: "HIGH", objectives: "Enumerate missing patches and CVEs\nIdentify misconfigurations\nCheck for weak or default credentials\nList privilege escalation paths", knownTech: "", scopeNotes: "Authenticated scan — requires valid credentials on target" },
+  },
+  {
+    id: "web_app", label: "Web App Tests",
+    desc: "Scan published and unknown web vulnerabilities on web-facing ports.",
+    iconName: "Globe", color: "purple",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "80,443,8080,8443,3000,8000,8888,9000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,http-headers,http-methods,vuln", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: true, timeLimit: 3600, rateLimit: 20, blockDos: true, blockDestructive: true, maxSeverity: "CRITICAL", objectives: "Identify web vulnerabilities (OWASP Top 10)\nEnumerate API endpoints and hidden paths\nTest for SQL injection, XSS, SSRF\nCheck authentication and session management", knownTech: "nginx, apache, iis", scopeNotes: "Web application security test — web-facing ports only" },
+  },
+  {
+    id: "stealth_recon", label: "Stealth Recon",
+    desc: "Slow, quiet scan to minimize detection. Ideal for sensitive environments.",
+    iconName: "EyeOff", color: "slate",
+    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "syn", portRange: "top1000", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 14400, rateLimit: 10, blockDos: true, blockDestructive: true, maxSeverity: "CRITICAL", objectives: "Passive network map\nMinimize detection footprint\nAvoid IDS/IPS triggering", knownTech: "", scopeNotes: "Silent scan — production-safe, avoid triggering alarms" },
+  },
+  {
+    id: "full_auto", label: "Full Auto Exploit",
+    desc: "Autonomous recon + exploit chain. Maximum coverage, full autonomy.",
+    iconName: "Zap", color: "red",
+    settings: { mode: "full_auto", speedProfile: "fast", scanType: "syn", portRange: "1-65535", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "vuln", allowExploit: true, allowPostExploit: true, allowLateral: true, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 100, blockDos: true, blockDestructive: false, maxSeverity: "CRITICAL", objectives: "Gain root/admin access\nDump credentials and hashes\nDocument all exploited CVEs\nTest lateral movement paths", knownTech: "", scopeNotes: "Full autonomous pentest — authorized lab environment only" },
+  },
+  {
+    id: "ad_audit", label: "Active Directory",
+    desc: "Enumerate domain controllers, users, groups, SPNs, and GPOs. Detect Kerberoasting and privilege escalation paths.",
+    iconName: "Users", color: "cyan",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "88,135,139,389,445,464,593,636,3268,3269,5985,9389", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "ldap-rootdse,smb-security-mode,smb2-security-mode", allowExploit: true, allowPostExploit: true, allowLateral: true, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 30, blockDos: true, blockDestructive: true, maxSeverity: "CRITICAL", objectives: "Enumerate domain controllers and users\nIdentify Kerberoastable accounts (SPNs)\nCheck for AS-REP roasting candidates\nMap GPO misconfigurations\nFind privilege escalation paths", knownTech: "Windows Server, Active Directory, Kerberos, LDAP", scopeNotes: "Active Directory audit — domain user credentials recommended" },
+  },
+  {
+    id: "external_perimeter", label: "External Perimeter",
+    desc: "Assess internet-facing assets — DNS enumeration, certificate transparency, exposed services, and attack surface mapping.",
+    iconName: "Server", color: "orange",
+    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,ssl-cert,dns-brute", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: true, timeLimit: 3600, rateLimit: 30, blockDos: true, blockDestructive: true, maxSeverity: "HIGH", objectives: "Map internet-facing services\nDNS enumeration and subdomain discovery\nCertificate transparency check\nIdentify exposed management interfaces", knownTech: "", scopeNotes: "External attack surface assessment — authorized external testing only" },
+  },
+  {
+    id: "db_enum", label: "Database Enumeration",
+    desc: "Find and probe database services — MySQL, MSSQL, PostgreSQL, MongoDB, Redis. Extract schemas and check for weak auth.",
+    iconName: "Database", color: "pink",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "1433,1521,3306,5432,5984,6379,27017,27018,27019,28017", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "mysql-info,ms-sql-info,pgsql-brute", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 20, blockDos: true, blockDestructive: true, maxSeverity: "HIGH", objectives: "Discover database services\nTest for authentication bypass\nExtract schema information\nCheck for default or weak credentials", knownTech: "MySQL, PostgreSQL, MSSQL, MongoDB, Redis", scopeNotes: "Database enumeration — read-only extraction focus" },
+  },
+  {
+    id: "container_cloud", label: "Container / Cloud",
+    desc: "Detect exposed Docker APIs, Kubernetes dashboards, and cloud metadata endpoints. Test for container escape paths.",
+    iconName: "Monitor", color: "teal",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "2375,2376,2377,6443,8001,8080,8443,10250,10255,10256,16443", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,ssl-cert", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: true, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 30, blockDos: true, blockDestructive: false, maxSeverity: "CRITICAL", objectives: "Detect exposed Docker/Kubernetes APIs\nTest container escape paths\nEnumerate cloud metadata endpoints\nCheck RBAC misconfigurations", knownTech: "Docker, Kubernetes, containerd", scopeNotes: "Container and cloud security assessment" },
+  },
+  {
+    id: "wireless_recon", label: "Wireless Recon",
+    desc: "Map wireless infrastructure — enumerate access points, clients, and rogue devices on 2.4 / 5 GHz bands.",
+    iconName: "Wifi", color: "indigo",
+    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "udp", portRange: "1900,5353,67,68", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 10, blockDos: true, blockDestructive: true, maxSeverity: "MEDIUM", objectives: "Map wireless access points\nIdentify rogue devices\nEnumerate client associations", knownTech: "802.11, WPA2, WPA3", scopeNotes: "Wireless infrastructure recon — passive scan mode" },
+  },
+  {
+    id: "iot_ot", label: "IoT / OT Scan",
+    desc: "Target industrial and IoT protocols — Modbus, DNP3, BACnet, MQTT, CoAP. Minimal footprint, no disruption.",
+    iconName: "Terminal", color: "yellow",
+    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "udp", portRange: "102,502,1883,1911,2404,4840,20000,44818,47808", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "modbus-discover,bacnet-info", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 10800, rateLimit: 5, blockDos: true, blockDestructive: true, maxSeverity: "LOW", objectives: "Identify industrial protocols\nEnumerate IoT/OT devices\nCheck for authentication weaknesses", knownTech: "Modbus, DNP3, BACnet, MQTT", scopeNotes: "Minimal footprint — critical infrastructure, avoid any disruption" },
+  },
+];
+
+const PROFILE_ICON_COLORS: Record<string, string> = {
+  blue:   "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  green:  "bg-green-500/15 text-green-400 border-green-500/25",
+  amber:  "bg-amber-500/15 text-amber-400 border-amber-500/25",
+  purple: "bg-violet-500/15 text-violet-400 border-violet-500/25",
+  slate:  "bg-slate-500/15 text-slate-400 border-slate-500/25",
+  red:    "bg-red-500/15 text-red-400 border-red-500/25",
+  cyan:   "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+  orange: "bg-orange-500/15 text-orange-400 border-orange-500/25",
+  pink:   "bg-pink-500/15 text-pink-400 border-pink-500/25",
+  teal:   "bg-teal-500/15 text-teal-400 border-teal-500/25",
+  indigo: "bg-indigo-500/15 text-indigo-400 border-indigo-500/25",
+  yellow: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+};
+
+const PROFILE_ACCENT_BORDERS: Record<string, string> = {
+  blue:   "hover:border-blue-500/40",
+  green:  "hover:border-green-500/40",
+  amber:  "hover:border-amber-500/40",
+  purple: "hover:border-violet-500/40",
+  slate:  "hover:border-slate-500/40",
+  red:    "hover:border-red-500/40",
+  cyan:   "hover:border-cyan-500/40",
+  orange: "hover:border-orange-500/40",
+  pink:   "hover:border-pink-500/40",
+  teal:   "hover:border-teal-500/40",
+  indigo: "hover:border-indigo-500/40",
+  yellow: "hover:border-yellow-500/40",
 };
 
 const TABS: { id: TabId; label: string; icon: typeof Target }[] = [
@@ -282,6 +282,15 @@ const NewMission = () => {
   // ── Scan profile ────────────────────────────────
   const [activeProfile, setActiveProfile] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  const [customProfiles, setCustomProfiles] = useState<ScanProfileDef[]>(() => {
+    try { return JSON.parse(localStorage.getItem("tirpan_custom_profiles") || "[]"); }
+    catch { return []; }
+  });
+  const [saveProfileOpen, setSaveProfileOpen] = useState(false);
+  const [saveProfileName, setSaveProfileName] = useState("");
+  const [saveProfileDesc, setSaveProfileDesc] = useState("");
+  const [saveProfileIcon, setSaveProfileIcon] = useState("Radio");
+  const [saveProfileColor, setSaveProfileColor] = useState("blue");
 
   // ── Tab ─────────────────────────────────────────
   const [tab, setTab] = useState<TabId>("target");
@@ -500,7 +509,8 @@ const NewMission = () => {
 
   // ── Apply scan profile ──────────────────────────
   const applyProfile = (profileId: string) => {
-    const def = SCAN_PROFILE_DEFS.find((p) => p.id === profileId);
+    const all = [...SCAN_PROFILE_DEFS, ...customProfiles];
+    const def = all.find((p) => p.id === profileId);
     if (!def) return;
     const s = def.settings;
     setMode(s.mode);
@@ -518,8 +528,46 @@ const NewMission = () => {
     setAllowBrowserRecon(s.allowBrowserRecon);
     setTimeLimit(s.timeLimit);
     setRateLimit(s.rateLimit);
+    setBlockDos(s.blockDos);
+    setBlockDestructive(s.blockDestructive);
+    setMaxSeverity(s.maxSeverity);
+    setObjectives(s.objectives);
+    setKnownTech(s.knownTech);
+    setScopeNotes(s.scopeNotes);
     setActiveProfile(profileId);
     setStep(2);
+  };
+
+  // ── Save / delete custom profile ────────────────
+  const saveCustomProfile = () => {
+    if (!saveProfileName.trim()) return;
+    const id = `custom_${Date.now()}`;
+    const newProfile: ScanProfileDef = {
+      id, custom: true,
+      label: saveProfileName.trim(),
+      desc: saveProfileDesc.trim() || "Custom scan profile",
+      iconName: saveProfileIcon as keyof typeof PROFILE_ICONS,
+      color: saveProfileColor,
+      settings: {
+        mode, speedProfile, scanType, portRange,
+        versionDetection, osDetection, aggressiveScan, nmapScripts,
+        allowExploit, allowPostExploit, allowLateral, allowDockerEscape, allowBrowserRecon,
+        timeLimit, rateLimit, blockDos, blockDestructive, maxSeverity,
+        objectives, knownTech, scopeNotes,
+      },
+    };
+    const updated = [...customProfiles, newProfile];
+    setCustomProfiles(updated);
+    localStorage.setItem("tirpan_custom_profiles", JSON.stringify(updated));
+    setSaveProfileOpen(false);
+    setSaveProfileName("");
+    setSaveProfileDesc("");
+  };
+
+  const deleteCustomProfile = (id: string) => {
+    const updated = customProfiles.filter((p) => p.id !== id);
+    setCustomProfiles(updated);
+    localStorage.setItem("tirpan_custom_profiles", JSON.stringify(updated));
   };
 
   // ── Submit ──────────────────────────────────────
@@ -659,37 +707,82 @@ const NewMission = () => {
 
           <div className="flex-1 overflow-y-auto min-h-0">
             <div className="grid grid-cols-4 gap-3 pb-3">
-              {SCAN_PROFILE_DEFS.map((p) => {
+              {[...SCAN_PROFILE_DEFS, ...customProfiles].map((p) => {
                 const Icon = PROFILE_ICONS[p.iconName];
-                const colorClass = PROFILE_COLORS[p.color];
+                const iconClass = PROFILE_ICON_COLORS[p.color] ?? PROFILE_ICON_COLORS["blue"];
+                const accentBorder = PROFILE_ACCENT_BORDERS[p.color] ?? PROFILE_ACCENT_BORDERS["blue"];
                 return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => applyProfile(p.id)}
-                    className={`p-5 rounded-2xl border text-left transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.99] ${colorClass}`}
-                  >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${colorClass} border`}>
-                      {Icon && <Icon className="w-5 h-5" />}
-                    </div>
-                    <div className="font-display font-bold text-sm mb-1.5 text-foreground">{p.label}</div>
-                    <div className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{p.desc}</div>
-                    <div className="flex gap-1 mt-3 flex-wrap">
-                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-background/60 text-muted-foreground uppercase tracking-wide font-medium">
-                        {MODE_SHORT[p.settings.mode] ?? p.settings.mode}
-                      </span>
-                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-background/60 text-muted-foreground capitalize font-medium">
-                        {p.settings.speedProfile}
-                      </span>
-                    </div>
-                  </button>
+                  <div key={p.id} className="relative group/card">
+                    <button
+                      type="button"
+                      onClick={() => applyProfile(p.id)}
+                      className={`w-full h-full min-h-[180px] p-4 rounded-2xl border border-border/50 bg-card text-left transition-colors duration-150 hover:bg-muted/20 ${accentBorder} flex flex-col`}
+                    >
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 border shrink-0 ${iconClass}`}>
+                        {Icon && <Icon className="w-4 h-4" />}
+                      </div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="font-display font-bold text-sm text-foreground">{p.label}</span>
+                        {p.custom && (
+                          <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20 font-semibold uppercase tracking-wide">Custom</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 mb-3 flex-1">{p.desc}</div>
+                      <div className="space-y-1.5 mt-auto">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 uppercase tracking-wide font-semibold">
+                            {MODE_SHORT[p.settings.mode] ?? p.settings.mode}
+                          </span>
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize font-medium">
+                            {p.settings.speedProfile}
+                          </span>
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground uppercase font-medium">
+                            {p.settings.scanType}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground font-mono">
+                            {p.settings.portRange.length > 14 ? p.settings.portRange.slice(0, 14) + "…" : p.settings.portRange}
+                          </span>
+                          {p.settings.allowExploit && (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 font-medium">Exploit</span>
+                          )}
+                          {p.settings.allowPostExploit && (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/20 font-medium">Post-Exploit</span>
+                          )}
+                          {p.settings.allowLateral && (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 font-medium">Lateral</span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                    {p.custom && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); deleteCustomProfile(p.id); }}
+                        className="absolute top-2 right-2 w-6 h-6 rounded-lg bg-muted/80 opacity-0 group-hover/card:opacity-100 flex items-center justify-center hover:bg-destructive/20 hover:text-destructive transition-all"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
 
               {/* Custom / Advanced — full width last row */}
               <button
                 type="button"
-                onClick={() => { setActiveProfile(null); setStep(2); }}
+                onClick={() => {
+                  setActiveProfile(null);
+                  setMode("scan_only"); setSpeedProfile("normal"); setScanType("syn");
+                  setPortRange("1-65535"); setVersionDetection(true); setOsDetection(false);
+                  setAggressiveScan(false); setNmapScripts(""); setAllowExploit(false);
+                  setAllowPostExploit(false); setAllowLateral(false); setAllowDockerEscape(false);
+                  setAllowBrowserRecon(false); setTimeLimit(7200); setRateLimit(50);
+                  setBlockDos(true); setBlockDestructive(true); setMaxSeverity("CRITICAL");
+                  setObjectives(""); setKnownTech(""); setScopeNotes("");
+                  setStep(2);
+                }}
                 className="col-span-4 p-4 rounded-2xl border border-dashed border-border/60 bg-transparent hover:bg-muted/20 text-left transition-all flex items-center gap-4 group"
               >
                 <div className="w-11 h-11 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
@@ -719,10 +812,10 @@ const NewMission = () => {
               Back to Profiles
             </button>
             {activeProfile && (() => {
-              const pd = SCAN_PROFILE_DEFS.find((p) => p.id === activeProfile);
+              const pd = [...SCAN_PROFILE_DEFS, ...customProfiles].find((p) => p.id === activeProfile);
               const Icon = pd ? PROFILE_ICONS[pd.iconName] : null;
               return pd ? (
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border ${PROFILE_COLORS[pd.color]}`}>
+                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border ${PROFILE_ICON_COLORS[pd.color]}`}>
                   {Icon && <Icon className="w-3 h-3" />}
                   {pd.label}
                 </div>
@@ -1478,17 +1571,88 @@ const NewMission = () => {
           )}
         </div>
 
+        {/* Save as Profile panel */}
+        {saveProfileOpen && (
+          <div className="shrink-0 node-card !p-4 mb-3 border-primary/20">
+            <div className="flex items-center gap-2 mb-3">
+              <FolderOpen className="w-4 h-4 text-primary" />
+              <span className="font-display font-bold text-sm">Save as Profile</span>
+              <button type="button" onClick={() => setSaveProfileOpen(false)} className="ml-auto text-muted-foreground hover:text-foreground text-xs">✕</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1 block">Profile Name *</Label>
+                <Input value={saveProfileName} onChange={(e) => setSaveProfileName(e.target.value)} placeholder="My Custom Scan" className="h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1 block">Description</Label>
+                <Input value={saveProfileDesc} onChange={(e) => setSaveProfileDesc(e.target.value)} placeholder="What this profile does…" className="h-8 text-xs" />
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1 block">Icon</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(PROFILE_ICONS).map(([k, IconComp]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      title={k}
+                      onClick={() => setSaveProfileIcon(k)}
+                      className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${
+                        saveProfileIcon === k
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-muted/40 border-border/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <IconComp className="w-3.5 h-3.5" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1 block">Color</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(PROFILE_ICON_COLORS).map(([c, cls]) => (
+                    <button
+                      key={c}
+                      type="button"
+                      title={c}
+                      onClick={() => setSaveProfileColor(c)}
+                      className={`w-7 h-7 rounded-lg border transition-all ${cls} ${
+                        saveProfileColor === c ? "ring-2 ring-offset-1 ring-offset-background ring-foreground/40 scale-110" : "opacity-60 hover:opacity-100"
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <Button onClick={saveCustomProfile} disabled={!saveProfileName.trim()} size="sm" className="gap-1.5">
+              <FolderOpen className="w-3.5 h-3.5" /> Save Profile
+            </Button>
+          </div>
+        )}
+
         {/* Bottom bar */}
         <div className="flex items-center justify-between shrink-0 node-card !p-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => navigate("/missions")}
-            className="gap-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Cancel
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigate("/missions")}
+              className="gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSaveProfileOpen((v) => !v)}
+              className="gap-2 text-xs"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Save as Profile
+            </Button>
+          </div>
 
           <div className="flex items-center gap-3">
             <div className="text-[10px] text-muted-foreground">

@@ -136,7 +136,9 @@
       "Bash(python -c \"import web.routes; print\\('routes OK'\\)\")",
       "Bash(ls -la \"C:\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\" | head -30)",
       "Bash(wsl -e bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npx vite build 2>&1\")",
-      "Bash(python ml/train_all.py --skip-download --model finding)"
+      "Bash(python ml/train_all.py --skip-download --model finding)",
+      "Bash(ls -la \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\")",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\\\\attack-graph-canvas\")"
     ]
   }
 }

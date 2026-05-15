@@ -360,7 +360,7 @@ function _updateDdosVisibility(show) {
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
 
-const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'ddos', 'history', 'nodes', 'kb'];
+const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'ddos', 'history', 'nodes', 'kb', 'ml'];
 
 function _setIntelNavActive(panelName) {
     const items = document.querySelectorAll('.intel-nav-item');
@@ -421,6 +421,10 @@ function switchIntelPanel(panelName) {
             refreshDDoSPanelForSession(sid);
         }
     }
+
+    if (panelName === 'ml') {
+        mlPanelLoad(sid);
+    }
 }
 
 function initIntelNav() {
@@ -446,6 +450,7 @@ const INTEL_TAB_ICONS = {
     history: 'history',
     nodes: 'account_tree',
     kb: 'auto_stories',
+    ml: 'neurology',
 };
 
 function switchIntelTab(tabName) {
@@ -475,6 +480,10 @@ function switchIntelTab(tabName) {
 
     if (tabName === 'ddos' && typeof DDOS !== 'undefined' && DDOS._refreshExpanded) {
         setTimeout(() => DDOS._refreshExpanded(), 50);
+    }
+
+    if (tabName === 'ml') {
+        setTimeout(() => mlViewLoad(), 30);
     }
 }
 
@@ -6032,17 +6041,23 @@ function showHostDetailPanel(host, xMap, exploitResults) {
             <div style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:1px;font-family:monospace;margin-bottom:8px">
                 Exploit Attempts (${hostExploits.length})
             </div>
-            ${hostExploits.map(e => `
+            ${hostExploits.map(e => {
+                const hasProb = typeof e.ml_success_prob === 'number' && e.ml_success_prob >= 0;
+                const prob = hasProb ? Math.round(e.ml_success_prob * 100) : null;
+                const probColor = !hasProb ? '#444' : (e.ml_success_prob >= 0.75 ? '#FF3B3B' : e.ml_success_prob >= 0.50 ? '#fb923c' : e.ml_success_prob >= 0.30 ? '#facc15' : '#60a5fa');
+                return `
                 <div style="padding:5px 0;border-bottom:1px solid #0f0f0f;font-family:monospace;font-size:9px">
                     <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                         <span style="color:${e.success ? '#FF3B3B' : '#444'}">●</span>
                         <span style="color:${e.success ? '#FF3B3B' : '#555'};font-weight:${e.success ? 'bold' : 'normal'}">${_esc(e.module || '—')}</span>
+                        ${hasProb ? `<span title="ML predicted P(success)" style="color:${probColor};border:1px solid ${probColor}66;padding:0 4px;font-size:8px;font-weight:bold">ML ${prob}%</span>` : ''}
                         <span style="margin-left:auto;color:${e.success ? '#FF3B3B' : '#333'}">${e.success ? '✓ SUCCESS' : '✗ FAIL'}</span>
                     </div>
                     <div style="color:#555;padding-left:14px">port ${e.port || e.target_port || '?'} ${e.payload ? '· ' + _esc(e.payload.split('/').pop() || '') : ''}</div>
                     ${e.source_ip ? `<div style="color:#fb923c;padding-left:14px">← via ${_esc(e.source_ip)}</div>` : ''}
                 </div>
-            `).join('')}
+                `;
+            }).join('')}
         </div>` : ''}
 
         <!-- Lateral movement -->
@@ -11715,6 +11730,597 @@ async function agLoadKGData() {
             console.warn('[V3] agIngestKGGraph() not defined — raw data:', d);
         }
     } catch(e) { alert('KG load error: ' + e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ML PANEL — Attack-path suggestions, exploit probabilities, finding classification
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _mlPanelSessionId = null;
+let _mlPanelLoading = false;
+
+const _ML_RISK_COLORS = {
+    critical: 'bg-danger',
+    high:     'bg-orange-500',
+    medium:   'bg-yellow-500',
+    low:      'bg-blue-500',
+    info:     'bg-secondary-text/50',
+};
+
+const _ML_TACTIC_COLORS = {
+    'initial-access':       'text-red-400 border-red-400/40',
+    'execution':            'text-orange-400 border-orange-400/40',
+    'persistence':          'text-yellow-400 border-yellow-400/40',
+    'privilege-escalation': 'text-amber-400 border-amber-400/40',
+    'defense-evasion':      'text-fuchsia-400 border-fuchsia-400/40',
+    'credential-access':    'text-purple-400 border-purple-400/40',
+    'discovery':            'text-sky-400 border-sky-400/40',
+    'lateral-movement':     'text-emerald-400 border-emerald-400/40',
+    'collection':           'text-teal-400 border-teal-400/40',
+    'command-and-control':  'text-pink-400 border-pink-400/40',
+    'exfiltration':         'text-rose-400 border-rose-400/40',
+    'impact':               'text-red-500 border-red-500/40',
+    'reconnaissance':       'text-cyan-400 border-cyan-400/40',
+};
+
+function _mlProbColor(p) {
+    const v = Number(p || 0);
+    if (v >= 0.75) return 'text-danger';
+    if (v >= 0.50) return 'text-orange-400';
+    if (v >= 0.30) return 'text-yellow-400';
+    if (v >= 0.10) return 'text-blue-400';
+    return 'text-secondary-text';
+}
+
+async function mlPanelLoad(sid) {
+    if (_mlPanelLoading) return;
+    _mlPanelLoading = true;
+    _mlPanelSessionId = sid || viewingSessionId || activeMissionId || null;
+    try {
+        await Promise.all([
+            _mlPanelLoadStatus(),
+            _mlPanelLoadSuggestions(_mlPanelSessionId),
+            _mlPanelLoadSessionInsights(_mlPanelSessionId),
+        ]);
+    } catch (e) {
+        console.warn('[ML] panel load error', e);
+    } finally {
+        _mlPanelLoading = false;
+    }
+}
+
+function mlPanelRefresh() {
+    mlPanelLoad(_mlPanelSessionId);
+}
+
+async function _mlPanelLoadStatus() {
+    const statusEl = document.getElementById('ml-model-status');
+    const clfEl = document.getElementById('ml-stat-clf');
+    const expEl = document.getElementById('ml-stat-exp');
+    const pathEl = document.getElementById('ml-stat-path');
+    try {
+        const [statusRes, metricsRes] = await Promise.all([
+            fetch('/api/v1/ml/status').then(r => r.ok ? r.json() : null),
+            fetch('/api/v1/ml/metrics').then(r => r.ok ? r.json() : null),
+        ]);
+
+        const models = statusRes?.models || {};
+        const ready = ['finding_classifier', 'exploit_predictor', 'attack_path']
+            .every(k => models[k]?.available);
+        if (statusEl) {
+            statusEl.textContent = ready ? 'online' : 'partial';
+            statusEl.classList.toggle('text-primary', ready);
+            statusEl.classList.toggle('text-yellow-400', !ready);
+        }
+
+        if (metricsRes && !metricsRes.status) {
+            const fc = metricsRes.finding_classifier || {};
+            const ep = metricsRes.exploit_predictor || {};
+            const ap = metricsRes.attack_path || {};
+            const fcAcc = fc.risk_level?.accuracy;
+            const auc = ep.roc_auc;
+            const ttps = ap.techniques;
+            if (clfEl) clfEl.textContent = fcAcc != null ? (fcAcc * 100).toFixed(1) + '%' : '—';
+            if (expEl) expEl.textContent = auc != null ? auc.toFixed(3) : '—';
+            if (pathEl) pathEl.textContent = ttps != null ? `${ttps} ttp` : '—';
+        } else {
+            if (clfEl) clfEl.textContent = '—';
+            if (expEl) expEl.textContent = '—';
+            if (pathEl) pathEl.textContent = '—';
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.textContent = 'error';
+            statusEl.classList.add('text-danger');
+        }
+    }
+}
+
+async function _mlPanelLoadSuggestions(sid) {
+    const listEl   = document.getElementById('ml-suggestions-list');
+    const phaseEl  = document.getElementById('ml-phase-badge');
+    const ctxEl    = document.getElementById('ml-ctx-summary');
+    const linkEl   = document.getElementById('ml-attack-link');
+    if (!listEl) return;
+
+    if (!sid) {
+        listEl.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">Select a mission to see suggestions</p>';
+        if (phaseEl) phaseEl.textContent = '—';
+        if (ctxEl)   ctxEl.textContent = '—';
+        if (linkEl)  linkEl.classList.add('hidden');
+        return;
+    }
+
+    listEl.innerHTML = `<div class="flex items-center gap-2 p-4 text-secondary-text text-[10px] mono-text">
+        <span class="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>Loading suggestions...
+    </div>`;
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${encodeURIComponent(sid)}/ml-suggestions?top_n=8`);
+        if (!res.ok) {
+            listEl.innerHTML = `<p class="text-[10px] text-danger mono-text text-center py-4">Failed: HTTP ${res.status}</p>`;
+            return;
+        }
+        const data = await res.json();
+        const suggestions = data.suggestions || [];
+        const ctx = data.context || {};
+
+        if (phaseEl) phaseEl.textContent = String(data.current_phase || 'unknown').replace('_', ' ');
+        if (ctxEl) {
+            ctxEl.textContent =
+                `${ctx.host_count || 0} host · ${ctx.services_seen || 0} svc · ` +
+                `${ctx.vulnerabilities || 0} vuln · ${ctx.exploits_success || 0}/${ctx.exploits_run || 0} exp` +
+                (ctx.has_shell ? ' · shell ✓' : '');
+        }
+        if (linkEl && suggestions[0]) {
+            linkEl.href = suggestions[0].url;
+            linkEl.textContent = `→ ${suggestions[0].ttp_id} on attack.mitre.org`;
+            linkEl.classList.remove('hidden');
+        } else if (linkEl) {
+            linkEl.classList.add('hidden');
+        }
+
+        if (suggestions.length === 0) {
+            listEl.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No suggestions for this phase</p>';
+            return;
+        }
+
+        listEl.innerHTML = suggestions.map((s) => {
+            const conf = Number(s.confidence || 0);
+            const pct  = Math.round(conf * 100);
+            const tacticColor = _ML_TACTIC_COLORS[s.tactic] || 'text-secondary-text border-border-color';
+            const rationale = s.rationale ? _esc(s.rationale) : '';
+            return `
+                <a href="${_esc(s.url)}" target="_blank" rel="noopener"
+                   class="group flex flex-col gap-1 px-2 py-2 border border-border-color/60 hover:border-primary/60 hover:bg-white/[0.02] transition-colors">
+                    <div class="flex items-center gap-2">
+                        <span class="mono-text text-[10px] font-bold text-primary shrink-0">${_esc(s.ttp_id)}</span>
+                        <span class="flex-1 min-w-0 truncate text-[11px] text-slate-100 group-hover:text-primary">${_esc(s.ttp_name)}</span>
+                        <span class="mono-text text-[9px] font-bold ${conf >= 0.75 ? 'text-primary' : conf >= 0.5 ? 'text-yellow-400' : 'text-secondary-text'} shrink-0">${pct}%</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-[8px] uppercase tracking-widest px-1.5 py-0.5 border ${tacticColor}">${_esc(s.tactic)}</span>
+                        ${rationale ? `<span class="text-[9px] text-secondary-text/80 truncate">· ${rationale}</span>` : ''}
+                    </div>
+                </a>
+            `;
+        }).join('');
+    } catch (e) {
+        listEl.innerHTML = `<p class="text-[10px] text-danger mono-text text-center py-4">Error: ${_esc(String(e))}</p>`;
+    }
+}
+
+async function _mlPanelLoadSessionInsights(sid) {
+    const expListEl  = document.getElementById('ml-exploits-list');
+    const expCntEl   = document.getElementById('ml-exp-count');
+    const clsCntEl   = document.getElementById('ml-cls-count');
+    const riskBarsEl = document.getElementById('ml-risk-bars');
+    const ttpCloudEl = document.getElementById('ml-ttp-cloud');
+
+    if (!sid) {
+        if (expListEl)  expListEl.innerHTML  = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No mission selected</p>';
+        if (riskBarsEl) riskBarsEl.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-2">—</p>';
+        if (ttpCloudEl) ttpCloudEl.innerHTML = '<span class="text-[10px] text-secondary-text mono-text">—</span>';
+        if (expCntEl)   expCntEl.textContent = '0';
+        if (clsCntEl)   clsCntEl.textContent = '0';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${encodeURIComponent(sid)}`);
+        if (!res.ok) return;
+        const session = await res.json();
+
+        // ── Exploits ──────────────────────────────────────────────────────
+        const exploits = Array.isArray(session.exploits) ? session.exploits : [];
+        const scored = exploits
+            .filter(e => typeof e.ml_success_prob === 'number' && e.ml_success_prob >= 0)
+            .sort((a, b) => (b.ml_success_prob || 0) - (a.ml_success_prob || 0))
+            .slice(0, 10);
+
+        if (expCntEl) expCntEl.textContent = String(scored.length);
+
+        if (expListEl) {
+            if (scored.length === 0) {
+                expListEl.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-4">No exploits scored yet</p>';
+            } else {
+                expListEl.innerHTML = scored.map((e) => {
+                    const p = Number(e.ml_success_prob || 0);
+                    const pct = Math.round(p * 100);
+                    const colorCls = _mlProbColor(p);
+                    const module = e.module || e.exploit_module || 'unknown';
+                    const target = e.target_ip || e.target || '';
+                    const success = e.success ? '<span class="text-[8px] text-primary border border-primary/40 px-1 py-0.5 uppercase mono-text">hit</span>' : '';
+                    return `
+                        <div class="flex items-center gap-2 px-2 py-1.5 border border-border-color/60 bg-background-dark/40">
+                            <div class="flex-1 min-w-0">
+                                <p class="mono-text text-[10px] text-slate-200 truncate">${_esc(module)}</p>
+                                <p class="mono-text text-[9px] text-secondary-text/80 truncate">${_esc(target)}</p>
+                            </div>
+                            ${success}
+                            <div class="w-12 h-1 bg-border-color/40 overflow-hidden shrink-0">
+                                <div class="h-full ${p >= 0.5 ? 'bg-primary' : 'bg-secondary-text/60'}" style="width:${pct}%"></div>
+                            </div>
+                            <span class="mono-text text-[10px] font-bold ${colorCls} shrink-0 w-9 text-right">${pct}%</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        // ── Findings / classifications ────────────────────────────────────
+        const vulns = Array.isArray(session.vulnerabilities) ? session.vulnerabilities : [];
+        const withCls = vulns.filter(v => v && v._cls);
+        if (clsCntEl) clsCntEl.textContent = String(withCls.length);
+
+        // Risk histogram
+        const riskOrder = ['critical', 'high', 'medium', 'low', 'info'];
+        const riskCounts = Object.fromEntries(riskOrder.map(r => [r, 0]));
+        withCls.forEach(v => {
+            const r = v._cls.risk_level || 'info';
+            if (riskCounts[r] != null) riskCounts[r]++;
+        });
+        const maxRisk = Math.max(1, ...Object.values(riskCounts));
+        if (riskBarsEl) {
+            riskBarsEl.innerHTML = riskOrder.map(r => {
+                const c = riskCounts[r] || 0;
+                const w = Math.round((c / maxRisk) * 100);
+                return `
+                    <div class="flex items-center gap-2">
+                        <span class="mono-text text-[8px] uppercase tracking-widest text-secondary-text w-12 shrink-0">${r}</span>
+                        <div class="flex-1 h-1.5 bg-border-color/40 overflow-hidden">
+                            <div class="h-full ${_ML_RISK_COLORS[r]}" style="width:${w}%"></div>
+                        </div>
+                        <span class="mono-text text-[9px] text-secondary-text w-6 text-right">${c}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // TTP frequency cloud
+        const ttpFreq = {};
+        withCls.forEach(v => {
+            (v._cls.mitre_ttps || []).forEach(t => {
+                ttpFreq[t] = (ttpFreq[t] || 0) + 1;
+            });
+        });
+        const sortedTTPs = Object.entries(ttpFreq).sort((a, b) => b[1] - a[1]).slice(0, 12);
+        if (ttpCloudEl) {
+            if (sortedTTPs.length === 0) {
+                ttpCloudEl.innerHTML = '<span class="text-[10px] text-secondary-text mono-text">No classified findings</span>';
+            } else {
+                ttpCloudEl.innerHTML = sortedTTPs.map(([tid, c]) => {
+                    const url = `https://attack.mitre.org/techniques/${tid.replace('.', '/')}`;
+                    return `<a href="${url}" target="_blank" rel="noopener"
+                        class="mono-text text-[9px] text-primary border border-primary/30 hover:bg-primary/10 px-1.5 py-0.5 transition-colors">${_esc(tid)}<span class="text-secondary-text/70 ml-1">×${c}</span></a>`;
+                }).join('');
+            }
+        }
+    } catch (e) {
+        console.warn('[ML] insights error', e);
+    }
+}
+
+// ─── Expanded ML view (full-page detail inside view-intel) ───────────────────
+
+async function mlViewLoad(sid) {
+    const realSid = sid || _mlPanelSessionId || viewingSessionId || activeMissionId || null;
+    _mlPanelSessionId = realSid;
+    try {
+        await Promise.all([
+            _mlViewLoadKpis(),
+            _mlViewLoadSuggestions(realSid),
+            _mlViewLoadSessionDetail(realSid),
+        ]);
+    } catch (e) {
+        console.warn('[ML] view load error', e);
+    }
+}
+
+function mlViewRefresh() {
+    mlViewLoad(_mlPanelSessionId);
+    mlPanelRefresh();
+}
+
+async function mlViewRetrain() {
+    if (!confirm('Trigger ML retraining? This takes ~18 min and downloads datasets if needed.')) return;
+    const btn = document.getElementById('ml-exp-retrain-btn');
+    if (btn) { btn.disabled = true; btn.innerText = 'TRAINING…'; }
+    try {
+        const r = await fetch('/api/v1/ml/train', { method: 'POST' });
+        const j = await r.json();
+        const msg = j.status === 'started' ? 'Training started — refresh later' :
+                    j.status === 'already_running' ? 'Training already in progress' : JSON.stringify(j);
+        alert(msg);
+    } catch (e) {
+        alert('Failed: ' + e);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-[14px]">model_training</span>Retrain'; }
+    }
+}
+
+async function _mlViewLoadKpis() {
+    const statusEl = document.getElementById('ml-exp-model-status');
+    try {
+        const [statusRes, metricsRes] = await Promise.all([
+            fetch('/api/v1/ml/status').then(r => r.ok ? r.json() : null),
+            fetch('/api/v1/ml/metrics').then(r => r.ok ? r.json() : null),
+        ]);
+
+        const models = statusRes?.models || {};
+        const allReady = ['finding_classifier', 'exploit_predictor', 'attack_path'].every(k => models[k]?.available);
+        if (statusEl) {
+            statusEl.textContent = allReady ? 'online' : 'partial';
+            statusEl.classList.toggle('text-primary', allReady);
+            statusEl.classList.toggle('border-primary', allReady);
+            statusEl.classList.toggle('text-yellow-400', !allReady);
+        }
+
+        const fc = metricsRes?.finding_classifier || {};
+        const ep = metricsRes?.exploit_predictor || {};
+        const ap = metricsRes?.attack_path || {};
+
+        const clfAcc = fc.risk_level?.accuracy;
+        const clfF1  = fc.risk_level?.f1_macro;
+        const phAcc  = fc.attack_phase?.accuracy;
+        const asAcc  = fc.asset_category?.accuracy;
+        const auc    = ep.roc_auc;
+        const rec    = ep.recall;
+        const prec   = ep.precision;
+        const ttps   = ap.techniques;
+        const kws    = ap.service_keywords;
+
+        const set = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+        set('ml-exp-clf-acc',   clfAcc != null ? (clfAcc * 100).toFixed(1) + '%' : '—');
+        set('ml-exp-clf-sub',   clfF1  != null ? `F1 macro ${(clfF1 * 100).toFixed(1)}%` : 'F1 macro —');
+        set('ml-exp-auc',       auc    != null ? auc.toFixed(3) : '—');
+        set('ml-exp-auc-sub',   (rec != null || prec != null)
+            ? `recall ${rec != null ? (rec * 100).toFixed(1) + '%' : '—'} · prec ${prec != null ? (prec * 100).toFixed(1) + '%' : '—'}` : 'recall — · prec —');
+        set('ml-exp-phase-acc', phAcc  != null ? (phAcc * 100).toFixed(1) + '%' : '—');
+        set('ml-exp-phase-sub', asAcc  != null ? `Asset acc ${(asAcc * 100).toFixed(1)}%` : 'Asset acc —');
+        set('ml-exp-ttp-count', ttps   != null ? String(ttps) : '—');
+        set('ml-exp-ttp-sub',   kws    != null ? `${kws} svc keywords` : '— svc keywords');
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'error';
+    }
+}
+
+async function _mlViewLoadSuggestions(sid) {
+    const tbody = document.getElementById('ml-exp-sugg-tbody');
+    const phaseBadge = document.getElementById('ml-exp-phase-badge');
+    if (!tbody) return;
+
+    if (!sid) {
+        tbody.innerHTML = '<tr><td colspan="5" class="px-5 py-4 text-center text-secondary-text text-[10px]">Select a mission to see suggestions</td></tr>';
+        if (phaseBadge) phaseBadge.textContent = '—';
+        _mlViewSetContext(null);
+        return;
+    }
+
+    tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-6 text-center text-secondary-text text-[10px]">
+        <span class="material-symbols-outlined text-[14px] animate-spin align-middle">progress_activity</span>
+        Loading suggestions…
+    </td></tr>`;
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${encodeURIComponent(sid)}/ml-suggestions?top_n=10`);
+        if (!res.ok) {
+            tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-4 text-center text-danger text-[10px]">Failed: HTTP ${res.status}</td></tr>`;
+            return;
+        }
+        const data = await res.json();
+        const suggestions = data.suggestions || [];
+
+        if (phaseBadge) phaseBadge.textContent = String(data.current_phase || 'unknown').replace('_', ' ');
+        _mlViewSetContext(data.context, data.context?.phase_source);
+
+        if (suggestions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="px-5 py-4 text-center text-secondary-text text-[10px]">No suggestions for this phase</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = suggestions.map(s => {
+            const pct = Math.round((s.confidence || 0) * 100);
+            const confColor = (s.confidence || 0) >= 0.75 ? 'text-primary' : (s.confidence || 0) >= 0.5 ? 'text-yellow-400' : 'text-secondary-text';
+            const tacticColor = _ML_TACTIC_COLORS[s.tactic] || 'text-secondary-text border-border-color';
+            return `<tr class="border-b border-border-color hover:bg-surface transition-colors">
+                <td class="px-5 py-3"><a href="${_esc(s.url)}" target="_blank" rel="noopener" class="text-primary font-bold hover:underline">${_esc(s.ttp_id)}</a></td>
+                <td class="px-4 py-3 text-slate-200">${_esc(s.ttp_name)}</td>
+                <td class="px-4 py-3"><span class="border px-1.5 py-0.5 text-[8px] uppercase tracking-widest ${tacticColor}">${_esc(s.tactic)}</span></td>
+                <td class="px-4 py-3"><span class="${confColor} font-bold">${pct}%</span></td>
+                <td class="px-4 py-3 text-secondary-text/80 text-[10px]">${_esc(s.rationale || '—')}</td>
+            </tr>`;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-4 text-center text-danger text-[10px]">Error: ${_esc(String(e))}</td></tr>`;
+    }
+}
+
+function _mlViewSetContext(ctx, phaseSource) {
+    const set = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+    if (!ctx) {
+        ['ml-ctx-hosts', 'ml-ctx-services', 'ml-ctx-vulns', 'ml-ctx-exploits', 'ml-ctx-success', 'ml-ctx-shell', 'ml-ctx-phase-src']
+            .forEach(id => set(id, '—'));
+        return;
+    }
+    set('ml-ctx-hosts',     String(ctx.host_count ?? '—'));
+    set('ml-ctx-services',  String(ctx.services_seen ?? '—'));
+    set('ml-ctx-vulns',     String(ctx.vulnerabilities ?? '—'));
+    set('ml-ctx-exploits',  String(ctx.exploits_run ?? '—'));
+    set('ml-ctx-success',   `${ctx.exploits_success ?? 0} / ${ctx.exploits_run ?? 0}`);
+    set('ml-ctx-shell',     ctx.has_shell ? '✓ established' : 'none');
+    set('ml-ctx-phase-src', phaseSource || ctx.phase_source || '—');
+}
+
+async function _mlViewLoadSessionDetail(sid) {
+    const expCntEl   = document.getElementById('ml-exp-exp-count');
+    const expTbody   = document.getElementById('ml-exp-exp-tbody');
+    const riskBarsEl = document.getElementById('ml-exp-risk-bars');
+    const ttpCntEl   = document.getElementById('ml-exp-ttp-cnt');
+    const ttpCloudEl = document.getElementById('ml-exp-ttp-cloud');
+    const matrixEl   = document.getElementById('ml-exp-matrix');
+
+    if (!sid) {
+        if (expTbody)   expTbody.innerHTML   = '<tr><td colspan="5" class="px-5 py-4 text-center text-secondary-text text-[10px]">No mission selected</td></tr>';
+        if (riskBarsEl) riskBarsEl.innerHTML = '<p class="text-[10px] text-secondary-text mono-text">—</p>';
+        if (ttpCloudEl) ttpCloudEl.innerHTML = '<span class="text-[10px] text-secondary-text mono-text">No classified findings</span>';
+        if (expCntEl)   expCntEl.textContent = '0 scored';
+        if (ttpCntEl)   ttpCntEl.textContent = '0';
+        _mlViewRenderMatrix(matrixEl, []);
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/v1/sessions/${encodeURIComponent(sid)}`);
+        if (!res.ok) return;
+        const session = await res.json();
+
+        // ── Exploits ──────────────────────────────────────────────────────
+        const exploits = Array.isArray(session.exploits) ? session.exploits : [];
+        const scored = exploits
+            .filter(e => typeof e.ml_success_prob === 'number' && e.ml_success_prob >= 0)
+            .sort((a, b) => (b.ml_success_prob || 0) - (a.ml_success_prob || 0))
+            .slice(0, 20);
+
+        if (expCntEl) expCntEl.textContent = `${scored.length} scored`;
+        if (expTbody) {
+            if (scored.length === 0) {
+                expTbody.innerHTML = '<tr><td colspan="5" class="px-5 py-4 text-center text-secondary-text text-[10px]">No exploit predictions yet</td></tr>';
+            } else {
+                expTbody.innerHTML = scored.map(e => {
+                    const p = Number(e.ml_success_prob || 0);
+                    const pct = Math.round(p * 100);
+                    const colorCls = _mlProbColor(p);
+                    const result = e.success
+                        ? '<span class="text-primary font-bold">✓ SUCCESS</span>'
+                        : '<span class="text-secondary-text">✗ FAIL</span>';
+                    return `<tr class="border-b border-border-color hover:bg-surface transition-colors">
+                        <td class="px-5 py-3 text-slate-200">${_esc(e.module || '—')}</td>
+                        <td class="px-4 py-3 text-secondary-text">${_esc(e.host_ip || e.target_ip || e.target || '—')}</td>
+                        <td class="px-4 py-3 text-secondary-text">${_esc(String(e.port || e.target_port || '—'))}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <div class="w-16 h-1.5 bg-border-color overflow-hidden">
+                                    <div class="h-full ${p >= 0.5 ? 'bg-primary' : 'bg-secondary-text/60'}" style="width:${pct}%"></div>
+                                </div>
+                                <span class="${colorCls} font-bold">${pct}%</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">${result}</td>
+                    </tr>`;
+                }).join('');
+            }
+        }
+
+        // ── Risk distribution ─────────────────────────────────────────────
+        const vulns = Array.isArray(session.vulnerabilities) ? session.vulnerabilities : [];
+        const withCls = vulns.filter(v => v && v._cls);
+
+        const riskOrder = ['critical', 'high', 'medium', 'low', 'info'];
+        const riskCounts = Object.fromEntries(riskOrder.map(r => [r, 0]));
+        withCls.forEach(v => {
+            const r = v._cls.risk_level || 'info';
+            if (riskCounts[r] != null) riskCounts[r]++;
+        });
+        const maxRisk = Math.max(1, ...Object.values(riskCounts));
+        if (riskBarsEl) {
+            riskBarsEl.innerHTML = riskOrder.map(r => {
+                const c = riskCounts[r] || 0;
+                const w = Math.round((c / maxRisk) * 100);
+                return `<div class="flex items-center gap-2">
+                    <span class="mono-text text-[8px] uppercase tracking-widest text-secondary-text w-14 shrink-0">${r}</span>
+                    <div class="flex-1 h-1.5 bg-border-color/40 overflow-hidden">
+                        <div class="h-full ${_ML_RISK_COLORS[r]}" style="width:${w}%"></div>
+                    </div>
+                    <span class="mono-text text-[10px] text-slate-300 w-7 text-right">${c}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // ── TTP frequency cloud ───────────────────────────────────────────
+        const ttpFreq = {};
+        withCls.forEach(v => {
+            (v._cls.mitre_ttps || []).forEach(t => { ttpFreq[t] = (ttpFreq[t] || 0) + 1; });
+        });
+        const sortedTTPs = Object.entries(ttpFreq).sort((a, b) => b[1] - a[1]).slice(0, 30);
+        if (ttpCntEl) ttpCntEl.textContent = String(sortedTTPs.length);
+        if (ttpCloudEl) {
+            if (sortedTTPs.length === 0) {
+                ttpCloudEl.innerHTML = '<span class="text-[10px] text-secondary-text mono-text">No classified findings</span>';
+            } else {
+                const maxFreq = sortedTTPs[0][1];
+                ttpCloudEl.innerHTML = sortedTTPs.map(([tid, c]) => {
+                    const scale = 0.6 + 0.6 * (c / maxFreq);
+                    const url = `https://attack.mitre.org/techniques/${tid.replace('.', '/')}`;
+                    return `<a href="${url}" target="_blank" rel="noopener"
+                        class="mono-text text-primary border border-primary/30 hover:bg-primary/10 px-2 py-1 transition-colors"
+                        style="font-size:${(11 * scale).toFixed(0)}px">
+                        ${_esc(tid)}<span class="text-secondary-text/80 ml-1">×${c}</span>
+                    </a>`;
+                }).join('');
+            }
+        }
+
+        // ── Phase × Asset matrix ──────────────────────────────────────────
+        _mlViewRenderMatrix(matrixEl, withCls);
+    } catch (e) {
+        console.warn('[ML] session detail error', e);
+    }
+}
+
+function _mlViewRenderMatrix(matrixEl, withCls) {
+    if (!matrixEl) return;
+    const phases = ['reconnaissance', 'scanning', 'exploitation', 'post_exploitation', 'lateral_movement', 'exfiltration', 'impact'];
+    const assets = ['network', 'web_application', 'authentication', 'operating_system', 'service', 'data', 'other'];
+
+    const counts = {};
+    let maxCell = 0;
+    withCls.forEach(v => {
+        const ph = v._cls.attack_phase || 'other';
+        const as = v._cls.asset_category || 'other';
+        const key = ph + '|' + as;
+        counts[key] = (counts[key] || 0) + 1;
+        if (counts[key] > maxCell) maxCell = counts[key];
+    });
+    if (maxCell === 0) maxCell = 1;
+
+    // First row was already in HTML (header); rebuild fully.
+    const headerCells = `
+        <div></div>
+        ${phases.map(p => `<div class="text-center text-secondary-text uppercase tracking-widest text-[8px]">${p.replace('_', '-').replace('_', ' ')}</div>`).join('')}
+    `;
+    const dataRows = assets.map(a => {
+        const cells = phases.map(p => {
+            const c = counts[p + '|' + a] || 0;
+            const intensity = c === 0 ? 0 : 0.15 + 0.75 * (c / maxCell);
+            const color = c === 0 ? '#1a1a1a' : `rgba(204,255,0,${intensity})`;
+            const tcolor = c > 0 && intensity > 0.5 ? '#000' : '#ccff00';
+            return `<div class="flex items-center justify-center text-center py-2 mono-text text-[10px] font-bold" style="background:${color};color:${c === 0 ? '#444' : tcolor}">${c || '·'}</div>`;
+        }).join('');
+        return `<div class="text-right text-secondary-text uppercase tracking-widest text-[8px] pr-1 self-center">${a.replace('_', ' ')}</div>${cells}`;
+    }).join('');
+
+    matrixEl.innerHTML = headerCells + dataRows;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
