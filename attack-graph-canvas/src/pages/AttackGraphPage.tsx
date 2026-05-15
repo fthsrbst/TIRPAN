@@ -25,7 +25,7 @@ const AttackGraphPage = () => {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [elapsedDisplay, setElapsedDisplay] = useState("00:00");
   const [topologySubView, setTopologySubView] = useState<"network" | "flow">("network");
-  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(true);
 
   const drillHostIp = (location.state as { drillHostIp?: string } | null)?.drillHostIp;
 

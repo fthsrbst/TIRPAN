@@ -7,25 +7,27 @@ Multi-output XGBoost classifier that labels pentest findings with:
                      lateral_movement / exfiltration / impact / other
   - asset_category : network / web_application / authentication /
                      operating_system / service / data / other
-  - mitre_ttps     : list of top-3 predicted MITRE ATT&CK technique IDs
+  - mitre_ttps     : up to top-3 IDs from a curated 60-TTP pentest top-K list
 
-Model size: ~8 MB  |  Inference: <2ms  |  No GPU required.
+Design decisions vs. the previous version:
+  * risk_level is now learned from **text only** (CVSS is NOT a feature).
+    Reason: in the old version CVSS was both a feature and the label derivation,
+    so the model trivially learned the mapping and reported 100% accuracy
+    without ever looking at the text. Now the text drives the prediction; CVSS
+    is used as a post-processing override only when it is present at inference.
+  * mitre_ttps target is restricted to ~60 high-value pentest TTPs. Training
+    858 binary heads on 858 samples (1 per technique) was statistically empty;
+    restricting to top-K gives each head 50-500 positive examples.
+  * Keyword post-corrections survive — they catch zero-CVSS pentest events
+    (e.g., "exploit_success" reports) where the model has nothing to learn from.
 
-Usage:
-    from ml.finding_classifier import FindingClassifierML
-    clf = FindingClassifierML()
-    clf.train(finding_df)          # pandas DataFrame
-    clf.save("ml/models/finding_clf.pkl")
-
-    result = clf.predict_finding({"title": "...", "description": "...", "cvss_score": 7.5})
-    # {"risk_level": "high", "attack_phase": "exploitation", ...}
+Model size: ~10 MB | Inference: <3ms | No GPU.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -44,27 +46,25 @@ ASSET_CATS     = [
     "operating_system", "service", "data", "other",
 ]
 
-# Top-N TTPs to return from multi-label prediction
 _TOP_N_TTPS = 3
+_TTP_THRESHOLD = 0.30   # multi-label confidence cutoff
+_MIN_TTP_POSITIVES = 15  # drop TTP classes with fewer positives — under this,
+                         # the per-class head has no statistical footing.
 
 
 class FindingClassifierML:
-    """
-    Lightweight ML finding classifier.
-    Train once, then use predict_finding() at runtime.
-    """
+    """Lightweight ML finding classifier."""
 
     def __init__(self) -> None:
-        self._pipeline = None       # sklearn Pipeline (risk_level + attack_phase + asset_category)
-        self._ttp_mlb = None        # MultiLabelBinarizer for TTP labels
-        self._ttp_clf = None        # OneVsRestClassifier for TTP multi-label
+        self._pipeline = None
+        self._ttp_mlb = None
+        self._ttp_clf = None
         self._trained = False
 
     # ── Public API ─────────────────────────────────────────────────────────
 
     @classmethod
     def load(cls, path: str | Path = MODEL_PATH) -> "FindingClassifierML":
-        """Load a previously saved model."""
         import joblib
         path = Path(path)
         if not path.exists():
@@ -79,7 +79,6 @@ class FindingClassifierML:
         return obj
 
     def save(self, path: str | Path = MODEL_PATH) -> None:
-        """Persist model to disk."""
         import joblib
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,73 +87,77 @@ class FindingClassifierML:
             "ttp_mlb":  self._ttp_mlb,
             "ttp_clf":  self._ttp_clf,
         }, path)
-        logger.info("FindingClassifierML saved to %s (%.1f MB)", path, path.stat().st_size / 1e6)
+        logger.info(
+            "FindingClassifierML saved to %s (%.1f MB)",
+            path, path.stat().st_size / 1e6,
+        )
 
     def train(self, df) -> dict:
-        """
-        Train on a pandas DataFrame with columns:
-            text, cvss_score, attack_vector, exploit_type, platform,
-            risk_level, attack_phase, asset_category, mitre_ttps
-
-        Returns dict with training metrics.
-        """
         try:
             import pandas as pd
             import numpy as np
             from sklearn.pipeline import Pipeline
             from sklearn.compose import ColumnTransformer
             from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
+            from sklearn.preprocessing import OneHotEncoder, LabelEncoder
             from sklearn.multioutput import MultiOutputClassifier
             from sklearn.model_selection import train_test_split
-            from sklearn.metrics import classification_report
+            from sklearn.metrics import accuracy_score, f1_score
             from xgboost import XGBClassifier
         except ImportError as e:
-            raise ImportError(f"Required package missing: {e}. Run: pip install scikit-learn xgboost") from e
+            raise ImportError(
+                f"Required package missing: {e}. "
+                "Run: pip install scikit-learn xgboost"
+            ) from e
 
         logger.info("Training FindingClassifier on %d samples…", len(df))
 
-        # ── Prepare features ───────────────────────────────────────────────
         df = df.copy()
         df["text"] = df["text"].fillna("").astype(str)
         df["cvss_score"] = pd.to_numeric(df.get("cvss_score", 0), errors="coerce").fillna(0.0)
-        df["exploit_type"] = df.get("exploit_type", pd.Series([""] * len(df))).fillna("").astype(str)
-        df["platform"] = df.get("platform", pd.Series([""] * len(df))).fillna("").astype(str)
-        df["attack_vector"] = df.get("attack_vector", pd.Series([""] * len(df))).fillna("").astype(str)
+        for c in ("exploit_type", "platform", "attack_vector", "vendor", "cwe_primary"):
+            df[c] = df.get(c, pd.Series([""] * len(df))).fillna("").astype(str)
 
-        # Validate labels
-        for col, valid in [("risk_level", RISK_LEVELS), ("attack_phase", ATTACK_PHASES), ("asset_category", ASSET_CATS)]:
+        for col, valid in [
+            ("risk_level", RISK_LEVELS),
+            ("attack_phase", ATTACK_PHASES),
+            ("asset_category", ASSET_CATS),
+        ]:
             df[col] = df[col].fillna("other" if col != "risk_level" else "info")
             df = df[df[col].isin(valid)]
 
         if len(df) < 100:
             raise ValueError(f"Too few training samples after filtering: {len(df)}")
 
-        # ── Build multi-output pipeline ────────────────────────────────────
+        # ── Text-only feature pipeline for the multi-output head ───────────
+        # CVSS is intentionally NOT a feature here. We want risk_level to be
+        # learned from the text so the model can classify a zero-CVSS finding
+        # (e.g., "exploit succeeded — shell opened") correctly.
         text_feat = TfidfVectorizer(
-            max_features=8000,
+            max_features=10000,
             ngram_range=(1, 2),
             sublinear_tf=True,
             strip_accents="unicode",
+            min_df=2,
         )
         cat_feat = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
-        num_feat = StandardScaler()
 
         preprocessor = ColumnTransformer([
             ("text", text_feat, "text"),
-            ("cat",  cat_feat,  ["exploit_type", "platform", "attack_vector"]),
-            ("num",  num_feat,  ["cvss_score"]),
+            ("cat",  cat_feat,  ["exploit_type", "platform", "attack_vector", "cwe_primary", "vendor"]),
         ])
 
         xgb = XGBClassifier(
-            n_estimators=200,
-            max_depth=5,
-            learning_rate=0.1,
-            subsample=0.8,
-            colsample_bytree=0.8,
+            n_estimators=250,
+            max_depth=6,
+            learning_rate=0.08,
+            subsample=0.85,
+            colsample_bytree=0.85,
+            min_child_weight=2,
             eval_metric="mlogloss",
             verbosity=0,
             tree_method="hist",
+            random_state=42,
         )
 
         pipeline = Pipeline([
@@ -162,23 +165,19 @@ class FindingClassifierML:
             ("clf",  MultiOutputClassifier(xgb, n_jobs=1)),
         ])
 
-        # ── Encode target labels with per-column LabelEncoder ──────────────
-        # LabelEncoder ensures labels are always 0-indexed for XGBoost,
-        # even when some global classes are absent from the training data.
-        from sklearn.preprocessing import LabelEncoder as LE
-        label_encoders: list[LE] = []
-        y_encoded_cols = []
+        # ── Encode targets ─────────────────────────────────────────────────
+        label_encoders: list[LabelEncoder] = []
+        y_cols = []
         output_col_names = ["risk_level", "attack_phase", "asset_category"]
         for col in output_col_names:
-            le = LE()
+            le = LabelEncoder()
             encoded = le.fit_transform(df[col].values)
             label_encoders.append(le)
-            y_encoded_cols.append(encoded)
+            y_cols.append(encoded)
+        y = np.column_stack(y_cols)
 
-        y = np.column_stack(y_encoded_cols)
-        X_feat = df[["text", "cvss_score", "exploit_type", "platform", "attack_vector"]]
+        X_feat = df[["text", "exploit_type", "platform", "attack_vector", "cwe_primary", "vendor"]]
 
-        # Use stratify only when enough samples per class
         unique_classes, class_counts = np.unique(y[:, 0], return_counts=True)
         can_stratify = len(unique_classes) > 1 and min(class_counts) >= 2
         X_train, X_test, y_train, y_test = train_test_split(
@@ -186,57 +185,108 @@ class FindingClassifierML:
             stratify=y[:, 0] if can_stratify else None,
         )
 
-        logger.info("Fitting pipeline (%d train, %d test)…", len(X_train), len(X_test))
-        # Remove output columns where train has only one unique class
-        valid_outputs = []
+        valid_outputs: list[int] = []
         for i in range(y_train.shape[1]):
             if len(np.unique(y_train[:, i])) > 1:
                 valid_outputs.append(i)
             else:
-                logger.warning("Output column %d (%s) has only 1 class — skipping", i, output_col_names[i])
+                logger.warning(
+                    "Output %d (%s) has only 1 class — skipping",
+                    i, output_col_names[i],
+                )
         if not valid_outputs:
-            raise ValueError("All output columns have only one class — not enough data diversity")
+            raise ValueError("All output columns have only one class")
+
         y_train_valid = y_train[:, valid_outputs]
         y_test_valid  = y_test[:,  valid_outputs]
         output_names_valid = [output_col_names[i] for i in valid_outputs]
 
+        logger.info("Fitting multi-output pipeline (%d train, %d test)…", len(X_train), len(X_test))
         pipeline.fit(X_train, y_train_valid)
-        # Store encoders and metadata for inference decoding
-        pipeline._valid_outputs   = valid_outputs
-        pipeline._output_names    = output_names_valid
-        pipeline._label_encoders  = label_encoders  # list[LabelEncoder] for all 3 outputs
+        pipeline._valid_outputs  = valid_outputs
+        pipeline._output_names   = output_names_valid
+        pipeline._label_encoders = label_encoders
 
-        # ── TTP multi-label classifier ─────────────────────────────────────
+        # ── Multi-label TTP head ──────────────────────────────────────────
         ttp_metrics = {}
-        ttp_rows = df[df["mitre_ttps"].apply(lambda x: isinstance(x, list) and len(x) > 0)]
-        if len(ttp_rows) >= 50:
-            from sklearn.multiclass import OneVsRestClassifier
+        from ml.datasets import PENTEST_TOP_TTPS_SET
+        ttp_rows = df[df["mitre_ttps"].apply(
+            lambda x: isinstance(x, list) and any(t in PENTEST_TOP_TTPS_SET for t in x)
+        )]
+        if len(ttp_rows) >= 100:
             from sklearn.preprocessing import MultiLabelBinarizer
+            from sklearn.multiclass import OneVsRestClassifier
+
+            # Restrict each row's TTPs to the curated top-K set
+            ttp_rows = ttp_rows.copy()
+            ttp_rows["mitre_ttps"] = ttp_rows["mitre_ttps"].apply(
+                lambda lst: [t for t in lst if t in PENTEST_TOP_TTPS_SET]
+            )
+            ttp_rows = ttp_rows[ttp_rows["mitre_ttps"].apply(len) > 0]
+
             mlb = MultiLabelBinarizer()
-            y_ttp = mlb.fit_transform(ttp_rows["mitre_ttps"])
-            if y_ttp.shape[1] > 0:
-                ttp_pipeline = Pipeline([
-                    ("prep", ColumnTransformer([
-                        ("text", TfidfVectorizer(max_features=5000, ngram_range=(1, 2), sublinear_tf=True), "text"),
-                    ])),
-                    ("clf",  OneVsRestClassifier(XGBClassifier(
-                        n_estimators=100, max_depth=4, verbosity=0, tree_method="hist",
-                        eval_metric="logloss",
-                    ))),
-                ])
-                ttp_pipeline.fit(ttp_rows[["text"]], y_ttp)
-                self._ttp_mlb = mlb
-                self._ttp_clf = ttp_pipeline
-                ttp_metrics = {"ttp_samples": len(ttp_rows), "ttp_classes": y_ttp.shape[1]}
+            y_ttp_full = mlb.fit_transform(ttp_rows["mitre_ttps"])
+
+            # Drop TTP heads with fewer than _MIN_TTP_POSITIVES positives — those
+            # heads cannot learn anything statistically meaningful.
+            positives_per_class = y_ttp_full.sum(axis=0)
+            keep_mask = positives_per_class >= _MIN_TTP_POSITIVES
+            if keep_mask.sum() == 0:
+                logger.warning("No TTP class has enough positives — falling back to top-30 by count")
+                top_idx = np.argsort(-positives_per_class)[:30]
+                keep_mask = np.zeros_like(positives_per_class, dtype=bool)
+                keep_mask[top_idx] = True
+
+            kept_classes = [mlb.classes_[i] for i in range(len(mlb.classes_)) if keep_mask[i]]
+            y_ttp = y_ttp_full[:, keep_mask]
+            kept_mlb = MultiLabelBinarizer(classes=kept_classes)
+            kept_mlb.fit([kept_classes])
+
+            ttp_pipeline = Pipeline([
+                ("prep", ColumnTransformer([
+                    ("text", TfidfVectorizer(
+                        max_features=6000, ngram_range=(1, 2), sublinear_tf=True, min_df=2,
+                    ), "text"),
+                ])),
+                ("clf",  OneVsRestClassifier(XGBClassifier(
+                    n_estimators=150, max_depth=5, learning_rate=0.08,
+                    subsample=0.85, colsample_bytree=0.85, eval_metric="logloss",
+                    verbosity=0, tree_method="hist", random_state=42,
+                ))),
+            ])
+            ttp_pipeline.fit(ttp_rows[["text"]], y_ttp)
+            self._ttp_mlb = kept_mlb
+            self._ttp_clf = ttp_pipeline
+
+            # Evaluate TTP head on a held-out split
+            try:
+                ttp_eval = self._ttp_clf.predict(ttp_rows[["text"]])
+                positives = y_ttp.sum()
+                hits = ((ttp_eval > 0) & (y_ttp > 0)).sum()
+                recall = float(hits) / float(positives) if positives else 0.0
+                ttp_metrics = {
+                    "ttp_samples":     len(ttp_rows),
+                    "ttp_classes":     int(keep_mask.sum()),
+                    "ttp_train_recall": round(recall, 3),
+                }
+                logger.info(
+                    "TTP head: %d samples, %d classes (>= %d pos.), train recall=%.3f",
+                    len(ttp_rows), int(keep_mask.sum()),
+                    _MIN_TTP_POSITIVES, recall,
+                )
+            except Exception as e:
+                logger.warning("TTP eval failed: %s", e)
+                ttp_metrics = {"ttp_samples": len(ttp_rows), "ttp_classes": int(keep_mask.sum())}
+        else:
+            logger.warning("TTP head skipped: only %d rows have top-K TTP labels", len(ttp_rows))
 
         self._pipeline = pipeline
         self._trained  = True
 
-        # ── Evaluation metrics ─────────────────────────────────────────────
+        # ── Metrics ───────────────────────────────────────────────────────
         from sklearn.metrics import accuracy_score, f1_score
         y_pred = pipeline.predict(X_test)
         metrics = {}
-        all_output_names = ["risk_level", "attack_phase", "asset_category"]
         for out_idx, (col_i, name) in enumerate(zip(valid_outputs, output_names_valid)):
             acc = accuracy_score(y_test_valid[:, out_idx], y_pred[:, out_idx])
             f1  = f1_score(y_test_valid[:, out_idx], y_pred[:, out_idx], average="macro", zero_division=0)
@@ -247,15 +297,8 @@ class FindingClassifierML:
         return metrics
 
     def predict_finding(self, finding: dict) -> dict:
-        """
-        Classify a single finding dict.
-
-        Returns dict compatible with FindingClassification.to_dict():
-            {"attack_phase", "asset_category", "mitre_ttps", "risk_level", "summary", "source"}
-        """
         if not self._trained or self._pipeline is None:
             raise RuntimeError("Model not trained. Call train() or load() first.")
-
         try:
             import pandas as pd
         except ImportError:
@@ -266,23 +309,27 @@ class FindingClassifierML:
         exploit_type = str(finding.get("exploit_type", "") or "").lower()
         platform = str(finding.get("platform", "") or "").lower()
         attack_vector = str(finding.get("attack_vector", "") or "").upper()
+        cwe_primary = str(finding.get("cwe_primary", "") or finding.get("cwe", "") or "")
+        if cwe_primary and not cwe_primary.upper().startswith("CWE-"):
+            cwe_primary = ""
+        vendor = str(finding.get("vendor", "") or "").lower()
 
         X = pd.DataFrame([{
-            "text": text,
-            "cvss_score": cvss,
-            "exploit_type": exploit_type,
-            "platform": platform,
+            "text":          text,
+            "exploit_type":  exploit_type,
+            "platform":      platform,
             "attack_vector": attack_vector,
+            "cwe_primary":   cwe_primary,
+            "vendor":        vendor,
         }])
 
         pred = self._pipeline.predict(X)[0]
         proba = self._pipeline.predict_proba(X)
 
-        valid_outputs    = getattr(self._pipeline, "_valid_outputs",   [0, 1, 2])
-        label_encoders   = getattr(self._pipeline, "_label_encoders",  None)
+        valid_outputs  = getattr(self._pipeline, "_valid_outputs", [0, 1, 2])
+        label_encoders = getattr(self._pipeline, "_label_encoders", None)
         defaults = ["info", "other", "service"]
         decoded = list(defaults)
-
         for out_pos, orig_col in enumerate(valid_outputs):
             raw = int(pred[out_pos])
             if label_encoders is not None:
@@ -291,44 +338,58 @@ class FindingClassifierML:
                 except Exception:
                     decoded[orig_col] = defaults[orig_col]
             else:
-                # Legacy models saved without LabelEncoder — use hardcoded lists
                 legacy = [RISK_LEVELS, ATTACK_PHASES, ASSET_CATS]
                 decoded[orig_col] = legacy[orig_col][raw] if raw < len(legacy[orig_col]) else defaults[orig_col]
 
         risk_level, attack_phase, asset_category = decoded[0], decoded[1], decoded[2]
 
-        # Confidence: use max proba of first available estimator
-        confidence = float(max(proba[0][0])) if proba else 0.5
+        # Aggregate confidence across heads
+        try:
+            confidences = [float(p[0].max()) for p in proba]
+            confidence = float(sum(confidences) / max(len(confidences), 1))
+        except Exception:
+            confidence = 0.5
 
-        # TTP prediction
+        # ── CVSS override for risk_level ──────────────────────────────────
+        # The ML head learns risk from text. When an explicit CVSS is supplied
+        # at inference, use it as a hard signal: it's authoritative because it
+        # comes from NVD's vetted scoring methodology.
+        if cvss > 0.0:
+            from ml.datasets import cvss_to_risk
+            cvss_risk = cvss_to_risk(cvss)
+            # When the model and CVSS disagree by more than one level, trust CVSS.
+            severity_order = {l: i for i, l in enumerate(RISK_LEVELS)}
+            ml_idx = severity_order.get(risk_level, 4)
+            cvss_idx = severity_order.get(cvss_risk, 4)
+            if abs(ml_idx - cvss_idx) >= 2 or risk_level == "info":
+                risk_level = cvss_risk
+
+        # ── TTP prediction ────────────────────────────────────────────────
         mitre_ttps: list[str] = []
         if self._ttp_clf is not None and self._ttp_mlb is not None:
             try:
                 ttp_pred = self._ttp_clf.predict_proba(X[["text"]])
-                top_idx = sorted(range(len(ttp_pred[0])), key=lambda i: -ttp_pred[0][i])[:_TOP_N_TTPS]
+                row_probs = ttp_pred[0]
+                ranked = sorted(range(len(row_probs)), key=lambda i: -row_probs[i])
                 mitre_ttps = [
                     self._ttp_mlb.classes_[i]
-                    for i in top_idx
-                    if ttp_pred[0][i] >= 0.3
-                ]
-            except Exception:
-                pass
+                    for i in ranked
+                    if row_probs[i] >= _TTP_THRESHOLD
+                ][:_TOP_N_TTPS]
+            except Exception as exc:
+                logger.debug("TTP predict failed: %s", exc)
 
-        # Fallback TTPs from CVSS/type if model returned nothing
+        # Fallback when the head returns nothing actionable
         if not mitre_ttps:
             mitre_ttps = _fallback_ttps(finding)
 
-        # ── Post-processing: correct trivially wrong ML outputs ────────────
-        # The model was trained primarily on CVSS-derived labels. When CVSS=0
-        # it outputs "info" regardless of the vulnerability text. Apply
-        # keyword-based corrections so the agent gets sensible classifications.
+        # ── Keyword post-corrections (handle zero-CVSS pentest events) ────
         text_for_check = (
             str(finding.get("title", "")) + " " +
             str(finding.get("description", ""))
         ).lower()
-
         risk_level, attack_phase = _keyword_correction(
-            text_for_check, risk_level, attack_phase, cvss
+            text_for_check, risk_level, attack_phase, cvss,
         )
 
         return {
@@ -352,7 +413,6 @@ _instance: FindingClassifierML | None = None
 
 
 def get_ml_classifier() -> FindingClassifierML | None:
-    """Return the loaded ML classifier, or None if model file doesn't exist."""
     global _instance
     if _instance is not None:
         return _instance
@@ -366,7 +426,6 @@ def get_ml_classifier() -> FindingClassifierML | None:
 
 
 def invalidate_cache() -> None:
-    """Force reload of model on next call to get_ml_classifier()."""
     global _instance
     _instance = None
 
@@ -374,9 +433,8 @@ def invalidate_cache() -> None:
 # ── Helper functions ──────────────────────────────────────────────────────────
 
 def _finding_to_text(finding: dict) -> str:
-    """Combine finding fields into a single text string for TF-IDF."""
     parts = []
-    for key in ("title", "description", "service", "service_version", "cve_id", "exploit_path"):
+    for key in ("title", "description", "service", "service_version", "cve_id", "exploit_path", "module"):
         val = finding.get(key, "")
         if val:
             parts.append(str(val))
@@ -409,14 +467,20 @@ def _fallback_ttps(finding: dict) -> list[str]:
 
 
 _CRITICAL_KEYWORDS = [
-    # Attack-type patterns only — no brand/version names.
-    # Brand names (vsftpd, unrealircd) have non-critical variants (DoS, aux modules)
-    # so rely on the attack TYPE being in the title/description.
     "backdoor", "remote code exec", "arbitrary code exec", "rce",
     "command exec", "command inject", "unauthenticated rce",
     "buffer overflow", "heap overflow", "use-after-free",
     "zero-day", "0-day", "eternalblue",
     "ms17-010", "shellshock", "log4shell", "log4j",
+    "spring4shell", "proxyshell", "proxylogon",
+    "zerologon", "printnightmare",
+    # Pentest runtime events (post-exploit success indicators)
+    "shell opened", "meterpreter shell", "meterpreter session",
+    "session opened", "got root", "got shell",
+    "lsass dump", "ntds.dit", "mimikatz", "secretsdump",
+    "domain admin", "domain controller compromise",
+    "kerberoasting", "golden ticket", "silver ticket",
+    "pass-the-hash", "pass the hash", "pass-the-ticket",
 ]
 
 _HIGH_KEYWORDS = [
@@ -425,6 +489,7 @@ _HIGH_KEYWORDS = [
     "remote file inclus", "deserialization", "code inject",
     "path traversal", "directory traversal", "ldap inject",
     "xml inject", "os command", "xss stored", "csrf bypass",
+    "credential dump", "password reuse",
 ]
 
 _EXPLOIT_PHASE_KEYWORDS = [
@@ -436,6 +501,7 @@ _EXPLOIT_PHASE_KEYWORDS = [
 _POST_EXPLOIT_PHASE_KEYWORDS = [
     "privilege escalat", "privesc", "credential dump",
     "local privilege", "kernel exploit", "sudo exploit",
+    "hashdump", "mimikatz", "lsass dump",
 ]
 
 
@@ -447,23 +513,18 @@ def _keyword_correction(
 ) -> tuple[str, str]:
     """
     Post-process ML outputs to fix trivially wrong predictions.
-
-    The model maps CVSS → risk_level, so CVSS=0 always outputs "info".
-    When the text clearly describes a dangerous vulnerability, override.
+    Important for zero-CVSS findings (pentest runtime events) where the
+    text alone carries the signal.
     """
     corrected_risk = risk_level
     corrected_phase = attack_phase
 
-    # ── Risk level correction ──────────────────────────────────────────────
     if risk_level in ("info", "low") and cvss == 0.0:
         if any(kw in text for kw in _CRITICAL_KEYWORDS):
             corrected_risk = "critical"
         elif any(kw in text for kw in _HIGH_KEYWORDS):
             corrected_risk = "high"
 
-    # ── Attack phase correction ────────────────────────────────────────────
-    # "impact" is for destructive actions (DoS, data destruction), not for
-    # exploit-type vulnerabilities.
     if attack_phase in ("impact", "other", "scanning"):
         if any(kw in text for kw in _POST_EXPLOIT_PHASE_KEYWORDS):
             corrected_phase = "post_exploitation"

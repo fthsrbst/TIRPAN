@@ -2611,12 +2611,22 @@ def _enrich_exploits_with_ml(exploits: list) -> list:
                 enriched.append(e)
                 continue
             try:
+                module = str(e.get("module", ""))
+                # TIRPAN runs Metasploit modules — they are by definition
+                # verified+packaged exploits with an MSF module. Pass these
+                # real-world signals through so the predictor doesn't downgrade
+                # them just because the inference path has no EPSS lookup.
+                has_msf = 1 if module else 0
                 prob = pred.predict_proba(
-                    description=str(e.get("module", "")),  # no output — avoids data leakage
+                    description=module,  # no output — avoids any text leakage
                     exploit_type=str(e.get("exploit_type", "remote")),
                     platform=str(e.get("platform", "")),
                     cvss_score=float(e.get("cvss_score") or 0.0),
                     attack_vector=str(e.get("attack_vector", "")),
+                    epss_score=float(e.get("epss_score") or 0.0),
+                    in_kev=int(e.get("in_kev", 0)),
+                    has_msf_module=has_msf,
+                    verified=1 if has_msf else 0,
                 )
                 enriched.append({**e, "ml_success_prob": prob})
             except Exception:
@@ -2693,11 +2703,12 @@ async def get_ml_suggestions(sid: str, top_n: int = 8):
         else:
             current_phase = "reconnaissance"
 
-    # ── Extract services and host count from scan results ────────────────────
+    # ── Extract services, platforms, and host count from scan results ────────
     # host_count = only hosts with at least 1 open port (pingable-only hosts
     # like gateways are not useful for lateral movement decisions).
     services: list[str] = []
     host_ips: set[str] = set()
+    platforms_seen: list[str] = []
     for sr in scan_results:
         hosts_raw = sr.get("hosts_json", "[]")
         try:
@@ -2707,8 +2718,11 @@ async def get_ml_suggestions(sid: str, top_n: int = 8):
         for host in hosts:
             ip = host.get("ip") or host.get("host_ip", "")
             ports = host.get("ports", [])
-            if ip and ports:  # only count hosts that have open ports
+            if ip and ports:
                 host_ips.add(str(ip))
+            os_info = host.get("os") or host.get("os_match") or host.get("osfamily") or ""
+            if os_info:
+                platforms_seen.append(str(os_info).lower())
             for port in ports:
                 svc = port.get("service", "")
                 if svc:
@@ -2774,11 +2788,14 @@ async def get_ml_suggestions(sid: str, top_n: int = 8):
             top_n=min(top_n, 12),
             host_count=host_count,
             has_shell=has_shell,
+            platforms=list(set(platforms_seen)),
         )
         model_available = True
     else:
         from ml.attack_path import _fallback_suggestions
-        suggestions = _fallback_suggestions(current_phase, min(top_n, 8), host_count, has_shell)
+        suggestions = _fallback_suggestions(
+            current_phase, min(top_n, 8), host_count, has_shell, list(set(platforms_seen)),
+        )
         model_available = False
 
     return {
