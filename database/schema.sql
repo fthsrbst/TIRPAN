@@ -102,9 +102,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 -- ── Indexes ────────────────────────────────────────────────────────────────
 
-CREATE INDEX IF NOT EXISTS idx_scan_results_session  ON scan_results(session_id);
-CREATE INDEX IF NOT EXISTS idx_vulns_session         ON vulnerabilities(session_id);
-CREATE INDEX IF NOT EXISTS idx_vulns_cvss            ON vulnerabilities(cvss_score DESC);
-CREATE INDEX IF NOT EXISTS idx_exploits_session      ON exploit_results(session_id);
-CREATE INDEX IF NOT EXISTS idx_audit_session_time    ON audit_log(session_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_kb_service_version    ON knowledge_base(service, version);
+CREATE INDEX IF NOT EXISTS idx_scan_results_session      ON scan_results(session_id);
+CREATE INDEX IF NOT EXISTS idx_vulns_session             ON vulnerabilities(session_id);
+CREATE INDEX IF NOT EXISTS idx_vulns_cvss                ON vulnerabilities(cvss_score DESC);
+CREATE INDEX IF NOT EXISTS idx_vulns_session_cvss        ON vulnerabilities(session_id, cvss_score DESC);
+CREATE INDEX IF NOT EXISTS idx_vulns_session_created     ON vulnerabilities(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_exploits_session          ON exploit_results(session_id);
+CREATE INDEX IF NOT EXISTS idx_exploits_session_host     ON exploit_results(session_id, host_ip);
+CREATE INDEX IF NOT EXISTS idx_audit_session_time        ON audit_log(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_kb_service_version        ON knowledge_base(service, version);

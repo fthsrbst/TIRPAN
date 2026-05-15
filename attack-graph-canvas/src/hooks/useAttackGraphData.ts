@@ -104,6 +104,7 @@ export interface SessionDetails {
     port: number;
     success: boolean;
     sessionOpened: boolean;
+    ml_success_prob?: number;
     ts: number;
   }[];
 }
@@ -590,6 +591,9 @@ function buildDetails(session: any): SessionDetails {
       port: e.port || 0,
       success: !!e.success,
       sessionOpened: !!e.session_opened,
+      ml_success_prob: (e.ml_success_prob !== undefined && e.ml_success_prob !== null && Number(e.ml_success_prob) >= 0)
+        ? Number(e.ml_success_prob)
+        : undefined,
       ts: e.created_at || 0,
     }));
 

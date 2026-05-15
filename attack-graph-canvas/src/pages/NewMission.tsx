@@ -47,7 +47,141 @@ import {
   Users,
 } from "lucide-react";
 
+const PROFILE_ICONS: Record<string, typeof Target> = {
+  Radio, Network, KeyRound, Globe, EyeOff, Zap, Users, Server, Database, Monitor, Wifi, Terminal,
+};
+
+const MODE_SHORT: Record<string, string> = {
+  scan_only: "Scan Only",
+  ask_before_exploit: "Supervised",
+  full_auto: "Full Auto",
+  v2_auto: "Multi-Agent",
+};
+
 type TabId = "target" | "mode" | "credentials" | "safety" | "advanced";
+
+interface ScanProfileDef {
+  id: string;
+  label: string;
+  desc: string;
+  icon: typeof Target;
+  color: string;
+  apply: () => void;
+}
+
+const SCAN_PROFILE_DEFS = [
+  {
+    id: "host_discovery",
+    label: "Host Discovery",
+    desc: "Discover live hosts and open ports. Quick and lightweight.",
+    iconName: "Radio" as const,
+    color: "blue",
+    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top100", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 1800, rateLimit: 50 },
+  },
+  {
+    id: "basic_network",
+    label: "Basic Network Scan",
+    desc: "Full system scan — map hosts, ports, and services. Suitable for any host.",
+    iconName: "Network" as const,
+    color: "green",
+    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 50 },
+  },
+  {
+    id: "credentialed_audit",
+    label: "Credentialed Audit",
+    desc: "Authenticated scan — enumerate missing patches and misconfigurations.",
+    iconName: "KeyRound" as const,
+    color: "amber",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "full", portRange: "top1000", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "default,safe", allowExploit: true, allowPostExploit: true, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 30 },
+  },
+  {
+    id: "web_app",
+    label: "Web App Tests",
+    desc: "Scan published and unknown web vulnerabilities on web-facing ports.",
+    iconName: "Globe" as const,
+    color: "purple",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "80,443,8080,8443,3000,8000,8888,9000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,http-headers,http-methods,vuln", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: true, timeLimit: 3600, rateLimit: 20 },
+  },
+  {
+    id: "stealth_recon",
+    label: "Stealth Recon",
+    desc: "Slow, quiet scan to minimize detection. Ideal for sensitive environments.",
+    iconName: "EyeOff" as const,
+    color: "slate",
+    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "syn", portRange: "top1000", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 14400, rateLimit: 10 },
+  },
+  {
+    id: "full_auto",
+    label: "Full Auto Exploit",
+    desc: "Autonomous recon + exploit chain. Maximum coverage, full autonomy.",
+    iconName: "Zap" as const,
+    color: "red",
+    settings: { mode: "full_auto", speedProfile: "fast", scanType: "syn", portRange: "1-65535", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "vuln", allowExploit: true, allowPostExploit: true, allowLateral: true, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 100 },
+  },
+  {
+    id: "ad_audit",
+    label: "Active Directory",
+    desc: "Enumerate domain controllers, users, groups, SPNs, and GPOs. Detect Kerberoasting and privilege escalation paths.",
+    iconName: "Users" as const,
+    color: "cyan",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "88,135,139,389,445,464,593,636,3268,3269,5985,9389", versionDetection: true, osDetection: true, aggressiveScan: false, nmapScripts: "ldap-rootdse,smb-security-mode,smb2-security-mode", allowExploit: true, allowPostExploit: true, allowLateral: true, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 30 },
+  },
+  {
+    id: "external_perimeter",
+    label: "External Perimeter",
+    desc: "Assess internet-facing assets — DNS enumeration, certificate transparency, exposed services, and attack surface mapping.",
+    iconName: "Server" as const,
+    color: "orange",
+    settings: { mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,ssl-cert,dns-brute", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: true, timeLimit: 3600, rateLimit: 30 },
+  },
+  {
+    id: "db_enum",
+    label: "Database Enumeration",
+    desc: "Find and probe database services — MySQL, MSSQL, PostgreSQL, MongoDB, Redis. Extract schemas and check for weak auth.",
+    iconName: "Database" as const,
+    color: "pink",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "1433,1521,3306,5432,5984,6379,27017,27018,27019,28017", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "mysql-info,ms-sql-info,pgsql-brute", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 20 },
+  },
+  {
+    id: "container_cloud",
+    label: "Container / Cloud",
+    desc: "Detect exposed Docker APIs, Kubernetes dashboards, and cloud metadata endpoints. Test for container escape paths.",
+    iconName: "Monitor" as const,
+    color: "teal",
+    settings: { mode: "ask_before_exploit", speedProfile: "normal", scanType: "syn", portRange: "2375,2376,2377,6443,8001,8080,8443,10250,10255,10256,16443", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "http-title,ssl-cert", allowExploit: true, allowPostExploit: false, allowLateral: false, allowDockerEscape: true, allowBrowserRecon: false, timeLimit: 3600, rateLimit: 30 },
+  },
+  {
+    id: "wireless_recon",
+    label: "Wireless Recon",
+    desc: "Map wireless infrastructure — enumerate access points, clients, and rogue devices on 2.4 / 5 GHz bands.",
+    iconName: "Wifi" as const,
+    color: "indigo",
+    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "udp", portRange: "1900,5353,67,68", versionDetection: false, osDetection: false, aggressiveScan: false, nmapScripts: "", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 7200, rateLimit: 10 },
+  },
+  {
+    id: "iot_ot",
+    label: "IoT / OT Scan",
+    desc: "Target industrial and IoT protocols — Modbus, DNP3, BACnet, MQTT, CoAP. Minimal footprint, no disruption.",
+    iconName: "Terminal" as const,
+    color: "yellow",
+    settings: { mode: "scan_only", speedProfile: "stealth", scanType: "udp", portRange: "102,502,1883,1911,2404,4840,20000,44818,47808", versionDetection: true, osDetection: false, aggressiveScan: false, nmapScripts: "modbus-discover,bacnet-info", allowExploit: false, allowPostExploit: false, allowLateral: false, allowDockerEscape: false, allowBrowserRecon: false, timeLimit: 10800, rateLimit: 5 },
+  },
+] as const;
+
+const PROFILE_COLORS: Record<string, string> = {
+  blue:   "border-blue-500/40 bg-blue-500/10 text-blue-400",
+  green:  "border-green-500/40 bg-green-500/10 text-green-400",
+  amber:  "border-amber-500/40 bg-amber-500/10 text-amber-400",
+  purple: "border-violet-500/40 bg-violet-500/10 text-violet-400",
+  slate:  "border-slate-500/40 bg-slate-500/10 text-slate-400",
+  red:    "border-red-500/40 bg-red-500/10 text-red-400",
+  cyan:   "border-cyan-500/40 bg-cyan-500/10 text-cyan-400",
+  orange: "border-orange-500/40 bg-orange-500/10 text-orange-400",
+  pink:   "border-pink-500/40 bg-pink-500/10 text-pink-400",
+  teal:   "border-teal-500/40 bg-teal-500/10 text-teal-400",
+  indigo: "border-indigo-500/40 bg-indigo-500/10 text-indigo-400",
+  yellow: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400",
+};
 
 const TABS: { id: TabId; label: string; icon: typeof Target }[] = [
   { id: "target", label: "Target & Brief", icon: Target },
@@ -145,6 +279,10 @@ const NewMission = () => {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  // ── Scan profile ────────────────────────────────
+  const [activeProfile, setActiveProfile] = useState<string | null>(null);
+  const [step, setStep] = useState<1 | 2>(1);
+
   // ── Tab ─────────────────────────────────────────
   const [tab, setTab] = useState<TabId>("target");
 
@@ -205,6 +343,7 @@ const NewMission = () => {
   // ── Demo mode: pre-fill default values ──────────
   useEffect(() => {
     if (!isDemoMode()) return;
+    setStep(2);
     setTarget("192.168.56.101");
     setMissionName("Metasploitable 2 Lab (Demo)");
     setScopeNotes("Intentionally vulnerable VM — Metasploitable 2. Authorized for testing.");
@@ -359,6 +498,30 @@ const NewMission = () => {
     }
   };
 
+  // ── Apply scan profile ──────────────────────────
+  const applyProfile = (profileId: string) => {
+    const def = SCAN_PROFILE_DEFS.find((p) => p.id === profileId);
+    if (!def) return;
+    const s = def.settings;
+    setMode(s.mode);
+    setSpeedProfile(s.speedProfile);
+    setScanType(s.scanType);
+    setPortRange(s.portRange);
+    setVersionDetection(s.versionDetection);
+    setOsDetection(s.osDetection);
+    setAggressiveScan(s.aggressiveScan);
+    setNmapScripts(s.nmapScripts);
+    setAllowExploit(s.allowExploit);
+    setAllowPostExploit(s.allowPostExploit);
+    setAllowLateral(s.allowLateral);
+    setAllowDockerEscape(s.allowDockerEscape);
+    setAllowBrowserRecon(s.allowBrowserRecon);
+    setTimeLimit(s.timeLimit);
+    setRateLimit(s.rateLimit);
+    setActiveProfile(profileId);
+    setStep(2);
+  };
+
   // ── Submit ──────────────────────────────────────
   const launchMut = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post("/sessions", body),
@@ -481,7 +644,92 @@ const NewMission = () => {
 
   return (
     <PageShell title="New Mission" subtitle="Configure and launch pentest session">
-      <div className="flex flex-col h-full gap-0 max-w-4xl mx-auto w-full">
+      {step === 1 ? (
+        /* ── Step 1: Profile Picker ────────────────────────────────── */
+        <div className="h-full flex flex-col gap-5 py-1">
+          <div className="shrink-0">
+            <div className="flex items-center gap-2 mb-1">
+              <ScanSearch className="w-5 h-5 text-primary" />
+              <h2 className="font-display font-bold text-xl tracking-tight">Step 1 — Choose a Scan Profile</h2>
+            </div>
+            <p className="text-sm text-muted-foreground pl-7">
+              Select a preset to auto-configure all settings, or choose Custom to configure manually.
+            </p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <div className="grid grid-cols-4 gap-3 pb-3">
+              {SCAN_PROFILE_DEFS.map((p) => {
+                const Icon = PROFILE_ICONS[p.iconName];
+                const colorClass = PROFILE_COLORS[p.color];
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => applyProfile(p.id)}
+                    className={`p-5 rounded-2xl border text-left transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.99] ${colorClass}`}
+                  >
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${colorClass} border`}>
+                      {Icon && <Icon className="w-5 h-5" />}
+                    </div>
+                    <div className="font-display font-bold text-sm mb-1.5 text-foreground">{p.label}</div>
+                    <div className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{p.desc}</div>
+                    <div className="flex gap-1 mt-3 flex-wrap">
+                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-background/60 text-muted-foreground uppercase tracking-wide font-medium">
+                        {MODE_SHORT[p.settings.mode] ?? p.settings.mode}
+                      </span>
+                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-background/60 text-muted-foreground capitalize font-medium">
+                        {p.settings.speedProfile}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* Custom / Advanced — full width last row */}
+              <button
+                type="button"
+                onClick={() => { setActiveProfile(null); setStep(2); }}
+                className="col-span-4 p-4 rounded-2xl border border-dashed border-border/60 bg-transparent hover:bg-muted/20 text-left transition-all flex items-center gap-4 group"
+              >
+                <div className="w-11 h-11 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
+                  <Settings2 className="w-5 h-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <div className="font-display font-bold text-sm">Custom / Advanced</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Configure all settings manually — full control over every scan parameter, safety rule, and agent behaviour
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ── Step 2: Mission Form ───────────────────────────────────── */
+        <div className="flex flex-col h-full gap-0 max-w-4xl mx-auto w-full">
+          {/* Profile breadcrumb bar */}
+          <div className="flex items-center gap-3 mb-4 shrink-0">
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to Profiles
+            </button>
+            {activeProfile && (() => {
+              const pd = SCAN_PROFILE_DEFS.find((p) => p.id === activeProfile);
+              const Icon = pd ? PROFILE_ICONS[pd.iconName] : null;
+              return pd ? (
+                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border ${PROFILE_COLORS[pd.color]}`}>
+                  {Icon && <Icon className="w-3 h-3" />}
+                  {pd.label}
+                </div>
+              ) : null;
+            })()}
+          </div>
+
         {/* Tab bar */}
         <div className="flex items-center gap-1 mb-4 shrink-0 bg-card/60 backdrop-blur rounded-full p-1.5 border border-border/50 self-start">
           {TABS.map((t) => (
@@ -1095,7 +1343,7 @@ const NewMission = () => {
                             onValueChange={(v) => setAgentModel(at, "model", v)}
                           >
                             <SelectTrigger className="h-8 text-xs flex-1">
-                              <SelectValue placeholder="Model seç" />
+                              <SelectValue placeholder="Select model…" />
                             </SelectTrigger>
                             <SelectContent>
                               {availableModels
@@ -1187,7 +1435,7 @@ const NewMission = () => {
                   {availableModels.filter((m) => !provider || m.provider === provider).length > 0 ? (
                     <Select value={model} onValueChange={setModel}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Model seç" />
+                        <SelectValue placeholder="Select model…" />
                       </SelectTrigger>
                       <SelectContent>
                         {availableModels
@@ -1260,7 +1508,8 @@ const NewMission = () => {
             </Button>
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </PageShell>
   );
 };

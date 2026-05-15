@@ -126,6 +126,41 @@ export const getSessionShells = (sid: string) =>
 export const getAttackGraph = (sid: string) =>
   isDemoMode() ? mockDelay({}) : apiFetch<any>(`/api/v1/sessions/${sid}/attack-graph`);
 
+// ── ML API ─────────────────────────────────────────────────────────────────
+
+export const getMlSuggestions = (sid: string, topN = 8) =>
+  isDemoMode()
+    ? mockDelay(_mockMlSuggestions(sid))
+    : apiFetch<any>(`/api/v1/sessions/${sid}/ml-suggestions?top_n=${topN}`);
+
+export const getMlStatus = () =>
+  isDemoMode()
+    ? mockDelay({ training: { status: "idle" }, models: {} })
+    : apiFetch<any>("/api/v1/ml/status");
+
+export const triggerMlTraining = () =>
+  isDemoMode()
+    ? mockDelay({ status: "started" })
+    : apiFetch<any>("/api/v1/ml/train", { method: "POST" });
+
+export const getMlMetrics = () =>
+  isDemoMode()
+    ? mockDelay({})
+    : apiFetch<any>("/api/v1/ml/metrics");
+
+function _mockMlSuggestions(_sid: string): any {
+  return {
+    current_phase: "exploitation",
+    model_available: false,
+    suggestions: [
+      { ttp_id: "T1190", ttp_name: "Exploit Public-Facing Application", tactic: "initial-access", confidence: 0.84, url: "https://attack.mitre.org/techniques/T1190" },
+      { ttp_id: "T1021", ttp_name: "Remote Services", tactic: "lateral-movement", confidence: 0.61, url: "https://attack.mitre.org/techniques/T1021" },
+      { ttp_id: "T1003", ttp_name: "OS Credential Dumping", tactic: "credential-access", confidence: 0.43, url: "https://attack.mitre.org/techniques/T1003" },
+      { ttp_id: "T1059", ttp_name: "Command and Scripting Interpreter", tactic: "execution", confidence: 0.38, url: "https://attack.mitre.org/techniques/T1059" },
+    ],
+  };
+}
+
 export const getSessionCredentialsHarvested = (sid: string) =>
   isDemoMode()
     ? mockDelay(MOCK_CREDENTIALS.filter(c => c.session_id === sid))

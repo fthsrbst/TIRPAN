@@ -522,7 +522,7 @@ export const AttackGraph = ({
                   className="w-full shrink-0 text-left px-3 py-2 text-[10px] font-mono text-muted-foreground hover:bg-muted transition-colors border-b border-border/40"
                   onClick={() => { setSelectedSessionId(null); setShowDrop(false); }}
                 >
-                  — Otomatik (çalışan) —
+                  — Auto (running session) —
                 </button>
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
                   {(sessions as any[]).map((s: any) => (

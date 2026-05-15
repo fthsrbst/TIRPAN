@@ -42,3 +42,7 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# ML models (trained artifacts — large binary files)
+ml/models/
+ml/data/

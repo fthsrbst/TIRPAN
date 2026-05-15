@@ -139,7 +139,8 @@ class FindingClassification:
     mitre_ttps:       list[str] = field(default_factory=list)
     risk_level:       str = "info"
     summary:          str = ""
-    source:           str = "llm"   # "llm" | "rule"
+    source:           str = "llm"   # "llm" | "rule" | "ml"
+    confidence:       float = 1.0   # ML confidence score (0-1); 1.0 for rule/llm
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -149,7 +150,12 @@ class FindingClassification:
 
 class FindingClassifier:
     """
-    LLM tabanlı gerçek zamanlı finding sınıflandırıcı.
+    Çok katmanlı gerçek zamanlı finding sınıflandırıcı.
+
+    Sınıflandırma önceliği:
+      1. ML model (ml/models/finding_clf.pkl) — <2ms, GPU yok
+      2. LLM zero-shot (10s timeout)
+      3. Rule-based fallback (deterministik)
 
     Kullanım:
         classifier = FindingClassifier()
@@ -175,6 +181,22 @@ class FindingClassifier:
     def __init__(self) -> None:
         self._cache: dict[str, FindingClassification] = {}
         self._cache_order: list[str] = []
+        self._ml_clf = None          # lazy-loaded ML classifier
+        self._ml_load_attempted = False
+
+    def _get_ml_clf(self):
+        """Lazy-load the ML classifier once."""
+        if self._ml_load_attempted:
+            return self._ml_clf
+        self._ml_load_attempted = True
+        try:
+            from ml.finding_classifier import get_ml_classifier
+            self._ml_clf = get_ml_classifier()
+            if self._ml_clf:
+                logger.info("FindingClassifier: ML model loaded — using ML-first pipeline")
+        except Exception as exc:
+            logger.debug("FindingClassifier: ML model unavailable (%s)", exc)
+        return self._ml_clf
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -182,14 +204,59 @@ class FindingClassifier:
         """
         Finding dict'ini sınıflandır.
 
-        LLM başarılı olursa "llm" kaynaklı sonuç döner.
-        Timeout / hata durumunda rule-based fallback devreye girer.
-        Sonuç cache'lenir; aynı fingerprint için ikinci kez LLM çağrısı yapılmaz.
+        1) ML model varsa ve yeterli güvende ise → "ml" kaynaklı sonuç
+        2) LLM başarılı olursa → "llm" kaynaklı sonuç
+        3) Timeout / hata durumunda → rule-based fallback
+
+        Sonuç cache'lenir; aynı fingerprint için ikinci kez çağrı yapılmaz.
         """
         key = self._fingerprint(finding)
         if key in self._cache:
             return self._cache[key]
 
+        # ── Katman 1: ML model ─────────────────────────────────────────────
+        # ML model is only used when it produces high-confidence results.
+        # The model was trained on CVSS-derived labels; when CVSS=0 it
+        # trivially outputs "info" regardless of the vulnerability text.
+        # Fall through to LLM when confidence is low or CVSS-0 heuristic
+        # would dominate.
+        ml_clf = self._get_ml_clf()
+        if ml_clf is not None:
+            try:
+                ml_result = ml_clf.predict_finding(finding)
+                conf = ml_result.get("confidence", 0.0)
+                risk = ml_result.get("risk_level", "info")
+                phase = ml_result.get("attack_phase", "other")
+
+                # Heuristic: model is reliable when CVSS is present and confidence is high.
+                # CVSS=0 + info/other output = model is guessing from CVSS alone → skip.
+                cvss = float(finding.get("cvss_score") or finding.get("cvss") or 0.0)
+                has_cvss = cvss > 0.0
+                trivial_output = (risk in ("info", "low") and phase in ("other", "scanning"))
+
+                use_ml = conf >= 0.65 and (has_cvss or not trivial_output)
+
+                if use_ml:
+                    result = FindingClassification(
+                        attack_phase   = phase,
+                        asset_category = ml_result.get("asset_category", "other"),
+                        mitre_ttps     = ml_result.get("mitre_ttps", []),
+                        risk_level     = risk,
+                        summary        = ml_result.get("summary", ""),
+                        source         = "ml",
+                        confidence     = conf,
+                    )
+                    self._cache_set(key, result)
+                    return result
+                else:
+                    logger.debug(
+                        "FindingClassifier: ML skipped (conf=%.2f has_cvss=%s trivial=%s), using LLM",
+                        conf, has_cvss, trivial_output,
+                    )
+            except Exception as exc:
+                logger.debug("FindingClassifier: ML predict failed (%s), falling back", exc)
+
+        # ── Katman 2: LLM + rule fallback ─────────────────────────────────
         result = await self._classify_with_llm(finding)
         self._cache_set(key, result)
         return result

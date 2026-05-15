@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { GitBranch, Users, Server, AlertCircle, Key, Bug, Plus, X, Cpu, ChevronDown, Check, RefreshCw } from "lucide-react";
 import { useSessionContext } from "@/lib/SessionContext";
 import { sessionDisplayLabel } from "@/lib/sessionDisplay";
@@ -162,7 +162,7 @@ export function ModelSelector({ onModelChange }: { onModelChange?: (provider: st
       }}
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/50 bg-muted/20">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Model seç</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Select model</span>
         <button type="button" onClick={loadData} disabled={loading} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-muted transition-colors">
           <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${loading ? "animate-spin" : ""}`} />
         </button>
@@ -170,7 +170,7 @@ export function ModelSelector({ onModelChange }: { onModelChange?: (provider: st
       <div className="max-h-[300px] overflow-y-auto overscroll-contain">
         {allModels.length === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            {loading ? "Yükleniyor…" : "Model bulunamadı. Ollama/LM Studio çalışıyor mu?"}
+            {loading ? "Loading…" : "No models found. Is Ollama or LM Studio running?"}
           </div>
         ) : (
           (() => {
@@ -209,7 +209,7 @@ export function ModelSelector({ onModelChange }: { onModelChange?: (provider: st
         type="button"
         onClick={() => { setOpen(!open); if (!open) loadData(); }}
         className="group flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-xl min-h-9 bg-gradient-to-b from-card to-muted/30 border border-border/60 shadow-sm hover:shadow-md hover:border-border transition-all min-w-0 max-w-[200px]"
-        title={activeModel || "Model seç"}
+        title={activeModel || "Select model"}
       >
         <span
           className={`w-2 h-2 rounded-full shrink-0 ring-2 ring-background ${providerColor[activeProvider] || "text-muted-foreground"}`}
@@ -229,6 +229,7 @@ export function ModelSelector({ onModelChange }: { onModelChange?: (provider: st
 
 export const TopTabs = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { selectedSessionId, setSelectedSessionId, selectedSession } = useSessionContext();
   const token = typeof window !== "undefined" ? (localStorage.getItem("tirpan_token") || sessionStorage.getItem("tirpan_token")) : null;
   const perms = usePermissions();
@@ -238,16 +239,53 @@ export const TopTabs = () => {
   const userLevel = ROLE_LEVELS[perms.role ?? "viewer"] ?? 1;
   const tabs = ALL_TABS.filter((t) => userLevel >= (ROLE_LEVELS[t.requireMin] ?? 1));
 
+  const navRef = useRef<HTMLElement | null>(null);
+  const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+  const [pillStyle, setPillStyle] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) { setPillStyle(null); return; }
+    const activeIdx = tabs.findIndex((t) =>
+      t.to === "/" ? location.pathname === "/" : location.pathname.startsWith(t.to)
+    );
+    if (activeIdx < 0 || !tabRefs.current[activeIdx]) { setPillStyle(null); return; }
+    const navRect = nav.getBoundingClientRect();
+    const elRect = tabRefs.current[activeIdx]!.getBoundingClientRect();
+    setPillStyle({
+      top: elRect.top - navRect.top,
+      left: elRect.left - navRect.left,
+      width: elRect.width,
+      height: elRect.height,
+    });
+  }, [location.pathname, tabs.length]);
+
   return (
     <div className="flex items-center gap-2">
-      <nav className="flex items-center gap-1 bg-card/60 backdrop-blur rounded-full p-1.5 border border-border/50">
-        {tabs.map((t) => (
+      <nav ref={(el) => { navRef.current = el; }} className="relative flex items-center gap-1 bg-card/60 backdrop-blur rounded-full p-1.5 border border-border/50">
+        {/* Sliding active pill */}
+        {pillStyle && (
+          <span
+            aria-hidden
+            className="absolute rounded-full bg-primary pointer-events-none"
+            style={{
+              top: pillStyle.top,
+              left: pillStyle.left,
+              width: pillStyle.width,
+              height: pillStyle.height,
+              transition: "left 300ms cubic-bezier(0.4, 0, 0.2, 1), width 300ms cubic-bezier(0.4, 0, 0.2, 1), top 300ms cubic-bezier(0.4, 0, 0.2, 1)",
+              zIndex: 0,
+            }}
+          />
+        )}
+        {tabs.map((t, i) => (
           <NavLink
             key={t.label}
             to={t.to}
             end={t.to === "/"}
+            ref={(el: HTMLAnchorElement | null) => { tabRefs.current[i] = el; }}
             className={({ isActive }) =>
-              `pill-tab ${isActive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`
+              `relative z-10 pill-tab ${isActive ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`
             }
           >
             <t.icon className="w-4 h-4" />

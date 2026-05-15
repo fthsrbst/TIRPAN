@@ -14,6 +14,7 @@ same aiosqlite internal queue simultaneously.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from contextlib import asynccontextmanager
 from pathlib import Path
 import logging
@@ -27,6 +28,10 @@ logger = logging.getLogger(__name__)
 # Shared connection — set by init_shared_connection(), cleared by close_shared_connection()
 _shared_conn: aiosqlite.Connection | None = None
 _shared_lock: asyncio.Lock | None = None
+
+# Tracks lock-hold depth for the current task so reentrant connect() calls
+# (same coroutine chain) skip re-acquiring the lock and avoid deadlocks.
+_lock_depth: contextvars.ContextVar[int] = contextvars.ContextVar("_sqlite_lock_depth", default=0)
 
 
 async def apply_pragmas(db: aiosqlite.Connection) -> None:
@@ -80,11 +85,15 @@ async def connect(path: Path | str, *, row_factory: bool = False):
 
     When a shared connection is available (normal runtime) it is reused and
     protected by a per-connection lock so concurrent coroutines are serialised.
+    Reentrant calls from the same task (iç içe connect()) skip re-acquiring
+    the lock to prevent deadlocks — safe because asyncio is single-threaded.
     Falls back to opening a fresh connection (used by init_db migrations and
     tests that run before init_shared_connection is called).
     """
     if _shared_conn is not None and _shared_lock is not None:
-        async with _shared_lock:
+        depth = _lock_depth.get()
+        if depth > 0:
+            # Reentrant call within the same task — lock already held, yield directly.
             old_rf = _shared_conn.row_factory
             if row_factory:
                 _shared_conn.row_factory = aiosqlite.Row
@@ -92,6 +101,17 @@ async def connect(path: Path | str, *, row_factory: bool = False):
                 yield _shared_conn
             finally:
                 _shared_conn.row_factory = old_rf
+        else:
+            async with _shared_lock:
+                token = _lock_depth.set(1)
+                old_rf = _shared_conn.row_factory
+                if row_factory:
+                    _shared_conn.row_factory = aiosqlite.Row
+                try:
+                    yield _shared_conn
+                finally:
+                    _shared_conn.row_factory = old_rf
+                    _lock_depth.reset(token)
     else:
         async with aiosqlite.connect(str(path), timeout=_BUSY_TIMEOUT_MS / 1000) as db:
             await apply_pragmas(db)

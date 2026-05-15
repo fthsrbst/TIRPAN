@@ -184,3 +184,8 @@ class InvitePreview(BaseModel):
     email: str
     expires_at: float
     is_valid: bool
+
+
+class InviteJoin(BaseModel):
+    """Mevcut kullanıcı için davet tokeni ile org'a katılım."""
+    invite_token: str

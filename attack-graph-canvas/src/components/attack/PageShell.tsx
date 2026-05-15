@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { Sidebar } from "@/components/attack/Sidebar";
 import { TopTabs } from "@/components/attack/TopTabs";
 import { Timeline } from "@/components/attack/Timeline";
@@ -18,6 +19,7 @@ interface ShellProps {
 
 export const PageShell = ({ title, subtitle, children, rightPanel, leftPanel, timeline, contentScrollable = true }: ShellProps) => {
   const demo = isDemoMode();
+  const location = useLocation();
   return (
   <main className="h-screen w-screen bg-surface flex flex-col overflow-hidden">
     {demo && (
@@ -66,7 +68,8 @@ export const PageShell = ({ title, subtitle, children, rightPanel, leftPanel, ti
         <div className="shrink-0 self-start"><Sidebar /></div>
         {leftPanel && <div className="shrink-0 overflow-y-auto max-h-full scrollbar-gutter-stable">{leftPanel}</div>}
         <div
-          className={`flex-1 min-w-0 min-h-0 ${contentScrollable ? "overflow-auto scrollbar-gutter-stable" : "overflow-hidden"}`}
+          key={location.key}
+          className={`flex-1 min-w-0 min-h-0 animate-page-enter ${contentScrollable ? "overflow-auto scrollbar-gutter-stable" : "overflow-hidden"}`}
         >
           {children}
         </div>

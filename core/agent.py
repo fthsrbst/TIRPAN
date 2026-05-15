@@ -69,6 +69,13 @@ class AgentContext:
     # Set of "service:version" pairs already searched — prevents duplicate queries.
     services_searched: set = field(default_factory=set)
 
+    # O(1) dedup sentinels — shadow the lists above; not serialized.
+    _discovered_hosts_set: set = field(default_factory=set, init=False, repr=False, compare=False)
+    _scan_results_set: set = field(default_factory=set, init=False, repr=False, compare=False)
+    _vulnerabilities_set: set = field(default_factory=set, init=False, repr=False, compare=False)
+    _exploit_results_set: set = field(default_factory=set, init=False, repr=False, compare=False)
+    _hosts_pending_set: set = field(default_factory=set, init=False, repr=False, compare=False)
+
     # Active MSF sessions (session_id → target_ip).
     # NOTE: msfconsole fallback sessions are NOT persistent — they close when
     # msfconsole exits. Do NOT use session_exec on these; use post_commands instead.
@@ -102,12 +109,11 @@ class AgentContext:
                 _is_single_ip = True
             except ValueError:
                 pass
-        if (
-            _is_single_ip
-            and self.target not in self.discovered_hosts
-        ):
+        if _is_single_ip and self.target not in self._discovered_hosts_set:
             self.discovered_hosts.append(self.target)
+            self._discovered_hosts_set.add(self.target)
             self.hosts_pending_port_scan.append(self.target)
+            self._hosts_pending_set.add(self.target)
             self.attack_phase = "PORT_SCAN"
             logger.debug(
                 "Single-IP target — pre-registered %s as discovered, phase=PORT_SCAN",
@@ -219,6 +225,11 @@ class PentestAgent(BaseAgent):
         self._ctx.hosts_pending_port_scan.clear()
         self._ctx.hosts_pending_exploit_search.clear()
         self._ctx.completed_objectives.clear()
+        self._ctx._discovered_hosts_set.clear()
+        self._ctx._scan_results_set.clear()
+        self._ctx._vulnerabilities_set.clear()
+        self._ctx._exploit_results_set.clear()
+        self._ctx._hosts_pending_set.clear()
         self.memory = type(self.memory)()  # fresh SessionMemory instance
 
     def seed_context_from_findings(
@@ -247,8 +258,9 @@ class PentestAgent(BaseAgent):
             for host in hosts:
                 ip = str(host.get("ip", ""))
                 state = str(host.get("state", "up"))
-                if ip and state == "up" and ip not in self._ctx.discovered_hosts:
+                if ip and state == "up" and ip not in self._ctx._discovered_hosts_set:
                     self._ctx.discovered_hosts.append(ip)
+                    self._ctx._discovered_hosts_set.add(ip)
                 for port in host.get("ports") or []:
                     if port.get("state") != "open":
                         continue
@@ -256,15 +268,17 @@ class PentestAgent(BaseAgent):
                     service = str(port.get("service", ""))
                     version = str(port.get("version", ""))
                     summary = f"{ip}:{port_num} {service} {version}".strip()
-                    if summary and summary not in self._ctx.scan_results:
+                    if summary and summary not in self._ctx._scan_results_set:
                         self._ctx.scan_results.append(summary)
+                        self._ctx._scan_results_set.add(summary)
 
         for v in vulnerabilities_from_db:
             title = str(v.get("title", v))
             cve = str(v.get("cve_id", ""))
             summary = f"{title} [{cve}]".strip() if cve else title
-            if summary and summary not in self._ctx.vulnerabilities:
+            if summary and summary not in self._ctx._vulnerabilities_set:
                 self._ctx.vulnerabilities.append(summary)
+                self._ctx._vulnerabilities_set.add(summary)
 
         if exploit_results_from_db:
             for er in exploit_results_from_db:
@@ -274,8 +288,9 @@ class PentestAgent(BaseAgent):
                 summary = f"{'✓' if success else '✗'} {module}"
                 if error:
                     summary += f" — {error[:80]}"
-                if summary not in self._ctx.exploit_results:
+                if summary not in self._ctx._exploit_results_set:
                     self._ctx.exploit_results.append(summary)
+                    self._ctx._exploit_results_set.add(summary)
 
         # Replay events into SessionMemory so the LLM has conversation context
         if events_up_to:
@@ -404,6 +419,8 @@ class PentestAgent(BaseAgent):
                         self._inject_event.clear()
                         self._state = AgentState.REASONING
                         break
+                    # Event fired but flag not set — invariant broken; clear and keep waiting
+                    self._inject_event.clear()
                 if self._state != AgentState.REASONING:
                     break  # kill switch or other exit
                 # Operator injected — resume reasoning
@@ -799,7 +816,7 @@ class PentestAgent(BaseAgent):
             already_scanned = {s.split(":")[0] for s in self._ctx.scan_results if ":" in s}
             if (
                 req_target in already_scanned
-                and req_target not in self._ctx.hosts_pending_port_scan
+                and req_target not in self._ctx._hosts_pending_set
             ):
                 _dup_msg = (
                     f"[SYSTEM] nmap_scan BLOCKED — '{req_target}' was already fully scanned "
@@ -1326,9 +1343,11 @@ class PentestAgent(BaseAgent):
             ip = str(host.get("ip", ""))
             state = str(host.get("state", "down"))
 
-            if state == "up" and ip and ip not in self._ctx.discovered_hosts:
+            if state == "up" and ip and ip not in self._ctx._discovered_hosts_set:
                 self._ctx.discovered_hosts.append(ip)
+                self._ctx._discovered_hosts_set.add(ip)
                 self._ctx.hosts_pending_port_scan.append(ip)
+                self._ctx._hosts_pending_set.add(ip)
                 logger.info("Discovered live host: %s", ip)
 
             for port in host.get("ports", []):
@@ -1338,16 +1357,18 @@ class PentestAgent(BaseAgent):
                 service = str(port.get("service", ""))
                 version = str(port.get("version", ""))
                 summary = f"{ip}:{port_num} {service} {version}".strip()
-                if summary not in self._ctx.scan_results:
+                if summary not in self._ctx._scan_results_set:
                     self._ctx.scan_results.append(summary)
+                    self._ctx._scan_results_set.add(summary)
                     if service or version:
                         self._ctx.hosts_pending_exploit_search.append(
                             f"{ip}:{port_num}:{service}:{version}"
                         )
 
-        # Remove scanned host from port-scan queue
-        if scan_type in ("service", "os", "full") and target in self._ctx.hosts_pending_port_scan:
-            self._ctx.hosts_pending_port_scan.remove(target)
+        # Remove scanned host from port-scan queue (O(1) via companion set)
+        if scan_type in ("service", "os", "full") and target in self._ctx._hosts_pending_set:
+            self._ctx._hosts_pending_set.discard(target)
+            self._ctx.hosts_pending_port_scan = [h for h in self._ctx.hosts_pending_port_scan if h != target]
 
         # Phase advancement
         if (
@@ -1393,8 +1414,9 @@ class PentestAgent(BaseAgent):
                 summary = f"{title}{cve_str}"
             else:
                 summary = str(vuln)
-            if summary not in self._ctx.vulnerabilities:
+            if summary not in self._ctx._vulnerabilities_set:
                 self._ctx.vulnerabilities.append(summary)
+                self._ctx._vulnerabilities_set.add(summary)
 
         # Mark this service as searched and remove matching entries from queue
         self._ctx.services_searched.add(svc_key)
@@ -1475,7 +1497,9 @@ class PentestAgent(BaseAgent):
             f"{target_ip} | {module} | "
             f"session_id={session_id}"
         )
-        self._ctx.exploit_results.append(summary)
+        if summary not in self._ctx._exploit_results_set:
+            self._ctx.exploit_results.append(summary)
+            self._ctx._exploit_results_set.add(summary)
         logger.info("Exploit result recorded: %s", summary)
 
         # Track opened sessions so the agent knows which shells are available

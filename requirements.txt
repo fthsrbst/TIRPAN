@@ -46,3 +46,11 @@ python-jose[cryptography]>=3.3.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 pytest-cov>=5.0.0
+
+# ML Models (lightweight, no GPU required)
+scikit-learn>=1.5
+xgboost>=2.1
+joblib>=1.4
+imbalanced-learn>=0.12
+pandas>=2.0
+requests>=2.31

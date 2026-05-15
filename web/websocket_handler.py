@@ -688,7 +688,8 @@ async def handle_websocket(websocket: WebSocket) -> None:
     # Session subscriptions — list of session IDs this WS is watching
     watched_sessions: list[str] = []
 
-    # Native terminal sessions bound to this websocket
+    # Native PTY sessions per WebSocket (multiple tabs / split panes)
+    MAX_WS_TERMINALS = 8
     terminal_ids: set[str] = set()
     terminal_tasks: dict[str, asyncio.Task] = {}
 
@@ -991,19 +992,22 @@ async def handle_websocket(websocket: WebSocket) -> None:
 
             elif msg_type == "terminal_open":
                 sid = str(msg.get("session_id", "") or "").strip()
+                client_handle = str(msg.get("client_handle") or "").strip()
                 if sid and sid != "operator-local" and sid not in watched_sessions:
                     await websocket.send_json({
                         "type": "terminal_error",
                         "message": "Subscribe to a session before opening terminal",
+                        **({"client_handle": client_handle} if client_handle else {}),
                     })
                     continue
                 if not sid:
                     sid = "operator-local"
 
-                if terminal_ids:
+                if len(terminal_ids) >= MAX_WS_TERMINALS:
                     await websocket.send_json({
                         "type": "terminal_error",
-                        "message": "A native terminal is already open for this client",
+                        "message": f"At most {MAX_WS_TERMINALS} terminals per connection",
+                        **({"client_handle": client_handle} if client_handle else {}),
                     })
                     continue
 
@@ -1013,6 +1017,7 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     await websocket.send_json({
                         "type": "terminal_error",
                         "message": "PTY backend is not initialized",
+                        **({"client_handle": client_handle} if client_handle else {}),
                     })
                     continue
 
@@ -1031,20 +1036,24 @@ async def handle_websocket(websocket: WebSocket) -> None:
                     await websocket.send_json({
                         "type": "terminal_error",
                         "message": str(exc),
+                        **({"client_handle": client_handle} if client_handle else {}),
                     })
                     continue
 
                 terminal_ids.add(term.terminal_id)
                 terminal_tasks[term.terminal_id] = asyncio.create_task(_terminal_stream_loop(term.terminal_id))
 
-                await websocket.send_json({
+                opened: dict = {
                     "type": "terminal_opened",
                     "terminal_id": term.terminal_id,
                     "shell": shell,
                     "rows": rows,
                     "cols": cols,
                     "session_id": sid,
-                })
+                }
+                if client_handle:
+                    opened["client_handle"] = client_handle
+                await websocket.send_json(opened)
 
             elif msg_type == "terminal_input":
                 terminal_id = str(msg.get("terminal_id", "") or "")

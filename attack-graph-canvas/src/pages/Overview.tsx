@@ -26,7 +26,7 @@ const Overview = () => {
     refetchInterval: 5000,
   });
 
-  // Atama bildirimleri — sessions her 5s'de yenileniyor, yeni atamalar toast gösterir
+  // Assignment toasts — sessions poll every ~5s on Overview
   useAssignmentNotifications(sessions as any[]);
 
   const resolvedWsSessionId = useMemo(() => {
@@ -131,7 +131,7 @@ const Overview = () => {
     [sessions]
   );
 
-  // Bana atanmış görevler (assigned_to === benim id'm)
+  // Sessions assigned to the current user
   const assignedToMe = useMemo(
     () => (sessions as any[]).filter((s: any) => s.assigned_to && s.assigned_to === perms.user?.id),
     [sessions, perms.user]
@@ -208,7 +208,7 @@ const Overview = () => {
             activeView="topology"
             focusedSessionId={bundle.sessionId}
             onSelectHost={drillHostFromPreview}
-            hostSelectHint="Attack Graph'ta aç →"
+            hostSelectHint="Open in Attack Graph →"
           />
         </div>
 
@@ -332,19 +332,19 @@ const Overview = () => {
           </div>
         </div>
 
-        {/* Atanan İşlerim — tüm roller için */}
+        {/* My assignments — all roles */}
         <div className="col-span-12 node-card !p-4">
           <div className="flex items-center gap-2 mb-3">
             <ClipboardList className="w-4 h-4 text-primary" />
-            <h4 className="font-display font-bold text-sm">Atanan İşlerim</h4>
+            <h4 className="font-display font-bold text-sm">My assignments</h4>
             {assignedToMe.length > 0 && (
               <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">
-                {assignedToMe.length} görev
+                {assignedToMe.length} {assignedToMe.length === 1 ? "mission" : "missions"}
               </span>
             )}
           </div>
           {assignedToMe.length === 0 ? (
-            <div className="text-xs text-muted-foreground text-center py-4">Henüz size atanmış bir görev yok.</div>
+            <div className="text-xs text-muted-foreground text-center py-4">Nothing assigned to you yet.</div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {assignedToMe.map((m: any) => {
@@ -367,8 +367,8 @@ const Overview = () => {
                       </span>
                     </div>
                     <div className="text-[10px] text-muted-foreground flex items-center gap-3">
-                      <span>{m.hosts_found || 0} host</span>
-                      <span>{m.vulns_found || 0} bulgu</span>
+                      <span>{m.hosts_found || 0} hosts</span>
+                      <span>{m.vulns_found || 0} findings</span>
                     </div>
                   </button>
                 );

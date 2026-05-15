@@ -281,7 +281,7 @@ class NmapTool(BaseTool):
 
         # NSE scripts
         if scripts.strip() and scan_type != "ping":
-            base += ["--script", scripts.strip(), "--script-timeout", "10s"]
+            base += ["--script", scripts.strip(), "--script-timeout", "30s"]
 
         # Port exclusions — merge tool param + global safety config
         all_excluded: list[str] = []

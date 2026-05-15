@@ -103,7 +103,7 @@ const AttackGraphPage = () => {
       title="Attack Graph"
       subtitle={subtitle}
       contentScrollable={false}
-      rightPanel={<InsightsPanel data={bundle.insights} details={bundle.details} />}
+      rightPanel={<InsightsPanel data={bundle.insights} details={bundle.details} sessionId={bundle.sessionId} />}
       leftPanel={agentPanelOpen ? <AgentChatPanel open={agentPanelOpen} onClose={() => setAgentPanelOpen(false)} /> : undefined}
       timeline={
         <Timeline

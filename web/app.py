@@ -284,6 +284,23 @@ async def lifespan(app: FastAPI):
     import core.agents.osint_agent        # noqa: F401
     import core.agents.lateral_agent      # noqa: F401
     import core.agents.reporting_agent    # noqa: F401
+
+    # Pre-load ML models in a background thread so joblib.load() doesn't
+    # block the async event loop on the first incoming request.
+    def _preload_ml_models() -> None:
+        try:
+            from ml.finding_classifier import get_ml_classifier
+            from ml.exploit_predictor import get_exploit_predictor
+            from ml.attack_path import get_attack_path_suggester
+            get_ml_classifier()
+            get_exploit_predictor()
+            get_attack_path_suggester()
+            _logger.info("ML models pre-loaded successfully")
+        except Exception as _exc:
+            _logger.warning("ML model pre-load failed (non-fatal): %s", _exc)
+
+    asyncio.get_event_loop().run_in_executor(None, _preload_ml_models)
+
     yield
 
     # ── Shutdown: close PTY sessions and workers ────────────────────────────
