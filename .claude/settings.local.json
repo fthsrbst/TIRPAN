@@ -126,7 +126,17 @@
       "Bash(grep -n \"def _poll_for_session\\\\|async def\\\\|def \" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/tools/metasploit_tool.py\" | head -40)",
       "Bash(grep -n \"def _blocking_session_exec\\\\|def _run_post\\\\|def _blocking\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/tools/metasploit_tool.py\" | head -10)",
       "Bash(grep -n \"MissionContextRepository\\\\|AgentInstanceRepository\\\\|HarvestedCredential\\\\|LootRepository\\\\|NetworkGraph\" \"//wsl.localhost/kali-linux/home/fatih-root/TIRPAN/web/routes.py\" | head -10)",
-      "Bash(grep -oP \"settings/[a-z_]+\" \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\kali-linux\\\\\\\\home\\\\\\\\fatih-root\\\\\\\\TIRPAN\\\\\\\\web\\\\\\\\static\\\\\\\\normal\\\\\\\\assets\\\\\\\\index-DrKhumog.js\" 2>/dev/null | sort -u | head -30)"
+      "Bash(grep -oP \"settings/[a-z_]+\" \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\kali-linux\\\\\\\\home\\\\\\\\fatih-root\\\\\\\\TIRPAN\\\\\\\\web\\\\\\\\static\\\\\\\\normal\\\\\\\\assets\\\\\\\\index-DrKhumog.js\" 2>/dev/null | sort -u | head -30)",
+      "Bash(git -C \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\kali-linux\\\\\\\\home\\\\\\\\fatih-root\\\\\\\\TIRPAN\" checkout -b perf/optimizations)",
+      "Bash(git submodule *)",
+      "mcp__desktop-commander__list_directory",
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\")",
+      "mcp__desktop-commander__read_file",
+      "Bash(python -c \"from core.agent import AgentContext; ctx = AgentContext\\(target='192.168.1.1', mode='full_auto'\\); print\\('discovered_hosts:', ctx.discovered_hosts\\); print\\('_discovered_hosts_set:', ctx._discovered_hosts_set\\); print\\('_hosts_pending_set:', ctx._hosts_pending_set\\)\")",
+      "Bash(python -c \"import web.routes; print\\('routes OK'\\)\")",
+      "Bash(ls -la \"C:\\\\wsl.localhost\\\\kali-linux\\\\home\\\\fatih-root\\\\TIRPAN\" | head -30)",
+      "Bash(wsl -e bash -c \"cd /home/fatih-root/TIRPAN/attack-graph-canvas && npx vite build 2>&1\")",
+      "Bash(python ml/train_all.py --skip-download --model finding)"
     ]
   }
 }

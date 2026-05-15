@@ -535,6 +535,67 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v14 applied: org enhancements + org_invitations")
 
+        if version < 16:
+            await db.executescript("""
+                CREATE INDEX IF NOT EXISTS idx_vulns_session_cvss    ON vulnerabilities(session_id, cvss_score DESC);
+                CREATE INDEX IF NOT EXISTS idx_vulns_session_created ON vulnerabilities(session_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_exploits_session_host ON exploit_results(session_id, host_ip);
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (16, time.time(), "compound indexes for session-scoped vulnerability and exploit queries"),
+            )
+            await db.commit()
+            logger.info("DB migration v16 applied: compound indexes on vulnerabilities + exploit_results")
+
+        if version < 17:
+            # ML classification stored at write-time so session loads are instant
+            try:
+                await db.execute(
+                    "ALTER TABLE vulnerabilities ADD COLUMN ml_cls_json TEXT NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass  # Column may already exist
+            try:
+                await db.execute(
+                    "ALTER TABLE exploit_results ADD COLUMN ml_success_prob REAL NOT NULL DEFAULT -1"
+                )
+            except Exception:
+                pass  # Column may already exist
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (17, time.time(), "add ml_cls_json to vulnerabilities + ml_success_prob to exploit_results"),
+            )
+            await db.commit()
+            logger.info("DB migration v17 applied: ML persistence columns on vulnerabilities + exploit_results")
+
+        if version < 18:
+            # Reset all exploit ml_success_prob to -1 so they are re-computed without
+            # the output field (which caused data leakage → 100% for all exploits).
+            try:
+                await db.execute("UPDATE exploit_results SET ml_success_prob = -1")
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (18, time.time(), "reset exploit ml_success_prob to force clean recompute without output leakage"),
+            )
+            await db.commit()
+            logger.info("DB migration v18 applied: exploit ml_success_prob reset for clean recompute")
+
+        if version < 19:
+            # Reset again: blended heuristic formula changed (50/50 ML+heuristic, cap 0.92)
+            try:
+                await db.execute("UPDATE exploit_results SET ml_success_prob = -1")
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (19, time.time(), "reset ml_success_prob for blended heuristic recompute"),
+            )
+            await db.commit()
+            logger.info("DB migration v19 applied: reset for blended exploit probability recompute")
+
     logger.info("Database ready: %s", path)
 
 

@@ -31,7 +31,6 @@ import {
   Bug,
   Lock,
   Sliders,
-  User,
   Brain,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
@@ -47,8 +46,8 @@ type Tab =
   | "credentials"
   | "scan-profiles"
   | "branding"
-  | "profile"
-  | "agent-models";
+  | "agent-models"
+  | "ml-models";
 
 const tabs: { id: Tab; label: string; icon: typeof Cpu }[] = [
   { id: "llm", label: "LLM Provider", icon: Cpu },
@@ -58,8 +57,8 @@ const tabs: { id: Tab; label: string; icon: typeof Cpu }[] = [
   { id: "credentials", label: "Credentials", icon: Key },
   { id: "scan-profiles", label: "Scan Profiles", icon: Zap },
   { id: "branding", label: "Branding", icon: Eye },
-  { id: "profile", label: "Profile", icon: User },
   { id: "agent-models", label: "Agent Models", icon: Brain },
+  { id: "ml-models", label: "ML Models", icon: Cpu },
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -145,6 +144,11 @@ const SettingsPage = () => {
   // ── Agent Models state
   const [agentModels, setAgentModels] = useState<Record<string, string>>({});
 
+  // ── ML Models state
+  const [mlStatus, setMlStatus] = useState<any>(null);
+  const [mlMetrics, setMlMetrics] = useState<any>(null);
+  const [mlTraining, setMlTraining] = useState(false);
+
   // ── Safety state ────────────────────────────────────
   const [safety, setSafety] = useState({
     allowed_cidr: "0.0.0.0/0",
@@ -180,15 +184,6 @@ const SettingsPage = () => {
   const [showOcgKey, setShowOcgKey] = useState(false);
   const [showMsfPw, setShowMsfPw] = useState(false);
 
-  // ── Profile edit state ─────────────────────────────
-  const [profileName, setProfileName] = useState("");
-  const [profileEmail, setProfileEmail] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrentPw, setShowCurrentPw] = useState(false);
-  const [showNewPw, setShowNewPw] = useState(false);
-  const [showConfirmPw, setShowConfirmPw] = useState(false);
 
   // ── Loaders ────────────────────────────────────────
   const loadLLM = useCallback(async () => {
@@ -259,6 +254,17 @@ const SettingsPage = () => {
     } catch {}
   }, []);
 
+  const loadMlStatus = useCallback(async () => {
+    try {
+      const [status, metrics] = await Promise.all([
+        api.get<any>("/ml/status").catch(() => null),
+        api.get<any>("/ml/metrics").catch(() => null),
+      ]);
+      if (status) setMlStatus(status);
+      if (metrics) setMlMetrics(metrics);
+    } catch {}
+  }, []);
+
   const loadAgentModels = useCallback(async () => {
     try {
       const r = await api.get<any>("/settings");
@@ -319,7 +325,8 @@ const SettingsPage = () => {
     if (tab === "nmap") loadNmap();
     if (tab === "branding") loadBranding();
     if (tab === "agent-models") loadAgentModels();
-  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels]);
+    if (tab === "ml-models") loadMlStatus();
+  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus]);
 
   // ── Save handlers ───────────────────────────────────
 
@@ -329,7 +336,7 @@ const SettingsPage = () => {
       await api.post("/config/ollama", { base_url: ollamaUrl, model: ollamaModel });
       await api.put("/settings/active_provider", { value: "ollama" });
       setActiveProvider("ollama");
-      flash("ok", "Ollama ayarlari kaydedildi");
+      flash("ok", "Ollama settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -340,7 +347,7 @@ const SettingsPage = () => {
       await api.post("/config/lmstudio", { base_url: lmstudioUrl, model: lmstudioModel });
       await api.put("/settings/active_provider", { value: "lmstudio" });
       setActiveProvider("lmstudio");
-      flash("ok", "LM Studio ayarlari kaydedildi");
+      flash("ok", "LM Studio settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -351,7 +358,7 @@ const SettingsPage = () => {
       await api.post("/config/openrouter", { api_key: orApiKey, cloud_model: orModel });
       await api.put("/settings/active_provider", { value: "openrouter" });
       setActiveProvider("openrouter");
-      flash("ok", "OpenRouter ayarlari kaydedildi");
+      flash("ok", "OpenRouter settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -362,7 +369,7 @@ const SettingsPage = () => {
       await api.post("/config/opencode-go", { api_key: ocgApiKey, model: ocgModel });
       await api.put("/settings/active_provider", { value: "opencode_go" });
       setActiveProvider("opencode_go");
-      flash("ok", "OpenCode Go ayarlari kaydedildi");
+      flash("ok", "OpenCode Go settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -371,7 +378,7 @@ const SettingsPage = () => {
     setSaving(true);
     try {
       await api.post("/config/safety", safety);
-      flash("ok", "Guvenlik ayarlari kaydedildi");
+      flash("ok", "Safety settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -380,7 +387,7 @@ const SettingsPage = () => {
     setSaving(true);
     try {
       await api.post("/config/msf", { host: msf.host, port: msf.port, password: msf.password, ssl: msf.ssl });
-      flash("ok", "Metasploit ayarlari kaydedildi");
+      flash("ok", "Metasploit settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -389,7 +396,7 @@ const SettingsPage = () => {
     setSaving(true);
     try {
       await api.post("/config/nmap", { nmap_sudo: nmapSudo });
-      flash("ok", "Nmap ayarlari kaydedildi");
+      flash("ok", "Nmap settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -398,7 +405,7 @@ const SettingsPage = () => {
     setSaving(true);
     try {
       await api.post("/config/branding", { company_name: brandingName });
-      flash("ok", "Branding kaydedildi");
+      flash("ok", "Branding saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -420,7 +427,7 @@ const SettingsPage = () => {
       if (!res.ok) throw new Error(data.detail || "Upload failed");
       setBrandingLogoUrl(data.logo_url);
       setBrandingHasLogo(true);
-      flash("ok", "Logo yuklendi");
+      flash("ok", "Logo uploaded");
     } catch (err: unknown) { flash("err", String(err)); }
     setSaving(false);
   };
@@ -431,7 +438,7 @@ const SettingsPage = () => {
       await api.delete("/config/branding/logo");
       setBrandingHasLogo(false);
       setBrandingLogoUrl("");
-      flash("ok", "Logo silindi");
+      flash("ok", "Logo deleted");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
@@ -440,50 +447,11 @@ const SettingsPage = () => {
     setSaving(true);
     try {
       await api.put("/settings/agent_models", { value: JSON.stringify(agentModels) });
-      flash("ok", "Agent modelleri kaydedildi");
+      flash("ok", "Agent models saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
   };
 
-  const saveProfile = async () => {
-    if (!profileName && !profileEmail) return;
-    setSaving(true);
-    try {
-      const body: any = {};
-      if (profileName) body.full_name = profileName;
-      if (profileEmail) body.email = profileEmail;
-      const res = await api.put<{ token?: string; user?: any }>("/auth/me", body);
-      if (res.user) {
-        const stored = JSON.parse(localStorage.getItem("tirpan_user") || "{}");
-        const updated = { ...stored, ...res.user };
-        localStorage.setItem("tirpan_user", JSON.stringify(updated));
-      }
-      setProfileName("");
-      setProfileEmail("");
-      flash("ok", "Profil guncellendi");
-    } catch (e: unknown) { flash("err", String(e)); }
-    setSaving(false);
-  };
-
-  const changePassword = async () => {
-    if (!currentPassword || !newPassword) {
-      flash("err", "Mevcut ve yeni sifre gerekli");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      flash("err", "Yeni sifreler eslesmiyor");
-      return;
-    }
-    setSaving(true);
-    try {
-      await api.post("/auth/change-password", { current_password: currentPassword, new_password: newPassword });
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      flash("ok", "Sifre degistirildi");
-    } catch (e: unknown) { flash("err", String(e)); }
-    setSaving(false);
-  };
 
   return (
     <PageShell title="Settings" subtitle="Workspace & operator configuration">
@@ -538,13 +506,13 @@ const SettingsPage = () => {
             <div className="space-y-6">
               <Section title="LLM Provider">
                 <p className="text-sm text-muted-foreground mb-4">
-                  Saldirilar icin kullanilacak yapay zeka saglayicisini secin.
+                  Choose the AI provider used for engagements.
                 </p>
                 <div className="flex gap-2 flex-wrap">
                   {(
                     [
-                      { id: "ollama", label: "Ollama", desc: " Lokal LLM" },
-                      { id: "lmstudio", label: "LM Studio", desc: " Lokal GUI" },
+                      { id: "ollama", label: "Ollama", desc: " Local LLM" },
+                      { id: "lmstudio", label: "LM Studio", desc: " Local GUI" },
                       { id: "openrouter", label: "OpenRouter", desc: " Cloud API" },
                       { id: "opencode_go", label: "OpenCode Go", desc: " Cloud API" },
                     ] as const
@@ -573,13 +541,13 @@ const SettingsPage = () => {
                     <StatusDot online={ollamaOnline} />
                     <Button variant="outline" size="sm" onClick={fetchOllamaStatus} className="gap-1.5">
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Durumu Yenile
+                      Refresh Status
                     </Button>
                   </div>
-                  <FieldRow label="Base URL" desc="Ollama sunucu adresi">
+                  <FieldRow label="Base URL" desc="Ollama server URL">
                     <Input value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} placeholder="http://127.0.0.1:11434" autoComplete="off" />
                   </FieldRow>
-                  <FieldRow label="Model" desc="Kullanilacak Ollama modeli">
+                  <FieldRow label="Model" desc="Ollama model to use">
                     <Button
                       variant="outline"
                       className="w-full justify-start text-left font-normal"
@@ -592,7 +560,7 @@ const SettingsPage = () => {
                   </FieldRow>
                   <Button onClick={saveOllama} disabled={saving} className="gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Kaydet
+                    Save
                   </Button>
                 </Section>
               )}
@@ -603,13 +571,13 @@ const SettingsPage = () => {
                     <StatusDot online={lmstudioOnline} />
                     <Button variant="outline" size="sm" onClick={fetchLmstudioStatus} className="gap-1.5">
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Durumu Yenile
+                      Refresh Status
                     </Button>
                   </div>
-                  <FieldRow label="Base URL" desc="LM Studio sunucu adresi">
+                  <FieldRow label="Base URL" desc="LM Studio server URL">
                     <Input value={lmstudioUrl} onChange={(e) => setLmstudioUrl(e.target.value)} placeholder="http://127.0.0.1:1234" autoComplete="off" />
                   </FieldRow>
-                  <FieldRow label="Model" desc="Kullanilacak LM Studio modeli">
+                  <FieldRow label="Model" desc="LM Studio model to use">
                     <Button
                       variant="outline"
                       className="w-full justify-start text-left font-normal"
@@ -622,7 +590,7 @@ const SettingsPage = () => {
                   </FieldRow>
                   <Button onClick={saveLmstudio} disabled={saving} className="gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Kaydet
+                    Save
                   </Button>
                 </Section>
               )}
@@ -630,19 +598,19 @@ const SettingsPage = () => {
               {activeProvider === "openrouter" && (
                 <Section title="OpenRouter">
                   <div className="flex items-center gap-2 mb-3">
-                    <StatusDot online={orHasApiKey} label={orHasApiKey ? "API Key mevcut" : "API Key yok"} />
+                    <StatusDot online={orHasApiKey} label={orHasApiKey ? "API key configured" : "No API key"} />
                     <Button variant="outline" size="sm" onClick={fetchOrModels} className="gap-1.5 ml-auto">
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Modelleri Getir
+                      Fetch Models
                     </Button>
                   </div>
-                  <FieldRow label="API Key" desc="OpenRouter API anahtari">
+                  <FieldRow label="API Key" desc="OpenRouter API key">
                     <div className="relative">
                       <Input
                         value={orApiKey}
                         onChange={(e) => setOrApiKey(e.target.value)}
                         type={showOrKey ? "text" : "password"}
-                        placeholder={orHasApiKey ? "••••••••••••• (kayıtlı)" : "sk-or-..."}
+                        placeholder={orHasApiKey ? "••••••••••••• (saved)" : "sk-or-..."}
                         autoComplete="new-password"
                         name="tirpan-or-key"
                       />
@@ -655,7 +623,7 @@ const SettingsPage = () => {
                       </button>
                     </div>
                   </FieldRow>
-                  <FieldRow label="Cloud Model" desc="Kullanilacak bulut modeli">
+                  <FieldRow label="Cloud Model" desc="Cloud model to use">
                     <Button
                       variant="outline"
                       className="w-full justify-start text-left font-normal"
@@ -668,7 +636,7 @@ const SettingsPage = () => {
                   </FieldRow>
                   <Button onClick={saveOpenRouter} disabled={saving} className="gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Kaydet
+                    Save
                   </Button>
                 </Section>
               )}
@@ -676,19 +644,19 @@ const SettingsPage = () => {
               {activeProvider === "opencode_go" && (
                 <Section title="OpenCode Go">
                   <div className="flex items-center gap-2 mb-3">
-                    <StatusDot online={ocgHasApiKey} label={ocgHasApiKey ? "API Key mevcut" : "API Key yok"} />
+                    <StatusDot online={ocgHasApiKey} label={ocgHasApiKey ? "API key configured" : "No API key"} />
                     <Button variant="outline" size="sm" onClick={fetchOcgModels} className="gap-1.5 ml-auto">
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Modelleri Getir
+                      Fetch Models
                     </Button>
                   </div>
-                  <FieldRow label="API Key" desc="OpenCode Go API anahtari">
+                  <FieldRow label="API Key" desc="OpenCode Go API key">
                     <div className="relative">
                       <Input
                         value={ocgApiKey}
                         onChange={(e) => setOcgApiKey(e.target.value)}
                         type={showOcgKey ? "text" : "password"}
-                        placeholder={ocgHasApiKey ? "••••••••••••• (kayıtlı)" : "oc-go-..."}
+                        placeholder={ocgHasApiKey ? "••••••••••••• (saved)" : "oc-go-..."}
                         autoComplete="new-password"
                         name="tirpan-ocg-key"
                       />
@@ -701,7 +669,7 @@ const SettingsPage = () => {
                       </button>
                     </div>
                   </FieldRow>
-                  <FieldRow label="Model" desc="Kullanilacak model">
+                  <FieldRow label="Model" desc="Model to use">
                     <Button
                       variant="outline"
                       className="w-full justify-start text-left font-normal"
@@ -714,7 +682,7 @@ const SettingsPage = () => {
                   </FieldRow>
                   <Button onClick={saveOpenCodeGo} disabled={saving} className="gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    Kaydet
+                    Save
                   </Button>
                 </Section>
               )}
@@ -724,27 +692,27 @@ const SettingsPage = () => {
           {/* ── SAFETY ───────────────────────────────── */}
           {tab === "safety" && (
             <div className="space-y-6">
-              <Section title="Guvenlik Ayarlari">
+              <Section title="Safety Limits">
                 <p className="text-sm text-muted-foreground mb-2">
-                  Pentest sinirlarini ve guvenlik kurallarini yapilandirin.
+                  Configure pentest boundaries and safety rules.
                 </p>
-                <FieldRow label="Izin Verilen CIDR" desc="Taranabilecek IP araligi">
+                <FieldRow label="Allowed CIDR" desc="Allowed IP range for scanning (CIDR)">
                   <Input value={safety.allowed_cidr} onChange={(e) => setSafety({ ...safety, allowed_cidr: e.target.value })} />
                 </FieldRow>
-                <FieldRow label="Port Araligi" desc="Minimum ve maksimum port numaralari">
+                <FieldRow label="Port range" desc="Minimum and maximum port numbers">
                   <div className="flex gap-2">
                     <Input type="number" value={safety.allowed_port_min} onChange={(e) => setSafety({ ...safety, allowed_port_min: Number(e.target.value) })} className="w-24" />
                     <span className="text-muted-foreground self-center">—</span>
                     <Input type="number" value={safety.allowed_port_max} onChange={(e) => setSafety({ ...safety, allowed_port_max: Number(e.target.value) })} className="w-24" />
                   </div>
                 </FieldRow>
-                <FieldRow label="Dis birakilan IP'ler" desc="Virgul ile ayirin">
+                <FieldRow label="Excluded IPs" desc="Comma-separated">
                   <Input value={safety.excluded_ips} onChange={(e) => setSafety({ ...safety, excluded_ips: e.target.value })} placeholder="192.168.1.1, 10.0.0.5" />
                 </FieldRow>
-                <FieldRow label="Dis birakilan Portlar" desc="Virgul ile ayirin">
+                <FieldRow label="Excluded ports" desc="Comma-separated">
                   <Input value={safety.excluded_ports} onChange={(e) => setSafety({ ...safety, excluded_ports: e.target.value })} placeholder="23, 25, 5900" />
                 </FieldRow>
-                <FieldRow label="Maksimum Severity" desc="Bu seviyeye kadar zafiyetler taranir">
+                <FieldRow label="Max severity" desc="Assessment runs up to this finding severity">
                   <Select value={safety.max_severity} onValueChange={(v) => setSafety({ ...safety, max_severity: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -755,42 +723,31 @@ const SettingsPage = () => {
                     </SelectContent>
                   </Select>
                 </FieldRow>
-                <FieldRow label="Sure limiti (saniye)" desc="0 = sinirsiz">
+                <FieldRow label="Time limit (seconds)" desc="0 = unlimited">
                   <Input type="number" value={safety.session_max_seconds} onChange={(e) => setSafety({ ...safety, session_max_seconds: Number(e.target.value) })} />
                 </FieldRow>
-                <FieldRow label="Hiz limiti (req/s)" desc="Saniyede maksimum istek">
+                <FieldRow label="Rate limit (req/s)" desc="Maximum requests per second">
                   <Input type="number" value={safety.max_requests_per_second} onChange={(e) => setSafety({ ...safety, max_requests_per_second: Number(e.target.value) })} />
                 </FieldRow>
               </Section>
 
               <Separator />
 
-              <Section title="Exploit Kontrolleri">
-                <FieldRow label="Exploit izni ver" desc="Tarama sonrasi exploit asamasini etkinlestirir">
+              <Section title="Exploit controls">
+                <FieldRow label="Allow exploitation" desc="Enables the exploitation phase after scanning">
                   <Switch checked={safety.allow_exploit} onCheckedChange={(v) => setSafety({ ...safety, allow_exploit: v })} />
                 </FieldRow>
-                <FieldRow label="DoS exploitlerini engelle" desc="Servis disi birakma saldirilarini onler">
+                <FieldRow label="Block DoS exploits" desc="Avoids denial-of-service style payloads">
                   <Switch checked={safety.block_dos_exploits} onCheckedChange={(v) => setSafety({ ...safety, block_dos_exploits: v })} />
                 </FieldRow>
-                <FieldRow label="Yikici eylemleri engelle" desc="Veri silme, format gibi geri alinamaz islemleri onler">
+                <FieldRow label="Block destructive actions" desc="Blocks irreversible actions such as wiping data">
                   <Switch checked={safety.block_destructive} onCheckedChange={(v) => setSafety({ ...safety, block_destructive: v })} />
-                </FieldRow>
-              </Section>
-
-              <Separator />
-
-              <Section title="V3 Architecture">
-                <FieldRow label="V3 mimarisini etkinlestir" desc="SquadLeaders, VerifierAgent, CriticAgent, RAG, KnowledgeGraph, DynamicModelRouter">
-                  <Switch checked={safety.v3_features} onCheckedChange={(v) => setSafety({ ...safety, v3_features: v })} />
-                </FieldRow>
-                <FieldRow label="Persistence izni ver" desc="⚠ Agent backdoor kurar (cron, SSH key, systemd, registry). Sadece sahip olunan lab sistemlerinde etkinlestirin.">
-                  <Switch checked={safety.allow_persistence} onCheckedChange={(v) => setSafety({ ...safety, allow_persistence: v })} />
                 </FieldRow>
               </Section>
 
               <Button onClick={saveSafety} disabled={saving} className="gap-2">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Guvenlik Ayarlarini Kaydet
+                Save Safety Settings
               </Button>
             </div>
           )}
@@ -798,23 +755,23 @@ const SettingsPage = () => {
           {/* ── METASPLOIT ───────────────────────────── */}
           {tab === "msf" && (
             <div className="space-y-6">
-              <Section title="Metasploit RPC Yapilandirmasi">
+              <Section title="Metasploit RPC">
                 <p className="text-sm text-muted-foreground mb-2">
-                  Msfrpcd baglantisi icin host, port ve sifre ayarlarini yapin.
+                  Configure host, port, and password for msfrpcd.
                 </p>
-                <FieldRow label="Host" desc="msfrpcd adresi">
+                <FieldRow label="Host" desc="msfrpcd host">
                   <Input value={msf.host} onChange={(e) => setMsf({ ...msf, host: e.target.value })} autoComplete="off" />
                 </FieldRow>
-                <FieldRow label="Port" desc="msfrpcd portu">
+                <FieldRow label="Port" desc="msfrpcd port">
                   <Input type="number" value={msf.port} onChange={(e) => setMsf({ ...msf, port: Number(e.target.value) })} autoComplete="off" />
                 </FieldRow>
-                <FieldRow label="Sifre" desc="msfrpcd sifresi">
+                <FieldRow label="Password" desc="msfrpcd password">
                   <div className="relative">
                     <Input
                       value={msf.password}
                       onChange={(e) => setMsf({ ...msf, password: e.target.value })}
                       type={showMsfPw ? "text" : "password"}
-                      placeholder="msfrpcd sifresi"
+                      placeholder="msfrpcd password"
                       autoComplete="new-password"
                       name="tirpan-msf-pw"
                     />
@@ -827,13 +784,13 @@ const SettingsPage = () => {
                     </button>
                   </div>
                 </FieldRow>
-                <FieldRow label="SSL" desc="SSL ile baglan">
+                <FieldRow label="SSL" desc="Connect over TLS">
                   <Switch checked={msf.ssl} onCheckedChange={(v) => setMsf({ ...msf, ssl: v })} />
                 </FieldRow>
               </Section>
               <Button onClick={saveMsf} disabled={saving} className="gap-2">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Metasploit Ayarlarini Kaydet
+                Save Metasploit Settings
               </Button>
             </div>
           )}
@@ -841,23 +798,23 @@ const SettingsPage = () => {
           {/* ── NMAP ─────────────────────────────────── */}
           {tab === "nmap" && (
             <div className="space-y-6">
-              <Section title="Nmap Yapilandirmasi">
+              <Section title="Nmap">
                 <div className="flex items-center gap-3 mb-4 px-4 py-3 rounded-xl bg-muted/50 border border-border/50">
                   <Server className="w-4 h-4 text-muted-foreground" />
                   <div className="text-sm">
                     <span className="text-muted-foreground">Platform:</span>{" "}
                     <span className="font-medium">{nmapPlatform || "—"} </span>
-                    <span className="ml-3 text-muted-foreground">Yetki:</span>{" "}
+                    <span className="ml-3 text-muted-foreground">Privileges:</span>{" "}
                     <span className="font-medium">{nmapElevated ? "Root / Admin" : "Normal user"}</span>
                   </div>
                 </div>
-                <FieldRow label="Sudo ile calistir" desc="OS tespiti ve SYN taramalari icin gerekli">
+                <FieldRow label="Run with sudo" desc="Recommended for OS detection and SYN scans">
                   <Switch checked={nmapSudo} onCheckedChange={setNmapSudo} />
                 </FieldRow>
               </Section>
               <Button onClick={saveNmap} disabled={saving} className="gap-2">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Nmap Ayarlarini Kaydet
+                Save Nmap Settings
               </Button>
             </div>
           )}
@@ -865,14 +822,14 @@ const SettingsPage = () => {
           {/* ── CREDENTIALS ──────────────────────────── */}
           {tab === "credentials" && (
             <div className="space-y-6">
-              <Section title="Kimlik Bilgileri">
+              <Section title="Credentials">
                 <p className="text-sm text-muted-foreground mb-4">
-                  SSH, SMB, SNMP ve diger protokoller icin kimlik bilgilerini yonetin.
-                  Bu sayfa expert modda daha detayli yonetilebilir.
+                  Manage credentials for SSH, SMB, SNMP, and other protocols.
+                  Expert mode exposes more detailed controls.
                 </p>
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <Lock className="w-12 h-12 mb-3 opacity-30" />
-                  <p className="text-sm">Credential yonetimi expert moddan yapilir</p>
+                  <p className="text-sm">Manage credentials in Expert mode</p>
                   <a href="/" className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
                     Expert Mode →
                   </a>
@@ -884,13 +841,13 @@ const SettingsPage = () => {
           {/* ── SCAN PROFILES ─────────────────────────── */}
           {tab === "scan-profiles" && (
             <div className="space-y-6">
-              <Section title="Tarama Profilleri">
+              <Section title="Scan profiles">
                 <p className="text-sm text-muted-foreground mb-4">
-                  Yeniden kullanilabilir tarama sablonlari olusturun. Expert modda daha fazla secenek mevcuttur.
+                  Create reusable scan templates. Expert mode offers more options.
                 </p>
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <Sliders className="w-12 h-12 mb-3 opacity-30" />
-                  <p className="text-sm">Profil yonetimi expert moddan yapilir</p>
+                  <p className="text-sm">Manage profiles in Expert mode</p>
                   <a href="/" className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
                     Expert Mode →
                   </a>
@@ -903,21 +860,21 @@ const SettingsPage = () => {
           {tab === "branding" && (
             <div className="space-y-6">
               <Section title="Branding">
-                <FieldRow label="Sirket Adi" desc="Raporlarda gosterilecek isim">
+                <FieldRow label="Company name" desc="Name shown in reports">
                   <Input value={brandingName} onChange={(e) => setBrandingName(e.target.value)} placeholder="Tirpan" />
                 </FieldRow>
-                <FieldRow label="Logo" desc="Raporlarda gosterilecek logo">
+                <FieldRow label="Logo" desc="Logo shown in reports">
                   <div className="flex items-center gap-3">
                     {brandingHasLogo && brandingLogoUrl && (
                       <img src={brandingLogoUrl} alt="Logo" className="w-10 h-10 rounded-lg object-contain border border-border" />
                     )}
                     <label className="cursor-pointer px-3 py-2 rounded-xl bg-muted border border-border text-sm hover:bg-muted/80 transition-colors">
-                      Yukle
+                      Upload
                       <input type="file" accept=".png,.jpg,.jpeg,.webp" onChange={uploadLogo} className="hidden" />
                     </label>
                     {brandingHasLogo && (
                       <Button variant="outline" size="sm" onClick={deleteLogo} className="text-destructive">
-                        Sil
+                        Delete
                       </Button>
                     )}
                   </div>
@@ -925,86 +882,8 @@ const SettingsPage = () => {
               </Section>
               <Button onClick={saveBranding} disabled={saving} className="gap-2">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Branding Kaydet
+                Save Branding
               </Button>
-            </div>
-          )}
-
-          {/* ── PROFILE ─────────────────────────────── */}
-          {tab === "profile" && (
-            <div className="space-y-6">
-              <Section title="Profil">
-                {isLoggedIn ? (
-                  <>
-                    <div className="flex items-center gap-4 mb-6 p-4 rounded-xl bg-muted/50 border border-border/50">
-                      <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-display font-bold text-lg">
-                        {(user?.full_name || "U")[0].toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="font-display font-bold">{user?.full_name}</div>
-                        <div className="text-sm text-muted-foreground">{user?.email}</div>
-                        <Badge variant="secondary" className="mt-1">{user?.role}</Badge>
-                      </div>
-                    </div>
-
-                    <Separator />
-
-                    <Section title="Edit Profile">
-                      <FieldRow label="Full Name" desc="Change your display name">
-                        <Input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder={user?.full_name || "Full name"} autoComplete="off" name="tirpan-fullname" />
-                      </FieldRow>
-                      <FieldRow label="Email" desc="Change your email address">
-                        <Input value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} placeholder={user?.email || "Email"} type="email" autoComplete="off" name="tirpan-email" />
-                      </FieldRow>
-                    </Section>
-
-                    <Separator />
-
-                    <Section title="Change Password">
-                      <FieldRow label="Current Password" desc="Enter your current password">
-                        <div className="relative">
-                          <Input value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} type={showCurrentPw ? "text" : "password"} placeholder="Current password" autoComplete="current-password" name="tirpan-cur-pw" />
-                          <button type="button" onClick={() => setShowCurrentPw(!showCurrentPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                            {showCurrentPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </FieldRow>
-                      <FieldRow label="New Password" desc="Enter new password">
-                        <div className="relative">
-                          <Input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type={showNewPw ? "text" : "password"} placeholder="New password" autoComplete="new-password" name="tirpan-new-pw" />
-                          <button type="button" onClick={() => setShowNewPw(!showNewPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                            {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </FieldRow>
-                      <FieldRow label="Confirm Password" desc="Re-enter new password">
-                        <div className="relative">
-                          <Input value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} type={showConfirmPw ? "text" : "password"} placeholder="Confirm new password" autoComplete="new-password" name="tirpan-confirm-pw" />
-                          <button type="button" onClick={() => setShowConfirmPw(!showConfirmPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                            {showConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </FieldRow>
-                      <Button onClick={saveProfile} disabled={saving} className="gap-2">
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        Save Profile
-                      </Button>
-                      <Button onClick={changePassword} disabled={saving} className="gap-2 ml-3">
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-                        Change Password
-                      </Button>
-                    </Section>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                    <Lock className="w-12 h-12 mb-3 opacity-30" />
-                    <p className="text-sm">Profil bilgilerinizi gormek icin giris yapin</p>
-                    <a href="/normal/login" className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
-                      Giris Yap
-                    </a>
-                  </div>
-                )}
-              </Section>
             </div>
           )}
 
@@ -1026,6 +905,206 @@ const SettingsPage = () => {
               }
               onSave={saveAgentModels}
             />
+          )}
+
+          {/* ── ML MODELS ────────────────────────────── */}
+          {tab === "ml-models" && (
+            <div className="space-y-6">
+              <Section title="ML Models">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Lightweight XGBoost models — no GPU required. Trained on NVD CVEs, MITRE ATT&CK and Exploit-DB.
+                </p>
+
+                {/* Model status cards */}
+                <div className="grid grid-cols-1 gap-3">
+                  {[
+                    {
+                      key: "finding_classifier",
+                      label: "Finding Classifier",
+                      desc: "Labels vulnerabilities: risk level, attack phase, asset category, MITRE TTPs",
+                      metrics: mlMetrics?.finding_classifier,
+                    },
+                    {
+                      key: "exploit_predictor",
+                      label: "Exploit Success Predictor",
+                      desc: "Estimates P(success) for each exploit before it is attempted",
+                      metrics: mlMetrics?.exploit_predictor,
+                    },
+                    {
+                      key: "attack_path",
+                      label: "Attack Path Suggester",
+                      desc: "Recommends next MITRE ATT&CK techniques based on current phase and services",
+                      metrics: mlMetrics?.attack_path,
+                    },
+                  ].map(({ key, label, desc, metrics }) => {
+                    const available = mlStatus?.models?.[key]?.available ?? false;
+                    const trainingStatus = mlStatus?.training?.status;
+                    return (
+                      <div
+                        key={key}
+                        className={`rounded-xl border p-4 transition-colors ${
+                          available ? "border-success/30 bg-success/5" : "border-border/50 bg-muted/20"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  available ? "bg-success" : "bg-muted-foreground/40"
+                                }`}
+                              />
+                              <span className="text-sm font-semibold">{label}</span>
+                              {available && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400">
+                                  ACTIVE
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">{desc}</p>
+                          </div>
+                        </div>
+
+                        {/* Metrics */}
+                        {metrics && !metrics.error && (
+                          <div className="mt-3 flex flex-wrap gap-3">
+                            {metrics.accuracy !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">
+                                  {(metrics.accuracy * 100).toFixed(1)}%
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">Accuracy</div>
+                              </div>
+                            )}
+                            {metrics.f1_macro !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">
+                                  {(metrics.f1_macro * 100).toFixed(1)}%
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">F1 Macro</div>
+                              </div>
+                            )}
+                            {metrics.roc_auc !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">
+                                  {(metrics.roc_auc * 100).toFixed(1)}%
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">ROC AUC</div>
+                              </div>
+                            )}
+                            {metrics.attack_phase?.accuracy !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">
+                                  {(metrics.attack_phase.accuracy * 100).toFixed(1)}%
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">Phase Acc</div>
+                              </div>
+                            )}
+                            {metrics.asset_category?.f1_macro !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">
+                                  {(metrics.asset_category.f1_macro * 100).toFixed(1)}%
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">Asset F1</div>
+                              </div>
+                            )}
+                            {metrics.techniques !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">{metrics.techniques}</div>
+                                <div className="text-[10px] text-muted-foreground">Techniques</div>
+                              </div>
+                            )}
+                            {metrics.train_samples !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">
+                                  {(metrics.train_samples / 1000).toFixed(0)}k
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">Train samples</div>
+                              </div>
+                            )}
+                            {metrics.train_time_s !== undefined && (
+                              <div className="text-center">
+                                <div className="text-base font-mono font-bold text-foreground">
+                                  {metrics.train_time_s > 60
+                                    ? `${(metrics.train_time_s / 60).toFixed(1)}m`
+                                    : `${metrics.train_time_s}s`}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">Train time</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {metrics?.error && (
+                          <div className="mt-2 text-[11px] text-destructive font-mono">{metrics.error}</div>
+                        )}
+
+                        {!available && (
+                          <div className="mt-2 text-[11px] text-muted-foreground italic">
+                            Model not trained yet — click "Train All Models" below.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Section>
+
+              <Separator />
+
+              <Section title="Training">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Downloads NVD CVE feeds, MITRE ATT&CK and Exploit-DB, then trains all three models.
+                  Takes 5–15 minutes on first run (data is cached afterwards).
+                </p>
+
+                {mlStatus?.training?.status === "running" && (
+                  <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-accent/10 border border-accent/30 mb-4 text-sm text-accent">
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    Training in progress… please wait.
+                  </div>
+                )}
+                {mlStatus?.training?.status === "done" && (
+                  <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-success/10 border border-success/30 mb-4 text-sm text-success">
+                    Training complete.
+                  </div>
+                )}
+                {mlStatus?.training?.error && (
+                  <div className="px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/30 mb-4 text-xs text-destructive font-mono">
+                    {mlStatus.training.error}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={async () => {
+                      setMlTraining(true);
+                      try {
+                        await api.post("/ml/train", {});
+                        flash("ok", "ML training started in background");
+                        setTimeout(loadMlStatus, 2000);
+                      } catch (e: unknown) {
+                        flash("err", String(e));
+                      }
+                      setMlTraining(false);
+                    }}
+                    disabled={mlTraining || mlStatus?.training?.status === "running"}
+                    className="gap-2"
+                  >
+                    {mlTraining ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Cpu className="w-4 h-4" />
+                    )}
+                    Train All Models
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={loadMlStatus} className="gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Refresh Status
+                  </Button>
+                </div>
+              </Section>
+            </div>
           )}
         </div>
       </div>

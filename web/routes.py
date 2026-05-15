@@ -77,13 +77,13 @@ _BRANDING_FILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def _report_cache_version(session: dict) -> str:
+    # Use STABLE fields only: session id + vuln/exploit counts.
+    # updated_at changes on every agent heartbeat which would invalidate the
+    # AI-generated cache constantly and burn LLM credits on every view.
     return "|".join(
         [
-            str(session.get("updated_at") or 0),
-            str(session.get("finished_at") or 0),
+            str(session.get("id") or ""),
             str(session.get("status") or ""),
-            str(session.get("hosts_found") or 0),
-            str(session.get("ports_found") or 0),
             str(session.get("vulns_found") or 0),
             str(session.get("exploits_run") or 0),
         ]
@@ -174,22 +174,28 @@ async def health():
 
 # ── Ollama status ─────────────────────────────────────────────────────────────
 
+_WSL2_HOST_IP_CACHE: str | None | bool = False  # False = not yet checked
+
 def _wsl2_host_ip() -> str | None:
-    """Return the Windows host IP for WSL2, or None if not on WSL2."""
+    """Return the Windows host IP for WSL2, or None if not on WSL2. Cached after first call."""
+    global _WSL2_HOST_IP_CACHE
+    if _WSL2_HOST_IP_CACHE is not False:
+        return _WSL2_HOST_IP_CACHE  # type: ignore[return-value]
+    result: str | None = None
     try:
         import os
-        if not os.path.exists("/proc/version"):
-            return None
-        with open("/proc/version") as f:
-            if "microsoft" not in f.read().lower():
-                return None
-        with open("/etc/resolv.conf") as f:
-            for line in f:
-                if line.startswith("nameserver"):
-                    return line.split()[1].strip()
+        if os.path.exists("/proc/version"):
+            with open("/proc/version") as f:
+                if "microsoft" in f.read().lower():
+                    with open("/etc/resolv.conf") as f2:
+                        for line in f2:
+                            if line.startswith("nameserver"):
+                                result = line.split()[1].strip()
+                                break
     except Exception:
         pass
-    return None
+    _WSL2_HOST_IP_CACHE = result
+    return result
 
 
 async def _try_url(client: httpx.AsyncClient, url: str) -> httpx.Response | None:
@@ -248,17 +254,28 @@ async def get_ollama_config():
 
 # ── System Stats ───────────────────────────────────────────────────────────────
 
+_GPU_CACHE: dict = {"value": None, "ts": 0.0, "available": True}
+_GPU_TTL = 5.0  # seconds
+
 def _gpu_percent() -> Optional[int]:
-    """Try to get GPU utilization via nvidia-smi. Returns None if unavailable."""
+    """Try to get GPU utilization via nvidia-smi. Cached with 5-second TTL."""
+    now = time.monotonic()
+    if not _GPU_CACHE["available"] or (now - _GPU_CACHE["ts"]) < _GPU_TTL:
+        return _GPU_CACHE["value"]
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=2,
         )
         if result.returncode == 0:
-            return int(result.stdout.strip().split("\n")[0])
+            _GPU_CACHE["value"] = int(result.stdout.strip().split("\n")[0])
+            _GPU_CACHE["ts"] = now
+            return _GPU_CACHE["value"]
+    except FileNotFoundError:
+        _GPU_CACHE["available"] = False  # nvidia-smi not installed — don't retry ever
     except Exception:
         pass
+    _GPU_CACHE["ts"] = now
     return None
 
 
@@ -1697,8 +1714,12 @@ async def get_session(sid: str):
 
     session["is_running"] = is_running
     session["scan_results"] = scan_results
-    session["vulnerabilities"] = vulns
-    session["exploit_results"] = exploits
+
+    # New vulns/exploits are classified at save time (see VulnerabilityRepository.save).
+    # For records created before v17 migration (no _cls / ml_success_prob), we lazily
+    # enrich and persist back to DB so the cost is paid only once per record.
+    session["vulnerabilities"] = await _enrich_and_persist_vulns(vulns)
+    session["exploit_results"] = await _enrich_and_persist_exploits(exploits)
 
     # Attach V2 mission context if available
     mission_ctx_raw = session.get("mission_context_json")
@@ -2457,4 +2478,430 @@ async def get_training_stats():
         total += stats["total"]
 
     return {"sessions": sessions, "total_records": total}
+
+
+# ── ML Helper functions ───────────────────────────────────────────────────────
+
+async def _enrich_and_persist_vulns(vulns: list) -> list:
+    """
+    For vulns that were saved before ML was available (no _cls field), run
+    ML enrichment once and persist the result to DB so subsequent loads are instant.
+    New vulns already have _cls from VulnerabilityRepository.save().
+    """
+    needs = [v for v in vulns if "_cls" not in v and v.get("id")]
+    ready = [v for v in vulns if "_cls" in v or not v.get("id")]
+    if not needs:
+        return vulns
+    import asyncio as _asyncio
+    enriched = await _asyncio.get_event_loop().run_in_executor(None, _enrich_vulns_with_ml, needs)
+    # Persist in background — fire-and-forget, session load doesn't wait
+    _asyncio.create_task(_persist_vuln_cls(enriched))
+    return ready + enriched
+
+
+async def _persist_vuln_cls(vulns: list) -> None:
+    """Save ML _cls results back to DB so re-enrichment never happens again."""
+    from database.sqlite_conn import _shared_conn, _shared_lock
+    for v in vulns:
+        vid = v.get("id")
+        cls = v.get("_cls")
+        if not vid or not cls:
+            continue
+        try:
+            cls_json = json.dumps(cls)
+            if _shared_conn is not None and _shared_lock is not None:
+                async with _shared_lock:
+                    await _shared_conn.execute(
+                        "UPDATE vulnerabilities SET ml_cls_json=? WHERE id=? AND (ml_cls_json IS NULL OR ml_cls_json='')",
+                        (cls_json, vid),
+                    )
+                    await _shared_conn.commit()
+        except Exception:
+            pass
+
+
+async def _enrich_and_persist_exploits(exploits: list) -> list:
+    """Same lazy-once pattern for exploit ML success probability."""
+    # -1 is the DB sentinel for "not yet computed" — treat as needs enrichment
+    needs = [e for e in exploits if not isinstance(e.get("ml_success_prob"), float) or float(e.get("ml_success_prob", -1)) < 0]
+    ready = [e for e in exploits if isinstance(e.get("ml_success_prob"), (int, float)) and float(e.get("ml_success_prob", -1)) >= 0]
+    if not needs:
+        return exploits
+    import asyncio as _asyncio
+    # Strip the -1 sentinel key so _enrich_exploits_with_ml doesn't skip these rows
+    needs_clean = [{k: v for k, v in e.items() if k != "ml_success_prob"} for e in needs]
+    enriched = await _asyncio.get_event_loop().run_in_executor(None, _enrich_exploits_with_ml, needs_clean)
+    _asyncio.create_task(_persist_exploit_prob(enriched))
+    return ready + enriched
+
+
+async def _persist_exploit_prob(exploits: list) -> None:
+    """Save ml_success_prob back to DB."""
+    from database.sqlite_conn import _shared_conn, _shared_lock
+    for e in exploits:
+        eid = e.get("id")
+        prob = e.get("ml_success_prob")
+        if not eid or prob is None:
+            continue
+        try:
+            if _shared_conn is not None and _shared_lock is not None:
+                async with _shared_lock:
+                    await _shared_conn.execute(
+                        "UPDATE exploit_results SET ml_success_prob=? WHERE id=? AND ml_success_prob<0",
+                        (float(prob), eid),
+                    )
+                    await _shared_conn.commit()
+        except Exception:
+            pass
+
+
+def _enrich_vulns_with_ml(vulns: list) -> list:
+    """
+    Enrich vulnerability records with ML classification (_cls field).
+    Uses the ML finding classifier if available, otherwise skips silently.
+    """
+    if not vulns:
+        return vulns
+    try:
+        from ml.finding_classifier import get_ml_classifier
+        clf = get_ml_classifier()
+        if clf is None:
+            return vulns
+        enriched = []
+        for v in vulns:
+            if not isinstance(v, dict):
+                enriched.append(v)
+                continue
+            if "_cls" in v:
+                enriched.append(v)
+                continue
+            try:
+                cls_result = clf.predict_finding(v)
+                enriched.append({**v, "_cls": cls_result})
+            except Exception:
+                enriched.append(v)
+        return enriched
+    except Exception:
+        return vulns
+
+
+def _enrich_exploits_with_ml(exploits: list) -> list:
+    """
+    Enrich exploit results with ML success probability (ml_success_prob field).
+    """
+    if not exploits:
+        return exploits
+    try:
+        from ml.exploit_predictor import get_exploit_predictor
+        pred = get_exploit_predictor()
+        if pred is None:
+            return exploits
+        enriched = []
+        for e in exploits:
+            if not isinstance(e, dict):
+                enriched.append(e)
+                continue
+            # Skip re-enrichment only when:
+            #   1. A real probability already exists (not the -1 DB sentinel)
+            #   2. AND the value doesn't look like the old biased value (0.798)
+            #      which was produced by the pre-fix model on all remote exploits.
+            existing_prob = float(e.get("ml_success_prob", -1)) if "ml_success_prob" in e else -1.0
+            is_stale = abs(existing_prob - 0.798) < 0.005  # exact old biased value
+            if existing_prob >= 0 and not is_stale:
+                enriched.append(e)
+                continue
+            try:
+                prob = pred.predict_proba(
+                    description=str(e.get("module", "")),  # no output — avoids data leakage
+                    exploit_type=str(e.get("exploit_type", "remote")),
+                    platform=str(e.get("platform", "")),
+                    cvss_score=float(e.get("cvss_score") or 0.0),
+                    attack_vector=str(e.get("attack_vector", "")),
+                )
+                enriched.append({**e, "ml_success_prob": prob})
+            except Exception:
+                enriched.append(e)
+        return enriched
+    except Exception:
+        return exploits
+
+
+# ── ML Suggestions endpoint ───────────────────────────────────────────────────
+
+@router.get("/sessions/{sid}/ml-suggestions")
+async def get_ml_suggestions(sid: str, top_n: int = 8):
+    """
+    Return ML-based attack path suggestions for a session.
+
+    Suggestions are ranked MITRE ATT&CK techniques based on:
+    - Current attack phase
+    - Discovered services
+    - Already used TTPs
+
+    Returns:
+        {
+          "session_id": "...",
+          "current_phase": "scanning",
+          "suggestions": [
+            {"ttp_id": "T1190", "ttp_name": "...", "tactic": "...", "confidence": 0.84, "url": "..."},
+            ...
+          ],
+          "model_available": true
+        }
+    """
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    try:
+        from ml.attack_path import get_attack_path_suggester, _fallback_suggestions
+    except ImportError:
+        return {"session_id": sid, "suggestions": [], "model_available": False}
+
+    suggester = get_attack_path_suggester()
+
+    # Build session detail for context extraction
+    scan_results  = await _scan_repo.get_for_session(sid)
+    vulns         = await _vuln_repo.get_for_session(sid)
+    exploits      = await _exploit_repo.get_for_session(sid)
+
+    mc_raw = session.get("mission_context_json") or "{}"
+    try:
+        mc = json.loads(mc_raw) if isinstance(mc_raw, str) else (mc_raw or {})
+    except Exception:
+        mc = {}
+
+    # ── Phase inference ────────────────────────────────────────────────────────
+    # Prefer explicit phase from mission context; otherwise infer from real data
+    # so suggestions are always session-specific even without agent phase tracking.
+    explicit_phase: str = mc.get("current_phase", "")
+    if explicit_phase:
+        current_phase = explicit_phase
+    else:
+        success_exploits = [e for e in exploits if e.get("success")]
+        has_creds  = any(v.get("exploit_type", "").lower() in ("credential", "privesc") for v in vulns)
+        has_shell  = any(e.get("session_opened") for e in exploits)
+        # Walk the kill-chain from most advanced to least
+        if has_shell and len(success_exploits) >= 2:
+            current_phase = "post_exploitation"
+        elif has_shell or len(success_exploits) >= 1:
+            current_phase = "exploitation"
+        elif vulns:
+            current_phase = "exploitation"   # have vulns, ready to exploit
+        elif scan_results:
+            current_phase = "scanning"
+        else:
+            current_phase = "reconnaissance"
+
+    # ── Extract services and host count from scan results ────────────────────
+    # host_count = only hosts with at least 1 open port (pingable-only hosts
+    # like gateways are not useful for lateral movement decisions).
+    services: list[str] = []
+    host_ips: set[str] = set()
+    for sr in scan_results:
+        hosts_raw = sr.get("hosts_json", "[]")
+        try:
+            hosts = json.loads(hosts_raw) if isinstance(hosts_raw, str) else (hosts_raw or [])
+        except Exception:
+            hosts = []
+        for host in hosts:
+            ip = host.get("ip") or host.get("host_ip", "")
+            ports = host.get("ports", [])
+            if ip and ports:  # only count hosts that have open ports
+                host_ips.add(str(ip))
+            for port in ports:
+                svc = port.get("service", "")
+                if svc:
+                    services.append(svc.lower())
+
+    host_count = max(len(host_ips), 1)
+
+    # ── Extract used TTPs from vuln ML classifications ────────────────────────
+    used_ttps: list[str] = []
+    for v in vulns:
+        cls_data = v.get("_cls") or {}
+        used_ttps.extend(cls_data.get("mitre_ttps", []))
+
+    # Also mark TTPs from TRIED exploit modules (even failed ones) as "used"
+    # so the suggester recommends untried techniques instead of the same ones.
+    _MODULE_TTP_MAP = {
+        "exploit":   ["T1190", "T1210"],
+        "brute":     ["T1110"],
+        "login":     ["T1110"],
+        "ssh":       ["T1021.004", "T1110"],
+        "smb":       ["T1021.002"],
+        "samba":     ["T1021.002"],
+        "ftp":       ["T1021"],
+        "rdp":       ["T1021.001"],
+        "http":      ["T1190"],
+        "irc":       ["T1190"],
+        "vsftpd":    ["T1190"],
+        "distcc":    ["T1210"],
+        "usermap":   ["T1021.002"],
+        "postgres":  ["T1190"],
+        "mysql":     ["T1190"],
+        "php":       ["T1190"],
+        "telnet":    ["T1021"],
+        "vnc":       ["T1021.005"],
+        "nfs":       ["T1210"],
+        "rpc":       ["T1210"],
+        "java":      ["T1190"],
+        "tomcat":    ["T1190"],
+        "shell":     ["T1059"],
+        "cmd":       ["T1059"],
+        "meterpreter": ["T1059"],
+        "priv":      ["T1068"],
+        "bypassuac": ["T1548"],
+        "gather":    ["T1083", "T1018"],
+        "hashdump":  ["T1003.001"],
+        "mimikatz":  ["T1003.001"],
+        "cred":      ["T1552", "T1003"],
+        "pass":      ["T1110"],
+    }
+    for e in exploits:
+        mod = str(e.get("module", "")).lower()
+        for keyword, ttps in _MODULE_TTP_MAP.items():
+            if keyword in mod:
+                used_ttps.extend(ttps)
+
+    has_shell = any(e.get("session_opened") or e.get("success") for e in exploits)
+
+    if suggester is not None:
+        suggestions = suggester.suggest(
+            current_phase=current_phase,
+            services=list(set(services)),
+            used_ttps=used_ttps,
+            top_n=min(top_n, 12),
+            host_count=host_count,
+            has_shell=has_shell,
+        )
+        model_available = True
+    else:
+        from ml.attack_path import _fallback_suggestions
+        suggestions = _fallback_suggestions(current_phase, min(top_n, 8), host_count, has_shell)
+        model_available = False
+
+    return {
+        "session_id":      sid,
+        "current_phase":   current_phase,
+        "suggestions":     [s.to_dict() for s in suggestions],
+        "model_available": model_available,
+        # Extra context for the UI to understand why these were suggested
+        "context": {
+            "scan_results":     len(scan_results),
+            "vulnerabilities":  len(vulns),
+            "exploits_run":     len(exploits),
+            "exploits_success": len([e for e in exploits if e.get("success")]),
+            "services_seen":    len(set(services)),
+            "host_count":       host_count,
+            "has_shell":        has_shell,
+            "phase_source":     "explicit" if explicit_phase else "inferred",
+        },
+    }
+
+
+# ── ML Training endpoint ──────────────────────────────────────────────────────
+
+_ml_train_status: dict = {"status": "idle", "started_at": None, "metrics": None, "error": None}
+
+
+@router.post("/ml/train")
+async def trigger_ml_training(background_tasks: BackgroundTasks):
+    """
+    Trigger ML model training in the background.
+    Downloads datasets and trains all 3 models.
+    """
+    global _ml_train_status
+    if _ml_train_status.get("status") == "running":
+        return {"status": "already_running", "started_at": _ml_train_status.get("started_at")}
+
+    _ml_train_status = {"status": "running", "started_at": time.time(), "metrics": None, "error": None}
+    background_tasks.add_task(_run_ml_training)
+    return {"status": "started", "message": "ML training started in background"}
+
+
+@router.get("/ml/status")
+async def get_ml_training_status():
+    """Return current ML training status and last metrics."""
+    from ml.finding_classifier import MODEL_PATH as FC_PATH
+    from ml.exploit_predictor import MODEL_PATH as EP_PATH
+    from ml.attack_path import MODEL_PATH as AP_PATH
+
+    return {
+        "training": _ml_train_status,
+        "models": {
+            "finding_classifier": {"available": FC_PATH.exists(), "path": str(FC_PATH)},
+            "exploit_predictor":  {"available": EP_PATH.exists(), "path": str(EP_PATH)},
+            "attack_path":        {"available": AP_PATH.exists(), "path": str(AP_PATH)},
+        },
+    }
+
+
+@router.get("/ml/metrics")
+async def get_ml_metrics():
+    """Return training metrics from the last training run."""
+    metrics_path = Path("ml/models/train_metrics.json")
+    if not metrics_path.exists():
+        return {"status": "no_metrics", "message": "Run POST /ml/train first"}
+    try:
+        with open(metrics_path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception as exc:
+        raise HTTPException(500, f"Could not read metrics: {exc}") from exc
+
+
+async def _run_ml_training():
+    """Background task: run full ML training pipeline."""
+    global _ml_train_status
+    import subprocess
+    import sys
+    try:
+        result = subprocess.run(
+            [sys.executable, "ml/train_all.py"],
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+        if result.returncode == 0:
+            metrics_path = Path("ml/models/train_metrics.json")
+            metrics = {}
+            if metrics_path.exists():
+                try:
+                    with open(metrics_path) as fh:
+                        metrics = json.load(fh)
+                except Exception:
+                    pass
+            # Invalidate singleton caches so new models are loaded
+            try:
+                import ml.finding_classifier as _fc
+                import ml.exploit_predictor as _ep
+                import ml.attack_path as _ap
+                _fc.invalidate_cache()
+                _ep.invalidate_cache()
+                _ap.invalidate_cache()
+            except Exception:
+                pass
+            _ml_train_status = {
+                "status": "completed",
+                "started_at": _ml_train_status.get("started_at"),
+                "finished_at": time.time(),
+                "metrics": metrics,
+                "error": None,
+            }
+        else:
+            _ml_train_status = {
+                "status": "failed",
+                "started_at": _ml_train_status.get("started_at"),
+                "finished_at": time.time(),
+                "metrics": None,
+                "error": result.stderr[-2000:] if result.stderr else "Unknown error",
+            }
+    except Exception as exc:
+        _ml_train_status = {
+            "status": "failed",
+            "started_at": _ml_train_status.get("started_at"),
+            "finished_at": time.time(),
+            "metrics": None,
+            "error": str(exc),
+        }
 

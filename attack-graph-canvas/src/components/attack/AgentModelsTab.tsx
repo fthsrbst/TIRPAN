@@ -3,14 +3,14 @@ import { Save, Loader2, X, Brain, Scan, Zap, Globe, Shield, Network, FileText, E
 import { LucideIcon } from "lucide-react";
 
 const AGENT_LIST: { key: string; label: string; desc: string; icon: LucideIcon }[] = [
-  { key: "brain",       label: "Brain",       desc: "Stratejik planlama ve koordinasyon",     icon: Brain   },
-  { key: "scanner",     label: "Scanner",     desc: "Port ve servis keşfi",                   icon: Scan    },
-  { key: "exploit",     label: "Exploit",     desc: "Zafiyet istismarı",                      icon: Zap     },
-  { key: "webapp",      label: "WebApp",      desc: "Web uygulama saldırıları",               icon: Globe   },
-  { key: "postexploit", label: "Post-Exploit", desc: "Erişim sonrası işlemler",               icon: Shield  },
-  { key: "lateral",     label: "Lateral",     desc: "Ağ içi yayılma",                        icon: Network },
-  { key: "reporting",   label: "Reporting",   desc: "Rapor oluşturma",                        icon: FileText},
-  { key: "osint",       label: "OSINT",       desc: "Açık kaynak istihbaratı",                icon: Eye     },
+  { key: "brain",       label: "Brain",       desc: "Strategic planning & coordination",     icon: Brain   },
+  { key: "scanner",     label: "Scanner",     desc: "Port and service discovery",             icon: Scan    },
+  { key: "exploit",     label: "Exploit",     desc: "Vulnerability exploitation",             icon: Zap     },
+  { key: "webapp",      label: "WebApp",      desc: "Web application testing",               icon: Globe   },
+  { key: "postexploit", label: "Post-Exploit", desc: "Post-access actions",                    icon: Shield  },
+  { key: "lateral",     label: "Lateral",     desc: "Internal movement",                     icon: Network },
+  { key: "reporting",   label: "Reporting",   desc: "Report generation",                      icon: FileText},
+  { key: "osint",       label: "OSINT",       desc: "Open-source intelligence",               icon: Eye     },
 ];
 
 function formatModelDisplay(val: unknown): string | null {
@@ -46,7 +46,7 @@ export default function AgentModelsTab({
       <div>
         <h3 className="font-display font-bold text-lg tracking-tight">Agent Models</h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Her agent tipi için kullanılacak yapay zeka modelini seçin.
+          Choose the model used for each agent type.
         </p>
       </div>
 
@@ -77,7 +77,7 @@ export default function AgentModelsTab({
                 {model ? (
                   <span className="text-foreground font-mono text-xs">{model}</span>
                 ) : (
-                  <span className="text-muted-foreground">Model seçin...</span>
+                  <span className="text-muted-foreground">Select model…</span>
                 )}
               </button>
 
@@ -86,7 +86,7 @@ export default function AgentModelsTab({
                 onClick={() => onModelClear(agent.key)}
                 disabled={!model}
                 className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border border-border bg-background hover:bg-destructive/10 hover:border-destructive/40 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-20 disabled:pointer-events-none"
-                title="Temizle"
+                title="Clear"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -97,7 +97,7 @@ export default function AgentModelsTab({
 
       <Button onClick={onSave} disabled={saving} className="gap-2">
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-        Agent Modellerini Kaydet
+        Save Agent Models
       </Button>
     </div>
   );

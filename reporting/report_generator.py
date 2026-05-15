@@ -45,7 +45,10 @@ _REPORT_LOGO_ALLOWED_EXTS = {
     ".webp": "image/webp",
 }
 _AI_REMEDIATION_MAX_FINDINGS = 8
-_AI_REMEDIATION_TIMEOUT_SECONDS = 8.0
+_AI_REMEDIATION_TIMEOUT_SECONDS = 12.0
+# AI remediation is enabled: runs ONCE on first report generation per session,
+# then the result is cached. Subsequent views return cached HTML instantly.
+_AI_REMEDIATION_ENABLED = True
 _PDF_RENDER_ZOOM = 0.93
 
 _RECOMMENDATIONS: dict[str, str] = {
@@ -797,6 +800,18 @@ class ReportGenerator:
                 "applied_count": 0,
                 "total_findings": 0,
                 "note": "No findings available for remediation synthesis.",
+            }
+            return vuln_rows
+
+        # Fast-exit when AI remediation is disabled (default) — no LLM calls made
+        if not _AI_REMEDIATION_ENABLED:
+            self._reporting_ai_info = {
+                "enabled": False,
+                "mode": "baseline",
+                "provider": "",
+                "applied_count": 0,
+                "total_findings": len(vuln_rows),
+                "note": "AI remediation is disabled. Enable _AI_REMEDIATION_ENABLED to use LLM-enhanced reports.",
             }
             return vuln_rows
 

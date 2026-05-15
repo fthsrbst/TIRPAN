@@ -1,11 +1,9 @@
 /**
- * Kullanıcıya atanan yeni görevleri tespit edip sağ altta Sonner toast bildirimi gösterir.
+ * Detects new sessions assigned to the current user and shows bottom-right Sonner toasts.
  *
- * Strateji:
- *   - Her 5 saniyede getSessions() zaten Overview'de polling yapıyor.
- *   - Bu hook ayrıca sessions listesini izler; önceki snapshot ile karşılaştırarak
- *     `assigned_to === user.id` olan ve daha önce görmediğimiz session'ları bulur.
- *   - Görülen ID'leri localStorage'da saklar (oturum boyunca tekrar bildirim çıkmaz).
+ * Overview polls sessions every ~5s; this hook compares snapshots, finds rows where
+ * `assigned_to === user.id` was not seen before, and records IDs in localStorage so
+ * the same assignment is not notified repeatedly in one browser session.
  */
 
 import { useEffect, useRef } from "react";
@@ -48,11 +46,11 @@ export function useAssignmentNotifications(sessions: any[]) {
     if (!newlyAssigned.length) return;
 
     newlyAssigned.forEach((s: any) => {
-      toast("Yeni Görev Atandı", {
-        description: `"${s.target || s.id}" görevi size atandı.`,
+      toast("New assignment", {
+        description: `Mission "${s.target || s.id}" was assigned to you.`,
         duration: 6000,
         action: {
-          label: "Göreve Git",
+          label: "Open Missions",
           onClick: () => {
             window.location.href = "/normal/missions";
           },

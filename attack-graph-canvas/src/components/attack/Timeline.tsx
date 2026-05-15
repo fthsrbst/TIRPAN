@@ -1,8 +1,12 @@
-import { useState } from "react";
-import { Play, Pause, Square, Terminal, Lightbulb, Bell, SlidersHorizontal, X, Loader2, OctagonMinus } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { Play, Pause, Square, Terminal, Lightbulb, Bell, SlidersHorizontal, X, Loader2, OctagonMinus, Maximize2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { killSession, pauseSession, resumeSession } from "@/lib/api";
 import type { TimelineData, TimelineEvent } from "@/hooks/useAttackGraphData";
+import { LiveTerminalPanel } from "@/components/attack/LiveTerminalPanel";
+import { usePermissions } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
 
 interface TimelineProps {
   data?: TimelineData;
@@ -10,10 +14,30 @@ interface TimelineProps {
   isRunning?: boolean;
   target?: string;
   isDemoMode?: boolean;
+  /** Örn. attack graph: alt panelde terminal varsayılan açık */
+  defaultOpenPopup?: string | null;
 }
 
-const PopupPanel = ({ title, icon: Icon, children, onClose }: { title: string; icon: any; children: React.ReactNode; onClose: () => void }) => (
-  <div className="absolute bottom-14 right-0 z-50 w-[360px] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
+const PopupPanel = ({
+  title,
+  icon: Icon,
+  children,
+  onClose,
+  wide,
+  bodyClassName,
+}: {
+  title: string;
+  icon: any;
+  children: React.ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+  bodyClassName?: string;
+}) => (
+  <div
+    className={`absolute bottom-14 right-0 z-50 bg-card border border-border rounded-2xl shadow-2xl overflow-hidden ${
+      wide ? "w-[min(540px,96vw)]" : "w-[360px]"
+    }`}
+  >
     <div className="flex items-center justify-between px-4 py-3 border-b border-border">
       <div className="flex items-center gap-2">
         <Icon className="w-4 h-4 text-accent" />
@@ -23,13 +47,94 @@ const PopupPanel = ({ title, icon: Icon, children, onClose }: { title: string; i
         <X className="w-3 h-3" />
       </button>
     </div>
-    <div className="max-h-[300px] overflow-auto p-3">{children}</div>
+    <div className={bodyClassName ?? "max-h-[300px] overflow-auto p-3"}>{children}</div>
   </div>
 );
 
-export const Timeline = ({ data, sessionId, isRunning: isRunningProp, target, isDemoMode }: TimelineProps) => {
+export const Timeline = ({
+  data,
+  sessionId,
+  isRunning: isRunningProp,
+  target,
+  isDemoMode,
+  defaultOpenPopup = null,
+}: TimelineProps) => {
   const queryClient = useQueryClient();
-  const [popup, setPopup] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const perms = usePermissions();
+  const [popup, setPopup] = useState<string | null>(defaultOpenPopup);
+  const shellDisabled = !!isDemoMode || !perms.canUseTerminal;
+
+  // ── Terminal popup resize ────────────────────────
+  const [termSize, setTermSize] = useState({ w: 560, h: 440 });
+  const termSizeRef = useRef(termSize);
+  termSizeRef.current = termSize;
+  const termPopupRef = useRef<HTMLDivElement>(null);
+  const resizingRef = useRef(false);
+  const resizeDirRef = useRef<"w" | "h" | "both">("both");
+  const resizeOriginRef = useRef({ x: 0, y: 0, w: 560, h: 440 });
+
+  // Global mouse events for resize
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const { x, y, w, h } = resizeOriginRef.current;
+      const dir = resizeDirRef.current;
+      setTermSize({
+        w: dir === "h" ? w : Math.max(360, Math.min(window.innerWidth * 0.95, w + (x - e.clientX))),
+        h: dir === "w" ? h : Math.max(260, Math.min(window.innerHeight * 0.88, h + (y - e.clientY))),
+      });
+    };
+    const onUp = () => {
+      if (!resizingRef.current) return;
+      resizingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const startResize = useCallback((e: React.MouseEvent, dir: "w" | "h" | "both") => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingRef.current = true;
+    resizeDirRef.current = dir;
+    const { w, h } = termSizeRef.current;
+    resizeOriginRef.current = { x: e.clientX, y: e.clientY, w, h };
+    document.body.style.cursor = dir === "w" ? "ew-resize" : dir === "h" ? "ns-resize" : "nw-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  // Click-outside to close popup
+  useEffect(() => {
+    if (popup !== "terminal") return;
+    let handler: ((e: MouseEvent) => void) | null = null;
+    const timer = setTimeout(() => {
+      handler = (e: MouseEvent) => {
+        if (termPopupRef.current && !termPopupRef.current.contains(e.target as Node)) {
+          setPopup(null);
+        }
+      };
+      document.addEventListener("mousedown", handler);
+    }, 160);
+    return () => {
+      clearTimeout(timer);
+      if (handler) document.removeEventListener("mousedown", handler);
+    };
+  }, [popup]);
+
+  // Listen for "collapse from TerminalPage" signal
+  useEffect(() => {
+    if (localStorage.getItem("tirpan_open_terminal_popup") === "1") {
+      localStorage.removeItem("tirpan_open_terminal_popup");
+      setPopup("terminal");
+    }
+  }, []);
 
   const steps = data?.steps?.length ? data.steps : [
     { label: "Recon", time: "—", done: false, active: false },
@@ -219,14 +324,85 @@ export const Timeline = ({ data, sessionId, isRunning: isRunningProp, target, is
             </button>
           ))}
 
-          {popup === "terminal" && (
-            <PopupPanel title="Live Terminal" icon={Terminal} onClose={() => setPopup(null)}>
-              <div className="text-[11px] font-mono text-muted-foreground space-y-1">
-                <p>Connect to active agent sessions to run commands.</p>
-                <p className="text-accent">Session: {sessionId?.slice(0, 8) || "—"}</p>
+          {/* Live Terminal — always mounted so tabs/PTY survive popup close */}
+          <div
+            ref={termPopupRef}
+            className={cn(
+              "fixed z-[60] flex flex-col bg-card border border-border rounded-2xl shadow-2xl transition-opacity duration-150",
+              popup === "terminal" ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
+            )}
+            style={
+              popup === "terminal"
+                ? { bottom: 58, right: 12, width: termSize.w, height: termSize.h, overflow: "hidden" }
+                : { position: "fixed", left: -99999, top: 0, width: termSize.w, height: termSize.h, overflow: "hidden" }
+            }
+            aria-hidden={popup !== "terminal"}
+          >
+            {/* ── Resize handles ─────────────────────── */}
+            {/* top edge */}
+            <div
+              className="absolute top-0 left-7 right-0 h-1.5 cursor-ns-resize z-20 hover:bg-primary/15 transition-colors"
+              onMouseDown={(e) => startResize(e, "h")}
+            />
+            {/* left edge */}
+            <div
+              className="absolute top-7 left-0 w-1.5 bottom-0 cursor-ew-resize z-20 hover:bg-primary/15 transition-colors"
+              onMouseDown={(e) => startResize(e, "w")}
+            />
+            {/* top-left corner — both axes */}
+            <div
+              className="absolute top-0 left-0 w-7 h-7 cursor-nw-resize z-30 flex items-center justify-center group"
+              onMouseDown={(e) => startResize(e, "both")}
+              title="Drag to resize"
+            >
+              <svg viewBox="0 0 9 9" className="w-2.5 h-2.5 text-muted-foreground/25 group-hover:text-muted-foreground/60 transition-colors">
+                <circle cx="1.5" cy="1.5" r="0.9" fill="currentColor" />
+                <circle cx="4.5" cy="1.5" r="0.9" fill="currentColor" />
+                <circle cx="7.5" cy="1.5" r="0.9" fill="currentColor" />
+                <circle cx="1.5" cy="4.5" r="0.9" fill="currentColor" />
+                <circle cx="4.5" cy="4.5" r="0.9" fill="currentColor" />
+                <circle cx="1.5" cy="7.5" r="0.9" fill="currentColor" />
+              </svg>
+            </div>
+
+            {/* ── Header ─────────────────────────────── */}
+            <div className="flex items-center justify-between pl-8 pr-3 py-2.5 border-b border-border shrink-0">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-3.5 h-3.5 text-accent" />
+                <span className="font-display font-semibold text-xs">Live Terminal</span>
               </div>
-            </PopupPanel>
-          )}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => { navigate("/terminal"); setPopup(null); }}
+                  className="w-6 h-6 rounded hover:bg-muted flex items-center justify-center"
+                  title="Open full Terminal page"
+                >
+                  <Maximize2 className="w-3 h-3 text-muted-foreground" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPopup(null)}
+                  className="w-6 h-6 rounded hover:bg-muted flex items-center justify-center"
+                  aria-label="Close panel"
+                >
+                  <X className="w-3 h-3 text-muted-foreground" />
+                </button>
+              </div>
+            </div>
+
+            {/* ── Body ───────────────────────────────── */}
+            <div className="flex-1 min-h-0 overflow-hidden p-2 flex flex-col">
+              <LiveTerminalPanel
+                missionSessionId={sessionId}
+                autoOpen={!shellDisabled}
+                disabled={shellDisabled}
+                compact
+                panelVisible={popup === "terminal"}
+              />
+            </div>
+          </div>
+
           {popup === "insights" && (
             <PopupPanel title="Quick Insights" icon={Lightbulb} onClose={() => setPopup(null)}>
               <div className="text-[11px] text-muted-foreground space-y-1">

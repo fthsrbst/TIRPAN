@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from database.repositories import InvitationRepository, OrganizationRepository, UserRepository
 from web.auth.models import (
     InviteCreate,
+    InviteJoin,
     InvitePreview,
     InviteResponse,
+    OrgCreate,
     OrgResponse,
     OrgUpdate,
     RoleUpdate,
@@ -44,7 +46,7 @@ async def register(body: UserCreate):
     # Üç mod: org kur | davete katıl | org'suz bireysel hesap
 
     if await _repo.email_exists(body.email):
-        raise HTTPException(status_code=409, detail="Bu email zaten kayıtlı.")
+        raise HTTPException(status_code=409, detail="This email is already registered.")
 
     hashed = hash_password(body.password)
 
@@ -52,29 +54,29 @@ async def register(body: UserCreate):
     if body.invite_token:
         invite = await _inv_repo.get_by_token(body.invite_token)
         if not invite:
-            raise HTTPException(status_code=404, detail="Geçersiz davet bağlantısı.")
+            raise HTTPException(status_code=404, detail="Invalid invitation link.")
         if invite["used_at"] is not None:
-            raise HTTPException(status_code=410, detail="Bu davet bağlantısı zaten kullanılmış.")
+            raise HTTPException(status_code=410, detail="This invitation link has already been used.")
         if invite["expires_at"] < time.time():
-            raise HTTPException(status_code=410, detail="Davet bağlantısının süresi dolmuş.")
+            raise HTTPException(status_code=410, detail="This invitation link has expired.")
 
         # E-posta kısıtlaması varsa kontrol et
         if invite["email"] and invite["email"] != body.email.lower():
             raise HTTPException(
                 status_code=403,
-                detail=f"Bu davet yalnızca '{invite['email']}' adresine aittir.",
+                detail=f"This invitation is only valid for '{invite['email']}'.",
             )
 
         # Org domain kısıtlaması
         org = await _org_repo.get(invite["org_id"])
         if not org:
-            raise HTTPException(status_code=404, detail="Organizasyon bulunamadı.")
+            raise HTTPException(status_code=404, detail="Organization not found.")
         if org.get("allowed_email_domain"):
             user_domain = body.email.lower().split("@")[-1]
             if user_domain != org["allowed_email_domain"]:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Bu org yalnızca '@{org['allowed_email_domain']}' adreslerine izin veriyor.",
+                    detail=f"This organization only allows email addresses ending with @{org['allowed_email_domain']}.",
                 )
 
         user_row = await _repo.create(
@@ -121,9 +123,9 @@ async def login(body: UserLogin):
     user = await _repo.get_by_email(body.email)
     candidate_hash = user["hashed_password"] if user else _DUMMY_HASH
     if not verify_password(body.password, candidate_hash) or not user:
-        raise HTTPException(status_code=401, detail="Email veya şifre hatalı.")
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
     if not user["is_active"]:
-        raise HTTPException(status_code=403, detail="Hesap devre dışı bırakıldı.")
+        raise HTTPException(status_code=403, detail="This account has been deactivated.")
 
     await _repo.update_last_login(user["id"])
     token = create_access_token(
@@ -147,7 +149,7 @@ async def list_users(current_user: dict = Depends(require_role("owner", "admin")
     """Kendi org'undaki tüm kullanıcıları listeler."""
     org_id = current_user.get("org_id")
     if not org_id:
-        raise HTTPException(status_code=400, detail="Bu hesap bir organizasyona bağlı değil.")
+        raise HTTPException(status_code=400, detail="This account is not linked to an organization.")
     rows = await _repo.list_by_org(org_id)
     return [UserResponse.from_row(r) for r in rows]
 
@@ -159,19 +161,19 @@ async def update_user_role(
     current_user: dict = Depends(require_role("owner", "admin")),
 ):
     if user_id == current_user["id"]:
-        raise HTTPException(status_code=400, detail="Kendi rolünüzü değiştiremezsiniz.")
+        raise HTTPException(status_code=400, detail="You cannot change your own role.")
 
     target = await _repo.get_by_id(user_id)
     if not target:
-        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+        raise HTTPException(status_code=404, detail="User not found.")
 
     # Org izolasyonu — sadece kendi org üyeleri yönetilebilir
     if target.get("org_id") != current_user.get("org_id"):
-        raise HTTPException(status_code=403, detail="Bu kullanıcı farklı bir organizasyona ait.")
+        raise HTTPException(status_code=403, detail="This user belongs to a different organization.")
 
     # Admin, owner rolü atayamaz; sadece owner yapabilir
     if body.role == "owner" and current_user["role"] != "owner":
-        raise HTTPException(status_code=403, detail="Yalnızca owner, başka birine owner rolü verebilir.")
+        raise HTTPException(status_code=403, detail="Only an owner may assign the owner role to another user.")
 
     # Admin, kendisinden üst roldeki birini düşüremez
     target_level = ROLE_HIERARCHY.get(target["role"], 0)
@@ -179,7 +181,7 @@ async def update_user_role(
     if target_level >= current_level and current_user["role"] != "owner":
         raise HTTPException(
             status_code=403,
-            detail="Kendi rolünüzle aynı veya üstündeki bir kullanıcının rolünü değiştiremezsiniz.",
+            detail="You cannot change the role of a user at your level or higher.",
         )
 
     await _repo.update_role(user_id, body.role)
@@ -194,17 +196,17 @@ async def update_user_active(
     current_user: dict = Depends(require_role("owner", "admin")),
 ):
     if user_id == current_user["id"]:
-        raise HTTPException(status_code=400, detail="Kendinizi devre dışı bırakamazsınız.")
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
 
     target = await _repo.get_by_id(user_id)
     if not target:
-        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+        raise HTTPException(status_code=404, detail="User not found.")
     if target.get("org_id") != current_user.get("org_id"):
-        raise HTTPException(status_code=403, detail="Bu kullanıcı farklı bir organizasyona ait.")
+        raise HTTPException(status_code=403, detail="This user belongs to a different organization.")
 
     # Admin, owner'ı devre dışı bırakamaz
     if target["role"] == "owner" and current_user["role"] != "owner":
-        raise HTTPException(status_code=403, detail="Owner hesabını yalnızca owner devre dışı bırakabilir.")
+        raise HTTPException(status_code=403, detail="Only an owner may deactivate another owner.")
 
     await _repo.update_active(user_id, is_active)
     row = await _repo.get_by_id(user_id)
@@ -218,10 +220,10 @@ async def get_my_org(current_user: dict = Depends(get_current_user)):
     """Giriş yapan kullanıcının organizasyon bilgilerini döner."""
     org_id = current_user.get("org_id")
     if not org_id:
-        raise HTTPException(status_code=404, detail="Bu hesap henüz bir organizasyona bağlı değil.")
+        raise HTTPException(status_code=404, detail="This account is not linked to an organization yet.")
     org = await _org_repo.get(org_id)
     if not org:
-        raise HTTPException(status_code=404, detail="Organizasyon bulunamadı.")
+        raise HTTPException(status_code=404, detail="Organization not found.")
     return OrgResponse.from_row(org)
 
 
@@ -233,7 +235,7 @@ async def update_org(
     """Org bilgilerini güncelle — sadece owner."""
     org_id = current_user.get("org_id")
     if not org_id:
-        raise HTTPException(status_code=400, detail="Bu hesap bir organizasyona bağlı değil.")
+        raise HTTPException(status_code=400, detail="This account is not linked to an organization.")
     await _org_repo.update(
         org_id,
         name=body.name,
@@ -241,6 +243,58 @@ async def update_org(
     )
     org = await _org_repo.get(org_id)
     return OrgResponse.from_row(org)
+
+
+@router.post("/org", response_model=Token, status_code=201)
+async def create_org_for_existing_user(
+    body: OrgCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Mevcut kullanıcı için yeni org oluştur — sadece org'suz hesaplar."""
+    if current_user.get("org_id"):
+        raise HTTPException(status_code=400, detail="You are already part of an organization.")
+    user_id = current_user["id"]
+    org = await _org_repo.create(name=body.name, owner_id=user_id)
+    await _repo.set_org(user_id, org["id"])
+    await _repo.update_role(user_id, "owner")
+    user_row = await _repo.get_by_id(user_id)
+    token = create_access_token({"sub": user_row["id"], "role": user_row["role"]})
+    return Token(access_token=token, user=UserResponse.from_row(user_row))
+
+
+@router.post("/org/join", response_model=Token)
+async def join_org_with_invite(
+    body: InviteJoin,
+    current_user: dict = Depends(get_current_user),
+):
+    """Davet tokeni ile mevcut kullanıcıyı bir org'a ekle."""
+    if current_user.get("org_id"):
+        raise HTTPException(status_code=400, detail="You are already part of an organization.")
+    invite = await _inv_repo.get_by_token(body.invite_token)
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invalid invitation link.")
+    if invite["used_at"] is not None:
+        raise HTTPException(status_code=410, detail="This invitation link has already been used.")
+    if invite["expires_at"] < time.time():
+        raise HTTPException(status_code=410, detail="This invitation link has expired.")
+    if invite["email"] and invite["email"] != current_user["email"]:
+        raise HTTPException(status_code=403, detail=f"This invitation is only valid for '{invite['email']}'.")
+    org = await _org_repo.get(invite["org_id"])
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+    if org.get("allowed_email_domain"):
+        user_domain = current_user["email"].lower().split("@")[-1]
+        if user_domain != org["allowed_email_domain"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"This organization only allows @{org['allowed_email_domain']} addresses.",
+            )
+    await _repo.set_org(current_user["id"], invite["org_id"])
+    await _repo.update_role(current_user["id"], invite["role"])
+    await _inv_repo.mark_used(body.invite_token)
+    user_row = await _repo.get_by_id(current_user["id"])
+    token = create_access_token({"sub": user_row["id"], "role": user_row["role"]})
+    return Token(access_token=token, user=UserResponse.from_row(user_row))
 
 
 # ── Davetler ──────────────────────────────────────────────────────────────────
@@ -257,15 +311,15 @@ async def create_invitation(
     """
     org_id = current_user.get("org_id")
     if not org_id:
-        raise HTTPException(status_code=400, detail="Bu hesap bir organizasyona bağlı değil.")
+        raise HTTPException(status_code=400, detail="This account is not linked to an organization.")
 
     # Admin, owner rolünde davet gönderemez
     if body.role == "owner" and current_user["role"] != "owner":
-        raise HTTPException(status_code=403, detail="Yalnızca owner, owner rolünde davet gönderebilir.")
+        raise HTTPException(status_code=403, detail="Only an owner may send invitations for the owner role.")
 
     # Admin sadece kendi rolünün altını davet edebilir
     if current_user["role"] == "admin" and body.role == "admin":
-        raise HTTPException(status_code=403, detail="Admin, başka admin davet edemez; bunun için owner gerekli.")
+        raise HTTPException(status_code=403, detail="Admins cannot invite other admins; an owner must do that.")
 
     invite = await _inv_repo.create(
         org_id=org_id,
@@ -282,7 +336,7 @@ async def list_invitations(current_user: dict = Depends(require_role("owner", "a
     """Org'un tüm davetlerini listeler."""
     org_id = current_user.get("org_id")
     if not org_id:
-        raise HTTPException(status_code=400, detail="Bu hesap bir organizasyona bağlı değil.")
+        raise HTTPException(status_code=400, detail="This account is not linked to an organization.")
     rows = await _inv_repo.list_for_org(org_id)
     return [InviteResponse.from_row(r) for r in rows]
 
@@ -296,9 +350,9 @@ async def revoke_invitation(
     org_id = current_user.get("org_id")
     invite = await _inv_repo.get_by_id(invite_id)
     if not invite or invite["org_id"] != org_id:
-        raise HTTPException(status_code=404, detail="Davet bulunamadı.")
+        raise HTTPException(status_code=404, detail="Invitation not found.")
     if invite.get("used_at"):
-        raise HTTPException(status_code=409, detail="Kullanılmış davetler iptal edilemez.")
+        raise HTTPException(status_code=409, detail="Used invitations cannot be revoked.")
     await _inv_repo.revoke(invite_id)
 
 
@@ -310,10 +364,10 @@ async def preview_invitation(token: str):
     """
     invite = await _inv_repo.get_by_token(token)
     if not invite:
-        raise HTTPException(status_code=404, detail="Geçersiz veya bulunamayan davet bağlantısı.")
+        raise HTTPException(status_code=404, detail="Invalid or unknown invitation link.")
 
     org = await _org_repo.get(invite["org_id"])
-    org_name = org["name"] if org else "Bilinmiyor"
+    org_name = org["name"] if org else "Unknown"
 
     from web.auth.models import ROLE_LABELS
     role = invite.get("role", "viewer")

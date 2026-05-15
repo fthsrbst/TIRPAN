@@ -33,7 +33,7 @@ const Index = () => {
         <div className="flex-1 min-w-0 bg-card/40 rounded-3xl border border-border/50 overflow-hidden">
           <AttackGraph data={bundle.dynamicGraph} />
         </div>
-        <div className="shrink-0 overflow-y-auto"><InsightsPanel data={bundle.insights} /></div>
+        <div className="shrink-0 overflow-y-auto"><InsightsPanel data={bundle.insights} details={bundle.details} sessionId={bundle.sessionId} /></div>
       </div>
 
       {/* Footer */}

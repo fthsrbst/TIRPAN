@@ -304,13 +304,27 @@ class VulnerabilityRepository:
     async def save(self, session_id: str, vuln: dict) -> dict:
         vid = _uid()
         now = _now()
+
+        # ML classification — runs once at save time, result persisted in DB.
+        # get_ml_classifier() returns a pre-loaded singleton (no I/O after startup).
+        ml_cls: dict = {}
+        ml_cls_json: str = ""
+        try:
+            from ml.finding_classifier import get_ml_classifier
+            _clf = get_ml_classifier()
+            if _clf is not None:
+                ml_cls = _clf.predict_finding(vuln)
+                ml_cls_json = json.dumps(ml_cls)
+        except Exception:
+            pass
+
         async with _connect(self._path) as db:
             await db.execute(
                 """INSERT INTO vulnerabilities
                    (id, session_id, title, description, cve_id, cvss_score,
                     exploit_path, exploit_type, platform, service, service_version,
-                    host_ip, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    host_ip, ml_cls_json, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     vid,
                     session_id,
@@ -324,11 +338,15 @@ class VulnerabilityRepository:
                     vuln.get("service", ""),
                     vuln.get("service_version", ""),
                     vuln.get("host_ip", ""),
+                    ml_cls_json,
                     now,
                 ),
             )
             await db.commit()
-        return {**vuln, "id": vid, "session_id": session_id, "created_at": now}
+        result = {**vuln, "id": vid, "session_id": session_id, "created_at": now}
+        if ml_cls:
+            result["_cls"] = ml_cls
+        return result
 
     async def get_for_session(self, session_id: str, before: float | None = None) -> list[dict]:
         if before is not None:
@@ -339,7 +357,17 @@ class VulnerabilityRepository:
             params = (session_id,)
         async with _connect(self._path) as db, db.execute(query, params) as cur:
             rows = await cur.fetchall()
-        return [dict(r) for r in rows]
+        results = []
+        for row in rows:
+            r = dict(row)
+            _ml_raw = r.pop("ml_cls_json", "") or ""
+            if _ml_raw:
+                try:
+                    r["_cls"] = json.loads(_ml_raw)
+                except Exception:
+                    pass
+            results.append(r)
+        return results
 
     async def get_by_min_cvss(self, session_id: str, min_cvss: float) -> list[dict]:
         """Return vulnerabilities with cvss_score >= min_cvss, sorted high-first."""
@@ -386,12 +414,33 @@ class ExploitResultRepository:
     async def save(self, session_id: str, result: dict) -> dict:
         rid = _uid()
         now = _now()
+
+        # ML exploit success probability — computed once at save time.
+        # IMPORTANT: do NOT include result["output"] — it contains post-execution text
+        # ("Meterpreter session opened", flags, etc.) which leaks the ground truth
+        # label and pushes every successful exploit to 100%.  Use only pre-execution
+        # metadata: module name, exploit type, platform, CVSS.
+        ml_prob: float = -1.0
+        try:
+            from ml.exploit_predictor import get_exploit_predictor
+            _pred = get_exploit_predictor()
+            if _pred is not None:
+                ml_prob = _pred.predict_proba(
+                    description=str(result.get("module", "")),
+                    exploit_type=str(result.get("exploit_type", "remote")),
+                    platform=str(result.get("platform", "")),
+                    cvss_score=float(result.get("cvss_score", 0.0)),
+                    attack_vector=str(result.get("attack_vector", "")),
+                )
+        except Exception:
+            pass
+
         async with _connect(self._path) as db:
             await db.execute(
                 """INSERT INTO exploit_results
                    (id, session_id, host_ip, port, module, payload,
-                    success, session_opened, output, error, poc_output, source_ip, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    success, session_opened, output, error, poc_output, source_ip, ml_success_prob, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     rid,
                     session_id,
@@ -405,11 +454,15 @@ class ExploitResultRepository:
                     result.get("error", ""),
                     result.get("poc_output", ""),
                     result.get("source_ip", ""),
+                    ml_prob,
                     now,
                 ),
             )
             await db.commit()
-        return {**result, "id": rid, "session_id": session_id, "created_at": now}
+        out = {**result, "id": rid, "session_id": session_id, "created_at": now}
+        if ml_prob >= 0:
+            out["ml_success_prob"] = ml_prob
+        return out
 
     async def get_for_session(self, session_id: str, before: float | None = None) -> list[dict]:
         if before is not None:

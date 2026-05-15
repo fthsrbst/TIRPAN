@@ -9,10 +9,17 @@ export type WSMessage = {
   [key: string]: any;
 };
 
-export function useWebSocket(_url?: string) {
+export type UseWebSocketOptions = {
+  /** Her JSON mesajında çağrılır (terminal stream gibi yüksek frekanslı akışlar için). */
+  onMessage?: (msg: WSMessage) => void;
+};
+
+export function useWebSocket(_url?: string, options?: UseWebSocketOptions) {
   const ws = useRef<WebSocket | null>(null);
   const [ready, setReady] = useState(false);
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null);
+  const onMessageRef = useRef(options?.onMessage);
+  onMessageRef.current = options?.onMessage;
 
   useEffect(() => {
     const demo = (() => { try { return localStorage.getItem("tirpan_demo") === "1"; } catch { return false; } })();
@@ -30,10 +37,13 @@ export function useWebSocket(_url?: string) {
     };
     socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = JSON.parse(event.data) as WSMessage;
         setLastMessage(data);
+        onMessageRef.current?.(data);
       } catch {
-        setLastMessage({ type: "raw", content: event.data });
+        const raw = { type: "raw", content: event.data } as WSMessage;
+        setLastMessage(raw);
+        onMessageRef.current?.(raw);
       }
     };
 
