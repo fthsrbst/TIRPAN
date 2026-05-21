@@ -12398,6 +12398,10 @@ function applyRBACVisibility() {
     const inviteBtn = document.getElementById('team-invite-btn');
     if (inviteBtn) inviteBtn.classList.toggle('hidden', !isAdminOrOwner);
 
+    // ── Branding section (config view) — admin/owner only ─────────────────
+    const brandingSection = document.getElementById('cfg-branding-section');
+    if (brandingSection) brandingSection.classList.toggle('hidden', !isAdminOrOwner);
+
     // Update user badge with role color
     _rbacUpdateBadge();
 }

@@ -649,6 +649,260 @@ def _parse_exploitdb_row(row: dict) -> dict | None:
 # multi-label target to a curated list of TTPs that are both common in pentest
 # engagements AND have enough training examples in the merged dataset.
 
+# ── Curated Metasploit module catalog (ground truth for exploit success) ──────
+#
+# Real-world exploit success is heavily bimodal:
+#  - A small set of "trophy" modules (vsftpd backdoor, ms17_010, samba usermap,
+#    distcc_exec, unrealircd backdoor, ms08_067…) hits ~90%+ of the time in a
+#    pentest lab and ~50-70% in real engagements.
+#  - Most EDB entries are PoC code that requires a specific build, a specific
+#    config, or has bit-rotted entirely. Real-world success ≈ 5-15%.
+#
+# Public datasets (KEV, EPSS) tell us *whether a CVE is exploited*, not *whether
+# the exploit framework module is reliable*. The two signals are correlated but
+# not identical — Log4Shell is in KEV but the public modules need a callback
+# host setup; vsftpd 234 backdoor isn't in KEV (too old) but the module is
+# rock-solid. So we maintain a curated module-reliability catalog as a third,
+# independent label signal alongside KEV and EPSS.
+#
+# Tier semantics (mirrors Metasploit's "Rank" field):
+#   "excellent" → 0.92 — rock-solid in lab, ~75%+ in real engagements
+#   "great"     → 0.80 — reliable on matching versions
+#   "good"      → 0.62 — works when environment matches
+#   "normal"    → 0.42 — works ~50% of time, version-sensitive
+#   "average"   → 0.30 — works only with specific configurations
+#   "low"       → 0.15 — works rarely; mostly DoS / unstable
+#   "manual"    → 0.08 — requires significant setup or PoC-only
+#
+# Binary label: tier ≥ "good" → 1, else → 0.
+
+_MSF_MODULE_CATALOG: dict[str, tuple[str, str, str]] = {
+    # ── Linux/Unix remote — trophy tier ───────────────────────────────────────
+    "exploit/unix/ftp/vsftpd_234_backdoor":              ("excellent", "remote",  "linux"),
+    "exploit/multi/samba/usermap_script":                ("excellent", "remote",  "linux"),
+    "exploit/unix/irc/unreal_ircd_3281_backdoor":        ("excellent", "remote",  "linux"),
+    "exploit/unix/misc/distcc_exec":                     ("excellent", "remote",  "linux"),
+    "exploit/linux/misc/jenkins_ldap_deserialize":       ("great",     "remote",  "linux"),
+    "exploit/multi/http/jenkins_script_console":         ("great",     "remote",  "multi"),
+    "exploit/linux/http/laravel_token_unserialize_exec": ("great",     "remote",  "linux"),
+    "exploit/multi/elasticsearch/script_mvel_rce":       ("great",     "remote",  "multi"),
+    "exploit/multi/elasticsearch/search_groovy_script":  ("great",     "remote",  "multi"),
+    "exploit/linux/http/apache_couchdb_cmd_exec":        ("good",      "remote",  "linux"),
+    "exploit/linux/http/atutor_filemanager_traversal":   ("normal",    "webapps", "linux"),
+    "exploit/linux/redis/redis_replication_cmd_exec":    ("great",     "remote",  "linux"),
+    "exploit/linux/postgres/postgres_copy_from_program_cmd_exec": ("great", "remote", "linux"),
+    "exploit/linux/http/exim_gethostbyname_bof":         ("good",      "remote",  "linux"),
+    "exploit/multi/misc/java_rmi_server":                ("excellent", "remote",  "multi"),
+    "exploit/multi/misc/erlang_cookie_rce":              ("good",      "remote",  "multi"),
+    # ── Windows remote — trophy tier ──────────────────────────────────────────
+    "exploit/windows/smb/ms17_010_eternalblue":          ("great",     "remote",  "windows"),
+    "exploit/windows/smb/ms17_010_psexec":               ("great",     "remote",  "windows"),
+    "exploit/windows/smb/ms08_067_netapi":               ("great",     "remote",  "windows"),
+    "exploit/windows/smb/ms06_040_netapi":               ("good",      "remote",  "windows"),
+    "exploit/windows/smb/ms09_050_smb2_negotiate_func_index": ("good", "remote",  "windows"),
+    "exploit/windows/smb/psexec":                        ("excellent", "remote",  "windows"),
+    "exploit/windows/smb/psexec_psh":                    ("excellent", "remote",  "windows"),
+    "exploit/windows/rdp/cve_2019_0708_bluekeep_rce":    ("normal",    "remote",  "windows"),
+    "exploit/windows/dcerpc/ms03_026_dcom":              ("great",     "remote",  "windows"),
+    "exploit/windows/iis/ms03_007_ntdll_webdav":         ("good",      "remote",  "windows"),
+    "exploit/windows/http/iis_webdav_scstoragepathfromurl": ("good",   "remote",  "windows"),
+    "exploit/windows/http/exchange_proxylogon_rce":      ("great",     "remote",  "windows"),
+    "exploit/windows/http/exchange_proxyshell_rce":      ("great",     "remote",  "windows"),
+    "exploit/windows/winrm/winrm_script_exec":           ("great",     "remote",  "windows"),
+    "exploit/windows/mssql/mssql_payload":               ("good",      "remote",  "windows"),
+    # ── Multi-platform web/application exploits ──────────────────────────────
+    "exploit/multi/http/struts2_content_type_ognl":      ("great",     "remote",  "multi"),
+    "exploit/multi/http/struts_default_action_mapper":   ("great",     "remote",  "multi"),
+    "exploit/multi/http/struts2_namespace_ognl":         ("great",     "remote",  "multi"),
+    "exploit/multi/http/apache_normalize_path_rce":      ("great",     "remote",  "multi"),
+    "exploit/multi/http/log4shell_header_injection":     ("normal",    "remote",  "multi"),
+    "exploit/multi/http/spring4shell_data_binding_rce":  ("good",      "remote",  "multi"),
+    "exploit/multi/http/tomcat_mgr_upload":              ("great",     "remote",  "multi"),
+    "exploit/multi/http/tomcat_mgr_deploy":              ("great",     "remote",  "multi"),
+    "exploit/multi/http/tomcat_jsp_upload_bypass":       ("good",      "remote",  "multi"),
+    "exploit/multi/http/jboss_invoke_deploy":            ("good",      "remote",  "multi"),
+    "exploit/multi/http/jboss_deploymentfilerepository": ("good",      "remote",  "multi"),
+    "exploit/multi/http/glassfish_deployer":             ("good",      "remote",  "multi"),
+    "exploit/multi/http/coldfusion_rds":                 ("good",      "remote",  "multi"),
+    "exploit/multi/http/wp_plugin_simple_file_list_rce": ("good",      "webapps", "multi"),
+    "exploit/multi/http/joomla_http_header_rce":         ("good",      "webapps", "multi"),
+    "exploit/multi/http/drupal_drupalgeddon2":           ("excellent", "webapps", "multi"),
+    "exploit/multi/http/drupal_drupalgeddon3":           ("good",      "webapps", "multi"),
+    "exploit/multi/http/phpmyadmin_lfi_rce":             ("good",      "webapps", "multi"),
+    "exploit/multi/http/phpmyadmin_preg_replace":        ("good",      "webapps", "multi"),
+    "exploit/multi/http/webmin_show_cgi_exec":           ("good",      "webapps", "multi"),
+    "exploit/multi/http/php_cgi_arg_injection":          ("great",     "webapps", "multi"),
+    "exploit/multi/http/wp_admin_shell_upload":          ("excellent", "webapps", "multi"),
+    "exploit/multi/http/gitlab_exif_rce":                ("good",      "remote",  "multi"),
+    "exploit/multi/http/jenkins_metaprogramming":        ("great",     "remote",  "multi"),
+    # ── Database services ─────────────────────────────────────────────────────
+    "exploit/linux/mysql/mysql_yassl_getname":           ("good",      "remote",  "linux"),
+    "exploit/windows/mysql/mysql_yassl_hello":           ("good",      "remote",  "windows"),
+    "exploit/linux/postgres/postgres_payload":           ("great",     "remote",  "linux"),
+    "exploit/windows/postgres/postgres_payload":         ("great",     "remote",  "windows"),
+    "exploit/windows/mssql/mssql_payload_sqli":          ("great",     "remote",  "windows"),
+    "exploit/multi/postgres/postgres_createlang":        ("good",      "remote",  "multi"),
+    # ── Mail services ─────────────────────────────────────────────────────────
+    "exploit/unix/smtp/exim_gethostbyname_bof":          ("good",      "remote",  "linux"),
+    "exploit/linux/smtp/haraka":                         ("good",      "remote",  "linux"),
+    # ── Local privilege escalation (lower base reliability) ───────────────────
+    "exploit/linux/local/dirty_cow":                     ("good",      "local",   "linux"),
+    "exploit/linux/local/dirtypipe":                     ("good",      "local",   "linux"),
+    "exploit/linux/local/cve_2022_0847_dirtypipe":       ("great",     "local",   "linux"),
+    "exploit/linux/local/sudo_baron_samedit":            ("good",      "local",   "linux"),
+    "exploit/linux/local/cve_2021_4034_pwnkit_lpe_pkexec": ("excellent", "local", "linux"),
+    "exploit/linux/local/cve_2021_3493_overlayfs":       ("good",      "local",   "linux"),
+    "exploit/linux/local/cve_2022_2588_route4_filter_uaf": ("normal",  "local",   "linux"),
+    "exploit/linux/local/overlayfs_priv_esc":            ("normal",    "local",   "linux"),
+    "exploit/linux/local/ubuntu_overlayfs_priv_esc":     ("normal",    "local",   "linux"),
+    "exploit/windows/local/ms16_032_secondary_logon_handle_privesc": ("good", "local", "windows"),
+    "exploit/windows/local/ms16_075_reflection":         ("normal",    "local",   "windows"),
+    "exploit/windows/local/bypassuac":                   ("normal",    "local",   "windows"),
+    "exploit/windows/local/bypassuac_eventvwr":          ("good",      "local",   "windows"),
+    "exploit/windows/local/bypassuac_fodhelper":         ("good",      "local",   "windows"),
+    "exploit/windows/local/cve_2020_1472_zerologon":     ("excellent", "local",   "windows"),
+    "exploit/windows/local/cve_2021_34527_printnightmare": ("good",    "local",   "windows"),
+    "exploit/windows/local/ntusermndragover":            ("normal",    "local",   "windows"),
+    # ── DoS modules (always low — shell vermez) ───────────────────────────────
+    "exploit/windows/dos/ms12_020_maxchannelids":        ("manual",    "dos",     "windows"),
+    "exploit/windows/dos/ms15_034_ulonglongadd":         ("manual",    "dos",     "windows"),
+    "exploit/windows/dos/ms17_010_smb_dos":              ("manual",    "dos",     "windows"),
+    "exploit/linux/dos/nginx_dos":                       ("manual",    "dos",     "linux"),
+    "exploit/multi/dos/apache_range_dos":                ("manual",    "dos",     "multi"),
+    "auxiliary/dos/http/slowloris":                      ("low",       "dos",     "multi"),
+    "auxiliary/dos/tcp/synflood":                        ("low",       "dos",     "multi"),
+    "auxiliary/dos/windows/smb/ms10_006_negotiate_response_loop": ("manual", "dos", "windows"),
+    # ── Handler / non-exploit modules (always 0) ──────────────────────────────
+    "exploit/multi/handler":                             ("manual",    "remote",  "multi"),
+    "auxiliary/scanner/portscan/tcp":                    ("manual",    "remote",  "multi"),
+    "auxiliary/scanner/smb/smb_login":                   ("low",       "remote",  "multi"),
+    "auxiliary/scanner/ssh/ssh_login":                   ("low",       "remote",  "multi"),
+    # ── Brute-force aux modules (low, depends entirely on creds) ──────────────
+    "auxiliary/scanner/http/tomcat_mgr_login":           ("low",       "remote",  "multi"),
+    "auxiliary/scanner/mysql/mysql_login":               ("low",       "remote",  "multi"),
+    "auxiliary/scanner/postgres/postgres_login":         ("low",       "remote",  "multi"),
+    "auxiliary/scanner/vnc/vnc_login":                   ("low",       "remote",  "multi"),
+    # ── Service backdoor / specialized ────────────────────────────────────────
+    "exploit/multi/http/git_client_command_exec":        ("good",      "remote",  "multi"),
+    "exploit/multi/http/rocketmq_broker_unauth":         ("good",      "remote",  "multi"),
+    "exploit/unix/webapp/php_eval":                      ("good",      "webapps", "linux"),
+    "exploit/unix/webapp/php_include":                   ("good",      "webapps", "linux"),
+    "exploit/multi/svn/svnserve_date":                   ("normal",    "remote",  "multi"),
+    "exploit/multi/misc/openview_omniback_exec":         ("normal",    "remote",  "multi"),
+    "exploit/multi/misc/zenoss_showdaemonxmlconfig_exec": ("normal",   "remote",  "multi"),
+    # ── Bind shells / direct shells (immediate session, very reliable) ───────
+    "exploit/multi/misc/ingreslock":                     ("excellent", "remote",  "linux"),
+    # ── Older but reliable Windows ────────────────────────────────────────────
+    "exploit/windows/dcerpc/ms05_017_msmq":              ("good",      "remote",  "windows"),
+    "exploit/windows/iis/ms01_026_dbldecode":            ("good",      "remote",  "windows"),
+    "exploit/windows/wins/ms04_045_wins":                ("good",      "remote",  "windows"),
+    # ── Misc commonly seen on CTFs / pentest labs ────────────────────────────
+    "exploit/unix/webapp/wp_ajax_load_more_file_upload": ("good",      "webapps", "linux"),
+    "exploit/multi/http/wp_responsive_thumbnail_slider_upload": ("good", "webapps", "multi"),
+    "exploit/multi/http/oscommerce_installer_unauth_code_exec": ("good", "webapps", "multi"),
+    # ── Manual-rank / lab-only modules (clearly unreliable) ──────────────────
+    "exploit/windows/smb/ms17_010_psexec_local":         ("manual",    "local",   "windows"),
+    "exploit/windows/local/cve_2019_0708_bluekeep_rce_local": ("manual", "local", "windows"),
+    "exploit/multi/misc/legend_bot_exec":                ("manual",    "remote",  "multi"),
+}
+
+
+# Map tier → reliability score (used as soft target / calibration anchor)
+_TIER_TO_SCORE: dict[str, float] = {
+    "excellent": 0.92,
+    "great":     0.80,
+    "good":      0.62,
+    "normal":    0.42,
+    "average":   0.30,
+    "low":       0.15,
+    "manual":    0.08,
+}
+
+# Tier is success if >= "good"; else failure
+_SUCCESS_TIERS = {"excellent", "great", "good"}
+
+
+def load_msf_catalog() -> list[dict]:
+    """Return list of curated Metasploit modules with tier-based labels."""
+    rows: list[dict] = []
+    for module, (tier, etype, plat) in _MSF_MODULE_CATALOG.items():
+        rows.append({
+            "module":        module,
+            "description":   module,  # module path itself is the text feature
+            "exploit_type":  etype,
+            "platform":      plat,
+            "cvss_score":    _cvss_for_tier(tier, etype),
+            "attack_vector": "LOCAL" if etype == "local" else "NETWORK",
+            "epss_score":    0.0,
+            "in_kev":        0,
+            "has_msf_module": 1,
+            "verified":      1,
+            "tier":          tier,
+            "tier_score":    _TIER_TO_SCORE[tier],
+            "success_label": 1 if tier in _SUCCESS_TIERS else 0,
+            "source":        "msf_catalog",
+        })
+    logger.info("MSF catalog: %d curated modules (%d positive, %d negative)",
+                len(rows),
+                sum(1 for r in rows if r["success_label"] == 1),
+                sum(1 for r in rows if r["success_label"] == 0))
+    return rows
+
+
+def _cvss_for_tier(tier: str, etype: str) -> float:
+    """Plausible CVSS for a curated module (used as feature, not label)."""
+    if tier == "excellent": return 9.5
+    if tier == "great":     return 9.0
+    if tier == "good":      return 8.0
+    if tier == "normal":    return 7.0
+    if tier == "average":   return 6.0
+    if etype == "dos":      return 5.5
+    return 4.5
+
+
+# ── Module path feature extraction ────────────────────────────────────────────
+
+_MODULE_PATH_TOKENS = frozenset({
+    # Reliability signals embedded in the module path itself
+    "backdoor", "usermap", "psexec", "exec", "rce", "payload",
+    "deserialize", "deserial", "unserialize", "eval", "include",
+    "upload", "shell_upload", "command", "cmd", "ognl",
+    # Anti-signals
+    "dos", "scanner", "handler", "login", "brute", "fuzz",
+    "local", "privesc", "manual", "auxiliary",
+    # Known-good keywords
+    "vsftpd", "samba", "ms17_010", "ms08_067", "eternalblue",
+    "drupalgeddon", "log4shell", "spring4shell", "proxyshell",
+    "proxylogon", "zerologon", "printnightmare", "pwnkit",
+    "dirtypipe", "dirty_cow", "bluekeep", "unrealircd",
+    "distcc", "struts", "tomcat", "jboss", "ingreslock",
+})
+
+
+def extract_module_tokens(module_path: str) -> str:
+    """
+    Turn a module path like 'exploit/unix/ftp/vsftpd_234_backdoor' into a
+    token-rich text feature: 'unix ftp vsftpd 234 backdoor vsftpd backdoor'.
+    Includes both the raw tokens AND duplicates of known-signal tokens so
+    they get higher TF-IDF weight.
+    """
+    if not module_path:
+        return ""
+    tokens = re.split(r"[/_\-\.]+", module_path.lower())
+    tokens = [t for t in tokens if t and t not in ("exploit", "auxiliary", "post")]
+    # Duplicate signal tokens to boost TF-IDF weight
+    boosted = list(tokens)
+    for t in tokens:
+        if t in _MODULE_PATH_TOKENS:
+            boosted.extend([t, t])  # x3 total
+    return " ".join(boosted)
+
+
+# ── Top-K TTP filter (for finding classifier multi-label target) ──────────────
+# 858 TTP classes with 858 samples = no chance to learn. We restrict the
+# multi-label target to a curated list of TTPs that are both common in pentest
+# engagements AND have enough training examples in the merged dataset.
+
 _PENTEST_TOP_TTPS = [
     # Initial access / execution
     "T1190", "T1133", "T1078", "T1059", "T1059.001", "T1059.003", "T1059.004",
@@ -840,51 +1094,87 @@ def build_training_df(cache_dir: str | Path = "ml/data"):
     finding_df["text"] = finding_df["text"].astype(str).str[:1000]
 
     # ── Exploit DataFrame ──────────────────────────────────────────────────
-    # Label sources (INDEPENDENT of the model's text features):
-    #   1. KEV match (cve_ids ∩ kev_cves) → strong positive
-    #   2. EPSS ≥ 0.5 on any linked CVE → positive
-    #   3. EDB verified=1 AND has_msf_module → positive
-    #   4. EDB verified=1 (no MSF) → soft positive (depends on type)
-    #   5. else → negative
+    # Label rules (strict — eliminates false-positive bias):
+    #
+    #   Curated MSF catalog (tier ≥ "good")        → 1
+    #   Curated MSF catalog (tier ≤ "average")     → 0   (DoS, handler, brute aux, manual)
+    #   etype == "dos"                             → 0   (cannot yield a shell)
+    #   etype == "shellcode" / file-format-only    → 0
+    #   KEV ∩ verified MSF                         → 1
+    #   EPSS ≥ 0.7 AND verified MSF                → 1
+    #   EPSS ≥ 0.85 alone                          → 1
+    #   else                                       → 0
+    #
+    # We deliberately drop soft positives (EPSS 0.1-0.5 + remote + verified)
+    # that an earlier version used — they were the main source of the
+    # "high score on failed exploits" bias because ~30% of remote PoCs ended
+    # up labeled success despite being version-locked or environment-specific.
     exploit_rows: list[dict] = []
 
-    # From EDB
+    # 1. Curated MSF catalog — ground-truth labels from module reliability tier
+    catalog_rows = load_msf_catalog()
+    catalog_modules: set[str] = set()
+    for r in catalog_rows:
+        module = r["module"]
+        catalog_modules.add(module)
+        text = f"{module} {extract_module_tokens(module)}"
+        exploit_rows.append({
+            "text":          text,
+            "module_path":   module,
+            "exploit_type":  r["exploit_type"],
+            "platform":      r["platform"],
+            "cvss_score":    r["cvss_score"],
+            "attack_vector": r["attack_vector"],
+            "epss_score":    r["epss_score"],
+            "in_kev":        r["in_kev"],
+            "has_msf_module": r["has_msf_module"],
+            "verified":      r["verified"],
+            "tier_score":    r["tier_score"],
+            "success_label": r["success_label"],
+            "source":        "msf_catalog",
+        })
+
+    # 2. EDB rows — strict label rules
     for r in exploitdb_records:
         any_kev = any(c in kev_cves for c in r["cve_ids"])
         max_epss = max((epss_scores.get(c, 0.0) for c in r["cve_ids"]), default=0.0)
         has_msf = bool(r["has_msf_module"])
         verified = bool(r["verified"])
+        etype = r["exploit_type"]
 
-        # Strong real-world signals (verified=true label, indep. of description)
-        if any_kev or max_epss >= 0.7:
-            success = 1
-        elif verified and has_msf:
-            success = 1
-        elif verified and r["exploit_type"] in ("remote", "webapps") and max_epss >= 0.2:
-            success = 1
-        elif not verified and r["exploit_type"] in ("dos", "local"):
+        # Hard negatives (cannot yield a shell)
+        if etype in ("dos", "shellcode", "tool"):
             success = 0
-        elif not verified:
-            success = 0
+        # Hard positives — KEV + verified MSF, or very-high EPSS, or KEV + EDB verified
+        elif any_kev and verified:
+            success = 1
+        elif max_epss >= 0.85:
+            success = 1
+        elif any_kev and has_msf:
+            success = 1
+        elif max_epss >= 0.7 and verified and etype in ("remote", "webapps"):
+            success = 1
         else:
-            # verified=true but no MSF, no EPSS hit, and remote/webapps:
-            # too risky to call a positive — most are PoC code requiring rare conditions.
+            # Everything else: PoC quality, environment-specific, untrusted
             success = 0
 
         exploit_rows.append({
-            "text": r["description"],
-            "exploit_type": r["exploit_type"],
-            "platform": r["platform"],
-            "cvss_score": r["cvss_score"],
+            "text":          (r["description"] + " ").lower()[:500],
+            "module_path":   "",
+            "exploit_type":  etype,
+            "platform":      r["platform"],
+            "cvss_score":    r["cvss_score"],
             "attack_vector": r["attack_vector"],
-            "epss_score": float(max_epss),
-            "in_kev": int(any_kev),
+            "epss_score":    float(max_epss),
+            "in_kev":        int(any_kev),
             "has_msf_module": int(has_msf),
-            "verified": int(verified),
+            "verified":      int(verified),
+            "tier_score":    0.0,
             "success_label": success,
+            "source":        "edb",
         })
 
-    # From NVD (broader CVE coverage)
+    # 3. NVD rows — strict label rules (used as additional negatives + KEV positives)
     for r in nvd_records:
         cve = r["cve_id"]
         in_kev = cve in kev_cves
@@ -892,29 +1182,32 @@ def build_training_df(cache_dir: str | Path = "ml/data"):
         is_net = r["attack_vector"] in ("NETWORK", "ADJACENT_NETWORK")
         etype = "remote" if is_net else "local"
 
-        # Real-world label: KEV or high EPSS
+        # KEV alone is a strong real-world signal; EPSS ≥ 0.85 = high real-world likelihood
         if in_kev:
             success = 1
-        elif epss >= 0.6:
-            success = 1
-        elif epss >= 0.1 and r["cvss_score"] >= 8.0 and is_net:
-            # Mid-EPSS network-vector high-CVSS = plausible but unproven
-            # Keep as soft positive
+        elif epss >= 0.85:
             success = 1
         else:
+            # All other CVEs without strong real-world signal = negative.
+            # We deliberately drop the soft positive (EPSS 0.1-0.6 + CVSS ≥ 8)
+            # an earlier version used — it caused the model to label every
+            # high-CVSS remote CVE as success.
             success = 0
 
         exploit_rows.append({
-            "text": r["description"],
-            "exploit_type": etype,
-            "platform": "",
-            "cvss_score": r["cvss_score"],
+            "text":          r["description"].lower()[:500],
+            "module_path":   "",
+            "exploit_type":  etype,
+            "platform":      "",
+            "cvss_score":    r["cvss_score"],
             "attack_vector": r["attack_vector"],
-            "epss_score": float(epss),
-            "in_kev": int(in_kev),
-            "has_msf_module": 0,  # NVD doesn't link MSF
-            "verified": 0,
+            "epss_score":    float(epss),
+            "in_kev":        int(in_kev),
+            "has_msf_module": 0,
+            "verified":      0,
+            "tier_score":    0.0,
             "success_label": success,
+            "source":        "nvd",
         })
 
     exploit_df = pd.DataFrame(exploit_rows)
@@ -922,8 +1215,10 @@ def build_training_df(cache_dir: str | Path = "ml/data"):
     exploit_df["text"] = exploit_df["text"].astype(str).str[:500]
 
     n_pos = int(exploit_df["success_label"].sum())
+    by_source = exploit_df.groupby("source")["success_label"].agg(["sum", "count"]).to_dict()
     logger.info(
         "Built DataFrames: finding=%d rows, exploit=%d rows (success=%d, fail=%d)",
         len(finding_df), len(exploit_df), n_pos, len(exploit_df) - n_pos,
     )
+    logger.info("Exploit DF by source: %s", by_source)
     return finding_df, exploit_df, attack_data

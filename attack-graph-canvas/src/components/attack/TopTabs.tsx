@@ -322,7 +322,7 @@ export const TopTabs = () => {
           <ThemeToggle />
         </div>
 
-        {token && (
+        {perms.isAnalyst && (
           <a
             href="/"
             className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"

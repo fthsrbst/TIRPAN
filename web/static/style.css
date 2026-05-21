@@ -196,6 +196,19 @@ html.light #theme-toggle-icon {
     color: #18181b !important;
 }
 
+html.light #normal-mode-link {
+    background-color: #e4e4e7 !important;
+    border-color: #d4d4d8 !important;
+}
+
+html.light #normal-mode-link .material-symbols-outlined {
+    color: #18181b !important;
+}
+
+html.light #normal-mode-link span.text-secondary-text {
+    color: #2a2a2a !important;
+}
+
 html.light .hover\:bg-white\/5:hover {
     background-color: rgba(0,0,0,0.05) !important;
 }

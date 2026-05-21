@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageShell } from "@/components/attack/PageShell";
+import { Timeline } from "@/components/attack/Timeline";
 import { ListFilterToolbar, type FilterChipModel } from "@/components/attack/ListFilterToolbar";
 import { toggleInSet } from "@/lib/utils";
 import { useSessionBundle } from "@/hooks/useAttackGraphData";
@@ -231,8 +232,8 @@ function EventRow({ ev }: { ev: AgentEvent }) {
 }
 
 export default function ExpertLogPage() {
-  const bundle = useSessionBundle();
   const [searchParams] = useSearchParams();
+  const [manualSid, setManualSid] = useState<string>("");
 
   const { data: sessions = [] } = useQuery<SessionInfo[]>({
     queryKey: ["sessions"],
@@ -240,7 +241,7 @@ export default function ExpertLogPage() {
     refetchInterval: 10000,
   });
 
-  const [manualSid, setManualSid] = useState<string>("");
+  const bundle = useSessionBundle(null, manualSid || undefined);
   const effectiveSid = manualSid || bundle.sessionId;
 
   const { data: eventsRaw, isLoading, refetch } = useQuery({
@@ -424,6 +425,14 @@ export default function ExpertLogPage() {
     <PageShell
       title="Expert Log"
       subtitle={`${currentSession?.target || bundle.dynamicGraph.target || "No active session"} · ${mm}:${ss} elapsed`}
+      timeline={
+        <Timeline
+          data={bundle.timeline}
+          sessionId={effectiveSid}
+          isRunning={bundle.dynamicGraph.isRunning}
+          target={currentSession?.target || bundle.dynamicGraph.target}
+        />
+      }
     >
       <div className="flex flex-col h-full gap-3 min-h-0">
         <div className="shrink-0 node-card !p-2.5">

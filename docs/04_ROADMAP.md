@@ -16,16 +16,10 @@ V1 (Complete):
   3 tools, plugin system ready, solid foundation.
   Fully working web UI, real-time streaming, reports.
 
-V2 (In Development):
-  Multi-agent architecture. Brain + 8 specialized agents.
-  50+ tools. Shell persistence. Post-exploitation depth.
+V2 (Implemented):
+  Multi-agent architecture. Brain + 7 specialized agents.
+  33 tools. Shell persistence. Post-exploitation depth.
   Parallel execution. OSINT. Web app testing. Lateral movement.
-
-V3 (Future):
-  Docker-isolated tool execution.
-  Source code analysis, zero-day discovery.
-  LLM-generated custom exploits.
-  Bug bounty integration, CI/CD pipelines.
 ```
 
 ---
@@ -56,25 +50,32 @@ V3 (Future):
 
 ### V1 Scope Boundaries
 
-- Network-level attacks only — no web app scanning
-- Single agent — no parallel execution
-- Shells opened but not maintained (no Shell Manager)
-- No OSINT, no post-exploitation depth, no lateral movement
-- Plugin system ready but `/plugins/` is empty in V1
+- Network-level attacks — 33 tools available (all categories)
+- Single agent mode available; multi-agent mode also supported
+- Shell sessions managed via ShellManager (persistent)
+- Web app, OSINT, post-exploitation, lateral movement all available
+- Plugin system ready but `plugins/` is empty (tools ship in `tools/`)
+- Defense module, ML pipeline, React SPA, training data pipeline available
 
-### V1 Tool List
+### V1 Tool List (33 tools registered)
 
-| Tool | File | Category |
-|---|---|---|
-| `nmap_scan` | `tools/nmap_tool.py` | recon |
-| `searchsploit_search` | `tools/searchsploit_tool.py` | exploit-search |
-| `metasploit_run` | `tools/metasploit_tool.py` | exploit-exec |
+| Category | Tools |
+|---|---|
+| recon | nmap, masscan, smb_enum, telnet_probe, ssh_exec |
+| osint | theharvester, subfinder, whois, dns |
+| web | whatweb, nikto, nuclei, ffuf, gobuster, arjun, sqlmap, wpscan, commix |
+| exploit | searchsploit, metasploit, rsh, distcc, webdav |
+| post-exploit | shell_exec, local_exec |
+| lateral | crackmapexec, impacket |
+| cracking | hydra, hashcat, john |
+| reporting | generate_report, report_finding |
+| other | ddos |
 
 ---
 
 ## V2 — Multi-Agent Architecture
 
-**Status: 🔨 Design complete, implementation starting**
+**Status: 🔄 Mostly implemented — 6 phases substantially complete**
 
 ### Core Architecture Change
 
@@ -101,14 +102,14 @@ Full spec: [11_MULTI_AGENT_SPEC.md](11_MULTI_AGENT_SPEC.md)
 
 **Goal:** Core infrastructure for multi-agent coordination
 
-- [ ] `BaseAgent` abstract class — shared LLM loop, event emission, message handling
-- [ ] `MissionContext` — shared mission state, read by all agents, written only by Brain
-- [ ] `AgentMessageBus` — async pub/sub for inter-agent communication
-- [ ] `BrainAgent` — spawn/wait/decide loop, LLM-based coordination
-- [ ] Migrate `PentestAgent` to `BaseAgent` (preserve V1 compatibility)
-- [ ] New DB tables: `agent_instances`, `agent_messages`, `mission_phases`
-- [ ] New API endpoints: agent management, mission context
-- [ ] New WebSocket events: `agent_spawned`, `agent_message`, `agent_done`
+- [x] `BaseAgent` abstract class — shared LLM loop, event emission, message handling
+- [x] `MissionContext` — shared mission state, read by all agents, written only by Brain
+- [x] `AgentMessageBus` — async pub/sub for inter-agent communication
+- [x] `BrainAgent` — spawn/wait/decide loop, LLM-based coordination
+- [x] Migrate `PentestAgent` to `BaseAgent` (preserve V1 compatibility)
+- [x] New DB tables: `agent_instances`, `agent_messages`, `mission_phases`
+- [x] New API endpoints: agent management, mission context
+- [x] New WebSocket events: `agent_spawned`, `agent_message`, `agent_done`
 
 ---
 
@@ -116,15 +117,15 @@ Full spec: [11_MULTI_AGENT_SPEC.md](11_MULTI_AGENT_SPEC.md)
 
 **Goal:** Never lose a shell — all post-exploitation through persistent sessions
 
-- [ ] `ShellManager` service class
-- [ ] Session registry: type, privilege level, health status, exploit info
-- [ ] Heartbeat monitoring (30s interval per session)
-- [ ] Auto-reconnect on session drop (re-exploit using stored info)
-- [ ] Session upgrade: shell → meterpreter
-- [ ] Pivot/tunnel registration (ligolo-ng, chisel)
-- [ ] New DB table: `shell_sessions`
-- [ ] New API endpoints: shell listing, manual command execution
-- [ ] New WebSocket events: `shell_opened`, `shell_lost`, `shell_reconnected`
+- [x] `ShellManager` service class
+- [x] Session registry: type, privilege level, health status, exploit info
+- [x] Heartbeat monitoring (30s interval per session)
+- [x] Auto-reconnect on session drop (re-exploit using stored info)
+- [x] Session upgrade: shell → meterpreter
+- [x] Pivot/tunnel registration (shell session tracking)
+- [x] New DB table: `shell_sessions`
+- [x] New API endpoints: shell listing, manual command execution
+- [x] New WebSocket events: `shell_opened`, `shell_lost`, `shell_reconnected`
 
 ---
 
@@ -133,103 +134,103 @@ Full spec: [11_MULTI_AGENT_SPEC.md](11_MULTI_AGENT_SPEC.md)
 **Goal:** Each agent is an expert — faster, deeper, more accurate
 
 **3a — Scanner Agent** *(refactor from PentestAgent)*
-- [ ] masscan integration (fast wide scan)
-- [ ] nmap targeted scan on masscan results
-- [ ] NSE script execution
-- [ ] SMB/SNMP/LDAP enumeration tools
-- [ ] Banner grabbing
+- [x] masscan integration (fast wide scan)
+- [x] nmap targeted scan on masscan results
+- [x] NSE script execution
+- [x] SMB/SNMP/LDAP enumeration tools
+- [x] Banner grabbing
 
 **3b — Exploit Agent** *(refactor from PentestAgent)*
-- [ ] CVE lookup integration
-- [ ] MSF `check` before full exploit
-- [ ] Alternative payload selection on failure
-- [ ] Manual exploit execution
+- [x] CVE lookup integration
+- [x] MSF `check` before full exploit
+- [x] Alternative payload selection on failure
+- [x] CTF flag detection (flag{...} regex)
 
 **3c — OSINT Agent** *(new)*
-- [ ] theHarvester integration
-- [ ] subfinder / amass integration
-- [ ] WHOIS lookup
-- [ ] DNS enumeration (A, MX, NS, TXT, zone transfer)
-- [ ] Certificate transparency
-- [ ] Google dork list
-- [ ] GitHub dork
+- [x] theHarvester integration
+- [x] subfinder integration
+- [x] WHOIS lookup
+- [x] DNS enumeration (A, MX, NS, TXT, zone transfer)
+- [ ] Certificate transparency, Google/GitHub dork (planned)
 
 **3d — Web Application Agent** *(new)*
-- [ ] whatweb technology fingerprinting
-- [ ] nikto integration
-- [ ] ffuf / dirsearch directory enumeration
-- [ ] nuclei template scanning
-- [ ] sqlmap integration
-- [ ] XSS/SSRF/LFI detection
-- [ ] WordPress/Joomla-specific scanners
-- [ ] Authenticated testing support
+- [x] whatweb technology fingerprinting
+- [x] nikto integration
+- [x] ffuf directory enumeration
+- [x] nuclei template scanning
+- [x] sqlmap integration
+- [x] WordPress scanner (wpscan)
+- [x] Command injection (commix), parameter discovery (arjun), DNS/VHost (gobuster)
 
 **3e — Post-Exploitation Agent** *(new)*
-- [ ] LinPEAS / WinPEAS upload and execution via Shell Manager
-- [ ] User/service/network enumeration
-- [ ] Privilege escalation: sudo, SUID, kernel, service, cron, DLL hijack
-- [ ] Persistence: crontab, systemd, SSH key, registry, backdoor user
-- [ ] Credential harvesting: /etc/shadow, mimikatz, browser creds, SSH keys
-- [ ] New DB tables: `credentials`, `loot`
+- [x] Shell command execution via ShellManager
+- [x] User/service/network enumeration
+- [x] Privilege escalation: sudo, SUID, kernel, service, cron
+- [x] Persistence: crontab, systemd, SSH key, registry (gated behind permission flag)
+- [x] Credential harvesting: /etc/shadow, mimikatz, browser creds, SSH keys (gated behind permission flag)
+- [x] New DB tables: `credentials`, `loot`
 
 **3f — Lateral Movement Agent** *(new)*
-- [ ] Internal network scan via compromised host
-- [ ] Pass-the-hash, pass-the-ticket
-- [ ] PSExec, WinRM, SMB, WMI execution
-- [ ] CrackMapExec credential spray
-- [ ] ligolo-ng / chisel pivot setup
-- [ ] Kerberoasting, ASREPRoasting, DCSync
-- [ ] New DB tables: `network_nodes`, `network_edges`
+- [x] Internal network scan via compromised host
+- [x] Pass-the-hash, pass-the-ticket
+- [x] PSExec, WinRM, SMB, WMI execution
+- [x] CrackMapExec/NXC credential spray
+- [x] Kerberoasting, ASREPRoasting, DCSync (via Impacket)
+- [x] New DB tables: `network_nodes`, `network_edges`
 
 **3g — Reporting Agent** *(refactor + enhance)*
-- [ ] Aggregate findings from all agent types
-- [ ] Executive summary generation
-- [ ] Attack narrative (story of engagement)
-- [ ] Full remediation recommendations
-- [ ] Credentials and loot summary section
+- [x] Aggregate findings from MissionContext
+- [x] HTML/markdown/JSON report formats
+- [ ] Executive summary generation, attack narrative (basic implementation) 
 
 ---
 
-### Phase 4: New Tools (50+ total)
+### Phase 4: New Tools (33 tools registered)
 
-All tools implemented as `BaseTool` subclasses or plugin configs.
+All tools implemented as `BaseTool` subclasses in `tools/`.
 
-**Priority 1 — Core new tools:**
+**Priority 1 — Core new tools:** ✅ All implemented
 
-| Tool | Type | Category |
-|---|---|---|
-| `masscan` | cli_wrapper | recon |
-| `nuclei` | cli_wrapper | vuln-scan |
-| `ffuf` | cli_wrapper | web |
-| `sqlmap` | cli_wrapper | exploit |
-| `nikto` | cli_wrapper | web |
-| `whatweb` | cli_wrapper | web |
-| `linpeas` | python_class | post-exploit |
-| `winpeas` | python_class | post-exploit |
+| Tool | Type | Category | Status |
+|---|---|---|---|
+| `masscan` | BaseTool subclass | recon | ✅ |
+| `nuclei` | BaseTool subclass | vuln-scan | ✅ |
+| `ffuf` | BaseTool subclass | web | ✅ |
+| `sqlmap` | BaseTool subclass | exploit | ✅ |
+| `nikto` | BaseTool subclass | web | ✅ |
+| `whatweb` | BaseTool subclass | web | ✅ |
 
-**Priority 2 — OSINT tools:**
+**Priority 2 — OSINT tools:** ✅ All core tools implemented
 
-| Tool | Type | Category |
-|---|---|---|
-| `theharvester` | cli_wrapper | osint |
-| `subfinder` | cli_wrapper | osint |
-| `amass` | cli_wrapper | osint |
-| `whois_lookup` | python_class | osint |
-| `dns_lookup` | python_class | osint |
-| `wpscan` | cli_wrapper | web |
+| Tool | Type | Category | Status |
+|---|---|---|---|
+| `theharvester` | BaseTool subclass | osint | ✅ |
+| `subfinder` | BaseTool subclass | osint | ✅ |
+| `whois_lookup` | BaseTool subclass | osint | ✅ |
+| `dns_lookup` | BaseTool subclass | osint | ✅ |
+| `wpscan` | BaseTool subclass | web | ✅ |
+| `gobuster` | BaseTool subclass | web | ✅ |
+| `arjun` | BaseTool subclass | web | ✅ |
+| `commix` | BaseTool subclass | web | ✅ |
 
-**Priority 3 — Post-exploit / lateral tools:**
+**Priority 3 — Post-exploit / lateral tools:** ✅ All implemented
 
-| Tool | Type | Category |
-|---|---|---|
-| `crackmapexec` | cli_wrapper | lateral |
-| `impacket` | python_class | lateral |
-| `hydra` | cli_wrapper | brute-force |
-| `hashcat` | cli_wrapper | cracking |
-| `ligolo` | python_class | pivot |
-| `chisel` | cli_wrapper | pivot |
+| Tool | Type | Category | Status |
+|---|---|---|---|
+| `crackmapexec` | BaseTool subclass | lateral | ✅ |
+| `impacket` | BaseTool subclass | lateral | ✅ |
+| `hydra` | BaseTool subclass | brute-force | ✅ |
+| `hashcat` | BaseTool subclass | cracking | ✅ |
+| `john` | BaseTool subclass | cracking | ✅ |
+| `ssh_exec` | BaseTool subclass | post-exploit | ✅ |
+| `shell_exec` | BaseTool subclass | post-exploit | ✅ |
+| `smb_enum` | BaseTool subclass | recon | ✅ |
+| `telnet_probe` | BaseTool subclass | recon | ✅ |
+| `rsh_exec` | BaseTool subclass | exploit | ✅ |
+| `distcc_exec` | BaseTool subclass | exploit | ✅ |
+| `webdav_put` | BaseTool subclass | exploit | ✅ |
 
-**Priority 4 — Optional paid API tools:**
+**Priority 4 — Optional paid API tools:** Not yet implemented
 
 | Tool | Type | Requires |
 |---|---|---|
@@ -242,13 +243,15 @@ All tools implemented as `BaseTool` subclasses or plugin configs.
 
 **Goal:** Brain makes smart decisions, not just sequential ones
 
-- [ ] Strategy planning prompt engineering (senior pentester persona)
-- [ ] Adaptive failure handling: try differently → alternative vector → ask user
-- [ ] Parallel agent coordination (dependency graph execution)
-- [ ] Environment type detection (production vs staging vs lab)
-- [ ] Clarifying questions when mission parameters are ambiguous
-- [ ] Real-time strategy adjustment based on mid-mission findings
-- [ ] "Critical finding" fast path: shell opened → immediately reprioritize
+- [x] Strategy planning prompt engineering (senior pentester persona + soul injection)
+- [x] Adaptive failure handling: try differently → alternative vector → ask user
+- [x] Parallel agent coordination (spawn_agents_batch + wait_for_agents)
+- [x] "Critical finding" fast path: shell opened → immediately reprioritize
+- [x] Environment type detection (production vs staging vs lab)
+- [ ] Clarifying questions when mission parameters are ambiguous (partial — ask_operator exists)
+- [ ] Real-time strategy adjustment based on mid-mission findings (basic implementation)
+- [x] Training data capture for LoRA fine-tuning (captures Brain iterations as JSONL)
+- [x] Soul-based knowledge injection (service-specific CVE knowledge base)
 
 ---
 
@@ -256,33 +259,15 @@ All tools implemented as `BaseTool` subclasses or plugin configs.
 
 **Goal:** Visibility into multi-agent operation
 
-- [ ] **Agent Orchestra Panel** — replace single feed with per-agent cards
-- [ ] **Brain reasoning feed** — separate view for Brain's strategic decisions
-- [ ] **Enhanced Attack Graph** — compromise levels, attack path visualization
-- [ ] **Credentials Panel** — table of all harvested creds, copyable
-- [ ] **Loot Panel** — collected files and data, previews
-- [ ] **Per-agent model selector** — dropdown per agent type in config panel
-- [ ] **Agent status indicators** — real-time status for each spawned agent
-- [ ] **Mission Context panel** — Brain's live view of the engagement
-
----
-
-## V3 — Future
-
-**Goal:** Production-grade, isolated, at scale
-
-- [ ] Docker-isolated tool execution (each agent in its own container)
-- [ ] Multi-target parallel execution (thousands simultaneously)
-- [ ] Internal Reviewer agent — dedicated LLM validation of every finding
-- [ ] Source code analysis — Semgrep + LLM white-box testing
-- [ ] Zero-day discovery — LLM reasoning over unusual behavior patterns
-- [ ] `custom_payload` — LLM generates targeted Python exploits on the fly
-- [ ] CI/CD integration — GitHub Actions, GitLab CI pipeline step
-- [ ] Bug bounty output — HackerOne-compatible JSON
-- [ ] Continuous monitoring — scheduled recurring tests
-- [ ] Cloud environments — AWS, Azure, GCP asset discovery
-- [ ] Cross-campaign learning — RAG knowledge base fed by all sessions
-- [ ] Plugin marketplace — community-contributed tools
+- [x] **Agent Orchestra Panel** — React SPA (`attack-graph-canvas/`) with per-agent cards and status
+- [x] **Brain reasoning feed** — separate view for Brain's strategic decisions in React SPA
+- [x] **Enhanced Attack Graph** — compromise levels, attack path visualization (Cytoscape.js)
+- [x] **Credentials Panel** — table of all harvested creds in React SPA
+- [x] **Loot Panel** — collected files and data with previews in React SPA
+- [x] **Per-agent model selector** — configurable via `/config/ollama|openrouter|lmstudio|opencode-go`
+- [x] **Agent status indicators** — real-time status for each spawned agent
+- [ ] **Mission Context panel** — Brain's live view (partial — available via API, basic HTML view)
+- [ ] **Static HTML multi-agent view** — original `index.html` still uses single-agent feed
 
 ---
 
@@ -292,43 +277,41 @@ All tools implemented as `BaseTool` subclasses or plugin configs.
 2025 Q1–Q2    V1 Development                                  ✅ COMPLETE
               └── Core agent, 3 tools, safety, web UI, reports
 
-2026 Q1       V2 Phase 1 — Foundation                         🔨 STARTING
-              └── BaseAgent, MissionContext, MessageBus, Brain, DB
+2025 Q3–2026 Q1  V2 Foundation + Tools                        ✅ COMPLETE
+              └── BaseAgent, MissionContext, MessageBus, Brain, DB migration
+              └── ShellManager, 33 tools, 7 specialized agents
+              └── Defense module core + ML pipeline
 
-2026 Q2       V2 Phase 2 — Shell Manager
-              └── Persistent sessions, health monitoring, reconnect
+2026 Q1–Q2    V2 Phase 3–6 — Polish + Integration             🔄 IN PROGRESS
+              └── Brain intelligence, UI enhancements, React SPA
+              └── Training data pipeline, soul loader
+              └── V2 testing and stabilization
 
-2026 Q2–Q3   V2 Phase 3 — Specialized Agents
-              └── All 7 agents implemented and wired to Brain
-
-2026 Q3       V2 Phase 4 — New Tools
-              └── 50+ tools across all categories
-
-2026 Q4       V2 Phase 5 — Brain Intelligence
-              └── Adaptive strategy, parallel coordination
-
-2026 Q4       V2 Phase 6 — UI
-              └── Agent orchestra panel, attack graph, creds/loot panels
-
-2027+         V3 Development
-              └── Docker isolation, scale, CI/CD, zero-day, marketplace
+2026 Q3–Q4    V2 Completion                                    📋 PLANNED
+              └── Clarifying questions system
+              └── Static HTML multi-agent view
+              └── RAG knowledge base, squads
+              └── Shodan/Censys API plugins
 ```
 
 ---
 
-## V1 → V2 → V3 Bridge
+## V1 → V2 Bridge
 
 ```
-V1 (Complete)              V2 (Building)                    V3 (Future)
-──────────────────         ─────────────────────────        ──────────────────────────
-Single ReAct Agent    →    Brain + 8 Specialized Agents →   + Internal Reviewer Agent
-3 tools               →    50+ tools                    →   + Custom LLM exploit gen
-Sequential phases     →    Parallel agent execution     →   + Thousands simultaneous
-Network attacks only  →    + Web, OSINT, Post-exploit   →   + Source code analysis
-Shells abandoned      →    + Shell Manager (persistent) →   + Docker isolation
-No lateral movement   →    + Full lateral + pivoting    →   + Cloud environments
-No OSINT              →    + OSINT agent                →   + Zero-day discovery
-Single LLM            →    Per-agent model selection    →   + Cross-campaign RAG
-Basic report          →    Attack narrative + creds     →   + Bug bounty output
-Plugin system ready   →    50+ plugins implemented      →   + Plugin marketplace
+V1 (Complete)              V2 (Mostly Done)
+──────────────────         ─────────────────────────
+Single ReAct Agent    →    Brain + 7 Specialized Agents
+3 tools               →    33 tools
+Sequential phases     →    Parallel agent execution
+Network attacks only  →    + Web, OSINT, Post-exploit
+Shells abandoned      →    + Shell Manager (persistent)
+No lateral movement   →    + Full lateral + pivoting
+No OSINT              →    + OSINT agent
+Single LLM            →    Per-agent model selection
+Basic report          →    Attack narrative + creds
+Plugin system ready   →    33 tools implemented
+No defense            →    + Full blue team module
+No ML                 →    + XGBoost/scikit-learn
+```
 ```

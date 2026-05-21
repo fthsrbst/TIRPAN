@@ -11,8 +11,8 @@
 [![License](https://img.shields.io/badge/license-Non--Commercial-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com)
-[![Tests](https://img.shields.io/badge/tests-329%20passing-brightgreen.svg)]()
-[![Coverage](https://img.shields.io/badge/coverage-79%25-green.svg)]()
+[![Tests](https://img.shields.io/badge/tests-681%20passing-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-83%25-green.svg)]()
 [![Status](https://img.shields.io/badge/status-active%20development-orange.svg)]()
 [![Authorized Use Only](https://img.shields.io/badge/use-authorized%20environments%20only-red.svg)](docs/05_SAFETY_AND_LEGAL.md)
 
@@ -65,27 +65,37 @@ Every step is visible in the web UI in real time. Every action is logged for aud
 
 ---
 
-## Current Capabilities (V1 + V2 beta)
+## Current Capabilities
 
 | Capability | Detail |
 |------------|--------|
-| Network discovery | Nmap-based discovery + optional Masscan fast sweep |
-| Service enumeration | Port/service/version detection, NSE scripting, SMB enum helpers |
-| Exploit search | SearchSploit/ExploitDB queries per service/version |
-| Exploitation | Metasploit RPC or msfconsole fallback, rsh/distcc/webdav helpers |
-| Web testing (V2) | WhatWeb, Nikto, Nuclei, ffuf/gobuster, Arjun, sqlmap, WPScan, Commix |
-| OSINT (V2) | theHarvester, subfinder, WHOIS, DNS enumeration |
-| Post-exploitation | `ssh_exec` + `shell_exec` (bind/reverse/ssh), optional file read | 
-| Lateral movement (V2) | CrackMapExec/Impacket helpers (when installed) |
-| Reporting | HTML/PDF reports (plus JSON/markdown via reporting tool) |
+| Network discovery | Nmap + Masscan fast sweep + auto-targeting of local subnets |
+| Service enumeration | Port/service/version detection, NSE scripts, SMB null session, Telnet, RSH |
+| Exploit search | SearchSploit/ExploitDB queries per service/version, CVE knowledge base |
+| Exploitation | Metasploit RPC, rsh, distcc, webdav, telnet, ssh helpers |
+| Web application testing | WhatWeb, Nikto, Nuclei, ffuf, Gobuster, Arjun, sqlmap, WPScan, Commix |
+| OSINT | theHarvester, subfinder, WHOIS, DNS enumeration (zone transfer) |
+| Post-exploitation | SSH + bind/reverse/ssh shells, persistent session management, PTY support |
+| Lateral movement | CrackMapExec/NXC + Impacket (psexec, secretsdump, kerberoast, wmiexec) |
+| Credential attacks | Hydra brute-force, Hashcat + John the Ripper offline cracking |
+| Reporting | HTML/PDF reports with CVSS v3.1 scoring, Jinja2 templates |
+| Multi-agent (V2) | BrainAgent coordinator + 7 specialized agents (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting) |
+| Shell persistence (V2) | ShellManager with heartbeat monitoring and auto-reconnect |
+| Inter-agent messaging (V2) | Async pub/sub AgentMessageBus with 20 message types |
+| Shared mission state (V2) | MissionContext (hosts, ports, vulns, creds, loot, attack graph) |
 | Real-time UI | WebSocket streaming of agent reasoning, tool calls, and results |
-| Knowledge base | Per-service exploit success memory + audit log |
-| Safety | 10 guardrails + never-scan list + kill switch |
-| Defense module | Blue-team monitor with detector engine and response tools |
+| Attack graph | React/TypeScript attack graph canvas with compromise level visualization |
+| Knowledge base | Per-service exploit success memory + full audit log (append-only) |
+| Safety | 10 guardrails + 5 permission flags + never-scan list + kill switch |
+| Defense module | Blue-team network monitor, detector engine, attacker profiler, deception tools |
+| ML pipeline | XGBoost + scikit-learn exploit predictor, finding classifier, attack path model |
+| LLM providers | OpenRouter, Ollama, LM Studio, OpenCode Go — runtime-switchable |
+| Training data | LoRA-format JSONL capture for LLM fine-tuning |
+| Plugin system | Python class, CLI wrapper, API wrapper — all auto-discovered |
 
-**Core tools registered at runtime:** `nmap_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`, `local_exec`
+**33 tools registered at runtime in `tools/`:** `nmap_scan`, `masscan_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`, `local_exec`, `whatweb_scan`, `nikto_scan`, `nuclei_scan`, `ffuf_scan`, `gobuster_scan`, `arjun_scan`, `sqlmap_scan`, `wpscan_scan`, `commix_scan`, `crackmapexec_exec`, `impacket_exec`, `theHarvester_scan`, `subfinder_scan`, `whois_lookup`, `dns_enum`, `telnet_probe`, `rsh_exec`, `distcc_exec`, `webdav_put`, `smb_enum`, `hydra_brute`, `hashcat_crack`, `john_crack`, `ddos_test`, `generate_report`, `report_finding`
 
-**Extended tools (if binaries are installed):** masscan, nuclei, ffuf, whatweb, nikto, theHarvester, subfinder, whois, dns, crackmapexec, impacket, sqlmap, wpscan, commix, gobuster, arjun, hashcat, john, hydra, and more. Use `/api/v1/tools/status` to see what's available in your environment.
+Use `GET /api/v1/tools/status` to see which are available in your environment.
 
 ---
 
@@ -133,7 +143,7 @@ Every step is visible in the web UI in real time. Every action is logged for aud
 **Design principle: small core, large tool surface.**
 The ReAct loop, safety layer, and LLM client are stable. Core + extended tools live in `tools/` and can be augmented with `plugins/`.
 
-V2 adds a Brain agent, a mission context shared across agents, and specialized agents (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting). See [docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md).
+V2 adds a Brain agent, a mission context shared across agents, an async message bus, a persistent shell manager, and 7 specialized agents (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting). All running in parallel under Brain's coordination. See [docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md).
 
 ---
 
@@ -288,7 +298,7 @@ For structured engagements, TIRPAN accepts a `MissionBrief` configuration that c
 
 ## Roadmap
 
-TIRPAN is built in three phases. V1 is the network-level foundation — everything after it arrives as a plugin.
+TIRPAN is built in two phases. V1 is the network-level foundation, V2 adds multi-agent orchestration and extended capabilities.
 
 ### V1 — Network Pentesting (complete)
 
@@ -303,7 +313,7 @@ TIRPAN is built in three phases. V1 is the network-level foundation — everythi
 - Speed profiles: stealth / normal / aggressive
 - Plugin architecture (infrastructure ready)
 
-### V2 — Multi-Agent Attack Lifecycle (beta)
+### V2 — Multi-Agent Attack Lifecycle (implemented)
 
 **Passive Reconnaissance**
 - OSINT: theHarvester, subfinder, amass, crt.sh certificate transparency, Shodan, WHOIS
@@ -360,17 +370,6 @@ TIRPAN is built in three phases. V1 is the network-level foundation — everythi
 - Structured `Finding` model with evidence, reproduction steps, and remediation
 - SARIF output for CI/CD and IDE integration
 - Vector search knowledge base (RAG) using local embeddings
-
-### V3 — XBOW Level (planned)
-
-- Coordinator and Solver multi-agent architecture
-- Docker-isolated tool execution per solver
-- White-box source code analysis via Semgrep and LLM
-- Zero-day reasoning over unusual service behavior
-- LLM-generated custom exploit scripts
-- Internal Reviewer agent for false positive reduction
-- CI/CD pipeline integration (GitHub Actions, GitLab)
-- Cloud environment support (AWS, Azure, GCP asset discovery)
 
 ---
 
@@ -447,12 +446,16 @@ XBOW is the current commercial benchmark for autonomous AI pentesting. TIRPAN is
 | Active Directory attacks | Yes | No | Yes |
 | OSINT and passive reconnaissance | Yes | No | Yes |
 | Self-correction on failure | Yes | No | Yes |
-| Docker-isolated tool execution | Yes | No | V3 |
-| Multi-agent coordinator architecture | Yes | No | V3 |
+| Docker-isolated tool execution | Yes | No | No |
+| Multi-agent coordinator architecture | Yes | No | Yes |
 | Open source | No | Yes | Yes |
 | Free to use | No | Yes | Yes |
 | Extensible plugin ecosystem | No | Yes | Yes |
 | Local LLM support | No | Yes | Yes |
+| ML-based exploit prediction | No | No | Yes |
+| Network defense (blue team) | No | No | Yes |
+| Attack graph visualization | Partial | Yes | Yes (React) |
+| LoRA training data capture | No | No | Yes |
 
 Full comparison: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
 
@@ -465,15 +468,20 @@ Full comparison: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
 | Language | Python 3.11+ |
 | Web framework | FastAPI 0.110+ with WebSocket streaming |
 | LLM (cloud) | OpenRouter — Claude, GPT-4, Gemini, and others |
+| LLM (cloud) | OpenCode Go — DeepSeek R1 and others |
 | LLM (local) | Ollama — Llama 3, Qwen, Mistral, and others |
-| Offensive tools | Nmap 7.94+, SearchSploit, Metasploit 6.x (pymetasploit3) |
-| Database | SQLite via aiosqlite |
+| LLM (local) | LM Studio — local inference server |
+| Offensive tools | 33 tools: Nmap, Masscan, Metasploit, SearchSploit, Hydra, Hashcat, John, sqlmap, Nuclei, CrackMapExec, Impacket, and more |
+| Database | SQLite via aiosqlite (async) |
 | Reporting | Jinja2 + WeasyPrint (HTML and PDF) |
-| Frontend | Vanilla HTML/CSS/JS with TailwindCSS |
-| Testing | pytest + pytest-asyncio + pytest-cov — 329 tests, 79% coverage |
+| Frontend | Vanilla HTML/CSS/JS + React/TypeScript attack graph canvas (Vite + Cytoscape.js + Tailwind) |
+| ML | scikit-learn + XGBoost — exploit predictor, finding classifier, attack path model |
+| Testing | pytest + pytest-asyncio + pytest-cov — 681 tests across 22 files |
 | Linting | ruff + black |
 | CLI | argparse + Rich |
 | Plugin loading | importlib (stdlib) |
+| Defense | Scapy-based sniffer, rule-based detectors, LLM-powered defense agent |
+| Training data | LoRA-format JSONL capture for LLM fine-tuning (Qwen3 ChatML) |
 
 ---
 
@@ -497,11 +505,15 @@ Never test on systems you do not own or have explicit written authorization to t
 |----------|-------------|
 | [Architecture](docs/02_ARCHITECTURE.md) | Full system design with diagrams |
 | [Prerequisites](docs/03_PREREQUISITES.md) | Installation and dependency setup |
-| [Roadmap](docs/04_ROADMAP.md) | V1 through V3 feature plan |
+| [Roadmap](docs/04_ROADMAP.md) | Completed and planned feature plan |
 | [Safety and Legal](docs/05_SAFETY_AND_LEGAL.md) | All 10 guardrails and legal requirements |
 | [XBOW Comparison](docs/01_XBOW_COMPARISON.md) | Feature gap analysis |
 | [Plugin System](docs/09_PLUGIN_SYSTEM.md) | Plugin authoring guide |
-| [V2 Feature Specification](docs/11_V2_FEATURE_SPEC.md) | Detailed V2 technical design |
+| [Multi-Agent Spec](docs/11_MULTI_AGENT_SPEC.md) | V2 multi-agent architecture |
+| [Defense Module](docs/07_NETWORK_DEFENSE_MODULE.md) | Blue team defense architecture |
+| [Lab Environment](docs/12_LAB_ENVIRONMENT.md) | VM-based practice lab setup |
+| [Master Checklist](docs/08_MASTER_CHECKLIST.md) | Detailed implementation progress |
+| [Learning Roadmap](docs/10_LEARNING_ROADMAP.md) | Skill progression for developers |
 
 ---
 

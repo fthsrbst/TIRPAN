@@ -2587,12 +2587,17 @@ def _enrich_vulns_with_ml(vulns: list) -> list:
 
 def _enrich_exploits_with_ml(exploits: list) -> list:
     """
-    Enrich exploit results with ML success probability (ml_success_prob field).
+    Enrich exploit results with ml_success_prob — the *outcome-aware* confidence.
+
+    The model gives us a pre-run probability (based on the module / type /
+    platform / CVSS); we then blend in the actual outcome of the attempt so
+    a successful row reads ~0.95 and a failed row reads ~0.08 instead of
+    every row of the same module showing the identical theoretical prior.
     """
     if not exploits:
         return exploits
     try:
-        from ml.exploit_predictor import get_exploit_predictor
+        from ml.exploit_predictor import get_exploit_predictor, post_run_confidence
         pred = get_exploit_predictor()
         if pred is None:
             return exploits
@@ -2601,33 +2606,30 @@ def _enrich_exploits_with_ml(exploits: list) -> list:
             if not isinstance(e, dict):
                 enriched.append(e)
                 continue
-            # Skip re-enrichment only when:
-            #   1. A real probability already exists (not the -1 DB sentinel)
-            #   2. AND the value doesn't look like the old biased value (0.798)
-            #      which was produced by the pre-fix model on all remote exploits.
+            # Stored value is reliable unless it matches a floor from an older
+            # model (0.700 / 0.798) that we want to force-recompute.
             existing_prob = float(e.get("ml_success_prob", -1)) if "ml_success_prob" in e else -1.0
-            is_stale = abs(existing_prob - 0.798) < 0.005  # exact old biased value
+            is_stale = (
+                abs(existing_prob - 0.798) < 0.005
+                or abs(existing_prob - 0.700) < 0.003
+            )
             if existing_prob >= 0 and not is_stale:
                 enriched.append(e)
                 continue
             try:
                 module = str(e.get("module", ""))
-                # TIRPAN runs Metasploit modules — they are by definition
-                # verified+packaged exploits with an MSF module. Pass these
-                # real-world signals through so the predictor doesn't downgrade
-                # them just because the inference path has no EPSS lookup.
-                has_msf = 1 if module else 0
-                prob = pred.predict_proba(
-                    description=module,  # no output — avoids any text leakage
+                pre_run = pred.predict_proba(
+                    description=module,
                     exploit_type=str(e.get("exploit_type", "remote")),
                     platform=str(e.get("platform", "")),
                     cvss_score=float(e.get("cvss_score") or 0.0),
                     attack_vector=str(e.get("attack_vector", "")),
                     epss_score=float(e.get("epss_score") or 0.0),
                     in_kev=int(e.get("in_kev", 0)),
-                    has_msf_module=has_msf,
-                    verified=1 if has_msf else 0,
+                    has_msf_module=1 if module else 0,
+                    verified=int(e.get("verified", 0)),
                 )
+                prob = post_run_confidence(pre_run, e)
                 enriched.append({**e, "ml_success_prob": prob})
             except Exception:
                 enriched.append(e)

@@ -415,23 +415,30 @@ class ExploitResultRepository:
         rid = _uid()
         now = _now()
 
-        # ML exploit success probability — computed once at save time.
-        # IMPORTANT: do NOT include result["output"] — it contains post-execution text
-        # ("Meterpreter session opened", flags, etc.) which leaks the ground truth
-        # label and pushes every successful exploit to 100%.  Use only pre-execution
-        # metadata: module name, exploit type, platform, CVSS.
+        # ml_success_prob is computed once at save time and is the value the UI
+        # displays. We start with the pre-run estimate (module / type / platform /
+        # CVSS only — never the output, which would leak the label), then apply
+        # the actual outcome of THIS attempt:
+        #
+        #   success=True / session_opened>0  → high confidence (~0.95)
+        #   success=False with a known module → low confidence (~0.08)
+        #   no outcome captured              → keep the pre-run estimate
+        #
+        # Without this adjustment every record of the same module shows the same
+        # number, regardless of whether THIS attempt actually got a shell.
         ml_prob: float = -1.0
         try:
-            from ml.exploit_predictor import get_exploit_predictor
+            from ml.exploit_predictor import get_exploit_predictor, post_run_confidence
             _pred = get_exploit_predictor()
             if _pred is not None:
-                ml_prob = _pred.predict_proba(
+                pre_run = _pred.predict_proba(
                     description=str(result.get("module", "")),
                     exploit_type=str(result.get("exploit_type", "remote")),
                     platform=str(result.get("platform", "")),
                     cvss_score=float(result.get("cvss_score", 0.0)),
                     attack_vector=str(result.get("attack_vector", "")),
                 )
+                ml_prob = post_run_confidence(pre_run, result)
         except Exception:
             pass
 

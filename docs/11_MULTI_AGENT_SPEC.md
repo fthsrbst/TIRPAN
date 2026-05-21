@@ -1,11 +1,12 @@
 # TIRPAN — Multi-Agent Architecture Specification
 
-> **Status:** Design complete — implementation starting
-> **Document Version:** 1.0 — March 2026
+> **Status:** Design complete — implementation substantially complete (May 2026)
+> **Document Version:** 1.1 — Updated May 2026
 > **Supersedes:** 11_V2_FEATURE_SPEC.md (single-agent V2 spec, archived)
 
 This document is the complete technical specification for TIRPAN V2's multi-agent system.
-Each section maps to a discrete implementation unit.
+Most components are now implemented in the codebase. Where implementation differs from this
+spec, the actual implementation takes precedence.
 
 ---
 
@@ -221,7 +222,7 @@ Brain decision point. Survives server restart.
 
 ## 4. AgentMessageBus — Communication
 
-**File:** `core/agent_message_bus.py`
+**File:** `core/message_bus.py`
 
 ```python
 class AgentMessageBus:
@@ -585,7 +586,7 @@ class OsintAgent(BaseAgent):
 
 ### 7.2 Scanner Agent
 
-**File:** `agents/scanner_agent.py`
+**File:** `core/agents/scanner_agent.py`
 
 ```python
 class ScannerAgent(BaseAgent):
@@ -607,7 +608,7 @@ class ScannerAgent(BaseAgent):
 
 ### 7.3 Web Application Agent
 
-**File:** `agents/web_agent.py`
+**File:** `core/agents/webapp_agent.py`
 
 ```python
 class WebAgent(BaseAgent):
@@ -637,7 +638,7 @@ When MissionContext contains credentials for the target, Web Agent:
 
 ### 7.4 Exploit Agent
 
-**File:** `agents/exploit_agent.py`
+**File:** `core/agents/exploit_agent.py`
 
 ```python
 class ExploitAgent(BaseAgent):
@@ -675,7 +676,7 @@ await self.emit_finding("shell_opened", {
 
 ### 7.5 Post-Exploitation Agent
 
-**File:** `agents/postexploit_agent.py`
+**File:** `core/agents/postexploit_agent.py`
 
 ```python
 class PostExploitAgent(BaseAgent):
@@ -712,7 +713,7 @@ Current user is root/SYSTEM?
 
 ### 7.6 Lateral Movement Agent
 
-**File:** `agents/lateral_agent.py`
+**File:** `core/agents/lateral_agent.py`
 
 ```python
 class LateralAgent(BaseAgent):

@@ -9,12 +9,15 @@
 
 | Feature | XBOW | TIRPAN V1 | TIRPAN V2 |
 |---|---|---|---|
-| Agent model | Coordinator + Solver multi-agent | Single ReAct agent | Brain + 8 specialized agents |
-| Parallelism | Hundreds of parallel solvers | Sequential | Parallel agents (default: 8) |
+| Agent model | Coordinator + Solver multi-agent | Single ReAct agent | Brain + 7 specialized agents |
+| Parallelism | Hundreds of parallel solvers | Sequential | Parallel agents (default: 8 max) |
 | Isolation | Each solver in isolated VM | Host execution | Host execution (V3: Docker) |
 | Shell persistence | Sessions maintained across tasks | Sessions abandoned | Shell Manager (persistent, auto-reconnect) |
 | Target scale | Thousands simultaneously | One at a time | Multiple concurrent |
 | Agent specialization | Solvers specialized per domain | One agent does everything | One expert agent per domain |
+| ML pipeline | Proprietary | None | scikit-learn + XGBoost (exploit predictor, finding classifier) |
+| Defense module | Unknown | None | Blue team monitor, detector, profiler, deception |
+| Training data capture | Unknown | None | LoRA format JSONL for fine-tuning |
 
 ---
 
@@ -37,11 +40,11 @@
 | Lateral movement | Yes | No | Yes (optional) | Pass-the-hash, PSExec, etc. |
 | AD attacks | Yes | No | Yes | Kerberoast, ASREPRoast, DCSync |
 | Container/Docker escape | Yes | No | Yes (optional) | Gated behind permission flag |
-| Cloud (AWS/Azure/GCP) | Yes | No | V3 | Future roadmap |
-| OOB/blind injection | Yes | No | Partial (nuclei) | interactsh planned |
-| DOM-based XSS | Yes | No | V3 | Requires headless browser |
-| Source code analysis | Yes | No | V3 | Semgrep + LLM |
-| Custom exploit generation | Yes | No | V3 | Sandboxed LLM code execution |
+| Cloud (AWS/Azure/GCP) | Yes | No | No |
+| OOB/blind injection | Yes | No | Partial (nuclei) |
+| DOM-based XSS | Yes | No | No |
+| Source code analysis | Yes | No | No |
+| Custom exploit generation | Yes | No | No |
 
 ---
 
@@ -53,7 +56,7 @@
 | Reasoning pattern | Multi-agent with specialized LLMs | Single ReAct loop | Brain + specialized agent LLMs |
 | Self-correction | Yes | Basic (reflect step) | Full adaptive strategy |
 | Failure handling | Automatic retry/pivot | Limited | Try differently → alternative vector → ask user |
-| Knowledge base | Cross-campaign learning | Per-session KB | Per-session KB (V3: cross-campaign RAG) |
+| Knowledge base | Cross-campaign learning | Per-session KB | Per-session KB |
 | Strategy adaptation | Yes | Limited | Yes (Brain adapts based on findings) |
 | Environment detection | Yes | No | Yes (production vs staging vs lab) |
 | Operator clarification | Yes | No | Yes (Brain asks if mission is ambiguous) |
@@ -64,7 +67,7 @@
 
 | Feature | XBOW | TIRPAN V1 | TIRPAN V2 |
 |---|---|---|---|
-| Tool isolation | Docker per tool | Host | Host (V3: Docker) |
+| Tool isolation | Docker per tool | Host | Host |
 | Session persistence | Yes | No | Yes (Shell Manager) |
 | Pivot/tunneling | Yes | No | Yes (ligolo-ng, chisel) |
 | Health monitoring | Yes | No | Yes (heartbeat, auto-reconnect) |
@@ -79,8 +82,8 @@
 | HTML/PDF report | Yes | Yes | Yes + attack narrative |
 | CVSS scoring | Yes | Yes | Yes |
 | Evidence/PoC | Yes | Partial | Yes (commands run, raw output) |
-| SARIF output | Yes | No | V3 |
-| Bug bounty format | Yes | No | V3 |
+| SARIF output | Yes | No | No |
+| Bug bounty format | Yes | No | No |
 | Credentials panel | N/A | No | Yes |
 | Attack graph | Partial | Yes (basic) | Yes (compromise levels, attack paths) |
 
@@ -114,17 +117,19 @@ Both TIRPAN and XBOW share these fundamental approaches:
 ## Gap Closure Plan
 
 ```
-V1 (Complete)         V2 (Building)                    V3 (Future)
-──────────────         ──────────────────────────       ──────────────────────────
-Single agent      →    Brain + 8 specialized agents →   + Internal Reviewer agent
-3 tools           →    50+ tools                    →   + Custom LLM exploit gen
-Network only      →    + Web, OSINT, Post-exploit   →   + Source code analysis
-No shell persist  →    + Shell Manager              →   + Docker-isolated tools
-No lateral move   →    + Full lateral + pivoting    →   + Thousands simultaneous
-No OSINT          →    + OSINT agent                →   + Cross-campaign RAG
-Single LLM        →    Per-agent model selection    →   + Zero-day discovery
-Basic report      →    + Attack narrative + creds   →   + SARIF + bug bounty
-Sequential only   →    Parallel agents              →   + Cloud environments
+V1 (Complete)         V2 (Implemented)
+──────────────         ──────────────────────────
+Single agent      →    Brain + 7 specialized agents
+3 tools           →    33 tools
+Network only      →    + Web, OSINT, Post-exploit
+No shell persist  →    + Shell Manager
+No lateral move   →    + Full lateral + pivoting
+No OSINT          →    + OSINT agent
+Single LLM        →    Per-agent model selection
+Basic report      →    + Attack narrative + creds
+Sequential only   →    Parallel agents
+No defense        →    + Full blue team module
+No ML             →    + XGBoost/scikit-learn
 ```
 
 ---
