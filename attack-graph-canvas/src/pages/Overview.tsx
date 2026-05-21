@@ -7,7 +7,7 @@ import { getSessions, getSystemStats } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { AttackGraph } from "@/components/attack/AttackGraph";
 import { Donut } from "@/components/attack/Donut";
-import ChatPanel from "@/components/attack/ChatPanel";
+import { AgentChatPanel } from "@/components/attack/AgentChatPanel";
 import { useSessionBundle } from "@/hooks/useAttackGraphData";
 import { useSessionContext } from "@/lib/SessionContext";
 import { usePermissions } from "@/lib/permissions";
@@ -20,6 +20,7 @@ const Overview = () => {
   const navigate = useNavigate();
   const { selectedSessionId, setSelectedSessionId } = useSessionContext();
   const perms = usePermissions();
+  const [agentPanelOpen, setAgentPanelOpen] = useState(true);
   const { data: sessions = [], isLoading: sLoading } = useQuery({
     queryKey: ["sessions"],
     queryFn: getSessions,
@@ -158,7 +159,11 @@ const Overview = () => {
   ];
 
   return (
-    <PageShell title="Dashboard" subtitle="Mission control &amp; live operations" leftPanel={<ChatPanel />}>
+    <PageShell
+      title="Dashboard"
+      subtitle="Mission control &amp; live operations"
+      leftPanel={agentPanelOpen ? <AgentChatPanel open={agentPanelOpen} onClose={() => setAgentPanelOpen(false)} /> : undefined}
+    >
       <div className="grid grid-cols-12 gap-4 p-1 h-full">
 
         {/* KPI Row — viewer için exploit içermeyen sade metrikler, diğerleri normal */}

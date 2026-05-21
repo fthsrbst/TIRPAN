@@ -743,7 +743,7 @@ Enable-PSRemoting -Force
 
 ## 11. Future Scenarios — Lateral Movement & WLAN
 
-These scenarios map to V2/V3 roadmap items. Document them now, implement as features land.
+These scenarios map to V2 roadmap items. Document them now, implement as features land.
 
 ### LM-1: Network Pivoting via Compromised DMZ Host
 
@@ -928,4 +928,4 @@ If TIRPAN discovers real vulnerabilities in a production engagement:
 
 *Document version: 1.0 — TIRPAN V1 Lab Reference*
 *Last updated: 2026-03-15*
-*Covers: V1 current capabilities + V2/V3 planned scenarios*
+*Covers: V1 current capabilities + V2 planned scenarios*

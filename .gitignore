@@ -12,6 +12,8 @@ env/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 
 # Sensitive runtime data — never commit
@@ -38,6 +40,9 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+
+# Claude / AI dev tools (local config, personal paths)
+.claude/
 
 # OS
 .DS_Store

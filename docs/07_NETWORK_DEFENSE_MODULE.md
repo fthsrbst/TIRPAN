@@ -223,7 +223,7 @@ Defense V2:
   - Geolocation of attackers
   - Threat intelligence feeds (AlienVault OTX)
 
-Defense V3:
+Defense Future:
   - Full NDR (Network Detection & Response)
   - Encrypted traffic analysis (metadata only)
   - Deception technology (fake credentials, honeytokens)

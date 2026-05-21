@@ -596,6 +596,70 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v19 applied: reset for blended exploit probability recompute")
 
+        if version < 20:
+            # Reset again — exploit predictor retrained with curated MSF catalog labels
+            # and isotonic calibration. Old rows mostly carry the biased 0.700 floor
+            # the previous inference path produced for every MSF module (including
+            # DoS / handler / aux scanners). Force a recompute on next read.
+            try:
+                await db.execute("UPDATE exploit_results SET ml_success_prob = -1")
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (20, time.time(), "reset ml_success_prob after calibrated retrain (curated MSF catalog labels)"),
+            )
+            await db.commit()
+            logger.info("DB migration v20 applied: reset for calibrated exploit predictor recompute")
+
+        if version < 21:
+            # ml_success_prob is now outcome-aware: failed rows drop to ~0.08
+            # and successful rows climb to ~0.95 instead of every row of the
+            # same module showing the identical pre-run estimate. Recompute.
+            try:
+                await db.execute("UPDATE exploit_results SET ml_success_prob = -1")
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (21, time.time(), "reset ml_success_prob for outcome-aware confidence recompute"),
+            )
+            await db.commit()
+            logger.info("DB migration v21 applied: reset for outcome-aware ml_success_prob")
+
+        if version < 22:
+            # Fix the v21 logic — the previous version treated the pentest
+            # mission UUID stored in `session_id` as a Metasploit shell-id,
+            # so every failed row was capped at 0.75 instead of dropping to
+            # ~0.12. Recompute one more time now that _shell_opened() only
+            # looks at session_opened / msf_session_id / shell_session_id.
+            try:
+                await db.execute("UPDATE exploit_results SET ml_success_prob = -1")
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (22, time.time(), "fix outcome-aware ml_success_prob: ignore pentest UUID as shell id"),
+            )
+            await db.commit()
+            logger.info("DB migration v22 applied: fix outcome-aware ml_success_prob session-id confusion")
+
+        if version < 23:
+            # Replace the hard caps in post_run_confidence with a soft linear
+            # blend so different modules don't collapse to one visible number.
+            # Failed handler ≈ 0.04, failed trophy ≈ 0.19, success obscure ≈
+            # 0.91, success trophy ≈ 0.95 — variance now reflects the prior.
+            try:
+                await db.execute("UPDATE exploit_results SET ml_success_prob = -1")
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (23, time.time(), "soft blended post-run confidence (prior modulates within outcome band)"),
+            )
+            await db.commit()
+            logger.info("DB migration v23 applied: soft-blended post-run confidence")
+
     logger.info("Database ready: %s", path)
 
 

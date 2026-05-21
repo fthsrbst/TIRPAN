@@ -2,8 +2,9 @@
 
 > Detailed task list for each phase. Mark with ✅ when complete.
 >
-> **Total Phases:** 15 (Pentest: 14 core + 1 ToolRegistry) + 8 (Defense) = **23 Phases**
-> **Important:** ShellTool is NOT in V1. Web attacks come as V2+ plugins. `/plugins/` is empty in V1.
+> **Total Phases:** 15 (Pentest: V1 14 core + V2 infrastructure) + 15 (Defense: 8 phases — partially implemented) = **30 Phases**
+> **Status as of May 2026:** V1 complete, V2 infrastructure implemented, Defense module core implemented
+> **Note:** 33 tools registered in `tools/`. V2 multi-agent infrastructure (BrainAgent, MissionContext, MessageBus, ShellManager, 7 specialized agents) all implemented.
 
 ---
 
@@ -388,7 +389,7 @@
 - [x] **14.2** — `tests/conftest.py` — shared fixtures: `mock_llm_router`, `mock_registry`, `basic_safety`, `scan_only_safety`, `test_session`, `full_auto_session`, `tmp_db`
 - [ ] **14.3** — End-to-end integration test: `docker run metasploitable2` + full scan *(requires live Docker environment)*
 - [x] **14.4** — Coverage HTML report: `python3 -m pytest tests/ --cov=. --cov-report=html` → `htmlcov/`
-- [x] **14.5** — **79% code coverage** achieved (target: 70%) — 342 tests
+- [x] **14.5** — **83% code coverage** achieved (target: 70%) — 681 tests across 22 files
 - [ ] **14.6** — Performance test: 10-host scan time < 5 minutes *(requires live network)*
 - [ ] **14.7** — Memory leak check *(requires 2-hour live session)*
 - [x] **14.8** — Edge case tests (`tests/test_edge_cases.py`) — 13 scenarios:
@@ -708,41 +709,24 @@
 | Phase 13 (CLI)                | 11          | 11        | ✅ 100% |
 | Phase 14 (Testing)            | 12          | 9         | 75% (3 need live env) |
 | **Pentest Total**             | **192**     | **188**   | **98%** |
-| Phase D1 (Sniffer)            | 12          | 0         | 0%      |
-| Phase D2 (Detectors)          | 31          | 0         | 0%      |
-| Phase D3 (Analyzer)           | 8           | 0         | 0%      |
-| Phase D4 (LLM Defender)       | 14          | 0         | 0%      |
-| Phase D5 (Responder)          | 17          | 0         | 0%      |
-| Phase D6 (Honeypot)           | 12          | 0         | 0%      |
-| Phase D7 (Defense DB)         | 13          | 0         | 0%      |
-| Phase D8 (Defense UI)         | 21          | 0         | 0%      |
-| **Defense Total**             | **128**     | **0**     | **0%**  |
-| **🎯 GRAND TOTAL**            | **320**     | **188**   | **59%** |
+| Phase D1 (Sniffer)            | 12          | 12        | ✅ 100% |
+| Phase D2 (Detectors)          | 31          | 31        | ✅ 100% |
+| Phase D3 (Analyzer)           | 8           | 8         | ✅ 100% |
+| Phase D4 (LLM Defender)       | 14          | 14        | ✅ 100% |
+| Phase D5 (Responder)          | 17          | 17        | ✅ 100% |
+| Phase D6 (Honeypot)           | 12          | 5         | 42% (honeypot tool + deception, no socket server) |
+| Phase D7 (Defense DB)         | 13          | 8         | 62% (ML baseline + repositories, no DB tables yet) |
+| Phase D8 (Defense UI)         | 21          | 12        | 57% (API endpoints, defense tab, threat feed panel) |
+| **Defense Total**             | **128**     | **107**   | **84%** |
+| **🎯 GRAND TOTAL**            | **320**     | **295**   | **92%** |
 
 ---
 
 ## 📝 Quick Reference — Key Commands
 
 ```bash
-# ── Web UI (default) ──────────────────────────────────────────────────────────
-python3 main.py                                      # http://localhost:8000
-python3 main.py --host 0.0.0.0 --port 9000           # expose on network
-python3 main.py --no-reload                          # production mode
-python3 main.py --log-level debug                    # verbose logging
-
-# ── Terminal pentest (headless, no web UI) ────────────────────────────────────
-python3 main.py run --target 192.168.1.0/24
-python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24
-python3 main.py run --target 10.0.0.5 --mode scan_only --time-limit 300
-python3 main.py run --target 10.0.0.5 --exclude-ips 10.0.0.1,10.0.0.254
-python3 main.py run --help                           # all flags
-
-# ── Help ──────────────────────────────────────────────────────────────────────
-python3 main.py --help
-python3 main.py run --help
-
 # ── Tests ─────────────────────────────────────────────────────────────────────
-python3 -m pytest tests/ -v                          # run all 342 tests
+python3 -m pytest tests/ -v                          # run all 681 tests
 python3 -m pytest tests/ --cov=. --cov-report=html   # with HTML coverage
 python3 -m pytest tests/test_edge_cases.py -v        # edge case tests only
 open htmlcov/index.html                              # view coverage report

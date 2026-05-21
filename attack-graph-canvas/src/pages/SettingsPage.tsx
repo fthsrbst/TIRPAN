@@ -33,8 +33,10 @@ import {
   Sliders,
   Brain,
 } from "lucide-react";
+// Eye kept for password toggle buttons
 import { useState, useEffect, useCallback } from "react";
 import { api, useAuth } from "@/lib/utils";
+import { usePermissions } from "@/lib/permissions";
 import ModelPicker from "@/components/attack/ModelPicker";
 import AgentModelsTab from "@/components/attack/AgentModelsTab";
 
@@ -45,7 +47,6 @@ type Tab =
   | "nmap"
   | "credentials"
   | "scan-profiles"
-  | "branding"
   | "agent-models"
   | "ml-models";
 
@@ -56,7 +57,6 @@ const tabs: { id: Tab; label: string; icon: typeof Cpu }[] = [
   { id: "nmap", label: "Nmap", icon: Network },
   { id: "credentials", label: "Credentials", icon: Key },
   { id: "scan-profiles", label: "Scan Profiles", icon: Zap },
-  { id: "branding", label: "Branding", icon: Eye },
   { id: "agent-models", label: "Agent Models", icon: Brain },
   { id: "ml-models", label: "ML Models", icon: Cpu },
 ];
@@ -104,6 +104,7 @@ function StatusDot({ online, label }: { online: boolean; label?: string }) {
 
 const SettingsPage = () => {
   const { user, isLoggedIn, logout } = useAuth();
+  const perms = usePermissions();
   const [tab, setTab] = useState<Tab>("llm");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -323,7 +324,6 @@ const SettingsPage = () => {
     if (tab === "safety") loadSafety();
     if (tab === "msf") loadMsf();
     if (tab === "nmap") loadNmap();
-    if (tab === "branding") loadBranding();
     if (tab === "agent-models") loadAgentModels();
     if (tab === "ml-models") loadMlStatus();
   }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus]);
@@ -468,7 +468,7 @@ const SettingsPage = () => {
       <div className="grid grid-cols-12 gap-4 h-full min-h-0 flex-1">
         {/* Sidebar */}
         <nav className="col-span-3 node-card !p-3 flex flex-col gap-1 overflow-y-auto">
-          {tabs.map((t) => (
+          {tabs.filter((t) => t.id !== "agent-models" || perms.isAdmin).map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -853,37 +853,6 @@ const SettingsPage = () => {
                   </a>
                 </div>
               </Section>
-            </div>
-          )}
-
-          {/* ── BRANDING ─────────────────────────────── */}
-          {tab === "branding" && (
-            <div className="space-y-6">
-              <Section title="Branding">
-                <FieldRow label="Company name" desc="Name shown in reports">
-                  <Input value={brandingName} onChange={(e) => setBrandingName(e.target.value)} placeholder="Tirpan" />
-                </FieldRow>
-                <FieldRow label="Logo" desc="Logo shown in reports">
-                  <div className="flex items-center gap-3">
-                    {brandingHasLogo && brandingLogoUrl && (
-                      <img src={brandingLogoUrl} alt="Logo" className="w-10 h-10 rounded-lg object-contain border border-border" />
-                    )}
-                    <label className="cursor-pointer px-3 py-2 rounded-xl bg-muted border border-border text-sm hover:bg-muted/80 transition-colors">
-                      Upload
-                      <input type="file" accept=".png,.jpg,.jpeg,.webp" onChange={uploadLogo} className="hidden" />
-                    </label>
-                    {brandingHasLogo && (
-                      <Button variant="outline" size="sm" onClick={deleteLogo} className="text-destructive">
-                        Delete
-                      </Button>
-                    )}
-                  </div>
-                </FieldRow>
-              </Section>
-              <Button onClick={saveBranding} disabled={saving} className="gap-2">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save Branding
-              </Button>
             </div>
           )}
 

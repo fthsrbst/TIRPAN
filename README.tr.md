@@ -11,8 +11,8 @@
 [![Lisans](https://img.shields.io/badge/lisans-Ticari%20Olmayan-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com)
-[![Testler](https://img.shields.io/badge/testler-329%20geçiyor-brightgreen.svg)]()
-[![Kapsam](https://img.shields.io/badge/kapsam-79%25-green.svg)]()
+[![Testler](https://img.shields.io/badge/testler-681%20geçiyor-brightgreen.svg)]()
+[![Kapsam](https://img.shields.io/badge/kapsam-83%25-green.svg)]()
 [![Durum](https://img.shields.io/badge/durum-aktif%20geliştirme-orange.svg)]()
 [![Yalnızca Yetkili Kullanım](https://img.shields.io/badge/kullanım-yalnızca%20yetkili%20ortamlar-red.svg)](docs/05_SAFETY_AND_LEGAL.md)
 
@@ -65,27 +65,37 @@ Her adım web arayüzünde gerçek zamanlı görüntülenir. Her eylem denetim k
 
 ---
 
-## Mevcut Yetenekler (V1 + V2 beta)
+## Mevcut Yetenekler
 
 | Yetenek | Detay |
 |---------|-------|
-| Ağ keşfi | Nmap tabanlı keşif + opsiyonel Masscan hızlı tarama |
-| Servis sıralaması | Port/servis/versiyon tespiti, NSE betikleri, SMB enum yardımcıları |
-| Exploit arama | Servis/versiyon bazlı SearchSploit/ExploitDB sorguları |
-| Exploitation | Metasploit RPC veya msfconsole yedek modu, rsh/distcc/webdav yardımcıları |
-| Web testi (V2) | WhatWeb, Nikto, Nuclei, ffuf/gobuster, Arjun, sqlmap, WPScan, Commix |
-| OSINT (V2) | theHarvester, subfinder, WHOIS, DNS sıralama |
-| Sızma sonrası | `ssh_exec` + `shell_exec` (bind/reverse/ssh), opsiyonel dosya okuma |
-| Yanal hareket (V2) | CrackMapExec/Impacket yardımcıları (kuruluysa) |
-| Raporlama | HTML/PDF raporlar (JSON/markdown rapor aracı ile) |
+| Ağ keşfi | Nmap + Masscan hızlı tarama + yerel alt ağların otomatik keşfi |
+| Servis sıralaması | Port/servis/versiyon tespiti, NSE betikleri, SMB null session, Telnet, RSH |
+| Exploit arama | Servis/versiyon bazlı SearchSploit/ExploitDB sorguları, CVE bilgi tabanı |
+| Exploitation | Metasploit RPC, rsh, distcc, webdav, telnet, ssh yardımcıları |
+| Web uygulama testi | WhatWeb, Nikto, Nuclei, ffuf, Gobuster, Arjun, sqlmap, WPScan, Commix |
+| OSINT | theHarvester, subfinder, WHOIS, DNS sıralama (zone transfer) |
+| Sızma sonrası | SSH + bind/reverse/ssh shell'ler, kalıcı oturum yönetimi, PTY desteği |
+| Yanal hareket | CrackMapExec/NXC + Impacket (psexec, secretsdump, kerberoast, wmiexec) |
+| Kimlik bilgisi saldırıları | Hydra brute-force, Hashcat + John the Ripper çevrimdışı kırma |
+| Raporlama | CVSS v3.1 puanlamalı HTML/PDF raporlar, Jinja2 şablonları |
+| Çok ajanlı (V2) | BrainAgent koordinatör + 7 uzman ajan (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting) |
+| Shell kalıcılığı (V2) | Heartbeat izlemeli ve otomatik yeniden bağlantılı ShellManager |
+| Ajanlar arası mesajlaşma (V2) | 20 mesaj tipiyle async pub/sub AgentMessageBus |
+| Paylaşımlı görev durumu (V2) | MissionContext (hostlar, portlar, açıklıklar, kimlik bilgileri, loot, saldırı grafı) |
 | Gerçek zamanlı arayüz | Ajan düşüncesi/eylemi/sonucu WebSocket akışı |
-| Bilgi tabanı | Servis-exploit başarı hafızası + denetim kayıtları |
-| Güvenlik | 10 kural + never-scan listesi + kill switch |
-| Savunma modülü | Blue team izleme, detector engine ve yanit araçları |
+| Saldırı grafı | Compromise seviyesi görselleştirmeli React/TypeScript saldırı graf tuvali |
+| Bilgi tabanı | Servis-exploit başarı hafızası + tam denetim kaydı (salt-eklenir) |
+| Güvenlik | 10 kural + 5 izin bayrağı + never-scan listesi + kill switch |
+| Savunma modülü | Blue-team ağ izleme, dedektör motoru, saldırgan profilleme, aldatma araçları |
+| ML pipeline | XGBoost + scikit-learn exploit tahmincisi, bulgu sınıflandırıcı, saldırı yolu modeli |
+| LLM sağlayıcıları | OpenRouter, Ollama, LM Studio, OpenCode Go — çalışma zamanında değiştirilebilir |
+| Eğitim verisi | LLM fine-tuning için LoRA formatında JSONL yakalama |
+| Eklenti sistemi | Python sınıfı, CLI sarmalayıcı, API sarmalayıcı — hepsi otomatik keşfedilir |
 
-**Çalışma zamanında kayıtlı çekirdek araçlar:** `nmap_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`, `local_exec`
+**`tools/` altında 33 kayıtlı araç:** `nmap_scan`, `masscan_scan`, `searchsploit_search`, `metasploit_run`, `ssh_exec`, `shell_exec`, `local_exec`, `whatweb_scan`, `nikto_scan`, `nuclei_scan`, `ffuf_scan`, `gobuster_scan`, `arjun_scan`, `sqlmap_scan`, `wpscan_scan`, `commix_scan`, `crackmapexec_exec`, `impacket_exec`, `theHarvester_scan`, `subfinder_scan`, `whois_lookup`, `dns_enum`, `telnet_probe`, `rsh_exec`, `distcc_exec`, `webdav_put`, `smb_enum`, `hydra_brute`, `hashcat_crack`, `john_crack`, `ddos_test`, `generate_report`, `report_finding`
 
-**Genişletilmiş araçlar (binary kuruluysa):** masscan, nuclei, ffuf, whatweb, nikto, theHarvester, subfinder, whois, dns, crackmapexec, impacket, sqlmap, wpscan, commix, gobuster, arjun, hashcat, john, hydra ve daha fazlası. Ortamda hangilerinin hazır olduğunu `/api/v1/tools/status` ile görebilirsiniz.
+Ortamda hangilerinin hazır olduğunu `GET /api/v1/tools/status` ile görebilirsiniz.
 
 ---
 
@@ -131,9 +141,9 @@ Her adım web arayüzünde gerçek zamanlı görüntülenir. Her eylem denetim k
 ```
 
 **Tasarım ilkesi: küçük çekirdek, geniş araç yüzeyi.**
-ReAct döngüsü, güvenlik katmanı ve LLM istemcisi sabittir. Çekirdek + genişletilmiş araçlar `tools/` altında; özel entegrasyonlar `plugins/` ile eklenir.
+ReAct döngüsü, güvenlik katmanı ve LLM istemcisi sabittir. 33 araç `tools/` altında; özel entegrasyonlar `plugins/` ile eklenir.
 
-V2 ile Brain ajan, MissionContext ve uzman ajanlar (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting) gelir. Ayrıntı için [docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md).
+V2 ile Brain ajan, MissionContext, async mesaj yolu, kalıcı shell yöneticisi ve 7 uzman ajan (scanner, exploit, webapp, OSINT, post-exploit, lateral, reporting) gelir. Hepsi Brain'in koordinasyonunda paralel çalışır. Ayrıntı için [docs/02_ARCHITECTURE.md](docs/02_ARCHITECTURE.md).
 
 ---
 
@@ -288,7 +298,7 @@ Yapılandırılmış angajmanlar için TIRPAN, kapsam, izinler, kimlik bilgileri
 
 ## Yol Haritası
 
-TIRPAN üç aşamada geliştirilmektedir. V1 ağ düzeyinde temelidir — sonraki her şey eklenti olarak gelir.
+TIRPAN iki aşamada geliştirilmiştir. V1 ağ düzeyinde temeldir, V2 çok ajanlı orkestrasyon ve genişletilmiş yetenekler ekler.
 
 ### V1 — Ağ Sızma Testi (tamamlandı)
 
@@ -303,7 +313,7 @@ TIRPAN üç aşamada geliştirilmektedir. V1 ağ düzeyinde temelidir — sonrak
 - Hız profilleri: stealth / normal / aggressive
 - Eklenti mimarisi (altyapı hazır)
 
-### V2 — Çok Ajanli Saldırı Yaşam Döngüsü (beta)
+### V2 — Çok Ajanli Saldırı Yaşam Döngüsü (uygulandı)
 
 **Pasif Keşif (OSINT)**
 - theHarvester, subfinder, amass, crt.sh sertifika şeffaflığı, Shodan, WHOIS
@@ -360,17 +370,6 @@ TIRPAN üç aşamada geliştirilmektedir. V1 ağ düzeyinde temelidir — sonrak
 - Kanıtlar, yeniden üretim adımları ve düzeltme önerileriyle yapılandırılmış `Finding` modeli
 - CI/CD ve IDE entegrasyonu için SARIF çıktısı
 - Yerel gömülü modellerle vektör arama bilgi tabanı (RAG)
-
-### V3 — XBOW Düzeyi (planlanıyor)
-
-- Koordinatör ve Çözücü çok ajanlı mimari
-- Her çözücü için Docker izolasyonlu araç çalıştırma
-- Semgrep ve LLM ile beyaz kutu kaynak kod analizi
-- Alışılmadık servis davranışları üzerinde sıfır-gün mantığı
-- LLM tarafından yazılan özel exploit betikleri
-- Yanlış pozitif azaltma için Dahili İnceleyici ajan
-- CI/CD boru hattı entegrasyonu (GitHub Actions, GitLab)
-- Bulut ortamı desteği (AWS, Azure, GCP varlık keşfi)
 
 ---
 
@@ -447,12 +446,16 @@ XBOW, otonom yapay zeka sızma testi için mevcut ticari referans noktasıdır. 
 | Active Directory saldırıları | Evet | Hayır | Evet |
 | OSINT ve pasif keşif | Evet | Hayır | Evet |
 | Başarısızlıkta öz-düzeltme | Evet | Hayır | Evet |
-| Docker izolasyonlu araç çalıştırma | Evet | Hayır | V3 |
-| Çok ajanlı koordinatör mimarisi | Evet | Hayır | V3 |
+| Docker izolasyonlu araç çalıştırma | Evet | Hayır | Hayır |
+| Çok ajanlı koordinatör mimarisi | Evet | Hayır | Evet |
 | Açık kaynak | Hayır | Evet | Evet |
 | Ücretsiz kullanım | Hayır | Evet | Evet |
 | Genişletilebilir eklenti ekosistemi | Hayır | Evet | Evet |
 | Yerel LLM desteği | Hayır | Evet | Evet |
+| ML tabanlı exploit tahmini | Hayır | Hayır | Evet |
+| Ağ savunması (blue team) | Hayır | Hayır | Evet |
+| Saldırı grafı görselleştirme | Kısmi | Evet | Evet (React) |
+| LoRA eğitim verisi yakalama | Hayır | Hayır | Evet |
 
 Tam karşılaştırma: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
 
@@ -465,15 +468,20 @@ Tam karşılaştırma: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
 | Dil | Python 3.11+ |
 | Web çerçevesi | WebSocket akışıyla FastAPI 0.110+ |
 | LLM (bulut) | OpenRouter — Claude, GPT-4, Gemini ve diğerleri |
+| LLM (bulut) | OpenCode Go — DeepSeek R1 ve diğerleri |
 | LLM (yerel) | Ollama — Llama 3, Qwen, Mistral ve diğerleri |
-| Saldırı araçları | Nmap 7.94+, SearchSploit, Metasploit 6.x (pymetasploit3) |
-| Veritabanı | aiosqlite üzerinden SQLite |
+| LLM (yerel) | LM Studio — yerel çıkarım sunucusu |
+| Saldırı araçları | 33 araç: Nmap, Masscan, Metasploit, SearchSploit, Hydra, Hashcat, John, sqlmap, Nuclei, CrackMapExec, Impacket ve daha fazlası |
+| Veritabanı | aiosqlite üzerinden SQLite (async) |
 | Raporlama | Jinja2 + WeasyPrint (HTML ve PDF) |
-| Ön uç | TailwindCSS ile Vanilla HTML/CSS/JS |
-| Test | pytest + pytest-asyncio + pytest-cov — 329 test, %79 kapsam |
+| Ön uç | Vanilla HTML/CSS/JS + React/TypeScript saldırı graf tuvali (Vite + Cytoscape.js + Tailwind) |
+| ML | scikit-learn + XGBoost — exploit tahmincisi, bulgu sınıflandırıcı, saldırı yolu modeli |
+| Test | pytest + pytest-asyncio + pytest-cov — 22 dosyada 681 test |
 | Linting | ruff + black |
 | CLI | argparse + Rich |
 | Eklenti yükleme | importlib (stdlib) |
+| Savunma | Scapy tabanlı sniffing, kural tabanlı dedektörler, LLM destekli savunma ajanı |
+| Eğitim verisi | LLM fine-tuning için LoRA formatında JSONL yakalama (Qwen3 ChatML) |
 
 ---
 
@@ -497,11 +505,15 @@ Sahip olmadığınız veya açık yazılı izin almadığınız sistemleri asla 
 |-------|----------|
 | [Mimari](docs/02_ARCHITECTURE.md) | Diyagramlı tam sistem tasarımı |
 | [Gereksinimler](docs/03_PREREQUISITES.md) | Kurulum ve bağımlılık kurulumu |
-| [Yol Haritası](docs/04_ROADMAP.md) | V1'den V3'e özellik planı |
+| [Yol Haritası](docs/04_ROADMAP.md) | Tamamlanan ve planlanan özellik planı |
 | [Güvenlik ve Hukuk](docs/05_SAFETY_AND_LEGAL.md) | 10 kısıtlama ve yasal gereksinimler |
 | [XBOW Karşılaştırması](docs/01_XBOW_COMPARISON.md) | Özellik açığı analizi |
 | [Eklenti Sistemi](docs/09_PLUGIN_SYSTEM.md) | Eklenti yazma kılavuzu |
-| [V2 Özellik Spesifikasyonu](docs/11_V2_FEATURE_SPEC.md) | Detaylı V2 teknik tasarımı |
+| [Çok Ajanlı Spesifikasyon](docs/11_MULTI_AGENT_SPEC.md) | V2 çok ajanlı mimari |
+| [Savunma Modülü](docs/07_NETWORK_DEFENSE_MODULE.md) | Blue team savunma mimarisi |
+| [Lab Ortamı](docs/12_LAB_ENVIRONMENT.md) | VM tabanlı pratik lab kurulumu |
+| [Master Checklist](docs/08_MASTER_CHECKLIST.md) | Detaylı uygulama ilerlemesi |
+| [Öğrenme Yol Haritası](docs/10_LEARNING_ROADMAP.md) | Geliştiriciler için beceri ilerlemesi |
 
 ---
 

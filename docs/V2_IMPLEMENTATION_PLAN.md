@@ -1,8 +1,9 @@
 # TIRPAN V2 — Harmonized Implementation Plan
 
+> **Durum: 16 adımın tamamı uygulandı (Mayıs 2026).** Bu belge, implementasyon sırasında kullanılan Claude prompt'larının arşividir.
 > **Amaç:** Mevcut V1 altyapısını minimum değişiklikle multi-agent mimariye dönüştürmek.
 > **Prensip:** Her adım kendi başına çalışır, bir sonrakine bağımlıdır ama V1 hiçbir zaman kırılmaz.
-> **Uygulama:** Her adım Sonnet 4.6 ile, aşağıdaki prompt'lar kullanılarak yapılacak.
+> **Uygulama:** Her adım Sonnet 4.6 ile, aşağıdaki prompt'lar kullanılarak yapıldı.
 
 ---
 

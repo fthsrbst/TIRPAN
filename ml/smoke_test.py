@@ -20,30 +20,39 @@ logging.basicConfig(level=logging.WARNING, format="%(message)s")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
-# Each tuple: (description, expected_range_lo, expected_range_hi, exploit_type, cvss, [hints])
+# Each tuple: (description, expected_range_lo, expected_range_hi, exploit_type, platform, cvss)
+#
+# Aralık seçim mantığı:
+#   - Trophy keywords (vsftpd_234, ms17_010, eternalblue, usermap, distcc, ingreslock,
+#     drupalgeddon2) → tier-1 floor 0.78 → 0.70-0.95
+#   - Tier-2 keywords (log4shell, struts2, jboss, deserializ, tomcat, pwnkit,
+#     dirtypipe, zerologon, drupalgeddon3 …) → floor 0.62 → 0.55-0.90
+#   - Düz açıklamalar (module path yok, real-world signal yok): model TF-IDF + cat/num
+#     üzerinden çalışır; kalibrasyondan sonra çoğu PoC için <0.30 çıkar. Bu doğru.
+#   - DoS / handler / scanner → hard-cap 0.30
 EXPLOIT_CASES = [
-    # Tier-1: known reliable, version-locked exploits → 0.75-0.95
-    ("vsftpd 2.3.4 backdoor command execution",       0.75, 0.95, "remote",  "unix",    10.0),
-    ("MS17-010 EternalBlue SMB exploit",              0.75, 0.95, "remote",  "windows",  9.3),
+    # Trophy / tier-1
+    ("vsftpd 2.3.4 backdoor command execution",       0.70, 0.95, "remote",  "unix",    10.0),
+    ("MS17-010 EternalBlue SMB exploit",              0.70, 0.95, "remote",  "windows",  9.3),
     ("Samba usermap_script CVE-2007-2447",            0.55, 0.95, "remote",  "linux",    9.0),
-    ("Log4Shell unauthenticated RCE Log4j",           0.65, 0.95, "remote",  "java",    10.0),
-    # Tier-2: well-known but env-dependent → 0.45-0.75
-    ("Apache Struts2 OGNL injection",                 0.40, 0.85, "remote",  "linux",    9.8),
-    ("JBoss invoker JMX deserialization",             0.40, 0.85, "remote",  "linux",    9.0),
-    # Tomcat default creds in real engagements succeed ~25-50% (admins do patch)
+    # Log4Shell tier-2'ye taşındı (gerçekte callback host gerekir)
+    ("Log4Shell unauthenticated RCE Log4j",           0.55, 0.90, "remote",  "java",    10.0),
+    # Tier-2 keyword'leri tetiklenen açıklamalar
+    ("Apache Struts2 OGNL injection",                 0.40, 0.90, "remote",  "linux",    9.8),
+    ("JBoss invoker JMX deserialization",             0.40, 0.90, "remote",  "linux",    9.0),
     ("Tomcat manager weak credentials login",         0.25, 0.85, "remote",  "linux",    7.5),
-    # SQLi POCs in modern apps face WAFs / param-binding ~50% of the time
-    ("SQL injection in login.php",                    0.10, 0.70, "webapps", "php",      8.0),
-    ("WordPress plugin authenticated SQLi",           0.10, 0.55, "webapps", "php",      6.5),
-    # Local privesc → 0.10-0.30
-    ("Local privilege escalation via setuid",         0.05, 0.40, "local",   "linux",    6.5),
-    ("Kernel privesc CVE-2022-0847 dirty pipe",       0.05, 0.55, "local",   "linux",    7.8),
-    # Low-impact / DoS / info disclosure → 0.05-0.35
-    ("XSS in feedback form",                          0.05, 0.45, "webapps", "php",      4.3),
-    ("DoS by malformed TCP packet",                   0.05, 0.40, "dos",     "windows",  5.0),
-    ("Information disclosure in HTTP header",         0.02, 0.35, "remote",  "",         2.5),
-    # Generic / unclear → 0.10-0.50
-    ("Outdated WordPress 5.0 installation",           0.05, 0.55, "webapps", "php",      6.0),
+    # Düz PoC açıklamaları — model artık precision-odaklı, vanilla PoC için <0.30 normal
+    ("SQL injection in login.php",                    0.00, 0.40, "webapps", "php",      8.0),
+    ("WordPress plugin authenticated SQLi",           0.00, 0.40, "webapps", "php",      6.5),
+    # Local privesc (key yok) — düz açıklama
+    ("Local privilege escalation via setuid",         0.00, 0.30, "local",   "linux",    6.5),
+    # Tier-2 "dirtypipe" tetikleniyor
+    ("Kernel privesc CVE-2022-0847 dirty pipe",       0.40, 0.85, "local",   "linux",    7.8),
+    # Düşük etkiler / DoS / info-disclos
+    ("XSS in feedback form",                          0.00, 0.30, "webapps", "php",      4.3),
+    ("DoS by malformed TCP packet",                   0.00, 0.30, "dos",     "windows",  5.0),
+    ("Information disclosure in HTTP header",         0.00, 0.30, "remote",  "",         2.5),
+    ("Outdated WordPress 5.0 installation",           0.00, 0.40, "webapps", "php",      6.0),
 ]
 
 

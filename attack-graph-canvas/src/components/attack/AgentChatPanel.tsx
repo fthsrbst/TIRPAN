@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getSessions, getSessionEvents } from "@/lib/api";
+import { useSessionContext } from "@/lib/SessionContext";
 import { Bot, Wrench, AlertTriangle, Shield, Zap, ChevronDown, Search, Eye, Clock, Cpu } from "lucide-react";
 
 interface AgentEvent {
@@ -384,10 +385,12 @@ interface Props {
 }
 
 export const AgentChatPanel = ({ open, onClose }: Props) => {
-  const [filter, setFilter] = useState<FilterKey>("reasoning");
+  const [filter, setFilter] = useState<FilterKey>("all");
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const { selectedSessionId } = useSessionContext();
 
   const { data: sessions = [] } = useQuery<any[]>({
     queryKey: ["sessions"],
@@ -395,16 +398,20 @@ export const AgentChatPanel = ({ open, onClose }: Props) => {
     enabled: open,
   });
 
-  const target =
-    (sessions as any[]).find((s) => s.is_running || s.status === "running") ||
-    (sessions as any[])[0] ||
-    null;
+  const target = selectedSessionId
+    ? ((sessions as any[]).find((s) => s.id === selectedSessionId) ||
+       (sessions as any[]).find((s) => s.is_running || s.status === "running") ||
+       (sessions as any[])[0] ||
+       null)
+    : ((sessions as any[]).find((s) => s.is_running || s.status === "running") ||
+       (sessions as any[])[0] ||
+       null);
 
   const { data: eventsData } = useQuery({
     queryKey: ["session-events", target?.id],
     queryFn: () => getSessionEvents(target!.id),
     enabled: !!target?.id && open,
-    refetchInterval: target?.is_running ? 3000 : false,
+    refetchInterval: (target?.is_running || target?.status === "running") ? 3000 : false,
   });
 
   const allEvents: AgentEvent[] = (eventsData as any)?.events || (Array.isArray(eventsData) ? eventsData : []);
