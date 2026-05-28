@@ -39,11 +39,32 @@ async def run_v2_agent_task(
     from web import session_manager
     import core.debug_logger as _dbg
 
+    async def _periodic_ctx_flush() -> None:
+        """Flush mission_context_json to DB every 30s so live sessions are queryable."""
+        if mission_ctx_repo is None:
+            return
+        while True:
+            await asyncio.sleep(30)
+            try:
+                await mission_ctx_repo.save_context(session_id, mission_ctx.to_dict())
+            except asyncio.CancelledError:
+                break
+            except Exception as _fe:
+                logger.debug("Periodic context flush failed: %s", _fe)
+
     try:
         await session_repo.update_status(session_id, "running")
         await audit_repo.log("SESSION_START", session_id=session_id, details={"mode": "v2_auto"})
 
-        result = await agent.run()
+        _flush_task = asyncio.ensure_future(_periodic_ctx_flush())
+        try:
+            result = await agent.run()
+        finally:
+            _flush_task.cancel()
+            try:
+                await _flush_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
         if mission_ctx_repo is not None:
             try:

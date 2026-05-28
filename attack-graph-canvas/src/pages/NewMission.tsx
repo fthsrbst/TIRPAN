@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageShell } from "@/components/attack/PageShell";
@@ -45,7 +46,15 @@ import {
   ArrowLeft,
   Server,
   Users,
+  CalendarClock,
+  Calendar,
+  Clock,
+  X,
+  CheckCircle2,
+  BellRing,
+  Repeat,
 } from "lucide-react";
+import { type Recurrence, nextOccurrence } from "./ScheduledScans";
 
 const PROFILE_ICONS: Record<string, typeof Target> = {
   Radio, Network, KeyRound, Globe, EyeOff, Zap, Users, Server, Database, Monitor, Wifi, Terminal,
@@ -342,8 +351,45 @@ const NewMission = () => {
   const [knownTech, setKnownTech] = useState("");
   const [confirmEveryStep, setConfirmEveryStep] = useState(false);
   const [missionNotes, setMissionNotes] = useState("");
+  // Per-mission wordlist override. Empty → server falls through to
+  // app_settings.default_password_wordlist → common-path cascade →
+  // embedded 50-password fallback (see HydraTool._resolve_passlist).
+  const [passwordWordlist, setPasswordWordlist] = useState("");
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
+
+  // ── Schedule state ───────────────────────────────
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [schedulePendingProfile, setSchedulePendingProfile] = useState<string | null>(null);
+  const [scheduledMissions, setScheduledMissions] = useState<{ id: string; name: string; target: string; scheduledAt: string; profile?: string; payload: Record<string, unknown> }[]>(() => {
+    try { return JSON.parse(localStorage.getItem("tirpan_scheduled_missions") || "[]"); }
+    catch { return []; }
+  });
+  const [scheduleSuccess, setScheduleSuccess] = useState(false);
+  const [schedSuccessLabel, setSchedSuccessLabel] = useState("");
+
+  // Custom date-time picker parts (avoids native datetime-local)
+  const _initSchedTime = () => {
+    const d = new Date(Date.now() + 3600 * 1000);
+    d.setSeconds(0, 0);
+    return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(), hour: d.getHours(), minute: Math.ceil(d.getMinutes() / 5) * 5 % 60 };
+  };
+  const [schedParts, setSchedParts] = useState(_initSchedTime);
+  const schedDateTime = useMemo(() => {
+    const { year, month, day, hour, minute } = schedParts;
+    return new Date(year, month - 1, day, hour, minute, 0);
+  }, [schedParts]);
+  const schedIsValid = schedDateTime.getTime() > Date.now() + 30_000;
+
+  // Recurrence
+  const [schedRecType, setSchedRecType] = useState<Recurrence['type']>('once');
+  const [schedDow, setSchedDow] = useState<boolean[]>([false, true, false, false, false, false, false]); // Mon default
+  const toggleSchedDow = (i: number) => setSchedDow(prev => {
+    const next = [...prev];
+    if (next[i] && next.filter(Boolean).length === 1) return prev; // keep ≥1
+    next[i] = !next[i];
+    return next;
+  });
 
   // ── Submit state ────────────────────────────────
   const [saving, setSaving] = useState(false);
@@ -508,10 +554,11 @@ const NewMission = () => {
   };
 
   // ── Apply scan profile ──────────────────────────
-  const applyProfile = (profileId: string) => {
+  // Settings-only — no step/navigation side-effects
+  const applyProfileSettings = (profileId: string): boolean => {
     const all = [...SCAN_PROFILE_DEFS, ...customProfiles];
     const def = all.find((p) => p.id === profileId);
-    if (!def) return;
+    if (!def) return false;
     const s = def.settings;
     setMode(s.mode);
     setSpeedProfile(s.speedProfile);
@@ -535,7 +582,12 @@ const NewMission = () => {
     setKnownTech(s.knownTech);
     setScopeNotes(s.scopeNotes);
     setActiveProfile(profileId);
-    setStep(2);
+    return true;
+  };
+
+  // Full apply — settings + navigate to step 2
+  const applyProfile = (profileId: string) => {
+    if (applyProfileSettings(profileId)) setStep(2);
   };
 
   // ── Save / delete custom profile ────────────────
@@ -653,6 +705,9 @@ const NewMission = () => {
       confirm_every_step: confirmEveryStep,
       notes: missionNotes.trim() || undefined,
 
+      // Per-mission wordlist override; empty → backend cascade kicks in.
+      password_wordlist: passwordWordlist.trim() || undefined,
+
       provider: provider || undefined,
       model: model || undefined,
     };
@@ -682,6 +737,80 @@ const NewMission = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, missionName, additionalTargets, mode, launchMut, qc, navigate]);
 
+  // ── Schedule helpers ─────────────────────────────
+  const _openSchedule = () => {
+    setSchedParts(_initSchedTime());
+    setScheduleOpen(true);
+  };
+
+  // Normal mod (Step 1) — profil seç ama step'e gitme, sadece ayarları uygula
+  const openScheduleFromProfile = (profileId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    applyProfileSettings(profileId);   // step 2'ye GİTMEZ
+    setSchedulePendingProfile(profileId);
+    _openSchedule();
+  };
+
+  // Expert mod (Step 2) — mevcut form ayarlarıyla schedule aç
+  const openScheduleFromForm = () => {
+    setSchedulePendingProfile(null);
+    _openSchedule();
+  };
+
+  const handleScheduleConfirm = () => {
+    if (!schedIsValid) return;
+    const payload = buildPayload();
+
+    // Build recurrence object
+    const rec: Recurrence = {
+      type: schedRecType,
+      hour: schedParts.hour,
+      minute: schedParts.minute,
+      daysOfWeek: schedRecType === 'weekly'
+        ? schedDow.map((on, i) => on ? i : -1).filter(i => i >= 0)
+        : undefined,
+      dayOfMonth: schedRecType === 'monthly' ? schedParts.day : undefined,
+    };
+
+    // For recurring types, resolve proper next occurrence from the selected time
+    let scheduledAt = schedDateTime.toISOString();
+    if (rec.type !== 'once') {
+      const next = nextOccurrence(rec, schedDateTime.getTime() - 60_000);
+      if (next) scheduledAt = next.toISOString();
+    }
+
+    const label = new Date(scheduledAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const recSuffix = rec.type !== 'once'
+      ? ` · ${rec.type === 'daily' ? 'Daily' : rec.type === 'weekly' ? 'Weekly' : 'Monthly'}`
+      : '';
+
+    const mission = {
+      id: `sched_${Date.now()}`,
+      name: missionName.trim() || target.trim() || (schedulePendingProfile ? [...SCAN_PROFILE_DEFS, ...customProfiles].find(p => p.id === schedulePendingProfile)?.label : undefined) || "Unnamed Mission",
+      target: target.trim(),
+      scheduledAt,
+      recurrence: rec,
+      profile: schedulePendingProfile || activeProfile || undefined,
+      source: 'normal' as const,
+      payload,
+    };
+    const updated = [...scheduledMissions, mission];
+    setScheduledMissions(updated);
+    localStorage.setItem("tirpan_scheduled_missions", JSON.stringify(updated));
+    setScheduleOpen(false);
+    setSchedSuccessLabel(label + recSuffix);
+    setScheduleSuccess(true);
+    setTimeout(() => setScheduleSuccess(false), 6000);
+  };
+
+  const cancelScheduled = (id: string) => {
+    const updated = scheduledMissions.filter((m) => m.id !== id);
+    setScheduledMissions(updated);
+    localStorage.setItem("tirpan_scheduled_missions", JSON.stringify(updated));
+  };
+
+  // Auto-launcher moved to App.tsx (ScheduleTicker) — runs globally on all pages
+
   // ── Render helpers ──────────────────────────────
   const fieldLabel = (text: string, desc?: string) => (
     <div className="mb-1.5">
@@ -690,8 +819,319 @@ const NewMission = () => {
     </div>
   );
 
+  // ── Custom date-time helpers ─────────────────────
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const daysInMonth = (y: number, m: number) => new Date(y, m, 0).getDate();
+  const sp = (v: number) => String(v).padStart(2, "0");
+
+  // Countdown label
+  const schedCountdown = useMemo(() => {
+    const diff = schedDateTime.getTime() - Date.now();
+    if (diff <= 0) return null;
+    const h = Math.floor(diff / 3_600_000);
+    const m = Math.floor((diff % 3_600_000) / 60_000);
+    if (h >= 24) { const d = Math.floor(h / 24); return `${d}d ${h % 24}h`; }
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }, [schedDateTime]);
+
+  // Profile display name for header
+  const schedProfileLabel = schedulePendingProfile
+    ? [...SCAN_PROFILE_DEFS, ...customProfiles].find(p => p.id === schedulePendingProfile)?.label
+    : null;
+
+  // ── Schedule modal (rendered via portal → body level) ──────────
+  const scheduleModalContent = scheduleOpen ? (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ zIndex: 9999 }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) setScheduleOpen(false); }}
+    >
+      {/* Full-viewport blur overlay */}
+      <div className="absolute inset-0 bg-black/55 backdrop-blur-md" />
+
+      {/* Modal card */}
+      <div className="relative w-full max-w-[440px] mx-4 rounded-2xl border border-white/10 bg-[hsl(var(--card))] shadow-[0_24px_80px_rgba(0,0,0,0.6)]">
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border/30">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/15 border border-primary/25 flex items-center justify-center">
+              <CalendarClock className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="font-display font-bold text-base leading-tight">Schedule Scan</h3>
+              <p className="text-[11px] text-muted-foreground">
+                {schedProfileLabel ? `Profile: ${schedProfileLabel}` : "Auto-launches at the set time"}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setScheduleOpen(false)}
+            className="w-7 h-7 rounded-lg bg-muted/60 flex items-center justify-center hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* ── Body ── */}
+        <div className="px-6 py-5 space-y-5">
+
+          {/* Mission summary pill */}
+          <div className="flex flex-wrap gap-2 p-3 rounded-xl bg-muted/25 border border-border/30">
+            <div className="flex items-center gap-1.5 text-xs">
+              <Target className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Target:</span>
+              <span className="font-mono text-foreground">{target.trim() || <span className="italic text-muted-foreground/60">not set</span>}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs ml-auto">
+              <Radio className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold border border-primary/20">
+                {MODE_SHORT[mode] ?? mode}
+              </span>
+            </div>
+          </div>
+
+          {/* ── Custom date picker ── */}
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-3 flex items-center gap-1.5">
+              <Calendar className="w-3 h-3" /> Date
+            </Label>
+            <div className="grid grid-cols-3 gap-2">
+              {/* Day */}
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Day</p>
+                <select
+                  value={schedParts.day}
+                  onChange={e => setSchedParts(p => ({ ...p, day: Number(e.target.value) }))}
+                  className="w-full h-10 px-3 rounded-xl border border-border/50 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 appearance-none cursor-pointer"
+                >
+                  {Array.from({ length: daysInMonth(schedParts.year, schedParts.month) }, (_, i) => i + 1).map(d => (
+                    <option key={d} value={d}>{sp(d)}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Month */}
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Month</p>
+                <select
+                  value={schedParts.month}
+                  onChange={e => setSchedParts(p => ({ ...p, month: Number(e.target.value) }))}
+                  className="w-full h-10 px-3 rounded-xl border border-border/50 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 appearance-none cursor-pointer"
+                >
+                  {MONTHS.map((mn, i) => (
+                    <option key={mn} value={i + 1}>{mn}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Year */}
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Year</p>
+                <select
+                  value={schedParts.year}
+                  onChange={e => setSchedParts(p => ({ ...p, year: Number(e.target.value) }))}
+                  className="w-full h-10 px-3 rounded-xl border border-border/50 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 appearance-none cursor-pointer"
+                >
+                  {[0, 1, 2].map(offset => {
+                    const y = new Date().getFullYear() + offset;
+                    return <option key={y} value={y}>{y}</option>;
+                  })}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Custom time picker ── */}
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-3 flex items-center gap-1.5">
+              <Clock className="w-3 h-3" /> Time
+            </Label>
+            <div className="grid grid-cols-2 gap-2">
+              {/* Hour */}
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Hour</p>
+                <select
+                  value={schedParts.hour}
+                  onChange={e => setSchedParts(p => ({ ...p, hour: Number(e.target.value) }))}
+                  className="w-full h-10 px-3 rounded-xl border border-border/50 bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 appearance-none cursor-pointer"
+                >
+                  {Array.from({ length: 24 }, (_, i) => i).map(h => (
+                    <option key={h} value={h}>{sp(h)}:00</option>
+                  ))}
+                </select>
+              </div>
+              {/* Minute */}
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Minute</p>
+                <select
+                  value={schedParts.minute}
+                  onChange={e => setSchedParts(p => ({ ...p, minute: Number(e.target.value) }))}
+                  className="w-full h-10 px-3 rounded-xl border border-border/50 bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 appearance-none cursor-pointer"
+                >
+                  {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => (
+                    <option key={m} value={m}>:{sp(m)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Countdown / validation feedback */}
+            <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${schedIsValid ? "bg-primary/8 border border-primary/20 text-primary" : "bg-destructive/10 border border-destructive/20 text-destructive"}`}>
+              {schedIsValid ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+              {schedIsValid
+                ? <>Launches in <strong className="ml-1">{schedCountdown}</strong> &nbsp;·&nbsp; {schedDateTime.toLocaleString()}</>
+                : "Selected time is in the past — please choose a future time"}
+            </div>
+          </div>
+
+          {/* ── Recurrence ── */}
+          <div>
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-3 flex items-center gap-1.5">
+              <Repeat className="w-3 h-3" /> Recurrence
+            </Label>
+            <div className="flex flex-wrap gap-1.5">
+              {(['once', 'daily', 'weekly', 'monthly'] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setSchedRecType(t)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold border transition-colors ${
+                    schedRecType === t
+                      ? 'border-primary bg-primary/15 text-primary'
+                      : 'border-border/40 bg-muted text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t === 'once' ? 'One-time' : t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
+            {schedRecType === 'weekly' && (
+              <div className="mt-2 flex gap-1">
+                {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => toggleSchedDow(i)}
+                    className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-colors ${
+                      schedDow[i]
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            )}
+            {schedRecType !== 'once' && (
+              <p className="mt-1.5 text-[10px] text-muted-foreground/70 flex items-center gap-1">
+                <Repeat className="w-3 h-3 shrink-0" />
+                {schedRecType === 'daily' && `Repeats every day at ${String(schedParts.hour).padStart(2,'0')}:${String(schedParts.minute).padStart(2,'0')}`}
+                {schedRecType === 'weekly' && `Repeats on selected days at ${String(schedParts.hour).padStart(2,'0')}:${String(schedParts.minute).padStart(2,'0')}`}
+                {schedRecType === 'monthly' && `Repeats on day ${schedParts.day} of each month at ${String(schedParts.hour).padStart(2,'0')}:${String(schedParts.minute).padStart(2,'0')}`}
+              </p>
+            )}
+          </div>
+
+          {/* Quick-select shortcuts */}
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { label: "+30 min", ms: 30 * 60_000 },
+              { label: "+1 hour", ms: 60 * 60_000 },
+              { label: "+3 hours", ms: 3 * 60 * 60_000 },
+              { label: "+1 day", ms: 24 * 60 * 60_000 },
+            ].map(({ label, ms }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  const d = new Date(Date.now() + ms);
+                  d.setSeconds(0, 0);
+                  setSchedParts({ year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate(), hour: d.getHours(), minute: Math.round(d.getMinutes() / 5) * 5 % 60 });
+                }}
+                className="px-3 py-1 rounded-full text-[10px] font-medium bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border/40 transition-colors"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Pending scheduled missions list */}
+          {scheduledMissions.length > 0 && (
+            <div>
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-2 flex items-center gap-1.5">
+                <BellRing className="w-3 h-3" /> Pending Schedules ({scheduledMissions.length})
+              </Label>
+              <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                {scheduledMissions.map((m) => (
+                  <div key={m.id} className="flex items-center gap-2 p-2 rounded-lg bg-muted/25 border border-border/30 text-xs">
+                    {(m as {recurrence?: {type:string}}).recurrence?.type && (m as {recurrence?: {type:string}}).recurrence?.type !== 'once'
+                      ? <Repeat className="w-3 h-3 text-primary shrink-0" />
+                      : <BellRing className="w-3 h-3 text-primary shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{m.name || m.target || "Unnamed"}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5">
+                        {new Date(m.scheduledAt).toLocaleString()}
+                        {(m as {recurrence?: {type:string}}).recurrence?.type && (m as {recurrence?: {type:string}}).recurrence?.type !== 'once' && (
+                          <span className="px-1 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[9px] font-semibold capitalize">
+                            {(m as {recurrence?: {type:string}}).recurrence?.type}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => cancelScheduled(m.id)}
+                      className="w-5 h-5 rounded flex items-center justify-center hover:bg-destructive/15 hover:text-destructive text-muted-foreground transition-colors shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div className="flex items-center justify-end gap-2 px-6 pb-6 pt-2 border-t border-border/30">
+          <Button type="button" variant="ghost" size="sm" onClick={() => setScheduleOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleScheduleConfirm}
+            disabled={!schedIsValid}
+            className="gap-2"
+          >
+            {schedRecType !== 'once' ? <Repeat className="w-4 h-4" /> : <CalendarClock className="w-4 h-4" />}
+            {schedRecType !== 'once' ? 'Schedule Recurring' : 'Confirm Schedule'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <PageShell title="New Mission" subtitle="Configure and launch pentest session">
+      {/* Schedule modal — rendered at document.body via portal (full-screen blur) */}
+      {scheduleOpen && createPortal(scheduleModalContent, document.body)}
+
+      {/* Schedule success toast — also portal so it sits above everything */}
+      {scheduleSuccess && createPortal(
+        <div className="fixed bottom-6 right-6 z-[9998] flex items-center gap-3 px-4 py-3 rounded-xl bg-card border border-primary/30 shadow-2xl">
+          <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
+          <div>
+            <div className="text-sm font-semibold">Scan Scheduled ✓</div>
+            <div className="text-[11px] text-muted-foreground">{schedSuccessLabel}</div>
+          </div>
+          <button type="button" onClick={() => setScheduleSuccess(false)} className="ml-2 text-muted-foreground hover:text-foreground">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>,
+        document.body
+      )}
+
       {step === 1 ? (
         /* ── Step 1: Profile Picker ────────────────────────────────── */
         <div className="h-full flex flex-col gap-5 py-1">
@@ -756,6 +1196,15 @@ const NewMission = () => {
                         </div>
                       </div>
                     </button>
+                    {/* Schedule button — always visible on hover */}
+                    <button
+                      type="button"
+                      onClick={(e) => openScheduleFromProfile(p.id, e)}
+                      title="Schedule this scan"
+                      className={`absolute top-2 ${p.custom ? "right-10" : "right-2"} w-6 h-6 rounded-lg bg-muted/80 opacity-0 group-hover/card:opacity-100 flex items-center justify-center hover:bg-primary/20 hover:text-primary transition-all`}
+                    >
+                      <CalendarClock className="w-3 h-3" />
+                    </button>
                     {p.custom && (
                       <button
                         type="button"
@@ -770,31 +1219,56 @@ const NewMission = () => {
               })}
 
               {/* Custom / Advanced — full width last row */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveProfile(null);
-                  setMode("scan_only"); setSpeedProfile("normal"); setScanType("syn");
-                  setPortRange("1-65535"); setVersionDetection(true); setOsDetection(false);
-                  setAggressiveScan(false); setNmapScripts(""); setAllowExploit(false);
-                  setAllowPostExploit(false); setAllowLateral(false); setAllowDockerEscape(false);
-                  setAllowBrowserRecon(false); setTimeLimit(7200); setRateLimit(50);
-                  setBlockDos(true); setBlockDestructive(true); setMaxSeverity("CRITICAL");
-                  setObjectives(""); setKnownTech(""); setScopeNotes("");
-                  setStep(2);
-                }}
-                className="col-span-4 p-4 rounded-2xl border border-dashed border-border/60 bg-transparent hover:bg-muted/20 text-left transition-all flex items-center gap-4 group"
-              >
-                <div className="w-11 h-11 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
-                  <Settings2 className="w-5 h-5 text-muted-foreground" />
-                </div>
-                <div>
-                  <div className="font-display font-bold text-sm">Custom / Advanced</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    Configure all settings manually — full control over every scan parameter, safety rule, and agent behaviour
+              <div className="col-span-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveProfile(null);
+                    setMode("scan_only"); setSpeedProfile("normal"); setScanType("syn");
+                    setPortRange("1-65535"); setVersionDetection(true); setOsDetection(false);
+                    setAggressiveScan(false); setNmapScripts(""); setAllowExploit(false);
+                    setAllowPostExploit(false); setAllowLateral(false); setAllowDockerEscape(false);
+                    setAllowBrowserRecon(false); setTimeLimit(7200); setRateLimit(50);
+                    setBlockDos(true); setBlockDestructive(true); setMaxSeverity("CRITICAL");
+                    setObjectives(""); setKnownTech(""); setScopeNotes("");
+                    setStep(2);
+                  }}
+                  className="flex-1 p-4 rounded-2xl border border-dashed border-border/60 bg-transparent hover:bg-muted/20 text-left transition-all flex items-center gap-4 group"
+                >
+                  <div className="w-11 h-11 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
+                    <Settings2 className="w-5 h-5 text-muted-foreground" />
                   </div>
-                </div>
-              </button>
+                  <div>
+                    <div className="font-display font-bold text-sm">Custom / Advanced</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      Configure all settings manually — full control over every scan parameter, safety rule, and agent behaviour
+                    </div>
+                  </div>
+                </button>
+
+                {/* Scheduled missions count chip */}
+                {scheduledMissions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date(Date.now() + 3600 * 1000);
+                      d.setSeconds(0, 0);
+                      setScheduleDate(d.toISOString().slice(0, 16));
+                      setSchedulePendingProfile(null);
+                      setScheduleOpen(true);
+                    }}
+                    className="flex items-center gap-3 px-5 rounded-2xl border border-primary/25 bg-primary/5 hover:bg-primary/10 transition-colors shrink-0"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/25 flex items-center justify-center">
+                      <BellRing className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-bold text-primary">{scheduledMissions.length}</div>
+                      <div className="text-[10px] text-muted-foreground whitespace-nowrap">Scheduled</div>
+                    </div>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1224,6 +1698,25 @@ const NewMission = () => {
                     <p className="text-xs">No saved credentials found.</p>
                   </div>
                 )}
+              </div>
+
+              <Separator />
+
+              {/* ── Per-mission password wordlist override ─────────── */}
+              {/* Falls through to Settings → ML Models → Default password
+                  wordlist, then to the embedded fallback cascade. Empty here
+                  means "use whatever the platform default is". */}
+              <div>
+                {fieldLabel(
+                  "Password wordlist (this mission only)",
+                  "Used by hydra / medusa when no wordlist is specified per call. Leave empty to use the global Settings default.",
+                )}
+                <Input
+                  value={passwordWordlist}
+                  onChange={(e) => setPasswordWordlist(e.target.value)}
+                  placeholder="/usr/share/wordlists/rockyou.txt"
+                  className="font-mono text-xs"
+                />
               </div>
             </div>
           )}
@@ -1658,6 +2151,20 @@ const NewMission = () => {
             <div className="text-[10px] text-muted-foreground">
               {target || missionName ? `Target: ${target || missionName}` : "No target set"}
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openScheduleFromForm}
+              className="gap-2 border-primary/40 bg-primary/8 hover:bg-primary/15 text-primary hover:border-primary/60 font-semibold"
+            >
+              <CalendarClock className="w-4 h-4" />
+              Schedule Scan
+              {scheduledMissions.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold leading-none">
+                  {scheduledMissions.length}
+                </span>
+              )}
+            </Button>
             <Button
               onClick={handleSubmit}
               disabled={saving}

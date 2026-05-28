@@ -218,6 +218,7 @@ class SoulLoader:
         permissions: dict[str, bool],
         playbook_section: str = "",
         discovered_services: list[str] | None = None,
+        attack_path_section: str = "",
     ) -> str:
         """Build the full BrainAgent system prompt from soul files + runtime context."""
         brain_soul = self.load("BRAIN_SOUL")
@@ -240,6 +241,9 @@ class SoulLoader:
         )
 
         playbook_part = f"\n---\n\n{playbook_section}\n" if playbook_section.strip() else ""
+        attack_path_part = (
+            f"\n---\n\n{attack_path_section}\n" if attack_path_section.strip() else ""
+        )
 
         return f"""{brain_soul}
 
@@ -250,8 +254,7 @@ class SoulLoader:
 ---
 
 {exploit_kb}
-{playbook_part}
----
+{playbook_part}{attack_path_part}---
 
 ## CURRENT MISSION STATE
 
@@ -292,9 +295,10 @@ class SoulLoader:
   set_phase(phase)       — recon | scanning | exploitation | post_exploitation | reporting | done
   mission_done(summary, narrative)
     narrative: 2-5 sentence plain-text story of what happened in chronological order.
-    Example: "Scanned target and found 23 open ports including vsftpd 2.3.4 on port 21.
-    Identified CVE-2011-2523 backdoor. Exploited via Metasploit and gained root shell.
-    Found credentials in /etc/shadow and flag in /root/flag.txt."
+    Example: "Scanned the target's exposed ports and identified an unpatched service
+    matching a known critical CVE. Exploited that CVE and obtained a privileged
+    shell. Enumerated accounts, hashes, sudo rights, and network state. Documented
+    each step as evidence in the final report."
 
 ---
 

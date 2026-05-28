@@ -299,9 +299,14 @@ class TestMissionContextWrites:
         run(ctx.update_host(HostInfo(ip="10.0.0.1")))
         run(ctx.add_session(SessionInfo(session_id="msf-1", host_ip="10.0.0.1",
                                         session_type="meterpreter")))
-        edges = [e for e in ctx.attack_graph.edges
-                 if e.from_node == "attacker" and e.to_node == "10.0.0.1"]
-        assert len(edges) == 1
+        # update_host now also stamps a "discovered_from" edge so the operator
+        # can see hosts on the graph before any exploit lands. The exploit
+        # success edge is still expected to appear exactly once.
+        exploit_edges = [e for e in ctx.attack_graph.edges
+                         if e.from_node == "attacker"
+                         and e.to_node == "10.0.0.1"
+                         and e.edge_type == "exploit"]
+        assert len(exploit_edges) == 1
 
     def test_remove_session(self):
         ctx = make_context()

@@ -23,7 +23,7 @@ from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 5
-_RUN_TIMEOUT = 30        # default for action=run (nc / shell commands can take time)
+_RUN_TIMEOUT = 180       # default for action=run (exploitdb scripts, msfconsole, nc can take time)
 _PING_TIMEOUT = 5
 
 
@@ -260,13 +260,27 @@ class LocalExecTool(BaseTool):
                 "error": f"Timeout connecting to {target_ip}:{port} — port may be filtered",
             }
 
+    @staticmethod
+    def _compat_env() -> dict:
+        """Build env with PYTHONPATH pointing to our _compat shim dir (telnetlib etc.)."""
+        import os
+        from pathlib import Path
+        compat_dir = str(Path(__file__).parent / "_compat")
+        existing = os.environ.get("PYTHONPATH", "")
+        merged = f"{compat_dir}:{existing}" if existing else compat_dir
+        env = os.environ.copy()
+        env["PYTHONPATH"] = merged
+        return env
+
     async def _run_command(self, command: str, timeout: int) -> dict:
         """Run an arbitrary local shell command on the attacker machine."""
         try:
+            env = self._compat_env()
             proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout

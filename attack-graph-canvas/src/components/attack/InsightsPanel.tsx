@@ -123,8 +123,8 @@ export const InsightsPanel = ({ data, details, sessionId }: InsightsPanelProps) 
     queryKey: ["ml-suggestions", sessionId],
     queryFn: () => getMlSuggestions(sessionId!, 8),
     enabled: !!sessionId,
-    // Refetch every 15s while running (phase advances), every 60s when idle
-    refetchInterval: details.isRunning ? 15000 : 60000,
+    // Refetch every 8s while running (phase advances), every 60s when idle
+    refetchInterval: details.isRunning ? 8000 : 60000,
     staleTime: 5000,   // session değişince hemen yeni data çek
   });
 

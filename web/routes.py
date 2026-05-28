@@ -371,6 +371,30 @@ _ALLOWED_SETTINGS_KEYS: frozenset[str] = frozenset({
     "opencode_go_api_key",
     "opencode_go_model",
     "openrouter_api_key",
+    # ── ML / orchestration ─────────────────────────────────────────────
+    # Whether the Brain injects ML-driven NEXT-STEP TTP suggestions into
+    # its system prompt. Default ON.
+    "ml_inject_attack_path",
+    # Whether each exploit child receives a per-module ML success probability
+    # in its initial prompt + brain renders the same in NEXT-STEP block.
+    # Default ON.
+    "ml_inject_exploit_pred",
+    # Brain's hard cap on agents that can run in parallel. Default 3.
+    # Anything above ~4-6 causes LLM-queue starvation and wall-clock timeouts
+    # for the slower children (see test3 forensics — 18-wide spawn killed 9).
+    "spawn_max_parallel",
+    # Operator-configured default password wordlist for hydra/medusa/etc.
+    # test6: rockyou.txt missing → hydra silently failed. Now resolvable via
+    # settings, falling back to /usr/share/wordlists/* then embedded list.
+    "default_password_wordlist",
+    # Whether ask_operator is honored in v2_auto / full_auto runs. Default
+    # False — there's no human listener, the wait just burns time.
+    "allow_ask_operator_in_auto",
+    # Floor for ML-predicted exploit success probability. Spawns below this
+    # are rejected with a "blocked / ml_below_threshold" hint to brain.
+    # Set to 0 to disable. Default 0.15. test7 forensics: ~15 spawns at
+    # P≤0.10 wasted turns.
+    "ml_min_spawn_probability",
 })
 
 
@@ -1110,6 +1134,11 @@ class StartSessionRequest(BaseModel):
     # Empty = maximum enumeration mode (try everything, full report).
     objectives: list[str] = []
 
+    # Per-mission password wordlist override. Empty → backend cascades:
+    # app_settings.default_password_wordlist → common system paths → embedded
+    # 50-password fallback (see HydraTool._resolve_passlist).
+    password_wordlist: str = ""
+
     # LLM selection
     provider: str = ""
     model: str = ""
@@ -1445,6 +1474,15 @@ async def start_session(
         per_session_ports = [int(p) for p in body.excluded_ports if p.strip().isdigit()]
         existing = list(settings.safety.excluded_ports)
         settings.safety.excluded_ports = list(set(existing) | set(per_session_ports))
+
+    # Per-mission wordlist override — persist as the global default for this
+    # session so HydraTool._resolve_passlist picks it up via app_settings.
+    # Brain children read settings, not MissionBrief, for tool-tunable knobs.
+    if body.password_wordlist:
+        try:
+            await database.set_setting("default_password_wordlist", body.password_wordlist.strip())
+        except Exception:
+            pass
 
     # Persist session record (track who created it)
     session_data = await _session_repo.create(
@@ -1854,7 +1892,13 @@ async def inject_session_message(sid: str, body: InjectMessageRequest):
 
 @router.post("/sessions/{sid}/pause")
 async def pause_session(sid: str):
-    """Pause the running agent between iterations."""
+    """Pause the running agent between iterations.
+
+    Beyond signaling pause, this also runs the event-stream recovery pass and
+    flushes pentest_sessions counters. Without this, paused sessions show
+    hosts_found/ports_found/vulns_found/exploits_run as 0 even when the run
+    has clearly produced data — which is exactly what test3 demonstrated.
+    """
     from web import session_manager
 
     session = await _session_repo.get(sid)
@@ -1864,6 +1908,42 @@ async def pause_session(sid: str):
     ok = session_manager.pause_session(sid)
     if ok:
         await _session_repo.update_status(sid, "paused")
+
+        # ── Best-effort recovery + counter flush on pause ────────────────────
+        # Mirrors what session_orchestration does on session_done, but tolerant
+        # of partial state. Failures are swallowed so pause itself never fails.
+        try:
+            from core.session_data_recovery import recover_session_findings_from_events
+            from database.repositories import (
+                SessionRepository, ScanResultRepository,
+                VulnerabilityRepository, ExploitResultRepository,
+            )
+            _scan_repo = ScanResultRepository()
+            _vuln_repo = VulnerabilityRepository()
+            _exp_repo  = ExploitResultRepository()
+            target = str(session.get("target") or "")
+            recovery = await recover_session_findings_from_events(
+                session_id=sid,
+                target=target,
+                session_repo=_session_repo,
+                scan_repo=_scan_repo,
+                vuln_repo=_vuln_repo,
+                exploit_repo=_exp_repo,
+                persist=True,
+            )
+            stats = (recovery or {}).get("stats", {}) or {}
+            await _session_repo.update_stats(
+                session_id=sid,
+                hosts_found=int(stats.get("hosts_found", 0) or 0),
+                ports_found=int(stats.get("ports_found", 0) or 0),
+                vulns_found=int(stats.get("vulns_found", 0) or 0),
+                exploits_run=int(stats.get("exploits_run", 0) or 0),
+            )
+        except Exception as _e:
+            # Recovery is opportunistic — pausing must still succeed.
+            import logging
+            logging.getLogger(__name__).debug("pause recovery failed for %s: %s", sid, _e)
+
         await session_manager.broadcast(sid, {
             "type": "session_event",
             "session_id": sid,
@@ -2265,6 +2345,130 @@ async def get_mission_context(sid: str):
     if snapshot:
         return snapshot
     return {"session_id": sid, "status": "no_context"}
+
+
+@router.get("/sessions/{sid}/progress")
+async def get_session_progress(sid: str):
+    """Return a 5-stage progress estimate for the operator stepper UI.
+
+    Stages (each weighted equally, completion is binary per stage):
+      1. recon        — at least one host scanned (open_ports populated)
+      2. exploit      — at least one exploit_attempt recorded (success or fail)
+      3. foothold     — at least one shell/session opened
+      4. post_exploit — at least one credential / loot / non-trivial
+                        post-ex finding captured
+      5. report       — session reached 'done'
+
+    Returns:
+      {
+        "session_id": ...,
+        "current_phase": <Brain's set_phase value>,
+        "stages": [
+          {"id": "recon",       "label": "Recon",       "done": True,  "metric": "2 hosts"},
+          ...
+        ],
+        "completed_count": <int>,   "total": 5,
+        "percent": <int>,           "status": "running" | "done" | ...
+      }
+
+    Honest, milestone-based — not a 0-100 guess pulled from thin air. The
+    LLM-driven engagement is open-ended, so an arbitrary % is misleading;
+    this stepper instead tells the operator WHICH phase is in flight and
+    what's been concretely achieved.
+    """
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    status = session.get("status", "")
+    hosts_found = int(session.get("hosts_found", 0) or 0)
+    ports_found = int(session.get("ports_found", 0) or 0)
+    vulns_found = int(session.get("vulns_found", 0) or 0)
+    exploits_run = int(session.get("exploits_run", 0) or 0)
+
+    # Try to enrich from live mission context (more accurate during a run).
+    from web import session_manager
+    agent = session_manager.get_agent(sid)
+    has_shell = False
+    creds_count = 0
+    loot_count = 0
+    current_phase = ""
+    if agent and hasattr(agent, "_mission_ctx") and agent._mission_ctx is not None:
+        ctx = agent._mission_ctx
+        try:
+            has_shell = bool(getattr(ctx, "active_sessions", []))
+            creds_count = len(getattr(ctx, "credentials", []) or [])
+            loot_count = len(getattr(ctx, "loot", []) or [])
+            current_phase = str(getattr(ctx, "phase", "") or "")
+            # Fallback: also derive hosts/ports from in-memory if DB counters
+            # lag (test3 found counters often stale during a paused run).
+            if hosts_found == 0:
+                hosts_found = len(getattr(ctx, "hosts", {}) or {})
+            if ports_found == 0:
+                for h in (getattr(ctx, "hosts", {}) or {}).values():
+                    ports_found += sum(
+                        1 for p in getattr(h, "ports", []) or []
+                        if (getattr(p, "state", "") or "").lower() == "open"
+                    )
+        except Exception:
+            pass
+
+    # Fall back to DB counts of harvested creds / loot when no live ctx.
+    if not (creds_count or loot_count):
+        try:
+            from database.repositories import HarvestedCredentialRepository, LootRepository
+            creds_count = await HarvestedCredentialRepository().count(sid)
+            loot_count  = await LootRepository().count(sid)
+        except Exception:
+            pass
+
+    # Did anything compromise actually open? Best evidence is a successful
+    # exploit_results row OR active_sessions in context.
+    if not has_shell:
+        try:
+            from database.repositories import ExploitResultRepository
+            succ = await ExploitResultRepository().get_successful(sid)
+            has_shell = bool(succ)
+        except Exception:
+            pass
+
+    stages = [
+        {
+            "id": "recon", "label": "Recon",
+            "done": (hosts_found > 0 and ports_found > 0),
+            "metric": f"{hosts_found} hosts · {ports_found} ports",
+        },
+        {
+            "id": "exploit", "label": "Exploit",
+            "done": (exploits_run > 0 or vulns_found > 0),
+            "metric": f"{exploits_run} attempts · {vulns_found} vulns",
+        },
+        {
+            "id": "foothold", "label": "Foothold",
+            "done": has_shell,
+            "metric": "shell open" if has_shell else "no shell yet",
+        },
+        {
+            "id": "post_exploit", "label": "Post-Ex",
+            "done": (creds_count > 0 or loot_count > 0),
+            "metric": f"{creds_count} creds · {loot_count} loot",
+        },
+        {
+            "id": "report", "label": "Report",
+            "done": (status == "done"),
+            "metric": "ready" if status == "done" else "pending",
+        },
+    ]
+    completed = sum(1 for s in stages if s["done"])
+    return {
+        "session_id": sid,
+        "status": status,
+        "current_phase": current_phase,
+        "stages": stages,
+        "completed_count": completed,
+        "total": len(stages),
+        "percent": int(completed * 100 / len(stages)),
+    }
 
 
 @router.get("/sessions/{sid}/attack-graph")

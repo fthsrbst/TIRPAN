@@ -34,17 +34,28 @@ Available tools:
   masscan_scan(target, port_range, rate)   [optional — falls back to nmap if unavailable]
   report_finding(finding_type, data)       [report a discovery to Brain]
 
-Workflow:
-  1. Start with a service scan (NOT ping) → this discovers hosts AND enumerates ports/versions
-  2. If service scan shows open ports, optionally do an OS or full scan for more detail
-  3. Report each host with open ports using report_finding
-  4. {"action": "done"} when finished
+Workflow — SINGLE HOST:
+  1. Start with a service scan on 1-65535 (full TCP). Default port_range is already 1-65535 — do NOT limit to 1-1024.
+  2. If host looks like a legacy Linux/Metasploitable target (many services, old OS), also scan upper ports:
+     - 1099 (RMI), 1524 (ingreslock/bindshell), 2049 (NFS), 2121 (FTP alt), 3306 (MySQL),
+       5432 (PostgreSQL), 5900 (VNC), 6000 (X11), 6667 (IRC), 8009 (AJP), 8180 (Tomcat), 44444 (distccd)
+  3. Optional: scan_type="udp" with port_range="53,67,68,69,111,161,514" if root and UDP services expected.
+  4. Report each host with open ports, then call done.
+
+Workflow — CIDR SUBNET (e.g. 192.168.56.0/24):
+  1. FIRST: ping scan the whole subnet → nmap_scan(target="192.168.56.0/24", scan_type="ping")
+     This quickly finds all live hosts. Takes ~10 seconds.
+  2. Report each live host IP using report_finding(finding_type="host", data={ip:...})
+  3. THEN: for each live host found, do a service scan on 1-65535 → nmap_scan(target="<host_ip>", scan_type="service", port_range="1-65535")
+  4. Report full port/service findings per host.
+  5. Do NOT do a service scan on the whole /24 CIDR at once — it will be very slow.
 
 CRITICAL RULES:
 - ONLY report findings that actually appear in scan results. NEVER fabricate or assume port data.
-- If a scan returns "NO HOSTS FOUND" or empty hosts list, report the host as unreachable — do NOT invent open ports.
-- Do NOT repeat the same scan more than once. If a scan returned no results, try a different scan_type or port_range, then move on.
-- Maximum 5 scan attempts total. After that, report what you found (even if nothing) and call done.
+- If a scan returns "NO HOSTS FOUND" or empty hosts list, try scan_type="service" with -Pn to bypass ICMP block.
+- Do NOT repeat the same target+scan_type+port_range combination.
+- Maximum 12 scan attempts total. After that, report what you found and call done.
+- Never pass "U:port" notation to a non-UDP scan.
 """
 
 
@@ -53,8 +64,8 @@ class ScannerAgent(BaseSpecializedAgent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._scan_count = 0
-        self._max_scans = 5
-        self._completed_scans: set[str] = set()  # "scan_type:port_range" dedup
+        self._max_scans = 12
+        self._completed_scans: set[str] = set()  # "target:scan_type:port_range" dedup
 
     def get_available_tools(self) -> list[str]:
         tools = ["nmap_scan", "report_finding"]
@@ -106,16 +117,33 @@ class ScannerAgent(BaseSpecializedAgent):
             self._scan_count += 1
             # Track completed scan signatures for dedup
             params = action_dict.get("parameters", {})
-            scan_sig = f"{params.get('scan_type', 'service')}:{params.get('port_range', '1-1024')}"
+            scan_sig = f"{params.get('target', '')}:{params.get('scan_type', 'service')}:{params.get('port_range', '1-65535')}"
             self._completed_scans.add(scan_sig)
 
             await self._process_scan_result(result, action_dict)
 
+            # If this scan returned 0 hosts/ports AND a previous scan on the same target already
+            # found ports, inject a system hint so the LLM doesn't keep rescanning the same range.
+            output = result.get("output") or {}
+            hosts = output.get("hosts", []) if isinstance(output, dict) else []
+            this_open = sum(
+                1 for h in hosts for p in (h.get("ports") or [])
+                if (p.get("state", "open") == "open")
+            )
+            tgt = params.get("target", "")
+            if this_open == 0 and tgt and any(s.startswith(f"{tgt}:") for s in self._completed_scans):
+                self.memory.add_tool_result(
+                    f"[SYSTEM] Empty scan result for {tgt}. You already have ports from earlier scans — "
+                    f"do NOT repeat scans here. Either try a DIFFERENT scan_type/port_range, "
+                    f"a DIFFERENT target, or call done.",
+                    pinned=True,
+                )
+
             # Enforce scan limit
             if self._scan_count >= self._max_scans:
                 self.memory.add_tool_result(
-                    f"[SYSTEM] You have reached the maximum of {self._max_scans} scans. "
-                    f"You MUST now report your findings and call done. No more scans allowed.",
+                    f"[SYSTEM] You have reached the maximum of {self._max_scans} scan attempts. "
+                    f"You MUST now report all findings discovered so far and call done. No more scans allowed.",
                     pinned=True,
                 )
         elif tool_name == "report_finding":

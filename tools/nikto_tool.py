@@ -9,7 +9,7 @@ import shutil
 from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 
 logger = logging.getLogger(__name__)
-NIKTO_TIMEOUT = 120
+NIKTO_TIMEOUT = 300
 
 
 class NiktoTool(BaseTool):

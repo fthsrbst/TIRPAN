@@ -89,8 +89,8 @@ class NmapTool(BaseTool):
             name="nmap_scan",
             description=(
                 "Runs an nmap scan against a target IP or CIDR range. "
-                "Use scan_type='ping' for host discovery, 'service' for open ports and versions, "
-                "'os' for OS detection, 'full' for everything. "
+                "Use scan_type='ping' for host discovery, 'service' for TCP ports+versions (default range 1-65535), "
+                "'udp' for UDP ports (requires root), 'os' for OS detection, 'full' for TCP+UDP+OS. "
                 "Timing is automatically controlled by the active speed profile."
             ),
             parameters={
@@ -102,8 +102,8 @@ class NmapTool(BaseTool):
                     },
                     "scan_type": {
                         "type": "string",
-                        "enum": ["ping", "service", "os", "full"],
-                        "description": "Type of scan to perform",
+                        "enum": ["ping", "service", "udp", "os", "full"],
+                        "description": "Type of scan to perform. 'udp' requires root and uses -sU.",
                         "default": "service",
                     },
                     "port_range": {
@@ -183,7 +183,7 @@ class NmapTool(BaseTool):
         if not self._normalize_targets(params.get("target", "")):
             return False, "Target is empty"
         scan_type = params.get("scan_type", "service")
-        if scan_type not in ("ping", "service", "os", "full"):
+        if scan_type not in ("ping", "service", "udp", "os", "full"):
             return False, f"Invalid scan_type: {scan_type}"
         return True, ""
 
@@ -199,7 +199,7 @@ class NmapTool(BaseTool):
         if not targets:
             return {"success": False, "output": None, "error": "Target is empty"}
         scan_type = params.get("scan_type", "service")
-        port_range = params.get("port_range") or "1-1024"
+        port_range = params.get("port_range") or "1-65535"
         scripts = params.get("scripts") or ""          # LLM may pass null → None
         excluded_ports = params.get("excluded_ports") or ""  # same
         session_id = params.get("_session_id", "")
@@ -274,10 +274,17 @@ class NmapTool(BaseTool):
         elif scan_type == "service":
             # -Pn: treat host as up even if ICMP ping fails (firewalled hosts)
             base += (["-Pn", "-sS", "-sV", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
+        elif scan_type == "udp":
+            # UDP scan — requires root/sudo; port_range must be plain numbers (e.g. "53,67,161")
+            if not can_do_os:
+                logger.warning("UDP scan requested but not running as root — falling back to TCP service scan")
+                base += ["-Pn", "-sV", "-p", port_range]
+            else:
+                base += ["-Pn", "-sU", "-p", port_range]
         elif scan_type == "os":
             base += (["-Pn", "-O", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
         elif scan_type == "full":
-            base += (["-Pn", "-sS", "-sV", "-O", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
+            base += (["-Pn", "-sS", "-sU", "-sV", "-O", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
 
         # NSE scripts
         if scripts.strip() and scan_type != "ping":

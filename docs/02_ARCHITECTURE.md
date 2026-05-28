@@ -14,7 +14,7 @@ This document reflects the codebase as implemented today.
 - `PentestAgent` runs a ReAct loop: Reason → Act → Observe → Reflect.
 - Available via web UI and `main.py run` (headless CLI).
 
-**V2 (multi-agent, beta)**
+**V2 (multi-agent)**
 
 ---
 
@@ -33,7 +33,7 @@ DONE           generate_report → HTML/PDF + findings
 
 ---
 
-## V2 Architecture (Implemented, beta)
+## V2 Architecture (Implemented)
 
 ```
 Web UI / API
@@ -348,8 +348,8 @@ TIRPAN/
 │   │   ├── postexploit_agent.py    # Post-exploitation via shell_exec
 │   │   ├── lateral_agent.py        # Lateral movement via crackmapexec + impacket
 │   │   └── reporting_agent.py      # Final report generation from MissionContext
-│   ├── squads/                     # [V3] Squad compositions (unimplemented)
-│   └── rag/                        # [V3] RAG knowledge base (unimplemented)
+│   ├── squads/                     # Squad compositions (unimplemented)
+│   └── rag/                        # RAG knowledge base (unimplemented)
 │
 ├── tools/                          # *** 33 security tools ***
 │   ├── base_tool.py                # BaseTool abstract class + ToolMetadata + ToolHealthStatus
@@ -405,7 +405,7 @@ TIRPAN/
 ├── web/                            # FastAPI web application
 │   ├── app.py                      # FastAPI app factory + CORS + static file serving
 │   ├── routes.py                   # REST endpoints (81 endpoints: sessions, config, agents, shells, etc.)
-│   ├── v3_routes.py                # V3 API endpoint placeholders (empty)
+│   ├── v3_routes.py                # V3 API endpoint placeholders (empty, not registered)
 │   ├── defense_routes.py           # Defense module API endpoints
 │   ├── ddos_routes.py              # DDoS tool API endpoints
 │   ├── websocket_handler.py        # WebSocket handler for real-time event streaming

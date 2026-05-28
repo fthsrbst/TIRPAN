@@ -71,14 +71,33 @@ class HydraTool(BaseTool):
         username  = params.get("username")
         userlist  = params.get("userlist")
         password  = params.get("password")
-        passlist  = params.get("passlist", "/usr/share/wordlists/rockyou.txt")
+        # Wordlist resolution cascade (test6 regression: rockyou.txt not
+        # installed → hydra failed silently with `File for passwords not found`).
+        # Order: explicit param → app_settings.default_password_wordlist →
+        # first existing common path → embedded micro-list.
+        passlist  = params.get("passlist") or self._resolve_passlist()
         tasks     = int(params.get("tasks", 4))
         delay     = int(params.get("delay", 0))
         stop_first = bool(params.get("stop_on_first", True))
         timeout   = int(params.get("timeout", _DEFAULT_TIMEOUT))
 
         if not username and not userlist:
-            return {"success": False, "error": "Either 'username' or 'userlist' must be provided"}
+            # Default to a small username wordlist so the LLM doesn't have to specify one explicitly.
+            import os
+            for default_list in (
+                "/usr/share/metasploit-framework/data/wordlists/unix_users.txt",
+                "/usr/share/seclists/Usernames/top-usernames-shortlist.txt",
+                "/usr/share/wordlists/usernames.txt",
+            ):
+                if os.path.exists(default_list):
+                    userlist = default_list
+                    logger.info("hydra: no username/userlist provided — defaulting to %s", default_list)
+                    break
+            if not userlist:
+                return {"success": False, "error": (
+                    "Either 'username' or 'userlist' must be provided. "
+                    "Try username='root' (single) or userlist='/path/to/list.txt'."
+                )}
 
         cmd = ["hydra", "-t", str(tasks), "-V"]
 
@@ -144,6 +163,103 @@ class HydraTool(BaseTool):
                 "stderr": err[:512] if err else "",
             },
         }
+
+    def _resolve_passlist(self) -> str:
+        """Pick a password wordlist that actually exists on disk.
+
+        Resolution order:
+          1. app_settings.default_password_wordlist (if file exists)
+          2. First existing common path on the system
+          3. An embedded micro-list of the top 50 ~ universally tested
+             passwords, written to /tmp once and reused. This way hydra
+             ALWAYS has something to throw — no more silent
+             `File for passwords not found` failures.
+        """
+        import os
+        # 1. Settings override
+        try:
+            from database.db import get_setting
+            import asyncio as _aio
+            try:
+                # We're in a sync helper but called from async execute(),
+                # so loop is running — schedule and short-block.
+                loop = _aio.get_event_loop()
+                if loop.is_running():
+                    # Use the cached value if we've fetched before; otherwise
+                    # fall through to detect on disk. Avoid blocking I/O here.
+                    cached = getattr(self, "_cached_passlist_setting", None)
+                    if cached and os.path.exists(cached):
+                        return cached
+                    # Schedule the fetch for next call; meanwhile use fallback.
+                    _aio.ensure_future(self._refresh_passlist_setting())
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # 2. Common system paths
+        candidates = [
+            "/usr/share/wordlists/rockyou.txt",
+            "/usr/share/wordlists/rockyou.txt.gz",  # tested below — auto-decompressed
+            "/usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-1000.txt",
+            "/usr/share/seclists/Passwords/probable-v2-top1575.txt",
+            "/usr/share/wordlists/fasttrack.txt",
+            "/usr/share/wordlists/dirb/common.txt",  # last-ditch — not great
+            "/usr/share/metasploit-framework/data/wordlists/unix_passwords.txt",
+            "/usr/share/metasploit-framework/data/wordlists/common_passwords.txt",
+        ]
+        for c in candidates:
+            if c.endswith(".gz") and os.path.exists(c) and not os.path.exists(c[:-3]):
+                # rockyou.txt.gz ships compressed on Kali; decompress once.
+                try:
+                    import gzip, shutil as _sh
+                    with gzip.open(c, "rb") as fin, open(c[:-3], "wb") as fout:
+                        _sh.copyfileobj(fin, fout)
+                    logger.info("hydra: decompressed %s → %s", c, c[:-3])
+                    return c[:-3]
+                except Exception as exc:
+                    logger.warning("hydra: rockyou decompress failed: %s", exc)
+                    continue
+            if os.path.exists(c):
+                return c
+
+        # 3. Embedded micro-list
+        emb_path = "/tmp/tirpan_top_passwords.txt"
+        if not os.path.exists(emb_path):
+            try:
+                with open(emb_path, "w") as f:
+                    f.write("\n".join([
+                        "", "password", "123456", "12345678", "qwerty", "abc123",
+                        "monkey", "letmein", "dragon", "111111", "baseball",
+                        "iloveyou", "trustno1", "1234567", "sunshine", "master",
+                        "123123", "welcome", "shadow", "ashley", "football",
+                        "jesus", "michael", "ninja", "mustang", "password1",
+                        "admin", "admin123", "root", "toor", "user", "test",
+                        "guest", "default", "1234", "12345", "1qaz2wsx",
+                        "qwerty123", "Password1", "P@ssw0rd", "Welcome1",
+                        "msfadmin", "raspberry", "pi", "ubuntu", "kali",
+                        "metasploitable", "vagrant", "tomcat", "manager",
+                        "changeme",
+                    ]) + "\n")
+                logger.warning(
+                    "hydra: no wordlist found on system — using embedded "
+                    "50-password fallback at %s. Set "
+                    "app_settings.default_password_wordlist for better coverage.",
+                    emb_path,
+                )
+            except Exception as exc:
+                logger.error("hydra: cannot write embedded wordlist: %s", exc)
+        return emb_path
+
+    async def _refresh_passlist_setting(self) -> None:
+        """Background fetch of the operator-configured wordlist path."""
+        try:
+            from database.db import get_setting
+            val = await get_setting("default_password_wordlist", "")
+            if val and isinstance(val, str):
+                self._cached_passlist_setting = val
+        except Exception:
+            pass
 
     def _parse_credentials(self, output: str) -> list[dict]:
         """Extract login:password pairs from hydra output."""
