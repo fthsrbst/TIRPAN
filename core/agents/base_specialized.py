@@ -142,11 +142,60 @@ class BaseSpecializedAgent(BaseAgent):
             f"Begin your work now. Call your first tool."
         )
 
+    def _ml_hint_section(self) -> str:
+        """Return a compact ML next-step hint block for the sub-agent system prompt."""
+        if self.ctx is None:
+            return ""
+        try:
+            from ml.attack_path import get_attack_path_suggester, _fallback_suggestions
+            services: list[str] = []
+            platforms: list[str] = []
+            host_count = 0
+            for host in self.ctx.hosts.values():
+                host_count += 1
+                if host.os_type:
+                    platforms.append(host.os_type.lower())
+                for port in host.ports:
+                    if (port.state or "").lower() == "open" and port.service:
+                        services.append(port.service.lower())
+            has_shell = bool(getattr(self.ctx, "active_sessions", []))
+            phase = (getattr(self.ctx, "phase", "exploitation") or "exploitation").lower()
+
+            suggester = get_attack_path_suggester()
+            if suggester is not None and suggester.is_built:
+                suggs = suggester.suggest(
+                    current_phase=phase,
+                    services=list({s for s in services if s}),
+                    used_ttps=[],
+                    top_n=4,
+                    host_count=max(host_count, 1),
+                    has_shell=has_shell,
+                    platforms=list({p for p in platforms if p}),
+                )
+            else:
+                suggs = _fallback_suggestions(phase, 4, max(host_count, 1), has_shell,
+                                             list({p for p in platforms if p}))
+            if not suggs:
+                return ""
+            lines = ["## ML NEXT-STEP HINTS (advisory)", ""]
+            for s in suggs:
+                sd = s.to_dict() if hasattr(s, "to_dict") else s
+                lines.append(
+                    f"  {sd.get('ttp_id','?'):<10} {sd.get('tactic','?'):<20} "
+                    f"conf={sd.get('confidence', 0):.2f}  {sd.get('ttp_name','?')}"
+                )
+            lines.append("")
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
     def _base_system(self, role: str, tools_description: str) -> str:
         ctx_summary = self.ctx.to_summary() if self.ctx else "(no context)"
         options_note = (
             f"\nOPTIONS: {self.options}" if self.options else ""
         )
+        ml_hints = self._ml_hint_section()
+        ml_section = f"\n{ml_hints}" if ml_hints else ""
         return f"""You are TIRPAN {role} — a specialized penetration testing sub-agent.
 
 TARGET: {self.target}
@@ -154,7 +203,7 @@ TASK: {self.task_type}{options_note}
 
 MISSION STATE:
 {ctx_summary}
-
+{ml_section}
 {tools_description}
 
 Rules:

@@ -228,11 +228,15 @@ class AgentStatus:
 
 @dataclass
 class AttackNode:
-    id: str                   # usually the IP address
-    ip: str
+    id: str                   # stable string id (ip, ip:port, agent_id, …)
+    ip: str = ""
     hostname: str = ""
     compromise_level: int = 0  # 0=unknown, 1=discovered, 2=user, 3=root
-    node_type: str = "host"   # "host" | "attacker" | "pivot"
+    node_type: str = "host"   # host | attacker | pivot | service | agent
+                              # | vulnerability | credential | loot
+    label: str = ""           # human-friendly label for the UI
+    status: str = ""          # agent status: spawning | running | done | failed
+    metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -241,6 +245,9 @@ class AttackNode:
             "hostname": self.hostname,
             "compromise_level": self.compromise_level,
             "node_type": self.node_type,
+            "label": self.label,
+            "status": self.status,
+            "metadata": dict(self.metadata),
         }
 
 
@@ -248,9 +255,13 @@ class AttackNode:
 class AttackEdge:
     from_node: str
     to_node: str
-    edge_type: str = "scan"   # "scan" | "exploit" | "lateral" | "pivot" | "discovered_from"
+    # scan | exploit | exploit_attempt | lateral | pivot | discovered_from
+    # | targeting | spawned | credential_from | loot_from
+    edge_type: str = "scan"
     description: str = ""
+    success: bool | None = None     # True/False for exploit_attempt; None elsewhere
     timestamp: float = field(default_factory=time.time)
+    metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -258,7 +269,9 @@ class AttackEdge:
             "to_node": self.to_node,
             "edge_type": self.edge_type,
             "description": self.description,
+            "success": self.success,
             "timestamp": self.timestamp,
+            "metadata": dict(self.metadata),
         }
 
 
@@ -266,6 +279,12 @@ class AttackEdge:
 class AttackGraph:
     nodes: list[AttackNode] = field(default_factory=list)
     edges: list[AttackEdge] = field(default_factory=list)
+    # Optional sink callbacks for DB mirroring. MissionContext sets these to
+    # fire-and-forget functions that schedule async writes to NetworkGraphRepository.
+    # Sync callable so AttackGraph itself can stay sync; the sink schedules
+    # the async DB call internally. Both signatures: (item) -> None.
+    _on_node_upserted: "callable | None" = field(default=None, repr=False, compare=False)
+    _on_edge_added:    "callable | None" = field(default=None, repr=False, compare=False)
 
     def get_node(self, node_id: str) -> AttackNode | None:
         for n in self.nodes:
@@ -276,16 +295,56 @@ class AttackGraph:
     def upsert_node(self, node: AttackNode) -> None:
         for i, n in enumerate(self.nodes):
             if n.id == node.id:
+                # Preserve fields the caller didn't intend to overwrite — merge
+                # known metadata so later updates don't blank earlier discoveries.
+                merged_meta = dict(n.metadata)
+                merged_meta.update(node.metadata or {})
+                node.metadata = merged_meta
+                if not node.label:
+                    node.label = n.label
+                if not node.hostname:
+                    node.hostname = n.hostname
+                if not node.status and n.status:
+                    node.status = n.status
+                # compromise_level only ratchets upward
+                node.compromise_level = max(node.compromise_level, n.compromise_level)
                 self.nodes[i] = node
+                self._fire(self._on_node_upserted, node)
                 return
         self.nodes.append(node)
+        self._fire(self._on_node_upserted, node)
 
     def add_edge(self, edge: AttackEdge) -> None:
-        # Deduplicate: same from/to/type
-        for e in self.edges:
-            if e.from_node == edge.from_node and e.to_node == edge.to_node and e.edge_type == edge.edge_type:
-                return
+        # Deduplicate: same from/to/type — but allow many exploit_attempt edges
+        # between the same pair so the graph reflects repeated tries with their
+        # individual success/failure status.
+        if edge.edge_type != "exploit_attempt":
+            for e in self.edges:
+                if (e.from_node == edge.from_node
+                        and e.to_node == edge.to_node
+                        and e.edge_type == edge.edge_type):
+                    return
         self.edges.append(edge)
+        self._fire(self._on_edge_added, edge)
+
+    @staticmethod
+    def _fire(cb, item) -> None:
+        """Best-effort sink invocation — never lets a DB write break in-memory updates."""
+        if cb is None:
+            return
+        try:
+            cb(item)
+        except Exception:
+            # Sinks must be defensive; we deliberately swallow here so the
+            # in-memory graph stays consistent even when DB is unreachable.
+            pass
+
+    def remove_node(self, node_id: str) -> None:
+        self.nodes = [n for n in self.nodes if n.id != node_id]
+        self.edges = [
+            e for e in self.edges
+            if e.from_node != node_id and e.to_node != node_id
+        ]
 
     def to_dict(self) -> dict:
         return {
@@ -362,6 +421,19 @@ class MissionContext:
         # Mission objectives (operator-supplied)
         self.objectives: list[str] = []
 
+        # Operator-supplied credentials (preset BEFORE the engagement starts).
+        # Populated by from_mission_brief; otherwise empty. These are different
+        # from `credentials` (which is the list of credentials HARVESTED during
+        # the engagement). Brain renders these in its prompt so the LLM can
+        # decide to use SSH/SMB/DB logins instead of brute-forcing.
+        self.preset_ssh_credentials: list = []
+        self.preset_smb_credentials: list = []
+        self.preset_snmp_credentials: list = []
+        self.preset_db_credentials: list = []
+        self.preset_web_credentials: list = []
+        # Optional back-reference to the original MissionBrief.
+        self.mission_brief = None
+
         # Progress
         self.phase: str = "OSINT"
         self.completed_tasks: list[str] = []
@@ -369,11 +441,70 @@ class MissionContext:
 
         # Attack graph
         self.attack_graph: AttackGraph = AttackGraph()
+
+        # ── DB sink for attack_graph (F: network_nodes/network_edges) ────────
+        # MissionContext.mission_id is the same value as pentest_sessions.id,
+        # so we can mirror every upsert/edge into the persistent graph tables.
+        # The sink schedules an async task; AttackGraph._fire absorbs any error.
+        # We bind it BEFORE inserting the attacker node so even that initial
+        # write flows through to DB.
+        self._attach_graph_sink()
         # Add attacker node by default
         self.attack_graph.upsert_node(AttackNode(id="attacker", ip="attacker", node_type="attacker"))
 
         # Write lock — only Brain acquires this
         self._lock = asyncio.Lock()
+
+    def _attach_graph_sink(self) -> None:
+        """Bridge AttackGraph upserts to NetworkGraphRepository.
+
+        AttackGraph is a sync object; the repo writes are async, so we
+        schedule them with asyncio.ensure_future. If no loop is running yet
+        (very early construction) we drop the write — the in-memory state is
+        still correct, and the recovery pass at session_done will pick it up.
+        """
+        try:
+            from database.repositories import NetworkGraphRepository
+            _repo = NetworkGraphRepository()
+        except Exception:
+            return
+
+        sid = self.mission_id
+
+        def _node_sink(node: AttackNode) -> None:
+            try:
+                loop = asyncio.get_event_loop()
+                if not loop.is_running():
+                    return
+            except Exception:
+                return
+            asyncio.ensure_future(_repo.upsert_node(
+                session_id=sid,
+                node_id=node.id,
+                ip=str(node.ip or ""),
+                hostname=str(node.hostname or ""),
+                os_type=str(node.metadata.get("os_type", "") if isinstance(node.metadata, dict) else ""),
+                compromise_level=int(node.compromise_level or 0),
+                node_type=str(node.node_type or "host"),
+            ))
+
+        def _edge_sink(edge: AttackEdge) -> None:
+            try:
+                loop = asyncio.get_event_loop()
+                if not loop.is_running():
+                    return
+            except Exception:
+                return
+            asyncio.ensure_future(_repo.upsert_edge(
+                session_id=sid,
+                from_node=str(edge.from_node or ""),
+                to_node=str(edge.to_node or ""),
+                edge_type=str(edge.edge_type or "scan"),
+                description=str(edge.description or "")[:500],
+            ))
+
+        self.attack_graph._on_node_upserted = _node_sink
+        self.attack_graph._on_edge_added = _edge_sink
 
     # ── Factory ───────────────────────────────────────────────────────────────
 
@@ -389,8 +520,13 @@ class MissionContext:
         """
         Build MissionContext from a MissionBrief.
         Permission flags are copied directly — MissionBrief is the single source of truth.
+
+        Also copies operator-supplied credentials (ssh/smb/snmp/db/web) and the
+        objectives list onto the context so brain + children can see and use
+        them. test6 regression: brain ignored an SSH credential the operator
+        provided because from_mission_brief never propagated it.
         """
-        return cls(
+        ctx = cls(
             mission_id=mission_id,
             target=target,
             scope=scope or [target],
@@ -406,6 +542,17 @@ class MissionContext:
             allow_docker_escape=brief.allow_docker_escape,
             allow_browser_recon=brief.allow_browser_recon,
         )
+        ctx.objectives = list(brief.objectives or [])
+        # Operator-provided creds — stored as the original dataclass instances
+        # so children can pick the right one via host_pattern matching.
+        ctx.preset_ssh_credentials  = list(getattr(brief, "ssh_credentials", []) or [])
+        ctx.preset_smb_credentials  = list(getattr(brief, "smb_credentials", []) or [])
+        ctx.preset_snmp_credentials = list(getattr(brief, "snmp_credentials", []) or [])
+        ctx.preset_db_credentials   = list(getattr(brief, "db_credentials", []) or [])
+        ctx.preset_web_credentials  = list(getattr(brief, "web_credentials", []) or [])
+        # Keep a back-reference for agents that want the full brief.
+        ctx.mission_brief = brief
+        return ctx
 
     # ── Write helpers (Brain calls these under lock) ──────────────────────────
 
@@ -427,7 +574,42 @@ class MissionContext:
                 ip=host.ip,
                 hostname=host.hostname,
                 compromise_level=host.compromise_level,
+                label=host.hostname or host.ip,
             ))
+            # Edge: attacker -> host so a newly discovered host appears in the graph
+            # even before any exploit attempt.
+            self.attack_graph.add_edge(AttackEdge(
+                from_node="attacker",
+                to_node=host.ip,
+                edge_type="discovered_from",
+                description="host discovered",
+            ))
+            # Add a service node per open port so the graph reflects the actual
+            # attack surface, not just compromise outcomes.
+            for p in host.ports:
+                if (p.state or "").lower() != "open":
+                    continue
+                node_id = f"{host.ip}:{p.number}"
+                svc_label = (p.service or "unknown").lower()
+                version = (p.version or "").strip()
+                node_label = f"{svc_label}/{p.number}" + (f" ({version})" if version else "")
+                self.attack_graph.upsert_node(AttackNode(
+                    id=node_id,
+                    ip=host.ip,
+                    node_type="service",
+                    label=node_label,
+                    metadata={
+                        "port": p.number,
+                        "service": p.service or "",
+                        "version": version,
+                    },
+                ))
+                self.attack_graph.add_edge(AttackEdge(
+                    from_node=host.ip,
+                    to_node=node_id,
+                    edge_type="discovered_from",
+                    description=f"{svc_label} on port {p.number}",
+                ))
 
     async def add_vulnerability(self, vuln: VulnInfo) -> None:
         async with self._lock:
@@ -436,6 +618,9 @@ class MissionContext:
                 if v.title == vuln.title and v.host_ip == vuln.host_ip:
                     return
             self.vulnerabilities.append(vuln)
+        # Reflect the vulnerability in the attack graph (runs outside the lock
+        # — record_vulnerability_node takes its own lock).
+        await self.record_vulnerability_node(vuln)
 
     async def add_session(self, session: SessionInfo) -> None:
         async with self._lock:
@@ -471,10 +656,24 @@ class MissionContext:
     async def add_credential(self, cred: HarvestedCredential) -> None:
         async with self._lock:
             self.credentials.append(cred)
+        await self.record_credential_node(
+            host_ip=getattr(cred, "source_host", "") or "",
+            username=getattr(cred, "username", "") or "",
+            service=getattr(cred, "service", "") or "",
+        )
 
     async def add_loot(self, item: LootItem) -> None:
         async with self._lock:
             self.loot.append(item)
+        await self.record_loot_node(
+            host_ip=getattr(item, "source_host", "") or "",
+            loot_type=getattr(item, "loot_type", "") or "data",
+            description=(
+                getattr(item, "description", "")
+                or getattr(item, "file_path", "")
+                or ""
+            ),
+        )
 
     async def add_domain(self, domain: str) -> None:
         async with self._lock:
@@ -503,10 +702,183 @@ class MissionContext:
     async def update_agent_status(self, status: AgentStatus) -> None:
         async with self._lock:
             self.active_agents[status.agent_id] = status
+            # Reflect agent presence + status in the attack graph so the operator
+            # can see which sub-agents are running, which finished, and against
+            # which host/service each one is working.
+            self.attack_graph.upsert_node(AttackNode(
+                id=status.agent_id,
+                node_type="agent",
+                label=f"{status.agent_type}:{status.agent_id[-6:]}",
+                status=status.status,
+                metadata={
+                    "agent_type": status.agent_type,
+                    "current_task": status.current_task,
+                    "started_at": status.started_at,
+                    "progress": status.progress,
+                },
+            ))
+            self.attack_graph.add_edge(AttackEdge(
+                from_node="attacker",
+                to_node=status.agent_id,
+                edge_type="spawned",
+                description=f"{status.agent_type} agent",
+            ))
 
     async def remove_agent(self, agent_id: str) -> None:
         async with self._lock:
             self.active_agents.pop(agent_id, None)
+            # Keep the node but mark it terminated so the operator can still see
+            # the historical attack graph; the UI can fade it out if it wants to.
+            existing = self.attack_graph.get_node(agent_id)
+            if existing is not None and existing.node_type == "agent":
+                existing.status = existing.status or "done"
+
+    async def link_agent_to_target(
+        self, agent_id: str, target: str, port: int | None = None,
+        task_type: str = "",
+    ) -> None:
+        """Connect an agent node to the host/service it is operating on."""
+        if not agent_id or not target:
+            return
+        async with self._lock:
+            target_id = f"{target}:{port}" if port else target
+            # The target node may not exist yet — create a stub so the edge has
+            # something to point at; it will be enriched later by update_host.
+            if self.attack_graph.get_node(target_id) is None:
+                if port:
+                    self.attack_graph.upsert_node(AttackNode(
+                        id=target_id, ip=target, node_type="service",
+                        label=f"port {port}",
+                        metadata={"port": port},
+                    ))
+                    if self.attack_graph.get_node(target) is None:
+                        self.attack_graph.upsert_node(AttackNode(
+                            id=target, ip=target, node_type="host", label=target,
+                        ))
+                    self.attack_graph.add_edge(AttackEdge(
+                        from_node=target, to_node=target_id,
+                        edge_type="discovered_from",
+                    ))
+                else:
+                    self.attack_graph.upsert_node(AttackNode(
+                        id=target_id, ip=target, node_type="host", label=target,
+                    ))
+            self.attack_graph.add_edge(AttackEdge(
+                from_node=agent_id,
+                to_node=target_id,
+                edge_type="targeting",
+                description=task_type or "",
+            ))
+
+    async def record_exploit_attempt(
+        self, agent_id: str, host_ip: str, port: int | None,
+        module: str, success: bool, error: str = "",
+    ) -> None:
+        """Record a single exploit attempt as a graph edge so the attack story
+        is visible even when nothing succeeds."""
+        if not host_ip:
+            return
+        async with self._lock:
+            target_id = f"{host_ip}:{port}" if port else host_ip
+            from_node = agent_id if agent_id else "attacker"
+            if from_node != "attacker" and self.attack_graph.get_node(from_node) is None:
+                # If the agent node wasn't registered (legacy path), fall back
+                # to the attacker so the edge still appears.
+                from_node = "attacker"
+            if self.attack_graph.get_node(target_id) is None and port:
+                self.attack_graph.upsert_node(AttackNode(
+                    id=target_id, ip=host_ip, node_type="service",
+                    label=f"port {port}", metadata={"port": port},
+                ))
+            self.attack_graph.add_edge(AttackEdge(
+                from_node=from_node,
+                to_node=target_id,
+                edge_type="exploit_attempt",
+                description=(module or "")[:200],
+                success=bool(success),
+                metadata={"module": module or "", "error": (error or "")[:300]},
+            ))
+
+    async def record_credential_node(
+        self, host_ip: str, username: str, service: str = "",
+    ) -> None:
+        """Surface harvested credentials as nodes in the attack graph."""
+        if not host_ip or not username:
+            return
+        async with self._lock:
+            node_id = f"cred:{host_ip}:{service}:{username}"
+            self.attack_graph.upsert_node(AttackNode(
+                id=node_id,
+                ip=host_ip,
+                node_type="credential",
+                label=f"{username}@{service or host_ip}",
+                metadata={"service": service or "", "username": username},
+            ))
+            if self.attack_graph.get_node(host_ip) is None:
+                self.attack_graph.upsert_node(AttackNode(
+                    id=host_ip, ip=host_ip, node_type="host", label=host_ip,
+                ))
+            self.attack_graph.add_edge(AttackEdge(
+                from_node=host_ip,
+                to_node=node_id,
+                edge_type="credential_from",
+                description=service or "",
+            ))
+
+    async def record_loot_node(
+        self, host_ip: str, loot_type: str, description: str = "",
+    ) -> None:
+        if not host_ip:
+            return
+        async with self._lock:
+            node_id = f"loot:{host_ip}:{loot_type}:{description[:40]}"
+            self.attack_graph.upsert_node(AttackNode(
+                id=node_id,
+                ip=host_ip,
+                node_type="loot",
+                label=f"{loot_type}: {description[:40]}",
+                metadata={"loot_type": loot_type, "description": description},
+            ))
+            if self.attack_graph.get_node(host_ip) is None:
+                self.attack_graph.upsert_node(AttackNode(
+                    id=host_ip, ip=host_ip, node_type="host", label=host_ip,
+                ))
+            self.attack_graph.add_edge(AttackEdge(
+                from_node=host_ip,
+                to_node=node_id,
+                edge_type="loot_from",
+                description=loot_type,
+            ))
+
+    async def record_vulnerability_node(self, vuln: VulnInfo) -> None:
+        if not vuln.host_ip:
+            return
+        async with self._lock:
+            cve_or_title = vuln.cve_id or vuln.title or "vulnerability"
+            node_id = f"vuln:{vuln.host_ip}:{cve_or_title[:60]}"
+            self.attack_graph.upsert_node(AttackNode(
+                id=node_id,
+                ip=vuln.host_ip,
+                node_type="vulnerability",
+                label=cve_or_title[:80],
+                metadata={
+                    "cve_id": vuln.cve_id or "",
+                    "cvss": float(getattr(vuln, "cvss", 0.0) or 0.0),
+                    "service": vuln.service or "",
+                    "service_version": getattr(vuln, "service_version", "") or "",
+                },
+            ))
+            if self.attack_graph.get_node(vuln.host_ip) is None:
+                self.attack_graph.upsert_node(AttackNode(
+                    id=vuln.host_ip, ip=vuln.host_ip, node_type="host",
+                    label=vuln.host_ip,
+                ))
+            self.attack_graph.add_edge(AttackEdge(
+                from_node=vuln.host_ip,
+                to_node=node_id,
+                edge_type="discovered_from",
+                description=cve_or_title[:80],
+            ))
 
     async def set_environment_type(self, env_type: str) -> None:
         async with self._lock:
@@ -582,6 +954,49 @@ class MissionContext:
             lines.append("MISSION OBJECTIVES (MUST ACHIEVE):")
             for obj in self.objectives:
                 lines.append(f"  • {obj}")
+
+        # Operator-provided credentials — rendered so the LLM knows it can
+        # SSH/SMB/DB-login directly instead of brute-forcing.
+        preset_total = (
+            len(self.preset_ssh_credentials)
+            + len(self.preset_smb_credentials)
+            + len(self.preset_snmp_credentials)
+            + len(self.preset_db_credentials)
+            + len(self.preset_web_credentials)
+        )
+        if preset_total > 0:
+            lines.append("OPERATOR-PROVIDED CREDENTIALS (use these FIRST — do not brute-force):")
+            for c in self.preset_ssh_credentials[:6]:
+                pw = "<password>" if getattr(c, "password", "") else (
+                    "<private_key>" if getattr(c, "private_key", "") else "<empty>"
+                )
+                esc = getattr(c, "escalation", "none")
+                esc_str = f" esc={esc}" if esc and esc != "none" else ""
+                lines.append(
+                    f"  SSH host={c.host_pattern} port={getattr(c, 'port', 22)} "
+                    f"user={c.username} auth={pw}{esc_str}"
+                )
+            for c in self.preset_smb_credentials[:6]:
+                dom = f"\\\\{c.domain}" if getattr(c, "domain", "") else ""
+                lines.append(
+                    f"  SMB host={c.host_pattern} user={dom}{c.username} "
+                    f"auth_type={getattr(c, 'auth_type', 'ntlmv2')}"
+                )
+            for c in self.preset_snmp_credentials[:4]:
+                lines.append(
+                    f"  SNMP host={c.host_pattern} ver={getattr(c, 'version', 'v2c')} "
+                    f"community={getattr(c, 'community', 'public')}"
+                )
+            for c in self.preset_db_credentials[:4]:
+                lines.append(
+                    f"  DB host={c.host_pattern} type={c.db_type} "
+                    f"user={c.username} db={getattr(c, 'database', '*')}"
+                )
+            for c in self.preset_web_credentials[:4]:
+                lines.append(
+                    f"  WEB url={c.url_pattern} user={c.username} "
+                    f"auth={getattr(c, 'auth_type', 'basic')}"
+                )
 
         if self.domains:
             lines.append(f"DOMAINS: {', '.join(self.domains[:5])}")

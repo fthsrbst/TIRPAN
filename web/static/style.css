@@ -1745,6 +1745,46 @@ html.light .log-filter-btn.active {
 .rsb-section-toggle:hover .rsb-chevron { color: var(--color-primary, #ccff00); }
 html.light .rsb-section-toggle:hover .rsb-chevron { color: #4a7c00; }
 
+/* ── Mission Phase Stepper ─────────────────────────────────────────────────── */
+/* Pills sit in a 5-col grid; each `.rsb-phase-pill` is a thin colored bar with
+   the stage label below it. .done lights up in primary, .current pulses softly
+   so the operator's eye is drawn to the in-flight phase even on a still image. */
+.rsb-phase-pill {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    cursor: default;
+}
+.rsb-phase-pill .bar {
+    height: 4px; width: 100%; border-radius: 2px;
+    background: rgba(255, 255, 255, 0.06);
+    transition: background-color .2s ease;
+}
+.rsb-phase-pill .lbl {
+    font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #6b6b6b; font-weight: 700; line-height: 1;
+}
+.rsb-phase-pill .metric {
+    font-size: 8px; color: #4a4a4a; font-family: var(--font-mono, monospace);
+    line-height: 1.1; text-align: center; min-height: 9px;
+}
+.rsb-phase-pill.done .bar { background: var(--color-primary, #ccff00); }
+.rsb-phase-pill.done .lbl { color: var(--color-primary, #ccff00); }
+.rsb-phase-pill.done .metric { color: #cfcfcf; }
+.rsb-phase-pill.current .bar {
+    background: var(--color-primary, #ccff00);
+    animation: rsb-phase-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rsb-phase-pulse {
+    0%, 100% { opacity: 1.0; }
+    50%      { opacity: 0.45; }
+}
+html.light .rsb-phase-pill .bar    { background: rgba(0, 0, 0, 0.07); }
+html.light .rsb-phase-pill .lbl    { color: #8a8a8a; }
+html.light .rsb-phase-pill .metric { color: #9a9a9a; }
+html.light .rsb-phase-pill.done .bar    { background: #4a7c00; }
+html.light .rsb-phase-pill.done .lbl    { color: #4a7c00; }
+html.light .rsb-phase-pill.done .metric { color: #333; }
+html.light .rsb-phase-pill.current .bar { background: #4a7c00; }
+
 /* ── V3 panel buttons ────────────────────────────────────────────────────── */
 .v3-panel-btn.active { color: #ccff00; border-bottom: 1.5px solid #ccff00; }
 .v3-panel { display: flex; }

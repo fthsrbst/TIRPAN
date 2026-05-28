@@ -168,79 +168,10 @@ cp .env.example .env
 # Metasploit RPC'yi başlat (exploitation için gerekli; yalnızca tarama modunda atla)
 msfrpcd -P sifreniz -S
 
-# Web arayüzünü başlat (V1 + V2 destekli)
+# Web arayüzünü başlat
 python3 main.py
 # http://localhost:8000 adresini aç
-
-# Ya da terminal üzerinden başsız çalıştır (V1 tek ajan)
-python3 main.py run --target 192.168.1.0/24 --mode full_auto --scope 192.168.1.0/24
 ```
-
-**Docker ile hızlı lab kurulumu:**
-
-```bash
-# Savunmasız bir hedef başlat (Metasploitable 2)
-docker run -d --name hedef tleemcjr/metasploitable2
-
-# TIRPAN'i hedefe yönlendir
-python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' hedef)
-```
-
----
-
-## CLI Referansı
-
-TIRPAN iki modda çalışır: **web arayüzü** (varsayılan, V1+V2) ve **terminal** (V1 başsız).
-
-### Web Arayüzü
-
-```bash
-python3 main.py [--host HOST] [--port PORT] [--no-reload] [--log-level LEVEL]
-```
-
-| Bayrak | Varsayılan | Açıklama |
-|--------|------------|----------|
-| `--host` | `127.0.0.1` | Bağlama adresi |
-| `--port` | `8000` | Dinleme portu |
-| `--no-reload` | kapalı | Hot-reload'u devre dışı bırak |
-| `--log-level` | `info` | debug / info / warning / error |
-
-### Terminal Modu
-
-```bash
-python3 main.py run --target HEDEF [seçenekler]
-```
-
-| Bayrak | Varsayılan | Açıklama |
-|--------|------------|----------|
-| `--target` / `-t` | zorunlu | IP, CIDR, hostname veya URL |
-| `--mode` / `-m` | `scan_only` | `full_auto` / `ask_before_exploit` / `scan_only` |
-| `--scope` | `0.0.0.0/0` | Kesin CIDR sınırı — ajan bu aralığı terk edemez |
-| `--exclude-ips` | — | Tamamen atlanacak IP'ler (virgülle ayrılmış) |
-| `--exclude-ports` | — | Atlanacak portlar (virgülle ayrılmış) |
-| `--time-limit` | `0` (yok) | N saniye sonra otomatik durdur |
-| `--rate-limit` | `10` | Saniye başına maksimum istek |
-| `--max-iterations` | `50` | Maksimum ajan karar döngüsü |
-| `--no-dos-block` | kapalı | DoS kategorisi exploit'lere izin ver (tehlikeli) |
-| `--no-destructive-block` | kapalı | Yıkıcı exploit'lere izin ver (tehlikeli) |
-| `--output` / `-o` | `reports/` | Rapor çıktı dizini |
-
-**Örnekler:**
-
-```bash
-# Yalnızca keşif — exploitation yok
-python3 main.py run --target 10.0.0.0/24
-
-# Kapsam kısıtlı ve zamanlı tam angajman
-python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24 --time-limit 3600
-
-# Dışlamalarla tarama
-python3 main.py run --target 192.168.1.0/24 --exclude-ips 192.168.1.1,192.168.1.254 --exclude-ports 22,3389
-```
-
----
-
-## Güvenlik Kısıtlamaları
 
 TIRPAN her eylemde on yapılandırılabilir güvenlik kısıtlaması uygular. Bu kısıtlamalar LLM tarafından aşılamaz — herhangi bir araç çalışmadan önce ayrı bir katmanda değerlendirilir.
 
@@ -431,36 +362,6 @@ Ajan eklentileri otomatik olarak keşfeder, yükler ve kullanır — LLM'e kulla
 
 ---
 
-## XBOW ile Karşılaştırma
-
-XBOW, otonom yapay zeka sızma testi için mevcut ticari referans noktasıdır. TIRPAN açık kaynak alternatifidir.
-
-| Yetenek | XBOW | TIRPAN V1 | TIRPAN V2+ |
-|---------|------|----------|-----------|
-| Ağ tarama ve exploitation | Evet | Evet | Evet |
-| YZ güdümlü ReAct döngüsü | Evet | Evet | Evet |
-| Güvenlik kısıtlamaları | Evet | Evet | Evet |
-| Oturumlar arası bilgi tabanı | Evet | Evet | Evet |
-| Tam denetim kaydı | Evet | Evet | Evet |
-| Web uygulama testi | Evet | Hayır | Evet |
-| Active Directory saldırıları | Evet | Hayır | Evet |
-| OSINT ve pasif keşif | Evet | Hayır | Evet |
-| Başarısızlıkta öz-düzeltme | Evet | Hayır | Evet |
-| Docker izolasyonlu araç çalıştırma | Evet | Hayır | Hayır |
-| Çok ajanlı koordinatör mimarisi | Evet | Hayır | Evet |
-| Açık kaynak | Hayır | Evet | Evet |
-| Ücretsiz kullanım | Hayır | Evet | Evet |
-| Genişletilebilir eklenti ekosistemi | Hayır | Evet | Evet |
-| Yerel LLM desteği | Hayır | Evet | Evet |
-| ML tabanlı exploit tahmini | Hayır | Hayır | Evet |
-| Ağ savunması (blue team) | Hayır | Hayır | Evet |
-| Saldırı grafı görselleştirme | Kısmi | Evet | Evet (React) |
-| LoRA eğitim verisi yakalama | Hayır | Hayır | Evet |
-
-Tam karşılaştırma: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
-
----
-
 ## Teknoloji Yığını
 
 | Bileşen | Teknoloji |
@@ -507,7 +408,6 @@ Sahip olmadığınız veya açık yazılı izin almadığınız sistemleri asla 
 | [Gereksinimler](docs/03_PREREQUISITES.md) | Kurulum ve bağımlılık kurulumu |
 | [Yol Haritası](docs/04_ROADMAP.md) | Tamamlanan ve planlanan özellik planı |
 | [Güvenlik ve Hukuk](docs/05_SAFETY_AND_LEGAL.md) | 10 kısıtlama ve yasal gereksinimler |
-| [XBOW Karşılaştırması](docs/01_XBOW_COMPARISON.md) | Özellik açığı analizi |
 | [Eklenti Sistemi](docs/09_PLUGIN_SYSTEM.md) | Eklenti yazma kılavuzu |
 | [Çok Ajanlı Spesifikasyon](docs/11_MULTI_AGENT_SPEC.md) | V2 çok ajanlı mimari |
 | [Savunma Modülü](docs/07_NETWORK_DEFENSE_MODULE.md) | Blue team savunma mimarisi |

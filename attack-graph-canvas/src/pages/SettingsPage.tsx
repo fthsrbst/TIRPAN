@@ -150,6 +150,17 @@ const SettingsPage = () => {
   const [mlMetrics, setMlMetrics] = useState<any>(null);
   const [mlTraining, setMlTraining] = useState(false);
 
+  // ── Brain-injection toggles (persisted via /api/v1/settings) ──
+  // These mirror what's surfaced in the Pro-Mode ML Engine sidebar so the
+  // operator can flip them from either UI; the Brain reads them once per
+  // iteration via app_settings.{ml_inject_attack_path,
+  // ml_inject_exploit_pred, spawn_max_parallel, default_password_wordlist}.
+  const [mlInjectAttackPath, setMlInjectAttackPath] = useState(true);
+  const [mlInjectExploitPred, setMlInjectExploitPred] = useState(true);
+  const [spawnMaxParallel, setSpawnMaxParallel] = useState(3);
+  const [defaultPasswordWordlist, setDefaultPasswordWordlist] = useState("");
+  const [allowAskOperatorInAuto, setAllowAskOperatorInAuto] = useState(false);
+
   // ── Safety state ────────────────────────────────────
   const [safety, setSafety] = useState({
     allowed_cidr: "0.0.0.0/0",
@@ -257,14 +268,40 @@ const SettingsPage = () => {
 
   const loadMlStatus = useCallback(async () => {
     try {
-      const [status, metrics] = await Promise.all([
+      const [status, metrics, allSettings] = await Promise.all([
         api.get<any>("/ml/status").catch(() => null),
         api.get<any>("/ml/metrics").catch(() => null),
+        api.get<any>("/settings").catch(() => null),
       ]);
       if (status) setMlStatus(status);
       if (metrics) setMlMetrics(metrics);
+      // Settings cascade — defaults match server-side fallbacks so the UI
+      // never shows misleading "off" toggles when the key just isn't set.
+      if (allSettings) {
+        setMlInjectAttackPath(allSettings.ml_inject_attack_path !== false);
+        setMlInjectExploitPred(allSettings.ml_inject_exploit_pred !== false);
+        setSpawnMaxParallel(
+          Number.isFinite(Number(allSettings.spawn_max_parallel))
+            ? Number(allSettings.spawn_max_parallel)
+            : 3
+        );
+        setDefaultPasswordWordlist(String(allSettings.default_password_wordlist ?? ""));
+        setAllowAskOperatorInAuto(allSettings.allow_ask_operator_in_auto === true);
+      }
     } catch {}
   }, []);
+
+  // Generic saver for the simple key/value settings the Brain reads.
+  // Each save is independent — no batch endpoint, on purpose: a typo in one
+  // key shouldn't roll back the others.
+  const saveBrainSetting = async (key: string, value: unknown) => {
+    try {
+      await api.put(`/settings/${encodeURIComponent(key)}`, { value });
+      flash("ok", `${key} saved`);
+    } catch (e: unknown) {
+      flash("err", String(e));
+    }
+  };
 
   const loadAgentModels = useCallback(async () => {
     try {
@@ -1016,6 +1053,129 @@ const SettingsPage = () => {
                       </div>
                     );
                   })}
+                </div>
+              </Section>
+
+              <Separator />
+
+              {/* ── Brain Injection ─────────────────────────────────────── */}
+              {/* These three settings shape what the Brain agent sees in its
+                  system prompt each iteration. Operator toggles them here so
+                  the same controls work in both Normal and Pro mode. */}
+              <Section title="Brain Injection">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Controls which ML-derived signals the Brain agent receives each iteration,
+                  plus the orchestrator's parallel-spawn cap.
+                </p>
+
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl border border-border/50 bg-muted/10 cursor-pointer">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Attack-path TTPs</div>
+                      <div className="text-xs text-muted-foreground">
+                        Renders the NEXT-STEP MITRE TTP suggestions block in the Brain's prompt.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={mlInjectAttackPath}
+                      onChange={(e) => {
+                        setMlInjectAttackPath(e.target.checked);
+                        saveBrainSetting("ml_inject_attack_path", e.target.checked);
+                      }}
+                      className="w-4 h-4 accent-primary"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl border border-border/50 bg-muted/10 cursor-pointer">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Exploit prediction</div>
+                      <div className="text-xs text-muted-foreground">
+                        Passes per-module success probability to the Brain prompt and tags each
+                        spawned exploit child with <code className="text-[10px]">[ml_success_prob=…]</code>.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={mlInjectExploitPred}
+                      onChange={(e) => {
+                        setMlInjectExploitPred(e.target.checked);
+                        saveBrainSetting("ml_inject_exploit_pred", e.target.checked);
+                      }}
+                      className="w-4 h-4 accent-primary"
+                    />
+                  </label>
+
+                  <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl border border-border/50 bg-muted/10">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Parallel spawn cap</div>
+                      <div className="text-xs text-muted-foreground">
+                        Hard limit on concurrent child agents. test3 forensics: 18 spawned at once
+                        starved the LLM queue and 9 timed out. Default 3, safe range 2–6.
+                      </div>
+                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={16}
+                      value={spawnMaxParallel}
+                      onChange={(e) => {
+                        const v = Math.max(1, Math.min(16, parseInt(e.target.value, 10) || 3));
+                        setSpawnMaxParallel(v);
+                        saveBrainSetting("spawn_max_parallel", v);
+                      }}
+                      className="w-20 bg-background border border-border rounded-md px-3 py-1.5 text-sm font-mono text-center"
+                    />
+                  </div>
+
+                  <label className="flex items-center justify-between gap-4 px-4 py-3 rounded-xl border border-border/50 bg-muted/10 cursor-pointer">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Allow ask_operator in auto mode</div>
+                      <div className="text-xs text-muted-foreground">
+                        Off by default — there's no human listener in v2_auto so the Brain just
+                        burns an iteration waiting. Turn on only if you'll actually be answering.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={allowAskOperatorInAuto}
+                      onChange={(e) => {
+                        setAllowAskOperatorInAuto(e.target.checked);
+                        saveBrainSetting("allow_ask_operator_in_auto", e.target.checked);
+                      }}
+                      className="w-4 h-4 accent-primary"
+                    />
+                  </label>
+                </div>
+              </Section>
+
+              <Separator />
+
+              {/* ── Default wordlist (moved out of ML Engine page) ────── */}
+              {/* Lives next to Brain Injection because this is the path hydra/
+                  medusa/etc. fall back to when no per-call wordlist is set.
+                  test6 regression: rockyou.txt missing → hydra silently failed. */}
+              <Section title="Default password wordlist">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Absolute path used by hydra / medusa / crackmapexec when no wordlist is specified
+                  per-call. Leave empty for auto-detection (rockyou.txt → SecLists → metasploit
+                  defaults → embedded 50-password fallback).
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={defaultPasswordWordlist}
+                    onChange={(e) => setDefaultPasswordWordlist(e.target.value)}
+                    placeholder="/usr/share/wordlists/rockyou.txt"
+                    className="flex-1 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono"
+                  />
+                  <Button
+                    onClick={() => saveBrainSetting("default_password_wordlist", defaultPasswordWordlist.trim())}
+                    size="sm"
+                    className="gap-1.5"
+                  >
+                    Save
+                  </Button>
                 </div>
               </Section>
 

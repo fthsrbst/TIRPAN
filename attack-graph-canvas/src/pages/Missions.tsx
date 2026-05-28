@@ -5,6 +5,7 @@ import { ListFilterToolbar, type FilterChipModel } from "@/components/attack/Lis
 import { toggleInSet } from "@/lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSessions, killSession, pauseSession, resumeSession, deleteSession, renameSession } from "@/lib/api";
+import { api } from "@/lib/utils";
 import { useSessionContext } from "@/lib/SessionContext";
 import { sessionDisplayLabel } from "@/lib/sessionDisplay";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -368,6 +369,9 @@ const Missions = () => {
                 </div>
               </div>
 
+              {/* Mission phase stepper — concrete milestones, not a guessed %. */}
+              <MissionPhaseStepper sessionId={selectedSessionId!} />
+
               {/* Details + Expert Log links (events / audit) */}
               <div className="flex items-center gap-1 px-5 py-2 border-b border-border/30 shrink-0">
                 <button
@@ -506,6 +510,82 @@ const Missions = () => {
 };
 
 export default Missions;
+
+// ── Mission Phase Stepper (5-stage milestone tracker) ─────────────────────────
+// Honest milestone-based progress (NOT a guessed %). Polls
+// /api/v1/sessions/{sid}/progress every 5s and renders a row of 5 pills:
+// Recon · Exploit · Foothold · Post-Ex · Report. A pill lights up only when
+// the backend reports concrete evidence for that stage; the first not-done
+// stage pulses to draw the operator's eye.
+
+type PhaseStage = { id: string; label: string; done: boolean; metric: string };
+type PhaseProgressResp = {
+  session_id: string;
+  status: string;
+  current_phase?: string;
+  stages: PhaseStage[];
+  completed_count: number;
+  total: number;
+  percent: number;
+};
+
+function MissionPhaseStepper({ sessionId }: { sessionId: string }) {
+  const { data } = useQuery<PhaseProgressResp>({
+    queryKey: ["session-progress", sessionId],
+    queryFn: () => api.get<PhaseProgressResp>(`/sessions/${sessionId}/progress`),
+    enabled: !!sessionId,
+    refetchInterval: 5000,
+    staleTime: 3000,
+  });
+  if (!data) return null;
+  const stages = data.stages || [];
+  const firstPendingIdx = stages.findIndex((s) => !s.done);
+  return (
+    <div className="px-5 py-3 border-b border-border/30 shrink-0">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Mission Phase
+        </span>
+        <span className="text-[10px] font-mono text-muted-foreground">
+          {data.completed_count} / {data.total} milestones
+          {firstPendingIdx >= 0
+            ? ` · current: ${stages[firstPendingIdx]?.label.toLowerCase()}`
+            : data.status === "done"
+              ? " · mission complete"
+              : " · all milestones met"}
+        </span>
+      </div>
+      <div className="grid grid-cols-5 gap-2">
+        {stages.map((s, i) => {
+          const isCurrent = i === firstPendingIdx;
+          return (
+            <div key={s.id} className="flex flex-col items-center gap-1">
+              <div
+                className={`h-1 w-full rounded-sm transition-colors ${
+                  s.done
+                    ? "bg-primary"
+                    : isCurrent
+                      ? "bg-primary/40 animate-pulse"
+                      : "bg-muted"
+                }`}
+              />
+              <span
+                className={`text-[9px] font-bold uppercase tracking-wider ${
+                  s.done ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {s.label}
+              </span>
+              <span className="text-[9px] font-mono text-muted-foreground text-center min-h-[12px]">
+                {s.metric}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // ── Atama butonu (admin/owner) ─────────────────────────────────────────────────
 

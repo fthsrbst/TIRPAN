@@ -44,6 +44,7 @@ import importlib
 import inspect
 import json
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -184,6 +185,12 @@ class BrainAgent(BaseAgent):
         self._active_shells: dict[str, dict] = {}
         self._shell_dedup_keys: set[str] = set()
 
+        # Track failed exploit modules per host to prevent infinite retry by the LLM:
+        # key = "module|host_ip", value = failure count
+        self._exploit_failure_counts: dict[str, int] = {}
+        # After this many failed attempts of the same module on the same host, block further spawns
+        self._max_exploit_retries_per_module = 2
+
         # Training data capture — store per-iteration context for reflect()
         self._last_messages: list[dict] = []
         self._last_action: dict = {}
@@ -192,6 +199,19 @@ class BrainAgent(BaseAgent):
         # Subscribe to bus events so Brain can react to findings
         self.bus.register_agent(self.agent_id)
         self.bus.subscribe_global(self._on_bus_message)
+
+        # ── Concurrency cap for child agents ─────────────────────────────────
+        # test3 forensics: 18 children spawned simultaneously caused 9 wall-clock
+        # timeouts because the shared LLM API queue starved everyone.
+        # Cap is read from app_settings.spawn_max_parallel (default 3).
+        # Created lazily inside the running loop so the right loop owns it.
+        self._spawn_semaphore: asyncio.Semaphore | None = None
+        self._spawn_max_parallel: int = 3  # refreshed from settings on demand
+
+        # ── Per-spawn ML success prediction cache ────────────────────────────
+        # Filled by _spawn_agents_batch; consumed by _spawn_agent so the child
+        # gets its own pre-attack probability in its task_type.
+        self._pending_ml_pred: dict[str, float] = {}
 
     # ── BaseAgent abstract implementations ───────────────────────────────────
 
@@ -231,7 +251,37 @@ class BrainAgent(BaseAgent):
             msgs.extend(self.memory.build_context())
         # Cache for training data capture in reflect()
         self._last_messages = msgs
+        # Schedule an async refresh of the ML toggle cache so that the NEXT
+        # iteration's _build_attack_path_section sees up-to-date values.
+        # The first iteration uses defaults (True); subsequent ones use the
+        # latest persisted settings.
+        try:
+            asyncio.ensure_future(self._refresh_ml_flags())
+        except Exception:
+            pass
         return msgs
+
+    async def _refresh_ml_flags(self) -> None:
+        """Best-effort async fetch of ML injection settings — cached on self
+        so the synchronous _build_attack_path_section can read them without
+        blocking. Failures keep the previous (or default) values."""
+        try:
+            from database import db as _db
+            self._ml_ttp_enabled = bool(await _db.get_setting("ml_inject_attack_path", True))
+            self._ml_pred_enabled = bool(await _db.get_setting("ml_inject_exploit_pred", True))
+            # Spawn block threshold; 0 disables. Default 0.15 — anything below
+            # almost always wastes a turn (see test7 forensics).
+            self._ml_min_spawn_prob = float(
+                await _db.get_setting("ml_min_spawn_probability", 0.15) or 0.15
+            )
+        except Exception:
+            # Default to enabled — preserves pre-change behavior.
+            if not hasattr(self, "_ml_ttp_enabled"):
+                self._ml_ttp_enabled = True
+            if not hasattr(self, "_ml_pred_enabled"):
+                self._ml_pred_enabled = True
+            if not hasattr(self, "_ml_min_spawn_prob"):
+                self._ml_min_spawn_prob = 0.15
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
         """Handle meta-tool results."""
@@ -271,6 +321,27 @@ class BrainAgent(BaseAgent):
             return True
         if "this is it" in text and "objective" in text:
             return True
+        return False
+
+    def _objectives_require_flag(self) -> bool:
+        """
+        Return True only when the operator explicitly asked for a flag/CTF objective.
+
+        Without this signal, finding a "flag"-shaped string is just one more piece
+        of evidence — never a reason to stop a full pentest in the middle of
+        exploiting other discovered vulnerabilities.
+        """
+        objectives = getattr(getattr(self, "ctx", None), "objectives", None) or []
+        if not objectives:
+            return False
+        flag_terms = (
+            "flag", "ctf", "capture the flag", "htb", "hack the box",
+            "thm", "tryhackme", "picoctf", "root.txt", "user.txt",
+        )
+        for obj in objectives:
+            obj_l = str(obj or "").lower()
+            if any(term in obj_l for term in flag_terms):
+                return True
         return False
 
     def _cancel_all_children(self, reason: str) -> int:
@@ -438,6 +509,75 @@ class BrainAgent(BaseAgent):
         raw = getattr(self._safety, "kill_switch_triggered", False)
         return raw if isinstance(raw, bool) else False
 
+    # ── Preset credential matching ─────────────────────────────────────────
+    # MissionBrief carries operator-supplied creds; brain auto-injects them
+    # into the matching child agent's options based on host_pattern.
+
+    def _match_preset_cred(self, target: str, cred_kind: str):
+        """Return the most specific operator-provided credential matching `target`.
+
+        Lookup order: exact host match → CIDR match → wildcard ("*"). cred_kind
+        is one of ssh|smb|snmp|db|web. Returns None when nothing matches.
+        """
+        if not target or not self.ctx:
+            return None
+        pool_attr = {
+            "ssh":  "preset_ssh_credentials",
+            "smb":  "preset_smb_credentials",
+            "snmp": "preset_snmp_credentials",
+            "db":   "preset_db_credentials",
+            "web":  "preset_web_credentials",
+        }.get(cred_kind)
+        if not pool_attr:
+            return None
+        pool = getattr(self.ctx, pool_attr, None) or []
+        if not pool:
+            return None
+        # Strip URL prefix if target is http(s)://...
+        bare = target
+        try:
+            from urllib.parse import urlparse
+            u = urlparse(target)
+            if u.hostname:
+                bare = u.hostname
+        except Exception:
+            pass
+
+        import ipaddress
+        wildcard_hit = None
+        for cred in pool:
+            pat = (getattr(cred, "host_pattern", "") or getattr(cred, "url_pattern", "") or "").strip()
+            if not pat or pat == "*":
+                wildcard_hit = wildcard_hit or cred
+                continue
+            if pat == bare or pat == target:
+                return cred  # exact wins
+            if "/" in pat and not pat.startswith("http"):
+                try:
+                    if ipaddress.ip_address(bare) in ipaddress.ip_network(pat, strict=False):
+                        return cred
+                except ValueError:
+                    pass
+            # url_pattern: prefix match for web creds
+            if pat.startswith("http") and target.startswith(pat):
+                return cred
+        return wildcard_hit
+
+    @staticmethod
+    def _cred_to_dict(cred) -> dict:
+        """Convert a credential dataclass to a child-agent-safe dict.
+        Secrets are passed through — children need them — but we keep this
+        method so the structure is consistent and easy to redact in logs."""
+        from dataclasses import asdict, is_dataclass
+        try:
+            if is_dataclass(cred):
+                return asdict(cred)
+        except Exception:
+            pass
+        # Generic object → grab public attrs
+        return {k: getattr(cred, k) for k in dir(cred)
+                if not k.startswith("_") and not callable(getattr(cred, k, None))}
+
     # ── Meta-tool dispatch ────────────────────────────────────────────────────
 
     async def _execute_tool(self, tool_name: str, params: dict) -> dict:
@@ -477,6 +617,33 @@ class BrainAgent(BaseAgent):
         task_type = params.get("task_type", "")
         options = dict(params.get("options", {}) or {})
 
+        # Multi-target guard: LLM sometimes sends "ip1 ip2" or "ip1,ip2" as a single target.
+        # Split and spawn one agent per IP — except for scanner agents which can scan multiple
+        # targets natively, and CIDR ranges (which contain "/").
+        if target and "/" not in target and agent_type != "scanner":
+            import re as _re
+            parts = [p.strip() for p in _re.split(r"[\s,;]+", target) if p.strip()]
+            ipv4_parts = [p for p in parts if _re.match(r"^\d+\.\d+\.\d+\.\d+(?::\d+)?$", p)]
+            if len(ipv4_parts) > 1:
+                logger.info(
+                    "Brain: multi-target detected (%s) — splitting into %d agents",
+                    target, len(ipv4_parts),
+                )
+                spawned_ids = []
+                for ip in ipv4_parts:
+                    sub_params = dict(params)
+                    sub_params["target"] = ip
+                    sub_result = await self._spawn_agent(sub_params)
+                    if sub_result.get("status") == "spawned":
+                        spawned_ids.append(sub_result.get("agent_id"))
+                return {
+                    "success": True,
+                    "status": "spawned_multi",
+                    "agent_ids": spawned_ids,
+                    "spawn_count": len(spawned_ids),
+                    "hint": f"Split target into {len(ipv4_parts)} agents: {ipv4_parts}",
+                }
+
         if self._dispatch_blocked_reason:
             reason = self._dispatch_blocked_reason
             self.emit_event("dispatch_blocked", {
@@ -500,6 +667,28 @@ class BrainAgent(BaseAgent):
                          f"Available: {list(_AGENT_REGISTRY.keys())}",
             }
 
+        # ── Exploit retry guard: block modules that have already failed N times on this host ──
+        if agent_type == "exploit":
+            _mod = str((options or {}).get("module") or task_type or "")
+            if _mod:
+                _retry_key = f"{_mod}|{target}"
+                _retry_count = self._exploit_failure_counts.get(_retry_key, 0)
+                if _retry_count >= self._max_exploit_retries_per_module:
+                    logger.info(
+                        "Brain: blocking duplicate exploit spawn %s on %s (already failed %dx)",
+                        _mod, target, _retry_count,
+                    )
+                    return {
+                        "success": False,
+                        "status": "blocked",
+                        "error": (
+                            f"Module '{_mod}' has already failed {_retry_count} times on {target}. "
+                            f"Try a different module or different host. "
+                            f"Retry limit per (module,host) is {self._max_exploit_retries_per_module}."
+                        ),
+                        "reason": "max_retries_reached",
+                    }
+
         # ── Port sanity check: catch truncated/wrong port numbers early ──
         _port_val = (options or {}).get("port")
         if _port_val is not None:
@@ -517,16 +706,42 @@ class BrainAgent(BaseAgent):
                     _port_val, agent_type, task_type,
                 )
 
-        # ── Dedup guard: prevent identical (agent_type, target, task_type, port) ──
-        # Different task_type OR different target OR different port → allowed concurrently.
-        # Same type + same task_type + same target + same port → block as duplicate.
+        # ── Strict dedup: normalize task name + check active AND recent-done ──
+        # test7 forensics: brain bypassed naive dedup by varying task_type:
+        #   rsh_exec_shadow → rsh_exec_shadow_106 → rsh_exec_id_106 →
+        #   rsh_exec_test → rsh_exec_id_106_v2 → rsh_exec_pwds (7 spawns,
+        #   all rsh_exec(target=.106, action=check)). Same for ghostcat ×7
+        #   and php_cgi ×4. ~17 of 35 exploit spawns were duplicates.
+        #
+        # Fix: build a dedup_key from the STABLE bits — agent_type, target,
+        # port, module-or-tool, and a normalized task prefix that strips the
+        # numeric/version suffixes brains tend to add. Check this against both
+        # active AND recently-completed (last 60s) children.
         new_port = (options or {}).get("port")
+        new_module = str((options or {}).get("module") or "")
+
+        def _normalize_task(t: str) -> str:
+            # Strip the [ml_success_prob=X.YY] and [has_cred=…] tags we add.
+            t = re.sub(r"\s*\[(?:ml_success_prob|has_cred)=[^\]]+\]", "", str(t or ""))
+            # Strip trailing _vN / _v2 / _retry / _N suffixes brain uses.
+            t = re.sub(r"(?:_v\d+|_retry|_\d+)$", "", t.strip())
+            # Strip trailing _<ip-octet> like _106 / _111 (host is already
+            # in the dedup key separately).
+            t = re.sub(r"_\d{1,3}$", "", t)
+            return t.lower()
+
+        norm_task = _normalize_task(task_type)
+        dedup_key = (agent_type, target, new_port, new_module, norm_task)
+
+        # Active check
         for aid, atype in self._active_agents.items():
             atask = self._active_agent_task_types.get(aid, "")
             atgt  = self._active_agent_targets.get(aid, "")
-            aport = self._active_agent_options.get(aid, {}).get("port")
-            if (atype == agent_type and atask == task_type
-                    and atgt == target and aport == new_port):
+            aopts = self._active_agent_options.get(aid, {})
+            aport = aopts.get("port")
+            amod  = str(aopts.get("module") or "")
+            akey  = (atype, atgt, aport, amod, _normalize_task(atask))
+            if akey == dedup_key:
                 task_obj = self._child_tasks.get(aid)
                 if task_obj and not task_obj.done():
                     return {
@@ -537,11 +752,41 @@ class BrainAgent(BaseAgent):
                         "task_type": task_type,
                         "target": target,
                         "hint": (
-                            f"A {agent_type}/{task_type} agent ({aid}) is already running "
-                            f"for target {target} port {aport}. "
-                            f"Use wait_for_agents({{\"agent_ids\": [\"{aid}\"]}}) to wait for it."
+                            f"A {agent_type} agent ({aid}) targeting {target}:{aport} "
+                            f"with the same approach ({norm_task!r}) is already running. "
+                            f"Use wait_for_agents({{\"agent_ids\": [\"{aid}\"]}}) to wait for it. "
+                            f"DO NOT re-spawn under a different task_type — rename does not "
+                            f"reset the dedup key."
                         ),
                     }
+
+        # Recent-done check (60s window) — stops brain from re-spawning the
+        # same approach 5 seconds after it failed.
+        import time as _t
+        now = _t.time()
+        if not hasattr(self, "_recent_done_keys"):
+            self._recent_done_keys = {}  # dedup_key → (ts, agent_id, status)
+        # Prune older entries (>120s) to keep the dict small.
+        self._recent_done_keys = {
+            k: v for k, v in self._recent_done_keys.items() if now - v[0] < 120
+        }
+        recent = self._recent_done_keys.get(dedup_key)
+        if recent and now - recent[0] < 60:
+            ts_age = int(now - recent[0])
+            prev_aid, prev_status = recent[1], recent[2]
+            return {
+                "success": False,
+                "status": "blocked",
+                "reason": "recent_duplicate",
+                "previous_agent_id": prev_aid,
+                "previous_status": prev_status,
+                "error": (
+                    f"Same approach ({norm_task!r} on {target}:{new_port}) was just attempted "
+                    f"by {prev_aid} {ts_age}s ago and ended {prev_status}. Retrying immediately "
+                    f"is unlikely to help. Either use a DIFFERENT module/tool, target a DIFFERENT "
+                    f"port/host, or wait 60s before re-trying."
+                ),
+            }
 
         # ── Exploit guard: don't spawn another exploit agent if we already have
         #    an active shell on this target — one shell is enough.
@@ -571,6 +816,92 @@ class BrainAgent(BaseAgent):
 
         agent_id = f"{agent_type}-{uuid.uuid4().hex[:8]}"
         self.bus.register_agent(agent_id)
+
+        # ── Inject ML pre-attack success probability into task_type ─────────
+        # Set by _spawn_agents_batch; the child agent sees it as a numeric hint
+        # in its initial prompt so it can decide whether to bother with a
+        # long-tail module. Tagged so prompts can grep for it; 0.0 hides it.
+        try:
+            ml_pred = float(self._pending_ml_pred.pop(
+                (agent_type, target, task_type), 0.0
+            ))
+        except Exception:
+            ml_pred = 0.0
+        # Fallback: compute inline if the batch path didn't pre-score this one
+        # (direct spawn_agent calls don't go through _spawn_agents_batch).
+        if ml_pred == 0.0 and agent_type == "exploit":
+            try:
+                from ml.exploit_predictor import get_exploit_predictor
+                _p = get_exploit_predictor()
+                if _p is not None:
+                    _mod = str((options or {}).get("module") or task_type or "")
+                    _svc = str((options or {}).get("service") or "")
+                    ml_pred = float(_p.predict_proba(
+                        description=_mod + " " + _svc,
+                        exploit_type=str((options or {}).get("exploit_type") or ""),
+                        platform=str((options or {}).get("platform") or ""),
+                        cvss_score=float((options or {}).get("cvss_score") or 0.0),
+                        has_msf_module=1 if _mod.startswith(("exploit/", "auxiliary/")) else 0,
+                    ))
+            except Exception as _e:
+                logger.debug("inline ML predict failed: %s", _e)
+        if ml_pred > 0.0 and "[ml_success_prob=" not in (task_type or ""):
+            task_type = f"{task_type} [ml_success_prob={ml_pred:.2f}]"
+
+        # ── ML threshold block ──────────────────────────────────────────────
+        # Reject spawns below the configured probability floor (default 0.15)
+        # — they almost always waste a turn. test7 spawned ~15 such agents
+        # despite the ML scoring loudly saying P=0.00 / 0.01 / 0.10.
+        # ml_pred==0 means "no score" — those are allowed through (fairness:
+        # we shouldn't block when we don't have an opinion).
+        if (
+            agent_type == "exploit"
+            and ml_pred > 0.0
+            and ml_pred < getattr(self, "_ml_min_spawn_prob", 0.15)
+        ):
+            self.emit_event("ml_spawn_blocked", {
+                "agent_type": agent_type,
+                "target": target,
+                "task_type": task_type,
+                "ml_pred": ml_pred,
+                "threshold": getattr(self, "_ml_min_spawn_prob", 0.15),
+            })
+            return {
+                "success": False,
+                "status": "blocked",
+                "reason": "ml_below_threshold",
+                "ml_pred": ml_pred,
+                "threshold": getattr(self, "_ml_min_spawn_prob", 0.15),
+                "error": (
+                    f"ML pre-attack probability {ml_pred:.2f} is below the "
+                    f"current floor {getattr(self, '_ml_min_spawn_prob', 0.15):.2f}. "
+                    f"This exploit is very unlikely to succeed; pick a different "
+                    f"module/vector. Threshold is tunable in Settings → ML Models "
+                    f"(ml_min_spawn_probability) or set it to 0 to disable."
+                ),
+            }
+
+        # ── Inject operator-provided credentials matching this target ───────
+        # If the operator supplied SSH/SMB/DB credentials in MissionBrief, find
+        # the most specific match for `target` (host_pattern can be exact IP,
+        # CIDR, or "*"). The child agent gets them in `options.*_credential`
+        # and `task_type` is tagged so the prompt-side guidance fires.
+        if target and agent_type in ("exploit", "post_exploit", "lateral"):
+            matched_cred = self._match_preset_cred(target, "ssh")
+            if matched_cred and "ssh_credential" not in options:
+                options["ssh_credential"] = self._cred_to_dict(matched_cred)
+                if "[has_cred=ssh]" not in (task_type or ""):
+                    task_type = f"{task_type} [has_cred=ssh]"
+            matched_smb = self._match_preset_cred(target, "smb")
+            if matched_smb and "smb_credential" not in options:
+                options["smb_credential"] = self._cred_to_dict(matched_smb)
+                if "[has_cred=smb]" not in (task_type or ""):
+                    task_type = f"{task_type} [has_cred=smb]"
+            matched_db = self._match_preset_cred(target, "db")
+            if matched_db and "db_credential" not in options:
+                options["db_credential"] = self._cred_to_dict(matched_db)
+                if "[has_cred=db]" not in (task_type or ""):
+                    task_type = f"{task_type} [has_cred=db]"
 
         # For post_exploit agents: inject objectives into task_type AND pass the
         # most recently opened shell_key so the agent doesn't need to guess.
@@ -712,6 +1043,28 @@ class BrainAgent(BaseAgent):
         self._active_agent_task_types[agent_id] = task_type
         self._active_agent_targets[agent_id] = target
         self._active_agent_options[agent_id] = options or {}
+
+        # Make this child visible in the attack graph straight away — operator
+        # sees the agent node + a "targeting" edge to its host/service before
+        # any tool call comes back.
+        port_val = None
+        try:
+            raw_port = (options or {}).get("port")
+            if raw_port is not None:
+                port_val = int(raw_port)
+        except (TypeError, ValueError):
+            port_val = None
+        try:
+            await self.ctx.update_agent_status(AgentStatus(
+                agent_id=agent_id, agent_type=agent_type,
+                status="spawning", current_task=task_type or "",
+            ))
+            await self.ctx.link_agent_to_target(
+                agent_id=agent_id, target=target, port=port_val,
+                task_type=task_type or "",
+            )
+        except Exception:  # graph updates must never break spawn
+            logger.debug("attack_graph link failed for %s", agent_id, exc_info=True)
         return spawn_result
 
     async def _spawn_agents_batch(self, params: dict) -> dict:
@@ -738,6 +1091,77 @@ class BrainAgent(BaseAgent):
         agents_list = params.get("agents", [])
         if not agents_list:
             return {"success": False, "status": "error", "output": None, "error": "spawn_agents_batch requires 'agents' list"}
+
+        # ── Refresh runtime knobs from settings (cheap, every batch) ──────────
+        # spawn_max_parallel: hard cap; default 3 keeps LLM queue healthy.
+        # ml_inject_exploit_pred: gates per-module success-prob injection.
+        _spawn_cap = 3
+        _ml_pred_enabled = True
+        try:
+            from database import db as _db
+            _spawn_cap = int(await _db.get_setting("spawn_max_parallel", 3) or 3)
+            _ml_pred_enabled = bool(await _db.get_setting("ml_inject_exploit_pred", True))
+        except Exception:
+            pass
+        # Clamp to a sane band.
+        _spawn_cap = max(1, min(_spawn_cap, 16))
+        self._spawn_max_parallel = _spawn_cap
+
+        # ── ML pre-run prioritization (fixed API binding) ─────────────────────
+        # Previous code called get_ml_predictor() / predict_success_probability()
+        # which don't exist on ExploitPredictorML — the except branch swallowed
+        # the AttributeError so sort never happened. Now we use the real API,
+        # stash the per-agent probability via id(agent_dict) → prob, and pass it
+        # into _spawn_agent so the child prompt + brain prompt can both render it.
+        score_by_id: dict[int, float] = {}  # id(agent_params) → probability
+        if _ml_pred_enabled:
+            _predictor = None
+            try:
+                from ml.exploit_predictor import get_exploit_predictor
+                _predictor = get_exploit_predictor()
+            except Exception as _ml_e:
+                logger.debug("ExploitPredictor import failed: %s", _ml_e)
+
+            if _predictor is not None:
+                for ap in agents_list:
+                    if ap.get("agent_type") != "exploit":
+                        continue
+                    opts = ap.get("options") or {}
+                    module = str(opts.get("module") or ap.get("task_type") or "")
+                    service = str(opts.get("service") or "")
+                    try:
+                        prob = _predictor.predict_proba(
+                            description=module + " " + service,
+                            exploit_type=str(opts.get("exploit_type") or ""),
+                            platform=str(opts.get("platform") or ""),
+                            cvss_score=float(opts.get("cvss_score") or opts.get("cvss") or 0.0),
+                            attack_vector=str(opts.get("attack_vector") or ""),
+                            epss_score=float(opts.get("epss_score") or 0.0),
+                            in_kev=int(opts.get("in_kev") or 0),
+                            has_msf_module=1 if module.startswith(("exploit/", "auxiliary/")) else 0,
+                            verified=int(opts.get("verified") or 0),
+                        )
+                        score_by_id[id(ap)] = float(prob)
+                    except Exception as _e:
+                        logger.debug("ML predict_proba failed for %s: %s", module, _e)
+
+            # Sort: non-exploit first (always 0.99 weight), then exploits by score desc.
+            def _ml_priority(ap: dict) -> float:
+                if ap.get("agent_type") != "exploit":
+                    return -0.99
+                return -score_by_id.get(id(ap), 0.0)
+            agents_list = sorted(agents_list, key=_ml_priority)
+
+        # Hand pre-attack probabilities to _spawn_agent via the side-channel
+        # cache so each child agent gets it in its task_type without changing
+        # the spawn_agent signature surface.
+        self._pending_ml_pred = {
+            # key by (agent_type, target, task_type) tuple — unique enough
+            (str(ap.get("agent_type")), str(ap.get("target")), str(ap.get("task_type"))):
+            score_by_id.get(id(ap), 0.0)
+            for ap in agents_list
+            if id(ap) in score_by_id
+        }
 
         spawned = []
         skipped = []
@@ -787,16 +1211,98 @@ class BrainAgent(BaseAgent):
     ) -> AgentResult:
         """Wrapper that runs a child agent and posts AGENT_DONE/ERROR to the bus."""
         dbg.info(agent_id, f"_run_child started → agent_type={agent_type}")
-        await self.ctx.update_agent_status(AgentStatus(
-            agent_id=agent_id, agent_type=agent_type, status="running"
-        ))
-        if self.session_id:
-            try:
-                await _agent_instance_repo.update_status(agent_id=agent_id, status="running")
-            except Exception:
-                pass
+
+        # ── Concurrency gate: only spawn_max_parallel children run at once ──
+        # Lazily create the semaphore in the running loop so we don't tie it to
+        # the constructor's loop (which may not be the running one).
+        if self._spawn_semaphore is None:
+            self._spawn_semaphore = asyncio.Semaphore(max(1, int(self._spawn_max_parallel or 3)))
+
+        sem_t0 = asyncio.get_event_loop().time()
+        async with self._spawn_semaphore:
+            sem_wait = asyncio.get_event_loop().time() - sem_t0
+            if sem_wait > 0.5:
+                dbg.info(agent_id, f"_run_child: waited {sem_wait:.1f}s for spawn slot")
+
+            await self.ctx.update_agent_status(AgentStatus(
+                agent_id=agent_id, agent_type=agent_type, status="running"
+            ))
+            if self.session_id:
+                try:
+                    await _agent_instance_repo.update_status(agent_id=agent_id, status="running")
+                except Exception:
+                    pass
+            # Per-agent wall-clock timeout — kills hung agents that don't make progress.
+            # Scanner: 600s (10min, big port ranges take time)
+            # Exploit: 480s (8min, MSF exploits + multiple attempts)
+            # Others:  300s (5min)
+            # IMPORTANT: timer starts AFTER semaphore acquisition so a queued
+            # child is not penalised for the wait it didn't choose.
+            _agent_timeout_s = {"scanner": 600, "exploit": 480}.get(agent_type, 300)
+            return await self._execute_child(agent, agent_id, agent_type, _agent_timeout_s)
+
+    async def _execute_child(
+        self, agent: BaseAgent, agent_id: str, agent_type: str, _agent_timeout_s: int,
+    ) -> AgentResult:
+        """Actual child execution — extracted so the semaphore-acquired path is
+        a tight scope and the timeout never blames the queue wait."""
         try:
-            result: AgentResult = await agent.run()
+            result: AgentResult = await asyncio.wait_for(agent.run(), timeout=_agent_timeout_s)
+        except asyncio.TimeoutError:
+            logger.warning("Child agent %s (%s) hit wall-clock timeout %ds — killing",
+                          agent_id, agent_type, _agent_timeout_s)
+            dbg.agent_error(agent_id, f"wall-clock timeout {_agent_timeout_s}s")
+            self.emit_event("agent_timeout", {
+                "agent_id": agent_id, "agent_type": agent_type,
+                "timeout_seconds": _agent_timeout_s,
+            })
+            if self.session_id:
+                try:
+                    await _agent_instance_repo.update_status(
+                        agent_id=agent_id, status="failed",
+                        error=f"wall-clock timeout {_agent_timeout_s}s",
+                    )
+                except Exception:
+                    pass
+            # test5 forensics: previously we returned here WITHOUT bus.send,
+            # which left brain's wait_for_agent_done(aid) blocked on a future
+            # that nobody ever resolved → wait_for_agents hung for 3600s and
+            # the early-return condition never fired. Build a synthetic
+            # AgentResult and fall through to the normal bus.send path so the
+            # waiters wake up.
+            result = AgentResult(
+                agent_id=agent_id,
+                agent_type=agent_type,
+                status="failed",
+                error=f"agent wall-clock timeout {_agent_timeout_s}s",
+            )
+        except asyncio.CancelledError:
+            # External cancellation (e.g. shell-trigger cancel path, kill_agent,
+            # orchestrator stop). Try to publish AGENT_ERROR best-effort, then
+            # re-raise so asyncio's cancellation propagation stays correct.
+            # The shell-trigger path already publishes its own AGENT_ERROR;
+            # this is a belt-and-braces for any other cancel route.
+            logger.info("Child agent %s cancelled", agent_id)
+            dbg.agent_error(agent_id, "cancelled")
+            with contextlib.suppress(Exception):
+                await self.bus.send(AgentMessage(
+                    msg_type=MessageType.AGENT_ERROR,
+                    sender_id=agent_id,
+                    payload={
+                        "agent_id": agent_id,
+                        "agent_type": agent_type,
+                        "status": "cancelled",
+                        "findings": [],
+                        "iterations": 0,
+                        "error": "cancelled",
+                    },
+                ))
+            with contextlib.suppress(Exception):
+                if self.session_id:
+                    await _agent_instance_repo.update_status(
+                        agent_id=agent_id, status="cancelled",
+                    )
+            raise
         except Exception as exc:
             logger.exception("Child agent %s raised: %s", agent_id, exc)
             dbg.agent_error(agent_id, str(exc))
@@ -851,17 +1357,30 @@ class BrainAgent(BaseAgent):
 
     async def _wait_for_agents(self, params: dict) -> dict:
         """
-        Block until all listed agent IDs complete (or timeout).
+        Block until N (or all) listed agent IDs complete (or timeout).
 
         Pause-aware: while Brain is paused, child agents are also paused.
         When Brain is resumed, waiting continues.
 
         params:
-            agent_ids: list[str]
+            agent_ids: list[str] | "all"
             timeout:   float (seconds, default 3600)
+            wait_count: int | "all" — return as soon as this many agents finish.
+                        Default "all". Use a small N (e.g. 1) when you want to
+                        re-plan as soon as the first result arrives instead of
+                        blocking until every batch member finishes.
+
+                        test4 forensics: brain spawned 8 children with cap=3,
+                        then waited for ALL of them — staying blocked for the
+                        entire ~15min serialization window even though it could
+                        have re-planned after the first 2-3 results. With
+                        wait_count=1 brain wakes up much earlier and can spawn
+                        vectors for the second host while the first batch is
+                        still draining.
         """
         raw_ids = params.get("agent_ids", [])
         timeout: float = float(params.get("timeout", 3600))
+        raw_wait_count = params.get("wait_count", "all")
 
         # Support "all" shorthand to wait for all currently tracked agents
         if raw_ids == "all" or raw_ids == ["all"]:
@@ -881,6 +1400,16 @@ class BrainAgent(BaseAgent):
         if not agent_ids:
             dbg.warn(self.agent_id, "wait_for_agents called but no agents to wait for")
             return {"success": True, "status": "ok", "completed": [], "timed_out": [], "hint": "No agents to wait for.", "error": None}
+
+        # Resolve wait_count → minimum # of children that must complete before
+        # we return. "all" (default) preserves the original blocking semantics.
+        if isinstance(raw_wait_count, str) and raw_wait_count.lower() == "all":
+            wait_count_target = len(agent_ids)
+        else:
+            try:
+                wait_count_target = max(1, min(int(raw_wait_count), len(agent_ids)))
+            except (TypeError, ValueError):
+                wait_count_target = len(agent_ids)
 
         dbg.wait_start(self.agent_id, agent_ids, timeout)
         done_results: dict[str, AgentMessage | None] = {}
@@ -946,6 +1475,40 @@ class BrainAgent(BaseAgent):
             if self._kill_switch_is_set():
                 wait_task.cancel()
                 return {"success": False, "status": "error", "output": None, "error": "Kill switch triggered"}
+
+            # Early-return when wait_count_target has been met. The remaining
+            # children keep running in the background; brain regains control
+            # and can spawn new vectors / re-prioritise based on what just
+            # came back. This is what stops the test4-style 15min freeze.
+            if wait_count_target < len(agent_ids):
+                done_so_far = sum(1 for r in done_results.values() if r is not None)
+                if done_so_far >= wait_count_target:
+                    completed = [aid for aid, r in done_results.items() if r is not None]
+                    pending  = [aid for aid in agent_ids if aid not in done_results]
+                    dbg.info(self.agent_id,
+                             f"wait_for_agents early-return: {len(completed)}/"
+                             f"{len(agent_ids)} done (target={wait_count_target}), "
+                             f"{len(pending)} still running in background")
+                    # Don't cancel — children continue; brain gets control back.
+                    return {
+                        "success": True,
+                        "status": "partial",
+                        "completed": completed,
+                        "timed_out": [],
+                        "still_running": pending,
+                        "results": {
+                            aid: (r.payload if r else None)
+                            for aid, r in done_results.items()
+                        },
+                        "hint": (
+                            f"{len(completed)} agents completed; {len(pending)} "
+                            f"still running ({', '.join(pending[:5])}). Use "
+                            f"wait_for_agents({{\"agent_ids\": {pending[:3]!r}}}) "
+                            f"to wait for specific ones, or spawn new vectors "
+                            f"while these finish in the background."
+                        ),
+                        "error": None,
+                    }
 
             try:
                 await asyncio.wait_for(asyncio.shield(wait_task), timeout=0.5)
@@ -1098,11 +1661,194 @@ class BrainAgent(BaseAgent):
                 return nested.get(key)
         return default
 
+    async def _db_persist_finding(self, payload: dict, finding_type: str) -> None:
+        """Persist scan/vuln findings to DB tables in real-time during v2 agent runs."""
+        if not self.session_id:
+            return
+        try:
+            if finding_type in ("host", "host_discovered", "port_scan", "service_scan"):
+                from database.repositories import ScanResultRepository
+                _scan_repo = ScanResultRepository()
+                ip = str(self._finding_value(payload, "ip", "host_ip", "host", "target_ip", default="")).strip()
+                if not ip:
+                    return
+                ports_raw = self._finding_value(payload, "ports", "services", default=[]) or []
+                hosts_payload = [{"ip": ip, "state": "up", "ports": [
+                    {
+                        "number": int(p.get("number", p.get("port", p.get("portid", 0)))),
+                        "protocol": str(p.get("protocol", "tcp")),
+                        "state": "open",
+                        "service": str(p.get("service", p.get("name", "")) or ""),
+                        "version": str(p.get("version", "") or ""),
+                    }
+                    for p in ports_raw if isinstance(p, dict)
+                    and int(p.get("number", p.get("port", p.get("portid", 0))) or 0) > 0
+                ]}]
+                await _scan_repo.save(
+                    session_id=self.session_id,
+                    target=ip,
+                    scan_type=finding_type,
+                    hosts=hosts_payload,
+                    duration_seconds=float(self._finding_value(payload, "duration_seconds", default=0.0) or 0.0),
+                )
+
+            elif finding_type in ("vulnerability", "vuln", "cve"):
+                from database.repositories import VulnerabilityRepository
+                _vuln_repo = VulnerabilityRepository()
+                await _vuln_repo.save(
+                    session_id=self.session_id,
+                    vuln={
+                        "title": str(self._finding_value(payload, "title", "name", "description", default="Potential vulnerability") or "Potential vulnerability"),
+                        "description": str(self._finding_value(payload, "description", default="") or ""),
+                        "cve_id": str(self._finding_value(payload, "cve_id", "cve", default="") or ""),
+                        "cvss_score": float(self._finding_value(payload, "cvss_score", "cvss", "score", default=0.0) or 0.0),
+                        "exploit_path": str(self._finding_value(payload, "exploit_path", "module", default="") or ""),
+                        "service": str(self._finding_value(payload, "service", default="") or ""),
+                        "host_ip": str(self._finding_value(payload, "host_ip", "ip", "host", default="") or ""),
+                    },
+                )
+
+            elif finding_type in ("exploit_attempt", "exploit_run", "exploit_failed", "exploit_succeeded"):
+                # Persist every exploit attempt (success or failure) so the
+                # exploit_results table stays in sync with what actually ran.
+                # ml_success_prob is computed inside ExploitResultRepository.save
+                # via post_run_confidence(), so the row reflects the calibrated
+                # outcome — not just the static pre-run estimate.
+                from database.repositories import ExploitResultRepository
+                _exp_repo = ExploitResultRepository()
+                await _exp_repo.save(
+                    session_id=self.session_id,
+                    result={
+                        "host_ip":   str(self._finding_value(payload, "host_ip", "ip", "host", "target_ip", default="") or ""),
+                        "port":      int(self._finding_value(payload, "port", default=0) or 0),
+                        "module":    str(self._finding_value(payload, "module", "exploit", "exploit_path", default="") or ""),
+                        "payload":   str(self._finding_value(payload, "payload", default="") or ""),
+                        "success":   bool(self._finding_value(payload, "success", "tool_success", default=False)),
+                        "session_opened": int(bool(self._finding_value(payload, "session_opened", "shell_opened", default=False))),
+                        "output":    str(self._finding_value(payload, "output", default="") or "")[:8000],
+                        "error":     str(self._finding_value(payload, "error", default="") or "")[:2000],
+                        "poc_output":str(self._finding_value(payload, "poc_output", default="") or "")[:8000],
+                        "source_ip": str(self._finding_value(payload, "source_ip", default="") or ""),
+                        "exploit_type": str(self._finding_value(payload, "exploit_type", default="remote") or "remote"),
+                        "platform":  str(self._finding_value(payload, "platform", default="") or ""),
+                        "cvss_score":float(self._finding_value(payload, "cvss_score", "cvss", default=0.0) or 0.0),
+                    },
+                )
+
+            elif finding_type in ("session_opened", "shell_opened", "session"):
+                # A successful shell counts as a successful exploit row with
+                # session_opened=1 so the UI/reports can render foothold count.
+                from database.repositories import ExploitResultRepository
+                _exp_repo = ExploitResultRepository()
+                await _exp_repo.save(
+                    session_id=self.session_id,
+                    result={
+                        "host_ip":   str(self._finding_value(payload, "host_ip", "ip", "host", default="") or ""),
+                        "port":      int(self._finding_value(payload, "port", default=0) or 0),
+                        "module":    str(self._finding_value(payload, "module", "exploit", default="") or ""),
+                        "payload":   str(self._finding_value(payload, "payload", default="") or ""),
+                        "success":   True,
+                        "session_opened": 1,
+                        "output":    str(self._finding_value(payload, "output", default="shell opened") or "shell opened")[:8000],
+                        "error":     "",
+                        "exploit_type": str(self._finding_value(payload, "exploit_type", default="remote") or "remote"),
+                        "platform":  str(self._finding_value(payload, "platform", default="") or ""),
+                    },
+                )
+
+            elif finding_type in ("credential", "credential_found"):
+                # Encrypt the secret before storing — the SecretStore handles
+                # the keying. Falls back to plain text if SecretStore isn't
+                # configured (best-effort: a missing key shouldn't lose data).
+                from database.repositories import HarvestedCredentialRepository
+                _cred_repo = HarvestedCredentialRepository()
+                _secret = str(
+                    self._finding_value(payload, "password", "secret", "hash", default="") or ""
+                )
+                _secret_enc = _secret
+                try:
+                    from core.secure_store import encrypt_value
+                    _secret_enc = encrypt_value(_secret) if _secret else ""
+                except Exception:
+                    pass  # plain text fallback
+                await _cred_repo.save(
+                    session_id=self.session_id,
+                    source_host=str(self._finding_value(payload, "source_host", "host_ip", "host", "ip", default="") or ""),
+                    credential_type=str(self._finding_value(payload, "credential_type", "cred_type", default="plaintext") or "plaintext"),
+                    username=str(self._finding_value(payload, "username", "user", default="") or ""),
+                    secret_enc=_secret_enc,
+                    hash_type=str(self._finding_value(payload, "hash_type", default="") or ""),
+                    service=str(self._finding_value(payload, "service", default="") or ""),
+                )
+
+            elif finding_type in ("loot", "flag", "file_found"):
+                from database.repositories import LootRepository
+                _loot_repo = LootRepository()
+                await _loot_repo.save(
+                    session_id=self.session_id,
+                    source_host=str(self._finding_value(payload, "source_host", "host_ip", "host", "ip", default="") or ""),
+                    loot_type="flag" if finding_type == "flag" else str(self._finding_value(payload, "loot_type", default="file") or "file"),
+                    description=str(self._finding_value(payload, "description", "title", default="") or ""),
+                    source_path=str(self._finding_value(payload, "source_path", "file_path", "path", default="") or ""),
+                    local_path=str(self._finding_value(payload, "local_path", default="") or ""),
+                    content_preview=str(self._finding_value(payload, "content_preview", "preview", "content", default="") or ""),
+                )
+        except Exception as _e:
+            logger.debug("_db_persist_finding failed (%s): %s", finding_type, _e)
+
+        # Best-effort live counter refresh — keeps the dashboard from showing
+        # 0/0/0/0 while the run is ongoing or paused. Cheap because it just
+        # reads what we already maintain in MissionContext.
+        try:
+            await self._refresh_session_counters()
+        except Exception as _e:
+            logger.debug("_refresh_session_counters failed: %s", _e)
+
+    async def _refresh_session_counters(self) -> None:
+        """Push the current in-memory tallies to pentest_sessions so the
+        dashboard counters track reality without waiting for session_done.
+        Called after every persisted finding."""
+        if not self.session_id:
+            return
+        try:
+            from database.repositories import SessionRepository
+            _sess_repo = SessionRepository()
+            # In-memory MissionContext is the source of truth during the run.
+            hosts_n = len(getattr(self.ctx, "hosts", {}) or {})
+            ports_n = 0
+            for h in (getattr(self.ctx, "hosts", {}) or {}).values():
+                for p in getattr(h, "ports", []) or []:
+                    if (getattr(p, "state", "") or "").lower() == "open":
+                        ports_n += 1
+            vulns_n = len(getattr(self.ctx, "vulnerabilities", []) or [])
+            # exploits_run counts attempts (successful + failed); record_exploit_attempt
+            # appends to attack_graph edges, so fall back to len() of exploit edges
+            # if no explicit list is kept.
+            try:
+                exp_n = sum(
+                    1 for e in self.ctx.attack_graph.edges
+                    if getattr(e, "edge_type", "") == "exploit_attempt"
+                )
+            except Exception:
+                exp_n = 0
+            await _sess_repo.update_stats(
+                session_id=self.session_id,
+                hosts_found=hosts_n,
+                ports_found=ports_n,
+                vulns_found=vulns_n,
+                exploits_run=exp_n,
+            )
+        except Exception as _e:
+            logger.debug("update_stats failed: %s", _e)
+
     async def _integrate_finding_from_bus(self, payload: dict) -> None:
         """Best-effort automatic context integration for child-agent findings."""
         finding_type = str(self._finding_value(payload, "finding_type", "type", default="")).lower().strip()
         if not finding_type:
             return
+
+        # Persist to normalized DB tables in real-time (parallel, best-effort)
+        asyncio.ensure_future(self._db_persist_finding(payload, finding_type))
 
         if finding_type == "subdomain":
             subdomain = str(self._finding_value(payload, "subdomain", "domain", default="")).strip()
@@ -1240,16 +1986,82 @@ class BrainAgent(BaseAgent):
                     to_ip,
                     str(self._finding_value(payload, "description", default="") or ""),
                 )
+            return
+
+        if finding_type in ("exploit_attempt", "exploit_failed", "exploit_run"):
+            host_ip = str(self._finding_value(payload, "host_ip", "ip", "target_ip", "host", default="") or "")
+            module = str(self._finding_value(payload, "module", default="") or "")
+            try:
+                port_val = int(self._finding_value(payload, "port", "target_port", default=0) or 0)
+            except (TypeError, ValueError):
+                port_val = 0
+            success_flag = self._finding_value(payload, "success", default=None)
+            success = bool(success_flag) if success_flag is not None else False
+
+            # Track failed attempts to prevent infinite retries by the LLM
+            if not success and module and host_ip:
+                _key = f"{module}|{host_ip}"
+                self._exploit_failure_counts[_key] = self._exploit_failure_counts.get(_key, 0) + 1
+                if self._exploit_failure_counts[_key] == self._max_exploit_retries_per_module:
+                    self.emit_event("exploit_retry_limit_reached", {
+                        "module": module, "host_ip": host_ip,
+                        "count": self._exploit_failure_counts[_key],
+                    })
+
+            await self.ctx.record_exploit_attempt(
+                agent_id=str(payload.get("agent_id", "") or ""),
+                host_ip=host_ip,
+                port=port_val or None,
+                module=module,
+                success=success,
+                error=str(self._finding_value(payload, "error", default="") or ""),
+            )
+            return
 
     # ── ask_operator ──────────────────────────────────────────────────────────
 
     async def _ask_operator(self, params: dict) -> dict:
         """
         Pause and ask the human operator a question.
-        In non-interactive mode, returns immediately with a timeout response.
+
+        In v2_auto mode there is no human watching the queue, so this used to
+        burn 30-300s blocking on a reply that never comes (test6: 60s wasted).
+        Now we short-circuit auto-mode runs and tell the brain "this tool is
+        not available — keep working with what you already know."
+
+        Operators that want interactivity can re-enable it via app_settings.
         """
         question = params.get("question", "")
         timeout = float(params.get("timeout", 300))
+
+        # Skip the wait in non-interactive modes unless explicitly enabled.
+        mode = str(getattr(self.ctx, "mode", "") or "").lower()
+        is_auto = mode in ("v2_auto", "full_auto", "auto")
+        allow_ask = True
+        if is_auto:
+            try:
+                from database import db as _db
+                allow_ask = bool(await _db.get_setting("allow_ask_operator_in_auto", False))
+            except Exception:
+                allow_ask = False
+
+        if is_auto and not allow_ask:
+            self.emit_event("ask_operator_skipped", {
+                "question": question[:200],
+                "reason": "auto_mode_no_listener",
+            })
+            return {
+                "success": True,
+                "status": "no_operator",
+                "answer": "",
+                "hint": (
+                    "ask_operator is disabled in auto mode (no human listener). "
+                    "Proceed using the information you already have: scan results "
+                    "in MISSION STATE, EXPLOIT_KB, and your own reasoning. If you "
+                    "really need data, spawn the agent that would obtain it."
+                ),
+                "error": None,
+            }
 
         self.emit_event("ask_operator", {
             "question": question,
@@ -1312,6 +2124,13 @@ class BrainAgent(BaseAgent):
                 await self._register_shell(payload)
                 # Cancel other exploit agents for the same target — one shell is enough.
                 # Exploit agents running reverse/bind handlers will otherwise hang until timeout.
+                #
+                # test5 forensics: without bus.send(AGENT_ERROR) for cancelled
+                # agents, brain's wait_for_agents stayed stuck because
+                # wait_for_agent_done(aid) waits on a future that was never
+                # resolved. The orphaned futures blocked the early-return
+                # condition (done_so_far >= wait_count_target) for the full
+                # 3600s default timeout. ALWAYS bus.send when cancelling.
                 if not self._mission_done:
                     _pd = payload.get("data") if isinstance(payload.get("data"), dict) else {}
                     host_ip_for_cancel = payload.get("host_ip") or _pd.get("host_ip", "")
@@ -1326,10 +2145,38 @@ class BrainAgent(BaseAgent):
                                 "agent_id": aid,
                                 "reason": "shell_already_opened",
                             })
+                            # Unblock anyone waiting on this agent_id.
+                            try:
+                                await self.bus.send(AgentMessage(
+                                    msg_type=MessageType.AGENT_ERROR,
+                                    sender_id=aid,
+                                    payload={
+                                        "agent_id": aid,
+                                        "agent_type": atype,
+                                        "status": "cancelled",
+                                        "findings": [],
+                                        "iterations": 0,
+                                        "error": "cancelled: shell_already_opened",
+                                    },
+                                ))
+                            except Exception as _e:
+                                logger.debug("bus.send(cancelled) failed for %s: %s", aid, _e)
+                            try:
+                                await _agent_instance_repo.update_status(
+                                    agent_id=aid, status="cancelled"
+                                )
+                            except Exception as _e:
+                                logger.debug("Failed to mark agent %s cancelled: %s", aid, _e)
 
                 # Reactively spawn a post_exploit agent if mission is still in progress.
                 # This runs even while Brain is blocked in wait_for_agents, so the shell
                 # doesn't sit idle waiting for the whole batch to finish.
+                #
+                # IMPORTANT: only spawn when there's actually a free semaphore
+                # slot. The shell-cancel branch above already freed several by
+                # cancelling sibling exploits; if it didn't, spawning here just
+                # queues a post_exploit agent behind a saturated cap, which is
+                # what caused the test5 freeze pattern in the first place.
                 if not self._mission_done and self.ctx.allow_post_exploitation:
                     _nested = payload.get("data") if isinstance(payload.get("data"), dict) else {}
                     host_ip = payload.get("host_ip") or _nested.get("host_ip", "")
@@ -1341,8 +2188,27 @@ class BrainAgent(BaseAgent):
                             self._active_agent_targets.values(),
                         )
                     )
-                    if not already_running and host_ip:
-                        shell_key = payload.get("shell_key") or _nested.get("shell_key", "")
+
+                    # Skip the auto-spawn when the registered shell is ephemeral
+                    # — there's nothing to interact with. test7 wasted 30+
+                    # iterations because post_exploit can't reattach to a one-
+                    # shot msfconsole session that has already terminated.
+                    shell_key_chk = payload.get("shell_key") or _nested.get("shell_key", "")
+                    registered = self._active_shells.get(shell_key_chk) or {}
+                    is_ephemeral = bool(
+                        payload.get("ephemeral")
+                        or _nested.get("ephemeral")
+                        or registered.get("ephemeral")
+                    )
+                    if is_ephemeral:
+                        self.emit_event("post_exploit_skipped", {
+                            "shell_key": shell_key_chk,
+                            "host_ip": host_ip,
+                            "reason": "ephemeral_shell",
+                        })
+
+                    if not already_running and host_ip and not is_ephemeral:
+                        shell_key = shell_key_chk
                         obj_str = "; ".join(self.ctx.objectives) if self.ctx.objectives else ""
                         task = f"post_exploitation | objectives: {obj_str}" if obj_str else "post_exploitation"
                         opts: dict = {}
@@ -1354,9 +2220,16 @@ class BrainAgent(BaseAgent):
                             "task_type": task,
                             "options": opts,
                         })
+                # Also wake any wait_for_agents call sitting on early-return —
+                # the shell event is meaningful progress; brain should re-plan
+                # immediately even if its batch isn't fully drained.
+                # (no-op: the AGENT_ERROR sends above already trigger this via
+                #  the polling loop)
 
-            # Auto-stop: flag finding → mission achieved, cancel all children immediately
-            if finding_type == "flag" and not self._mission_done:
+            # A flag-shaped finding only terminates the mission when the operator
+            # explicitly asked for one. In a normal pentest, it is just another
+            # piece of evidence and the remaining vectors must still be exercised.
+            if finding_type == "flag" and not self._mission_done and self._objectives_require_flag():
                 content = (
                     payload.get("content")
                     or payload.get("data", {}).get("content", "")
@@ -1367,7 +2240,7 @@ class BrainAgent(BaseAgent):
                 self._cancel_all_children("flag_found")
                 self.memory.add_user(
                     f"[SYSTEM] FLAG CAPTURED by agent {msg.sender_id}: {str(content)[:300]}. "
-                    "Objective achieved. Call mission_done immediately with the flag content in the summary."
+                    "Operator's flag objective is satisfied. Call mission_done immediately with the flag content in the summary."
                 )
                 self.emit_event("objective_achieved", {
                     "content": str(content)[:300],
@@ -1375,20 +2248,63 @@ class BrainAgent(BaseAgent):
                 })
                 dbg.info(self.agent_id, f"Auto-stop: flag found by {msg.sender_id}")
             else:
+                # Surface the flag as a finding but continue exercising every other
+                # discovered vulnerability; do NOT kill sibling agents.
+                if finding_type == "flag" and not self._mission_done:
+                    content_preview = ""
+                    raw_data = payload.get("data")
+                    if isinstance(raw_data, dict):
+                        content_preview = str(raw_data.get("content", ""))[:200]
+                    if not content_preview:
+                        content_preview = str(payload.get("content", ""))[:200]
+                    self.memory.add_user(
+                        f"[SYSTEM] Flag-shaped value captured by agent {msg.sender_id}: "
+                        f"{content_preview}. Record it as evidence and CONTINUE — "
+                        "the mission has no flag objective; finish exploiting every remaining vulnerability."
+                    )
                 # General objective match check — emit confirmation card + auto-stop if matched
                 self._check_objective_match(msg.payload)
         elif msg.msg_type in (MessageType.AGENT_DONE, MessageType.AGENT_ERROR):
             aid = msg.payload.get("agent_id", "")
             status = msg.payload.get("status", "?")
             dbg.bus_agent_done(aid, msg.msg_type, status)
-            self._active_agents.pop(aid, None)
-            self._active_agent_task_types.pop(aid, None)
-            self._active_agent_targets.pop(aid, None)
-            self._active_agent_options.pop(aid, None)
+            atype = self._active_agents.pop(aid, "")
+            atask = self._active_agent_task_types.pop(aid, "")
+            atgt  = self._active_agent_targets.pop(aid, "")
+            aopts = self._active_agent_options.pop(aid, {})
             self._child_agents.pop(aid, None)
+
+            # ── Recent-done bookkeeping for the dedup guard ─────────────────
+            # On every agent completion (success OR fail), record the dedup
+            # key with a timestamp so a 60s re-spawn of the same approach is
+            # rejected with "recent_duplicate". Reuses the same normalizer as
+            # _spawn_agent so keys match. test7: this would have killed at
+            # least 17 of the 35 exploit re-spawns.
+            try:
+                aport = (aopts or {}).get("port")
+                amod  = str((aopts or {}).get("module") or "")
+                if not hasattr(self, "_recent_done_keys"):
+                    self._recent_done_keys = {}
+                def _norm(t: str) -> str:
+                    t = re.sub(r"\s*\[(?:ml_success_prob|has_cred)=[^\]]+\]", "", str(t or ""))
+                    t = re.sub(r"(?:_v\d+|_retry|_\d+)$", "", t.strip())
+                    t = re.sub(r"_\d{1,3}$", "", t)
+                    return t.lower()
+                key = (atype, atgt, aport, amod, _norm(atask))
+                import time as _t
+                self._recent_done_keys[key] = (_t.time(), aid, status)
+            except Exception as _e:
+                logger.debug("recent_done bookkeeping failed: %s", _e)
             # Save successful techniques to the persistent playbook
             if status in ("success", "partial"):
                 self._record_playbook_entries(msg.payload)
+            # Reflect final agent status in the attack graph
+            try:
+                await self.ctx.update_agent_status(AgentStatus(
+                    agent_id=aid, agent_type=atype or "", status=status,
+                ))
+            except Exception:
+                logger.debug("attack_graph agent-done update failed for %s", aid, exc_info=True)
             self.emit_event("child_agent_done", {
                 "agent_id": aid,
                 "findings": len(msg.payload.get("findings", [])),
@@ -1413,12 +2329,221 @@ class BrainAgent(BaseAgent):
             services=discovered if discovered else None,
             max_entries=12,
         )
+        attack_path_section = self._build_attack_path_section()
         return self._soul.build_brain_prompt(
             ctx_summary=ctx_summary,
             active_agents=self._active_agents,
             permissions=permissions,
             playbook_section=playbook_section,
+            discovered_services=discovered or None,
+            attack_path_section=attack_path_section,
         )
+
+    def _build_attack_path_section(self) -> str:
+        """Ask the ML attack-path model for the next likely TTPs and render a
+        short, decision-oriented block for the system prompt. Silent no-op if
+        the model isn't trained/loadable.
+
+        Honors two settings (both default True):
+          - ml_inject_attack_path  → render TTP suggestions
+          - ml_inject_exploit_pred → render per-module success probability
+            for the modules linked to currently discovered services.
+        """
+        # Check settings (best-effort; failures default to enabled to preserve
+        # existing behavior).
+        ttp_enabled = True
+        pred_enabled = True
+        try:
+            from database import db as _db
+            # Both settings are async — we're in a sync function, so use the
+            # running loop to fetch them. If no loop is running yet, just
+            # fall back to defaults.
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # We're inside an async iteration — schedule and short-block.
+                    # But since this function is sync, we can't await. Cache on
+                    # the instance every brain iteration via _refresh_ml_flags().
+                    ttp_enabled = bool(getattr(self, "_ml_ttp_enabled", True))
+                    pred_enabled = bool(getattr(self, "_ml_pred_enabled", True))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        if not ttp_enabled and not pred_enabled:
+            return ""
+
+        try:
+            from ml.attack_path import get_attack_path_suggester
+        except Exception:
+            return ""
+
+        suggester = None
+        try:
+            suggester = get_attack_path_suggester()
+        except Exception:
+            return ""
+
+        # Build the input the suggester needs from live MissionContext, not from
+        # a DB snapshot — this stays fresh every iteration.
+        services: list[str] = []
+        platforms: list[str] = []
+        host_count = 0
+        try:
+            for host in self.ctx.hosts.values():
+                host_count += 1
+                if host.os_type:
+                    platforms.append(str(host.os_type).lower())
+                for port in host.ports:
+                    if (port.state or "").lower() != "open":
+                        continue
+                    if port.service:
+                        services.append(str(port.service).lower())
+        except Exception:
+            pass
+
+        used_ttps: list[str] = []
+        try:
+            for vuln in self.ctx.vulnerabilities:
+                cls = getattr(vuln, "ml_cls", None) or {}
+                if isinstance(cls, dict):
+                    used_ttps.extend(cls.get("mitre_ttps", []) or [])
+        except Exception:
+            pass
+
+        has_shell = bool(getattr(self.ctx, "active_sessions", []) or [])
+        phase = (getattr(self.ctx, "phase", "scanning") or "scanning").lower()
+        if phase in ("osint", "recon", "reconnaissance"):
+            phase_key = "reconnaissance"
+        elif phase in ("scan", "scanning", "port_scan"):
+            phase_key = "scanning"
+        elif phase in ("exploit", "exploitation"):
+            phase_key = "exploitation"
+        elif phase in ("post_exploit", "post_exploitation"):
+            phase_key = "post_exploitation"
+        elif phase in ("lateral", "lateral_movement"):
+            phase_key = "lateral_movement"
+        else:
+            phase_key = phase or "exploitation"
+
+        suggestions = []
+        if ttp_enabled:
+            try:
+                if suggester is not None and suggester.is_built:
+                    suggestions = suggester.suggest(
+                        current_phase=phase_key,
+                        services=list({s for s in services if s}),
+                        used_ttps=list({t for t in used_ttps if t}),
+                        top_n=6,
+                        host_count=max(host_count, 1),
+                        has_shell=has_shell,
+                        platforms=list({p for p in platforms if p}),
+                    )
+                    model_label = "ml.attack_path"
+                else:
+                    from ml.attack_path import _fallback_suggestions
+                    suggestions = _fallback_suggestions(
+                        phase_key, 6, max(host_count, 1), has_shell,
+                        list({p for p in platforms if p}),
+                    )
+                    model_label = "ml.attack_path (heuristic fallback)"
+            except Exception as exc:
+                logger.debug("attack_path suggest failed: %s", exc)
+                suggestions = []
+                model_label = ""
+
+        # ── Per-service module success-probability table ──────────────────────
+        # The TTP list is high-level (MITRE technique names). To turn it into
+        # actionable signal, ask the exploit predictor for top modules per
+        # discovered service. This is what the LLM actually needs when it
+        # chooses spawn_agent params.
+        module_lines: list[str] = []
+        if pred_enabled:
+            try:
+                from ml.exploit_predictor import get_exploit_predictor
+                _pred = get_exploit_predictor()
+                if _pred is not None and services:
+                    # Curated svc → candidate module pool. Kept short so the
+                    # prompt stays compact; the LLM can still ask for others.
+                    svc_modules = {
+                        "ftp":         ["exploit/unix/ftp/vsftpd_234_backdoor", "exploit/windows/ftp/ms09_053_ftpd_nlst"],
+                        "ssh":         ["auxiliary/scanner/ssh/ssh_login", "exploit/multi/ssh/sshexec"],
+                        "telnet":      ["auxiliary/scanner/telnet/telnet_login"],
+                        "smb":         ["exploit/windows/smb/ms17_010_eternalblue", "exploit/multi/samba/usermap_script", "auxiliary/scanner/smb/smb_login"],
+                        "netbios-ssn": ["exploit/multi/samba/usermap_script", "auxiliary/scanner/smb/smb_login"],
+                        "smtp":        ["auxiliary/scanner/smtp/smtp_enum"],
+                        "http":        ["exploit/multi/http/struts2_content_type_ognl", "exploit/multi/http/tomcat_mgr_upload"],
+                        "ajp13":       ["auxiliary/admin/http/tomcat_ghostcat"],
+                        "mysql":       ["auxiliary/scanner/mysql/mysql_login", "exploit/multi/mysql/mysql_udf_payload"],
+                        "postgresql":  ["auxiliary/scanner/postgres/postgres_login", "exploit/linux/postgres/postgres_payload"],
+                        "vnc":         ["auxiliary/scanner/vnc/vnc_login", "auxiliary/scanner/vnc/vnc_none_auth"],
+                        "irc":         ["exploit/unix/irc/unreal_ircd_3281_backdoor"],
+                        "drb":         ["exploit/linux/misc/drb_remote_codeexec"],
+                        "distccd":     ["exploit/unix/misc/distcc_exec"],
+                        "java-rmi":    ["exploit/multi/misc/java_rmi_server"],
+                        "rsh":         ["auxiliary/scanner/rservices/rsh_login"],
+                        "nfs":         ["auxiliary/scanner/nfs/nfsmount"],
+                    }
+                    seen_svc = set()
+                    scored: list[tuple[float, str, str]] = []  # (prob, svc, module)
+                    for svc in services:
+                        svc_key = next((k for k in svc_modules if k in svc), None)
+                        if not svc_key or svc_key in seen_svc:
+                            continue
+                        seen_svc.add(svc_key)
+                        for mod in svc_modules[svc_key]:
+                            try:
+                                p = float(_pred.predict_proba(
+                                    description=mod,
+                                    exploit_type="remote",
+                                    platform=("linux" if "linux" in platforms else
+                                              "windows" if "windows" in platforms else ""),
+                                    has_msf_module=1,
+                                ))
+                                scored.append((p, svc_key, mod))
+                            except Exception:
+                                pass
+                    scored.sort(key=lambda t: -t[0])
+                    for p, svc, mod in scored[:10]:
+                        bar = "█" * int(p * 10)
+                        module_lines.append(f"  P={p:.2f} {bar:<10} {svc:<12} {mod}")
+            except Exception as exc:
+                logger.debug("exploit pred table failed: %s", exc)
+
+        # Bail out when nothing useful is available.
+        if not suggestions and not module_lines:
+            return ""
+
+        lines: list[str] = []
+        if suggestions:
+            lines.extend([
+                "## NEXT-STEP TTP SUGGESTIONS",
+                f"(advisory only — source: {model_label}; phase={phase_key}, services={len(services)},",
+                f" used_ttps={len(used_ttps)}, has_shell={has_shell})",
+                "",
+            ])
+            for s in suggestions:
+                sd = s.to_dict() if hasattr(s, "to_dict") else s
+                lines.append(
+                    f"  {sd.get('ttp_id','?'):<10} {sd.get('tactic','?'):<22} "
+                    f"conf={sd.get('confidence', 0):.2f}  {sd.get('ttp_name','?')}"
+                )
+            lines.append("")
+            lines.append("Use these as a CHECKLIST of attacker techniques to consider — they do")
+            lines.append("not replace your own reasoning. Skip any that don't fit the actual scan")
+            lines.append("findings, and pursue concrete CVEs from EXPLOIT_KB first.")
+
+        if module_lines:
+            if lines:
+                lines.append("")
+            lines.append("## ML EXPLOIT SUCCESS RANKING (per discovered service)")
+            lines.append("(P = pre-attack success probability from ml.exploit_predictor;")
+            lines.append(" use this to PRIORITIZE which spawn_agent calls to make first.")
+            lines.append(" Each spawned exploit also receives its own [ml_success_prob=X.YY] tag.)")
+            lines.append("")
+            lines.extend(module_lines)
+        return "\n".join(lines)
 
     def _get_discovered_service_strings(self) -> list[str]:
         """Extract 'service version' strings from mission context for playbook lookup."""
@@ -1474,7 +2599,17 @@ class BrainAgent(BaseAgent):
         return await self._is_msf_session_alive(sid)
 
     async def _register_shell(self, finding: dict) -> None:
-        """Called when a child agent reports a shell/session opened."""
+        """Called when a child agent reports a shell/session opened.
+
+        Marks the shell as ``ephemeral=True`` when MSF is in non-persistent
+        msfconsole mode. test7 forensics: brain spawned 3 post_exploit agents
+        thinking the shell was live, but each msfconsole subprocess had
+        already exited and the session was gone. shell_exec(action=list)
+        returned 0 sessions every time, post_ex spent 30+ iterations guessing
+        shell_keys, then gave up. By exposing the ephemeral flag, brain can
+        skip post_exploit spawn entirely and rely on the post_commands output
+        already captured during the original exploit call.
+        """
         import uuid as _uuid
         data = finding.get("data", finding)
         msf_sid = data.get("msf_session_id") or data.get("session_id", "")
@@ -1486,12 +2621,33 @@ class BrainAgent(BaseAgent):
         except (ValueError, TypeError):
             msf_sid = None
 
+        # Detect MSF persistence mode ONCE; reused for both the alive check
+        # and the ephemeral flag below.
+        msf_persistent = False
+        try:
+            from web.app_state import tool_registry as _tr
+            _msf = _tr.get("metasploit_run")
+            if _msf is not None:
+                if getattr(_msf, "_client", None) is not None:
+                    msf_persistent = True
+                else:
+                    try:
+                        from config import settings as _settings
+                        msf_persistent = bool(getattr(_settings.msf, "persistent_console", False))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         # Use msf-{id} as the canonical key so shell_io events from base_agent match
         if msf_sid is not None:
-            alive = await self._is_msf_session_alive(msf_sid)
-            if not alive:
-                dbg.warn(self.agent_id, f"MSF session {msf_sid} is not alive; shell not registered")
-                return
+            # Only run the alive check when MSF is actually persistent;
+            # otherwise we'd reject every single one-shot session.
+            if msf_persistent:
+                alive = await self._is_msf_session_alive(msf_sid)
+                if not alive:
+                    dbg.warn(self.agent_id, f"MSF session {msf_sid} is not alive; shell not registered")
+                    return
             shell_key = f"msf-{msf_sid}"
         else:
             shell_key = data.get("shell_key") or f"shell-{_uuid.uuid4().hex[:8]}"
@@ -1499,6 +2655,15 @@ class BrainAgent(BaseAgent):
         session_type = data.get("session_type", "shell")
         module = data.get("module", "")
         dedup_key = f"{host_ip}|{msf_sid if msf_sid is not None else shell_key}|{module}"
+
+        # Ephemeral when MSF subprocess is one-shot (session won't survive a
+        # follow-up shell_exec/list/connect call). post_exploit auto-spawn
+        # checks this flag and skips.
+        # Raw bind shells (e.g. ingreslock 1524, vsftpd backdoor 6200) are
+        # also ephemeral until a persistent re-connect tool exists.
+        ephemeral = (msf_sid is not None and not msf_persistent) or (
+            msf_sid is None and session_type in ("shell", "bind", "raw")
+        )
 
         existing = self._active_shells.get(shell_key)
         if existing and existing.get("status") == "active":
@@ -1538,6 +2703,7 @@ class BrainAgent(BaseAgent):
             "module": module,
             "dedup_key": dedup_key,
             "status": "active",
+            "ephemeral": ephemeral,
         }
         self._shell_dedup_keys.add(dedup_key)
 
@@ -1548,8 +2714,28 @@ class BrainAgent(BaseAgent):
             "session_type": session_type,
             "module": module,
             "msf_session_id": msf_sid,
+            "ephemeral": ephemeral,
         })
-        dbg.info(self.agent_id, f"Shell registered: {shell_key} @ {host_ip} (msf={msf_sid})")
+        dbg.info(
+            self.agent_id,
+            f"Shell registered: {shell_key} @ {host_ip} "
+            f"(msf={msf_sid}, ephemeral={ephemeral})",
+        )
+
+        # If the shell is ephemeral, push a hint into Brain's memory so the next
+        # iteration sees "don't spawn post_exploit — use the post_commands
+        # output you already have." This prevents the test7 failure where
+        # post_exploit agents spent 10+ iterations guessing a dead shell_key.
+        if ephemeral and not self._mission_done:
+            self.memory.add_user(
+                f"[SYSTEM] Shell {shell_key} on {host_ip} (module={module}) is EPHEMERAL "
+                "(one-shot msfconsole — session already terminated). DO NOT spawn a "
+                "post_exploit agent for it; the post_commands output captured during "
+                "the original metasploit_run IS the post-ex evidence. Treat this as "
+                "a 'proof-of-impact' shell, record the finding, and move to other "
+                "vectors. Run a follow-up exploit with richer post_commands if you "
+                "need more recon from this host."
+            )
 
     def _mark_shell_closed(self, shell_key: str, reason: str = "connection lost") -> None:
         """Mark a shell as closed and broadcast to UI."""
@@ -1678,27 +2864,37 @@ class BrainAgent(BaseAgent):
         # Check if any objective keyword appears in the finding
         summary_lower = summary.lower()
         _STOP = {"find", "search", "get", "read", "show", "list", "dump", "look",
-                 "check", "scan", "fetch", "locate", "grab", "inside", "open", "view"}
+                 "check", "scan", "fetch", "locate", "grab", "inside", "open", "view",
+                 "all", "any", "the", "and", "from", "with", "every"}
         for obj in self.ctx.objectives:
             obj_lower = obj.lower()
             keywords = [w for w in obj_lower.split() if len(w) > 3 and w not in _STOP]
-            if keywords and any(kw in summary_lower for kw in keywords):
-                self.emit_event("finding_confirm", {
-                    "summary": summary,
-                    "finding_type": finding_type,
-                    "objective": obj,
-                    "timeout_seconds": 30,
-                })
-                # Auto-stop: objective achieved
-                if not self._mission_done:
-                    self._mission_done = True
-                    self._cancel_all_children("objective_achieved")
-                    self.memory.add_user(
-                        f"[SYSTEM] Objective '{obj}' achieved: {summary[:200]}. "
-                        "Call mission_done immediately."
-                    )
-                    dbg.info(self.agent_id, f"Objective matched: {obj!r}")
-                return True
+            if not keywords:
+                continue
+            # Require ALL salient objective keywords (>=2) to appear — a single
+            # generic word like "shell" or "system" must not auto-stop a mission.
+            if len(keywords) >= 2:
+                if not all(kw in summary_lower for kw in keywords):
+                    continue
+            else:
+                if keywords[0] not in summary_lower:
+                    continue
+            self.emit_event("finding_confirm", {
+                "summary": summary,
+                "finding_type": finding_type,
+                "objective": obj,
+                "timeout_seconds": 30,
+            })
+            # Auto-stop: objective achieved
+            if not self._mission_done:
+                self._mission_done = True
+                self._cancel_all_children("objective_achieved")
+                self.memory.add_user(
+                    f"[SYSTEM] Objective '{obj}' achieved: {summary[:200]}. "
+                    "Call mission_done immediately."
+                )
+                dbg.info(self.agent_id, f"Objective matched: {obj!r}")
+            return True
         return False
 
     def _record_playbook_entries(self, payload: dict) -> None:

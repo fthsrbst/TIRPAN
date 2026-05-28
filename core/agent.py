@@ -666,7 +666,7 @@ class PentestAgent(BaseAgent):
                             f"The session is OPEN and waiting. "
                             f"STOP calling connect — it will never do anything. "
                             f"Your NEXT call MUST be one of:\n"
-                            f"  shell_exec(action=exec, session_key='{_sk}', command='cat /home/msfadmin/flag.txt')\n"
+                            f"  shell_exec(action=exec, session_key='{_sk}', command='id && uname -a')\n"
                             f"  shell_exec(action=exec_script, session_key='{_sk}', commands=[...])\n"
                             f"Or, if SSH credentials are available, use ssh_exec instead."
                         )

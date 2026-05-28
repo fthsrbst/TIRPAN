@@ -11,7 +11,7 @@
 |---|---|---|---|
 | Agent model | Coordinator + Solver multi-agent | Single ReAct agent | Brain + 7 specialized agents |
 | Parallelism | Hundreds of parallel solvers | Sequential | Parallel agents (default: 8 max) |
-| Isolation | Each solver in isolated VM | Host execution | Host execution (V3: Docker) |
+| Isolation | Each solver in isolated VM | Host execution | Host execution |
 | Shell persistence | Sessions maintained across tasks | Sessions abandoned | Shell Manager (persistent, auto-reconnect) |
 | Target scale | Thousands simultaneously | One at a time | Multiple concurrent |
 | Agent specialization | Solvers specialized per domain | One agent does everything | One expert agent per domain |

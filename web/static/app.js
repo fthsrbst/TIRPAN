@@ -360,7 +360,7 @@ function _updateDdosVisibility(show) {
 
 // ─── Right Sidebar Intelligence Nav ─────────────────────────────────────────
 
-const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'ddos', 'history', 'nodes', 'kb', 'ml'];
+const ALL_INTEL_PANELS = ['live', 'analysis', 'network', 'ddos', 'history', 'nodes', 'kb', 'ml', 'schedule'];
 
 function _setIntelNavActive(panelName) {
     const items = document.querySelectorAll('.intel-nav-item');
@@ -451,6 +451,7 @@ const INTEL_TAB_ICONS = {
     nodes: 'account_tree',
     kb: 'auto_stories',
     ml: 'neurology',
+    schedule: 'calendar_clock',
 };
 
 function switchIntelTab(tabName) {
@@ -484,6 +485,10 @@ function switchIntelTab(tabName) {
 
     if (tabName === 'ml') {
         setTimeout(() => mlViewLoad(), 30);
+    }
+
+    if (tabName === 'schedule') {
+        setTimeout(() => schedIntelRefresh(), 30);
     }
 }
 
@@ -3867,11 +3872,14 @@ async function startMission() {
         window._currentSessionId = activeMissionId;
         missionStartTime = Date.now();
         missionPaused = false;
+        try { if (typeof startPhaseStepper === 'function') startPhaseStepper(activeMissionId); } catch (_) {}
         hideResumeFromSessionBtn();
 
         // Update UI
         updateMissionStatusHeader('running', activeMissionId, displayTarget);
         resetMissionStats();
+        // Start the milestone stepper polling for this session.
+        try { if (typeof startPhaseStepper === 'function') startPhaseStepper(activeMissionId); } catch (_) {}
         resetPhaseBar();
         setPhaseActive(1);
         clearConsoleOutput();
@@ -7516,6 +7524,7 @@ async function loadSessionsForSelects() {
                 viewingSessionId = running.id;
                 missionStartTime = running.created_at * 1000;
                 updateMissionStatusHeader('running', running.id);
+                try { if (typeof startPhaseStepper === 'function') startPhaseStepper(running.id); } catch (_) {}
                 patchWsSessionHandler();
                 if (ws && wsReady) {
                     ws.send(JSON.stringify({ type: 'subscribe_session', session_id: running.id }));
@@ -9692,6 +9701,9 @@ function _advCollectConfig() {
         mission_briefing:       _v('adv-mission-briefing'),
         allow_persistence:      document.getElementById('pol-allow-persistence')?.checked ?? false,
         v3_features:            document.getElementById('pol-v3-features')?.checked ?? true,
+        // Per-mission wordlist override (empty → backend falls through to
+        // app_settings.default_password_wordlist → common-path cascade).
+        password_wordlist:      _v('adv-password-wordlist'),
     };
 }
 
@@ -9870,6 +9882,7 @@ async function launchAdvancedMission() {
         missionStartTime = Date.now();
         missionPaused = false;
         hideResumeFromSessionBtn();
+        try { if (typeof startPhaseStepper === 'function') startPhaseStepper(activeMissionId); } catch (_) {}
 
         updateMissionStatusHeader('running', activeMissionId, displayTarget);
         resetMissionStats();
@@ -11772,6 +11785,91 @@ function _mlProbColor(p) {
     return 'text-secondary-text';
 }
 
+// ── Mission Phase Stepper (Pro Mode sidebar) ─────────────────────────────────
+// Honest milestone tracker (not a guessed %). Polls /sessions/{sid}/progress
+// every 5s while a mission is active. Each stage lights up when the backend
+// reports concrete evidence (scan rows, exploit attempts, shell open, creds/
+// loot, session done). The brain's set_phase value drives the "pulse"
+// (current) highlight.
+const _PHASE_STAGE_DEFS = [
+    { id: 'recon',        label: 'Recon' },
+    { id: 'exploit',      label: 'Exploit' },
+    { id: 'foothold',     label: 'Foothold' },
+    { id: 'post_exploit', label: 'Post-Ex' },
+    { id: 'report',       label: 'Report' },
+];
+
+function _renderPhaseStepper(stages, currentPhase) {
+    const root = document.getElementById('rsb-phase-stepper');
+    if (!root) return;
+    // Build once; on subsequent calls, just toggle classes for cheaper paints.
+    const need = _PHASE_STAGE_DEFS.length;
+    if (root.children.length !== need) {
+        root.innerHTML = '';
+        for (const d of _PHASE_STAGE_DEFS) {
+            const pill = document.createElement('div');
+            pill.className = 'rsb-phase-pill';
+            pill.dataset.stage = d.id;
+            pill.innerHTML = `
+                <div class="bar"></div>
+                <div class="lbl">${d.label}</div>
+                <div class="metric">—</div>`;
+            root.appendChild(pill);
+        }
+    }
+    const byId = new Map((stages || []).map(s => [s.id, s]));
+    // The "current" highlight should be the FIRST not-done stage (or none if
+    // everything's done). Brain's set_phase is decorative — milestones are
+    // what we trust.
+    const firstPending = (stages || []).find(s => !s.done);
+    const currentId = firstPending ? firstPending.id : null;
+    for (const pill of root.children) {
+        const id = pill.dataset.stage;
+        const s = byId.get(id);
+        pill.classList.toggle('done', !!(s && s.done));
+        pill.classList.toggle('current', id === currentId);
+        const metric = pill.querySelector('.metric');
+        if (metric) metric.textContent = (s && s.metric) || '—';
+    }
+}
+
+async function _loadPhaseProgress(sid) {
+    if (!sid) {
+        _renderPhaseStepper([], null);
+        const pct = document.getElementById('rsb-phase-pct');
+        const cur = document.getElementById('rsb-phase-current');
+        if (pct) pct.textContent = '— / 5';
+        if (cur) cur.textContent = 'no mission';
+        return;
+    }
+    try {
+        const r = await fetch(`/api/v1/sessions/${encodeURIComponent(sid)}/progress`);
+        if (!r.ok) return;
+        const j = await r.json();
+        _renderPhaseStepper(j.stages || [], j.current_phase || null);
+        const pct = document.getElementById('rsb-phase-pct');
+        const cur = document.getElementById('rsb-phase-current');
+        if (pct) pct.textContent = `${j.completed_count || 0} / ${j.total || 5}`;
+        if (cur) {
+            const firstPending = (j.stages || []).find(s => !s.done);
+            cur.textContent = firstPending
+                ? `current: ${firstPending.label.toLowerCase()}`
+                : (j.status === 'done' ? 'mission complete' : 'all milestones met');
+        }
+    } catch (_) { /* silent */ }
+}
+
+let _phaseStepperTimer = null;
+function startPhaseStepper(sid) {
+    if (_phaseStepperTimer) clearInterval(_phaseStepperTimer);
+    _loadPhaseProgress(sid);
+    _phaseStepperTimer = setInterval(() => _loadPhaseProgress(sid), 5000);
+}
+function stopPhaseStepper() {
+    if (_phaseStepperTimer) { clearInterval(_phaseStepperTimer); _phaseStepperTimer = null; }
+    _renderPhaseStepper([], null);
+}
+
 async function mlPanelLoad(sid) {
     if (_mlPanelLoading) return;
     _mlPanelLoading = true;
@@ -11781,6 +11879,9 @@ async function mlPanelLoad(sid) {
             _mlPanelLoadStatus(),
             _mlPanelLoadSuggestions(_mlPanelSessionId),
             _mlPanelLoadSessionInsights(_mlPanelSessionId),
+            // Sidebar toggle states use the same loader as the full ML view —
+            // it updates both -sb and non-sb element ids when present.
+            _mlViewLoadToggles(),
         ]);
     } catch (e) {
         console.warn('[ML] panel load error', e);
@@ -12031,6 +12132,7 @@ async function mlViewLoad(sid) {
             _mlViewLoadKpis(),
             _mlViewLoadSuggestions(realSid),
             _mlViewLoadSessionDetail(realSid),
+            _mlViewLoadToggles(),  // brain-injection switches
         ]);
     } catch (e) {
         console.warn('[ML] view load error', e);
@@ -12040,6 +12142,55 @@ async function mlViewLoad(sid) {
 function mlViewRefresh() {
     mlViewLoad(_mlPanelSessionId);
     mlPanelRefresh();
+}
+
+// ── ML brain-injection toggles ───────────────────────────────────────────
+// Persist via the generic /settings/{key} endpoint. The Brain agent reads
+// these values once per iteration (see brain_agent._refresh_ml_flags) so the
+// switch takes effect on the very next LLM round.
+async function mlViewSaveToggle(key, value) {
+    try {
+        const r = await fetch(`/api/v1/settings/${encodeURIComponent(key)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: value }),
+        });
+        if (!r.ok) {
+            console.warn('[ML] save toggle failed', key, await r.text());
+        }
+    } catch (e) {
+        console.warn('[ML] save toggle error', e);
+    }
+}
+
+async function _mlViewLoadToggles() {
+    // Pre-fill the toggle states from current persisted settings so the UI
+    // reflects what the Brain will actually use. Updates BOTH the full-page
+    // toggles (id without -sb suffix) and the sidebar mirror (-sb suffix)
+    // so users see the same state regardless of which surface they're using.
+    try {
+        const r = await fetch('/api/v1/settings');
+        if (!r.ok) return;
+        const all = await r.json();
+        const apVal = all.ml_inject_attack_path !== false;
+        const epVal = all.ml_inject_exploit_pred !== false;
+        const capVal = (all.spawn_max_parallel != null) ? all.spawn_max_parallel : 3;
+        for (const id of ['ml-toggle-attack-path', 'ml-toggle-attack-path-sb']) {
+            const e = document.getElementById(id);
+            if (e) e.checked = apVal;
+        }
+        for (const id of ['ml-toggle-exploit-pred', 'ml-toggle-exploit-pred-sb']) {
+            const e = document.getElementById(id);
+            if (e) e.checked = epVal;
+        }
+        for (const id of ['ml-spawn-cap', 'ml-spawn-cap-sb']) {
+            const e = document.getElementById(id);
+            if (e) e.value = capVal;
+        }
+        // Wordlist path (single field — currently only on the full ML page).
+        const wl = document.getElementById('ml-wordlist-path');
+        if (wl) wl.value = String(all.default_password_wordlist || '');
+    } catch (e) { /* fail silently — defaults remain visible */ }
 }
 
 async function mlViewRetrain() {
@@ -12772,3 +12923,1156 @@ async function confirmAssign() {
         showToast('Error: ' + e.message);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCHEDULE SCAN — Expert Mode
+// Shared localStorage key: tirpan_scheduled_missions (same as React normal mode)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SCHED_KEY = 'tirpan_scheduled_missions';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function _schedLoad() {
+    try { return JSON.parse(localStorage.getItem(SCHED_KEY) || '[]'); } catch { return []; }
+}
+function _schedSave(arr) {
+    localStorage.setItem(SCHED_KEY, JSON.stringify(arr));
+}
+function _schedPad(n) { return String(n).padStart(2, '0'); }
+function _schedFmt(isoStr) {
+    const d = new Date(isoStr);
+    return d.toLocaleDateString('tr-TR', { day:'2-digit', month:'short', year:'numeric' })
+         + ' ' + _schedPad(d.getHours()) + ':' + _schedPad(d.getMinutes());
+}
+function _schedCountdown(isoStr) {
+    const diff = new Date(isoStr).getTime() - Date.now();
+    if (diff <= 0) return null;
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    if (h >= 24) { const d2 = Math.floor(h/24); return d2 + 'd ' + (h%24) + 'h'; }
+    return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+}
+
+// ── Build payload from current expert-mode form ───────────────────────────────
+function _schedBuildPayload() {
+    const primaryTarget = (document.getElementById('adv-primary-target')?.value || '').trim();
+    const additionalTargets = [];
+    document.querySelectorAll('#adv-additional-targets input').forEach(inp => {
+        if (inp.value.trim()) additionalTargets.push(inp.value.trim());
+    });
+    const excludedTargets = [];
+    document.querySelectorAll('#adv-never-scan-entries input').forEach(inp => {
+        if (inp.value.trim()) excludedTargets.push(inp.value.trim());
+    });
+    const excludedPortsRaw = (document.getElementById('adv-excluded-ports')?.value || '').trim();
+    const excludedPorts = excludedPortsRaw
+        ? excludedPortsRaw.split(',').map(p => p.trim()).filter(p => /^\d+$/.test(p))
+        : [];
+    const scopeNotes = (document.getElementById('adv-scope-notes')?.value || '').trim();
+    const knownTech  = (document.getElementById('adv-known-tech')?.value || '').trim();
+    const cfg  = typeof _advCollectConfig === 'function' ? _advCollectConfig() : {};
+    const creds = typeof _advCollectCredentials === 'function' ? _advCollectCredentials() : [];
+    return {
+        target: primaryTarget,
+        mode: cfg.mode || 'scan_only',
+        port_range: cfg.port_range || '1-65535',
+        provider: (typeof activeProvider !== 'undefined' ? activeProvider : null) || 'ollama',
+        model: (typeof activeModel !== 'undefined' ? activeModel : null) || undefined,
+        mission_name: cfg.mission_name || undefined,
+        target_type: cfg.target_type !== 'auto' ? cfg.target_type : undefined,
+        additional_targets: additionalTargets.length > 0 ? additionalTargets : undefined,
+        excluded_targets: excludedTargets.length > 0 ? excludedTargets : undefined,
+        excluded_ports: excludedPorts.length > 0 ? excludedPorts : undefined,
+        speed_profile: cfg.speed_profile || 'normal',
+        scan_type: cfg.scan_type || 'syn',
+        nse_categories: cfg.nse_categories?.length > 0 ? cfg.nse_categories : undefined,
+        nse_scripts: cfg.nse_scripts || undefined,
+        os_detection: cfg.os_detection,
+        version_detection: cfg.version_detection,
+        allow_post_exploitation: cfg.allow_post_exploitation,
+        allow_lateral_movement: cfg.allow_lateral_movement,
+        allow_docker_escape: cfg.allow_docker_escape,
+        allow_browser_recon: cfg.allow_browser_recon,
+        allow_persistence: cfg.allow_persistence,
+        v3_features: cfg.v3_features,
+        known_tech: knownTech ? knownTech.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+        scope_notes: scopeNotes || undefined,
+        notes: (cfg.notes || cfg.mission_briefing) || undefined,
+        objectives: cfg.objectives ? cfg.objectives.split('\n').map(s => s.trim()).filter(Boolean) : undefined,
+        credentials: creds,
+        confirm_every_step: cfg.confirm_every_step || false,
+        agent_models: (typeof _collectAgentModelsFromMissionUI === 'function' ? _collectAgentModelsFromMissionUI() : null) || undefined,
+        disabled_tools: (typeof _collectToolPermissionsFromMissionUI === 'function' ? _collectToolPermissionsFromMissionUI() : null) || undefined,
+    };
+}
+
+// ── Init selects on modal open ────────────────────────────────────────────────
+function _schedInitSelects(targetDate) {
+    const d = targetDate || new Date(Date.now() + 3600000);
+
+    // Day select
+    const dayEl = document.getElementById('adv-sched-day');
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    dayEl.innerHTML = '';
+    for (let i = 1; i <= daysInMonth; i++) {
+        const o = document.createElement('option');
+        o.value = i; o.textContent = _schedPad(i);
+        if (i === d.getDate()) o.selected = true;
+        dayEl.appendChild(o);
+    }
+
+    // Month
+    const monthEl = document.getElementById('adv-sched-month');
+    monthEl.value = d.getMonth() + 1;
+
+    // Year
+    const yearEl = document.getElementById('adv-sched-year');
+    yearEl.innerHTML = '';
+    const curY = new Date().getFullYear();
+    for (let y = curY; y <= curY + 2; y++) {
+        const o = document.createElement('option');
+        o.value = y; o.textContent = y;
+        if (y === d.getFullYear()) o.selected = true;
+        yearEl.appendChild(o);
+    }
+
+    // Hour
+    const hourEl = document.getElementById('adv-sched-hour');
+    hourEl.innerHTML = '';
+    for (let h = 0; h < 24; h++) {
+        const o = document.createElement('option');
+        o.value = h; o.textContent = _schedPad(h) + ':00';
+        if (h === d.getHours()) o.selected = true;
+        hourEl.appendChild(o);
+    }
+
+    // Minute — round up to nearest 5
+    const roundedMin = Math.ceil(d.getMinutes() / 5) * 5 % 60;
+    document.getElementById('adv-sched-minute').value = roundedMin;
+
+    // Attach change listeners to update feedback
+    ['adv-sched-day','adv-sched-month','adv-sched-year','adv-sched-hour','adv-sched-minute'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.removeEventListener('change', _schedUpdateFeedback);
+            el.addEventListener('change', _schedUpdateFeedback);
+        }
+    });
+    // Re-populate days when month/year changes
+    document.getElementById('adv-sched-month')?.addEventListener('change', _schedRefillDays);
+    document.getElementById('adv-sched-year')?.addEventListener('change', _schedRefillDays);
+
+    _schedUpdateFeedback();
+}
+
+function _schedRefillDays() {
+    const m = parseInt(document.getElementById('adv-sched-month').value);
+    const y = parseInt(document.getElementById('adv-sched-year').value);
+    const curDay = parseInt(document.getElementById('adv-sched-day').value);
+    const days = new Date(y, m, 0).getDate();
+    const dayEl = document.getElementById('adv-sched-day');
+    dayEl.innerHTML = '';
+    for (let i = 1; i <= days; i++) {
+        const o = document.createElement('option');
+        o.value = i; o.textContent = _schedPad(i);
+        if (i === Math.min(curDay, days)) o.selected = true;
+        dayEl.appendChild(o);
+    }
+    _schedUpdateFeedback();
+}
+
+function _schedGetSelected() {
+    const y = parseInt(document.getElementById('adv-sched-year').value);
+    const m = parseInt(document.getElementById('adv-sched-month').value) - 1;
+    const d2 = parseInt(document.getElementById('adv-sched-day').value);
+    const h = parseInt(document.getElementById('adv-sched-hour').value);
+    const min = parseInt(document.getElementById('adv-sched-minute').value);
+    return new Date(y, m, d2, h, min, 0);
+}
+
+function _schedUpdateFeedback() {
+    const dt = _schedGetSelected();
+    const diff = dt.getTime() - Date.now();
+    const fb    = document.getElementById('adv-sched-feedback');
+    const fbBig = document.getElementById('adv-sched-feedback-big');
+    const btn   = document.getElementById('adv-sched-confirm-btn');
+
+    if (diff > 30000) {
+        const cd = _schedCountdown(dt.toISOString());
+        const okClass  = 'px-3 py-2 text-xs flex items-center gap-2 border border-primary/30 bg-primary/8 text-primary';
+        const okHtml   = '<span class="material-symbols-outlined text-[14px]">check_circle</span> Launches in <strong class="ml-1">' + cd + '</strong>&nbsp;·&nbsp;' + dt.toLocaleString();
+        if (fb)    { fb.className    = okClass; fb.innerHTML    = okHtml; }
+        if (fbBig) { fbBig.className = 'px-4 py-3 border border-primary/30 bg-primary/8 text-primary text-xs flex items-center gap-2 mono-text'; fbBig.innerHTML = okHtml; }
+        if (btn)   { btn.disabled = false; btn.classList.remove('opacity-40','cursor-not-allowed'); }
+        _modalRenderSummary();
+    } else {
+        const errClass = 'px-3 py-2 text-xs flex items-center gap-2 border border-red-500/30 bg-red-500/10 text-red-400';
+        const errHtml  = '<span class="material-symbols-outlined text-[14px]">warning</span> Selected time is in the past — choose a future time';
+        if (fb)    { fb.className    = errClass; fb.innerHTML    = errHtml; }
+        if (fbBig) { fbBig.className = 'px-4 py-3 border border-red-500/30 bg-red-500/10 text-red-400 text-xs flex items-center gap-2 mono-text'; fbBig.innerHTML = errHtml; }
+        if (btn)   { btn.disabled = true; btn.classList.add('opacity-40','cursor-not-allowed'); }
+    }
+}
+
+// ── Render pending list ───────────────────────────────────────────────────────
+function _schedRenderPending() {
+    const arr = _schedLoad();
+    const list = document.getElementById('adv-sched-pending-list');
+    const count = document.getElementById('adv-sched-count');
+    const badge = document.getElementById('adv-schedule-badge');
+
+    // Update topbar Schedule button badge
+    if (badge) {
+        if (arr.length > 0) { badge.textContent = arr.length; badge.classList.remove('hidden'); }
+        else badge.classList.add('hidden');
+    }
+
+    // Update queue tab count label
+    if (count) count.textContent = arr.length ? `(${arr.length})` : '';
+
+    if (!list) return;
+
+    if (arr.length === 0) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text text-center py-6 opacity-50 mono-text">// no scheduled scans</p>';
+        return;
+    }
+
+    list.innerHTML = arr.map(m => {
+        const isRecurring = m.recurrence && m.recurrence.type !== 'once';
+        const recLabel = isRecurring ? _rsbRecLabel(m.recurrence) : '';
+        const cd = _schedCountdown(m.scheduledAt);
+        const isPast = !cd;
+        return `
+          <div class="flex items-center gap-2 px-3 py-2 border ${isPast ? 'border-red-500/30 bg-red-500/5' : 'border-border-color hover:bg-white/2'} text-xs group">
+            <span class="material-symbols-outlined text-[14px] shrink-0 ${isPast ? 'text-red-400' : 'text-primary'}">
+              ${isRecurring ? 'repeat' : 'alarm'}
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="font-bold truncate">${m.name || m.target || 'Unnamed'}</div>
+              <div class="text-secondary-text mono-text text-[10px] flex items-center gap-1.5">
+                ${_schedFmt(m.scheduledAt)}
+                ${cd ? `· <span class="text-primary/80">${cd}</span>` : '<span class="text-red-400">overdue</span>'}
+                ${recLabel ? `· <span class="text-primary/60">${recLabel}</span>` : ''}
+              </div>
+            </div>
+            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onclick="advSchedRunNowById('${m.id}')" title="Run Now"
+                class="w-6 h-6 flex items-center justify-center hover:text-primary text-secondary-text transition-colors">
+                <span class="material-symbols-outlined text-[14px]">play_arrow</span>
+              </button>
+              <button onclick="_schedCancel('${m.id}')" title="Cancel"
+                class="w-6 h-6 flex items-center justify-center hover:text-red-400 text-secondary-text transition-colors">
+                <span class="material-symbols-outlined text-[14px]">delete</span>
+              </button>
+            </div>
+          </div>`;
+    }).join('');
+}
+
+// Run a specific pending schedule immediately
+async function advSchedRunNowById(id) {
+    const arr = _schedLoad();
+    const mission = arr.find(m => m.id === id);
+    if (!mission) return;
+    try {
+        const res = await fetch('/api/v1/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mission.payload),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        showToast('▶ Launched: ' + (mission.name || mission.target));
+        // Remove one-time, keep recurring (reschedule)
+        const remaining = arr.filter(m => m.id !== id);
+        const rec = mission.recurrence;
+        if (rec && rec.type !== 'once') {
+            const next = _rsbNextOccurrence(rec, Date.now());
+            if (next) remaining.push({ ...mission, scheduledAt: next.toISOString(), recurrence: { ...rec, runsCompleted: (rec.runsCompleted || 0) + 1 } });
+        }
+        _schedSave(remaining);
+    } catch(e) {
+        showToast('✗ Launch failed: ' + e.message);
+    }
+    _schedRenderPending();
+    if (typeof rsbSchedRefresh === 'function') rsbSchedRefresh();
+}
+
+function _schedCancel(id) {
+    const arr = _schedLoad().filter(m => m.id !== id);
+    _schedSave(arr);
+    _schedRenderPending();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FULL-SCREEN EXPERT SCHEDULE MODAL — state + functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _modalRecType = 'once';
+let _modalDow = [false, true, false, false, false, false, false]; // Mon default
+let _modalPriority = 'normal';
+
+// ── Recurrence type selector ──────────────────────────────────────────────────
+function modalSetRecType(type) {
+    _modalRecType = type;
+    document.querySelectorAll('.modal-rec-btn').forEach(b => {
+        b.classList.remove('border-primary', 'text-primary', 'bg-primary/10');
+        b.classList.add('border-border-color', 'text-secondary-text');
+    });
+    const active = document.getElementById('modal-rec-' + type);
+    if (active) {
+        active.classList.add('border-primary', 'text-primary');
+        active.classList.remove('border-border-color', 'text-secondary-text');
+    }
+    document.getElementById('modal-dow-row')?.classList.toggle('hidden', !(type === 'weekly' || type === 'biweekly'));
+    document.getElementById('modal-dom-row')?.classList.toggle('hidden', type !== 'monthly');
+    document.getElementById('modal-cron-row')?.classList.toggle('hidden', type !== 'cron');
+    const maxRow = document.getElementById('modal-maxruns-row');
+    if (maxRow) maxRow.classList.toggle('hidden', type === 'once');
+    if (!maxRow?.classList.contains('hidden')) maxRow.classList.add('flex');
+
+    // Update confirm button label
+    const lbl = document.getElementById('adv-confirm-label');
+    if (lbl) lbl.textContent = type !== 'once' ? 'Schedule Recurring' : 'Confirm Schedule';
+
+    // Refresh summary tab if open
+    _modalRenderSummary();
+}
+
+// ── Day-of-week toggle ────────────────────────────────────────────────────────
+function modalToggleDow(d) {
+    if (_modalDow[d] && _modalDow.filter(Boolean).length === 1) return; // keep ≥1
+    _modalDow[d] = !_modalDow[d];
+    const btn = document.getElementById('modal-dow-' + d);
+    if (!btn) return;
+    if (_modalDow[d]) {
+        btn.classList.add('border-primary', 'text-primary', 'bg-primary/10');
+        btn.classList.remove('border-border-color', 'text-secondary-text');
+    } else {
+        btn.classList.remove('border-primary', 'text-primary', 'bg-primary/10');
+        btn.classList.add('border-border-color', 'text-secondary-text');
+    }
+    _modalRenderSummary();
+}
+
+// ── Priority selector ─────────────────────────────────────────────────────────
+function modalSetPriority(p) {
+    _modalPriority = p;
+    ['low', 'normal', 'high'].forEach(pr => {
+        const btn = document.getElementById('modal-pri-' + pr);
+        if (!btn) return;
+        if (pr === p) {
+            btn.classList.add('border-primary', 'text-primary', 'bg-primary/10');
+            btn.classList.remove('border-border-color', 'text-secondary-text', 'hover:border-red-400', 'hover:text-red-400', 'hover:border-primary', 'hover:text-primary');
+        } else {
+            btn.classList.remove('border-primary', 'text-primary', 'bg-primary/10');
+            btn.classList.add('border-border-color', 'text-secondary-text');
+        }
+    });
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function modalSchedTab(tab) {
+    ['pending', 'history', 'summary'].forEach(t => {
+        const panel = document.getElementById('modal-' + t + '-panel');
+        const tabBtn = document.getElementById('modal-tab-' + t);
+        const isActive = t === tab;
+        panel?.classList.toggle('hidden', !isActive);
+        if (tabBtn) {
+            tabBtn.classList.toggle('text-primary', isActive);
+            tabBtn.classList.toggle('border-primary', isActive);
+            tabBtn.classList.toggle('text-secondary-text', !isActive);
+            tabBtn.classList.toggle('border-transparent', !isActive);
+        }
+    });
+    if (tab === 'history') _modalRenderHistory();
+    if (tab === 'summary') _modalRenderSummary();
+}
+
+// ── Build recurrence from modal state ─────────────────────────────────────────
+function _modalBuildRecurrence() {
+    const dt = _schedGetSelected();
+    const h = dt.getHours(), m = dt.getMinutes();
+    const maxRunsVal = document.getElementById('modal-max-runs')?.value;
+    const bsVal = document.getElementById('modal-blackout-start')?.value;
+    const beVal = document.getElementById('modal-blackout-end')?.value;
+    const retryOn = document.getElementById('modal-retry-toggle')?.checked || false;
+    const maxRetries = parseInt(document.getElementById('modal-max-retries')?.value || '3') || 3;
+    const webhookUrl = (document.getElementById('modal-webhook-url')?.value || '').trim();
+    return {
+        type: _modalRecType,
+        hour: h, minute: m,
+        daysOfWeek: (_modalRecType === 'weekly' || _modalRecType === 'biweekly')
+            ? _modalDow.map((on, i) => on ? i : -1).filter(i => i >= 0)
+            : undefined,
+        dayOfMonth: _modalRecType === 'monthly'
+            ? parseInt(document.getElementById('modal-dom-select')?.value || '1')
+            : undefined,
+        cronExpr: _modalRecType === 'cron'
+            ? (document.getElementById('modal-cron-input')?.value || '').trim()
+            : undefined,
+        maxRuns: maxRunsVal ? parseInt(maxRunsVal) : undefined,
+        blackoutStart: bsVal !== '' && bsVal != null ? parseInt(bsVal) : undefined,
+        blackoutEnd:   beVal !== '' && beVal != null ? parseInt(beVal) : undefined,
+        retryOnFailure: retryOn,
+        maxRetries: retryOn ? maxRetries : undefined,
+        webhookUrl: webhookUrl || undefined,
+        priority: _modalPriority,
+        runsCompleted: 0,
+    };
+}
+
+// ── Render history tab ────────────────────────────────────────────────────────
+function _modalRenderHistory() {
+    const el = document.getElementById('modal-hist-list');
+    if (!el) return;
+    let hist = [];
+    try { hist = JSON.parse(localStorage.getItem('tirpan_sched_history') || '[]'); } catch {}
+    if (!hist.length) {
+        el.innerHTML = '<p class="text-[10px] text-secondary-text text-center py-6 opacity-50 mono-text">// no launch history</p>';
+        return;
+    }
+    const DOW_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    el.innerHTML = hist.slice(0, 30).map(h => {
+        const color = h.status === 'launched' ? 'text-green-400' : h.status === 'failed' ? 'text-red-400' : 'text-secondary-text';
+        const icon  = h.status === 'launched' ? 'check_circle' : h.status === 'failed' ? 'error' : 'skip_next';
+        return `
+          <div class="flex items-center gap-2 px-3 py-2 border border-border-color text-xs hover:bg-white/2 group">
+            <span class="material-symbols-outlined text-[13px] shrink-0 ${color}">${icon}</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-bold truncate">${h.name || h.target || '—'}</div>
+              <div class="text-secondary-text mono-text text-[10px]">${_schedFmt(h.launchedAt)} · <span class="${color}">${h.status}</span>${h.recurrent ? ' · <span class="text-primary">↻</span> recurring' : ''}</div>
+            </div>
+          </div>`;
+    }).join('');
+}
+
+// ── Render summary tab ────────────────────────────────────────────────────────
+function _modalRenderSummary() {
+    const el = document.getElementById('modal-sched-summary-text');
+    if (!el) return;
+    const rec = _modalBuildRecurrence();
+    const dt = _schedGetSelected();
+    const DOW_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const lines = [
+        `target       : ${(document.getElementById('adv-primary-target')?.value || '').trim() || '—'}`,
+        `first launch : ${dt.toLocaleString()}`,
+        `recurrence   : ${rec.type}`,
+    ];
+    if (rec.type === 'weekly' || rec.type === 'biweekly') {
+        lines.push(`days         : ${(rec.daysOfWeek || []).map(d => DOW_NAMES[d]).join(', ')}`);
+        if (rec.type === 'biweekly') lines.push(`interval     : every 2 weeks`);
+    }
+    if (rec.type === 'monthly') lines.push(`day of month : ${rec.dayOfMonth}`);
+    if (rec.type === 'daily' || rec.type === 'weekly' || rec.type === 'biweekly' || rec.type === 'monthly') {
+        lines.push(`time         : ${String(rec.hour).padStart(2,'0')}:${String(rec.minute).padStart(2,'0')}`);
+    }
+    if (rec.type === 'cron') lines.push(`cron         : ${rec.cronExpr || '—'}`);
+    if (rec.maxRuns) lines.push(`max runs     : ${rec.maxRuns}`);
+    if (rec.blackoutStart != null) lines.push(`blackout     : ${String(rec.blackoutStart).padStart(2,'0')}:00 → ${String(rec.blackoutEnd).padStart(2,'0')}:00`);
+    if (rec.retryOnFailure) lines.push(`retry        : enabled (max ${rec.maxRetries})`);
+    if (rec.webhookUrl) lines.push(`webhook      : ${rec.webhookUrl}`);
+    lines.push(`priority     : ${rec.priority || 'normal'}`);
+    const label = (document.getElementById('modal-label')?.value || '').trim();
+    if (label) lines.push(`label        : ${label}`);
+    el.innerHTML = lines.map(l => `<div class="mono-text">${l}</div>`).join('');
+}
+
+// ── Open / close modal ────────────────────────────────────────────────────────
+function openAdvScheduleModal() {
+    // Update mission context in top bar
+    const primaryTarget = (document.getElementById('adv-primary-target')?.value || '').trim() || '—';
+    const cfg = typeof _advCollectConfig === 'function' ? _advCollectConfig() : {};
+    document.getElementById('adv-sched-target-label').textContent = primaryTarget;
+    document.getElementById('adv-sched-mode-label').textContent = (cfg.mode || 'scan_only').replace(/_/g,' ');
+
+    // Fill blackout hour selects (0–23) if not already populated
+    ['modal-blackout-start', 'modal-blackout-end'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel && sel.options.length <= 1) {
+            for (let h = 0; h < 24; h++) {
+                const opt = document.createElement('option');
+                opt.value = h;
+                opt.textContent = String(h).padStart(2,'0') + ':00';
+                sel.appendChild(opt);
+            }
+        }
+    });
+
+    // Fill day-of-month select (1–28) if not already populated
+    const domSel = document.getElementById('modal-dom-select');
+    if (domSel && domSel.options.length === 0) {
+        for (let d = 1; d <= 28; d++) {
+            const opt = document.createElement('option');
+            opt.value = d;
+            opt.textContent = d;
+            domSel.appendChild(opt);
+        }
+    }
+
+    // Reset to Once + Normal priority on fresh open
+    modalSetRecType('once');
+    modalSetPriority('normal');
+
+    const modal = document.getElementById('adv-schedule-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    // Init date selects: default +1 hour
+    _schedInitSelects(new Date(Date.now() + 3600000));
+    _schedRenderPending();
+    modalSchedTab('pending');
+}
+
+function closeAdvScheduleModal() {
+    const modal = document.getElementById('adv-schedule-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// ── Quick presets ─────────────────────────────────────────────────────────────
+function advSchedPreset(minutes) {
+    _schedInitSelects(new Date(Date.now() + minutes * 60000));
+}
+
+// ── Run Now ───────────────────────────────────────────────────────────────────
+function advSchedRunNow() {
+    closeAdvScheduleModal();
+    launchAdvancedMission();
+}
+
+// ── Confirm schedule ──────────────────────────────────────────────────────────
+function confirmAdvSchedule() {
+    const dt = _schedGetSelected();
+    if (dt.getTime() <= Date.now() + 30000) return;
+
+    const payload = _schedBuildPayload();
+    const customLabel = (document.getElementById('modal-label')?.value || '').trim();
+    const name = customLabel || payload.mission_name || payload.target || 'Expert Mission';
+
+    // Build recurrence from the modal's own controls
+    const rec = _modalBuildRecurrence();
+
+    // For recurring types, resolve the first proper occurrence from selected time
+    let scheduledAt = dt.toISOString();
+    if (rec.type !== 'once') {
+        const next = _rsbNextOccurrence(rec, dt.getTime() - 60_000);
+        if (next) scheduledAt = next.toISOString();
+    }
+
+    const recLabel = rec.type !== 'once' ? _rsbRecLabel(rec) : '';
+
+    const mission = {
+        id: 'sched_' + Date.now(),
+        name,
+        target: payload.target || '',
+        scheduledAt,
+        source: 'expert',
+        recurrence: rec,
+        payload,
+    };
+
+    const arr = _schedLoad();
+    arr.push(mission);
+    _schedSave(arr);
+
+    closeAdvScheduleModal();
+
+    // Toast
+    const recSuffix = recLabel ? `  ·  ${recLabel}` : '';
+    const toast = document.getElementById('adv-sched-toast');
+    document.getElementById('adv-sched-toast-label').textContent = _schedFmt(scheduledAt) + recSuffix;
+    toast.classList.remove('hidden');
+    toast.classList.add('flex');
+    setTimeout(() => { toast.classList.add('hidden'); toast.classList.remove('flex'); }, 6000);
+
+    _schedRenderPending();
+    if (typeof rsbSchedRefresh === 'function') rsbSchedRefresh();
+}
+
+// ── Auto-launch ticker (runs every 30s) ───────────────────────────────────────
+async function _schedTick() {
+    const arr = _schedLoad();
+    const now = Date.now();
+    const due = arr.filter(m => new Date(m.scheduledAt).getTime() <= now);
+    if (due.length === 0) return;
+
+    const stillPending = arr.filter(m => new Date(m.scheduledAt).getTime() > now);
+    const hist = (() => { try { return JSON.parse(localStorage.getItem('tirpan_sched_history') || '[]'); } catch { return []; } })();
+
+    for (const mission of due) {
+        const rec = mission.recurrence;
+        const isRecurring = rec && rec.type && rec.type !== 'once';
+
+        // ── Blackout: skip this tick, re-schedule next occurrence ──
+        if (isRecurring && rec) {
+            const h = new Date().getHours();
+            const bs = rec.blackoutStart, be = rec.blackoutEnd;
+            const inBlackout = (bs != null && be != null)
+                ? (bs <= be ? h >= bs && h < be : h >= bs || h < be)
+                : false;
+            if (inBlackout) {
+                const next = _rsbNextOccurrence(rec, now + 60_000);
+                if (next) stillPending.push({ ...mission, scheduledAt: next.toISOString(), recurrence: { ...rec, runsCompleted: rec.runsCompleted || 0 } });
+                continue;
+            }
+        }
+
+        // ── Max runs reached → drop ──
+        const runsCompleted = ((rec?.runsCompleted) || 0) + 1;
+        if (isRecurring && rec?.maxRuns != null && runsCompleted > rec.maxRuns) {
+            hist.unshift({ id: mission.id, name: mission.name, target: mission.target, launchedAt: new Date().toISOString(), status: 'skipped', reason: 'Max runs reached', recurrent: true });
+            continue;
+        }
+
+        // ── Launch ──
+        try {
+            const res = await fetch('/api/v1/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(mission.payload),
+            });
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const data = await res.json();
+            showToast('⏰ Scheduled scan launched: ' + (mission.name || mission.target));
+            hist.unshift({ id: mission.id, name: mission.name, target: mission.target, launchedAt: new Date().toISOString(), status: 'launched', recurrent: isRecurring });
+
+            // Track session
+            if (data.session_id) {
+                activeMissionId = data.session_id;
+                viewingSessionId = activeMissionId;
+                window._currentSessionId = activeMissionId;
+                missionStartTime = Date.now();
+                missionPaused = false;
+                try { startMissionPoll(activeMissionId); } catch(_) {}
+                try { startMissionUptime(); } catch(_) {}
+            }
+
+            // Webhook notification
+            if (rec?.webhookUrl) {
+                fetch(rec.webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event: 'scan_launched', mission: mission.name, target: mission.target, at: new Date().toISOString() }),
+                }).catch(() => {});
+            }
+
+            // Reschedule next occurrence for recurring missions
+            if (isRecurring && rec) {
+                const updatedRec = { ...rec, runsCompleted };
+                const next = _rsbNextOccurrence(updatedRec, now);
+                if (next && (rec.maxRuns == null || runsCompleted < rec.maxRuns)) {
+                    stillPending.push({ ...mission, scheduledAt: next.toISOString(), recurrence: updatedRec });
+                }
+            }
+        } catch(e) {
+            console.error('[SCHED] Auto-launch failed:', e);
+            hist.unshift({ id: mission.id, name: mission.name, target: mission.target, launchedAt: new Date().toISOString(), status: 'failed', error: e.message, recurrent: isRecurring });
+
+            // Retry on failure
+            if (rec?.retryOnFailure && (rec.runsCompleted || 0) < (rec.maxRetries || 1)) {
+                stillPending.push({ ...mission, scheduledAt: new Date(now + 5 * 60_000).toISOString(), recurrence: { ...rec, runsCompleted: (rec.runsCompleted || 0) + 1 } });
+            } else if (isRecurring && rec) {
+                // Still reschedule next occurrence even if this run failed
+                const next = _rsbNextOccurrence(rec, now);
+                if (next) stillPending.push({ ...mission, scheduledAt: next.toISOString(), recurrence: { ...rec, runsCompleted } });
+            }
+        }
+    }
+
+    _schedSave(stillPending);
+    localStorage.setItem('tirpan_sched_history', JSON.stringify(hist.slice(0, 100)));
+    _schedRenderPending();
+    if (typeof rsbSchedRefresh === 'function') rsbSchedRefresh();
+}
+
+// Start ticker immediately and repeat every 30s
+_schedTick();
+setInterval(_schedTick, 30000);
+
+// Update badge on page load
+(function() {
+    const arr = _schedLoad();
+    const badge = document.getElementById('adv-schedule-badge');
+    if (badge && arr.length > 0) {
+        badge.textContent = arr.length;
+        badge.classList.remove('hidden');
+    }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RIGHT SIDEBAR — Schedule Panel (intel-panel-schedule)
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _rsbRecType = 'once';
+let _rsbDaysOfWeek = [1]; // default Mon
+
+// ── Recurrence next-occurrence (mirrors React logic) ─────────────────────────
+function _rsbNextOccurrence(rec, afterMs) {
+    afterMs = afterMs || Date.now();
+    if (rec.type === 'once') return null;
+
+    if (rec.type === 'daily') {
+        const d = new Date(afterMs);
+        d.setHours(rec.hour, rec.minute, 0, 0);
+        if (d.getTime() <= afterMs) d.setDate(d.getDate() + 1);
+        return d;
+    }
+    if (rec.type === 'weekly' || rec.type === 'biweekly') {
+        const step = rec.type === 'biweekly' ? 14 : 7;
+        const days = rec.daysOfWeek && rec.daysOfWeek.length ? rec.daysOfWeek : [1];
+        for (let offset = 0; offset <= step * 2; offset++) {
+            const d = new Date(afterMs);
+            d.setDate(new Date(afterMs).getDate() + offset);
+            d.setHours(rec.hour, rec.minute, 0, 0);
+            if (days.includes(d.getDay()) && d.getTime() > afterMs) return d;
+        }
+        return null;
+    }
+    if (rec.type === 'monthly') {
+        const day = rec.dayOfMonth || 1;
+        const d = new Date(afterMs);
+        d.setDate(day); d.setHours(rec.hour, rec.minute, 0, 0);
+        if (d.getTime() <= afterMs) { d.setMonth(d.getMonth() + 1); d.setDate(day); }
+        return d;
+    }
+    return null;
+}
+
+// ── Recurrence type buttons ───────────────────────────────────────────────────
+function rsbSetRecType(type) {
+    _rsbRecType = type;
+    document.querySelectorAll('.rsb-rec-btn').forEach(b => {
+        b.classList.remove('border-primary', 'text-primary');
+        b.classList.add('border-border-color', 'text-secondary-text');
+    });
+    const active = document.getElementById('rsb-rec-' + type);
+    if (active) { active.classList.add('border-primary', 'text-primary'); active.classList.remove('border-border-color', 'text-secondary-text'); }
+
+    document.getElementById('rsb-dow-row')?.classList.toggle('hidden', !(type === 'weekly' || type === 'biweekly'));
+    document.getElementById('rsb-dom-row')?.classList.toggle('hidden', type !== 'monthly');
+    document.getElementById('rsb-cron-row')?.classList.toggle('hidden', type !== 'cron');
+
+    // Keep modal recurrence summary in sync (if modal is open)
+    if (typeof _advRefreshRecurrenceSummary === 'function') _advRefreshRecurrenceSummary();
+}
+
+// Init: set "once" active
+document.addEventListener('DOMContentLoaded', function() {
+    rsbSetRecType('once');
+    // retry toggle
+    const retryToggle = document.getElementById('rsb-retry-toggle');
+    if (retryToggle) {
+        retryToggle.addEventListener('change', function() {
+            document.getElementById('rsb-retry-count-row')?.classList.toggle('hidden', !this.checked);
+        });
+    }
+    rsbSchedRefresh();
+});
+
+// ── Day-of-week toggle ────────────────────────────────────────────────────────
+function rsbToggleDow(d) {
+    const idx = _rsbDaysOfWeek.indexOf(d);
+    if (idx >= 0) { if (_rsbDaysOfWeek.length > 1) _rsbDaysOfWeek.splice(idx, 1); }
+    else { _rsbDaysOfWeek.push(d); _rsbDaysOfWeek.sort(); }
+    document.querySelectorAll('.rsb-dow-btn').forEach(btn => {
+        const v = parseInt(btn.getAttribute('data-dow'));
+        if (_rsbDaysOfWeek.includes(v)) {
+            btn.classList.add('border-primary', 'text-primary');
+            btn.classList.remove('border-border-color', 'text-secondary-text');
+        } else {
+            btn.classList.remove('border-primary', 'text-primary');
+            btn.classList.add('border-border-color', 'text-secondary-text');
+        }
+    });
+}
+
+// ── Build recurrence object from panel state ──────────────────────────────────
+function _rsbBuildRecurrence(hour, minute) {
+    const maxRunsVal = document.getElementById('rsb-max-runs')?.value;
+    const retryOn = document.getElementById('rsb-retry-toggle')?.checked || false;
+    const blackoutStart = document.getElementById('rsb-blackout-start')?.value;
+    const blackoutEnd = document.getElementById('rsb-blackout-end')?.value;
+    const webhookUrl = document.getElementById('rsb-webhook-url')?.value?.trim() || '';
+    const cronExpr = document.getElementById('rsb-cron-expr')?.value?.trim() || '';
+    const domVal = document.getElementById('rsb-dom-select')?.value;
+
+    return {
+        type: _rsbRecType,
+        daysOfWeek: (_rsbRecType === 'weekly' || _rsbRecType === 'biweekly') ? [..._rsbDaysOfWeek] : undefined,
+        dayOfMonth: _rsbRecType === 'monthly' ? (parseInt(domVal) || 1) : undefined,
+        cronExpr: _rsbRecType === 'cron' ? cronExpr : undefined,
+        hour, minute,
+        maxRuns: maxRunsVal ? parseInt(maxRunsVal) : null,
+        runsCompleted: 0,
+        retryOnFailure: retryOn,
+        maxRetries: retryOn ? (parseInt(document.getElementById('rsb-retry-count')?.value) || 1) : undefined,
+        webhookUrl: webhookUrl || undefined,
+        blackoutStart: blackoutStart !== '' && blackoutStart != null ? parseInt(blackoutStart) : null,
+        blackoutEnd: blackoutEnd !== '' && blackoutEnd != null ? parseInt(blackoutEnd) : null,
+    };
+}
+
+// ── Quick preset: schedule current config with offset ────────────────────────
+function rsbSchedPreset(minutes) {
+    const dt = new Date(Date.now() + minutes * 60000);
+    dt.setSeconds(0, 0);
+
+    const payload = _schedBuildPayload();
+    const name = payload.mission_name || payload.target || 'Expert Mission';
+    const rec = _rsbBuildRecurrence(dt.getHours(), dt.getMinutes());
+
+    // For recurring types, compute proper next occurrence
+    let scheduledAt = dt.toISOString();
+    if (rec.type !== 'once') {
+        const next = _rsbNextOccurrence(rec, Date.now() + minutes * 60000 - 60000);
+        if (next) scheduledAt = next.toISOString();
+    }
+
+    const mission = {
+        id: 'sched_' + Date.now(),
+        name, target: payload.target || '',
+        scheduledAt,
+        source: 'expert',
+        recurrence: rec,
+        payload,
+    };
+
+    const arr = _schedLoad();
+    arr.push(mission);
+    _schedSave(arr);
+    _schedRenderPending();
+    rsbSchedRefresh();
+
+    // Toast
+    const toast = document.getElementById('adv-sched-toast');
+    const recLabel = rec.type === 'once' ? '' : (' · ' + _rsbRecLabel(rec));
+    document.getElementById('adv-sched-toast-label').textContent = _schedFmt(scheduledAt) + recLabel;
+    toast?.classList.remove('hidden'); toast?.classList.add('flex');
+    setTimeout(() => { toast?.classList.add('hidden'); toast?.classList.remove('flex'); }, 4000);
+}
+
+function _rsbRecLabel(rec) {
+    if (!rec || rec.type === 'once') return 'One-time';
+    if (rec.type === 'daily') return 'Daily';
+    const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    if (rec.type === 'weekly') return 'Every ' + (rec.daysOfWeek || [1]).map(d => DOW[d]).join(', ');
+    if (rec.type === 'biweekly') return 'Every 2 wks · ' + (rec.daysOfWeek || [1]).map(d => DOW[d]).join(', ');
+    if (rec.type === 'monthly') return 'Monthly (day ' + (rec.dayOfMonth || 1) + ')';
+    if (rec.type === 'cron') return 'Cron: ' + (rec.cronExpr || '—');
+    return '—';
+}
+
+// ── Render pending list in RSB panel ─────────────────────────────────────────
+function rsbSchedRefresh() {
+    const arr = _schedLoad();
+    const history = (() => { try { return JSON.parse(localStorage.getItem('tirpan_sched_history') || '[]'); } catch { return []; } })();
+
+    // Update counts
+    const totalEl = document.getElementById('rsb-sched-total');
+    if (totalEl) totalEl.textContent = arr.length + ' pending';
+    const countEl = document.getElementById('rsb-sched-count-lbl');
+    if (countEl) countEl.textContent = arr.length;
+
+    // Nav badge
+    const navBadge = document.getElementById('rsb-sched-nav-badge');
+    if (navBadge) {
+        if (arr.length > 0) { navBadge.textContent = arr.length; navBadge.classList.remove('hidden'); navBadge.classList.add('flex'); }
+        else { navBadge.classList.add('hidden'); navBadge.classList.remove('flex'); }
+    }
+    // Topbar badge
+    _schedRenderPending();
+
+    // Pending list
+    const listEl = document.getElementById('rsb-sched-list');
+    if (!listEl) return;
+
+    if (arr.length === 0) {
+        listEl.innerHTML = '<p class="text-[9px] text-secondary-text mono-text text-center py-3 opacity-60">No scheduled scans</p>';
+    } else {
+        listEl.innerHTML = arr.map(m => {
+            const cd = _schedCountdown(m.scheduledAt);
+            const isPast = !cd;
+            const recLabel = m.recurrence && m.recurrence.type !== 'once' ? _rsbRecLabel(m.recurrence) : '';
+            return `
+              <div class="flex items-start gap-2 px-2 py-2 border border-border-color/40 hover:border-border-color group ${isPast ? 'border-red-500/30 bg-red-500/5' : ''}">
+                <span class="material-symbols-outlined text-[14px] ${isPast ? 'text-red-400' : 'text-primary'} shrink-0 mt-0.5">
+                  ${m.recurrence && m.recurrence.type !== 'once' ? 'repeat' : 'alarm'}
+                </span>
+                <div class="flex-1 min-w-0">
+                  <div class="text-[10px] font-bold truncate">${m.name || m.target || '—'}</div>
+                  <div class="text-[8px] text-secondary-text mono-text">${_schedFmt(m.scheduledAt)}</div>
+                  ${recLabel ? `<div class="text-[8px] text-primary/70">${recLabel}</div>` : ''}
+                  <div class="text-[9px] ${isPast ? 'text-red-400' : 'text-primary'} font-bold">${isPast ? '⚠ Overdue' : 'in ' + cd}</div>
+                </div>
+                <div class="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <button onclick="rsbRunNow('${m.id}')" class="text-primary hover:text-primary/80" title="Run now">
+                    <span class="material-symbols-outlined text-[14px]">play_arrow</span>
+                  </button>
+                  <button onclick="rsbCancelSched('${m.id}')" class="text-secondary-text hover:text-red-400" title="Cancel">
+                    <span class="material-symbols-outlined text-[14px]">delete</span>
+                  </button>
+                </div>
+              </div>`;
+        }).join('');
+    }
+
+    // History
+    const histEl = document.getElementById('rsb-sched-history');
+    if (!histEl) return;
+    if (!history.length) {
+        histEl.innerHTML = '<p class="text-[9px] text-secondary-text mono-text text-center py-3 opacity-60">No history</p>';
+    } else {
+        histEl.innerHTML = history.slice(0, 20).map(h => `
+          <div class="flex items-center gap-1.5 py-1.5 border-b border-border-color/20">
+            <span class="material-symbols-outlined text-[12px] ${h.status === 'launched' ? 'text-green-400' : 'text-red-400'}">
+              ${h.status === 'launched' ? 'check_circle' : 'error'}
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="text-[9px] truncate">${h.name || h.target || '—'}${h.recurrent ? ' <span class="text-blue-400">↻</span>' : ''}</div>
+              <div class="text-[8px] text-secondary-text mono-text">${_schedFmt(h.launchedAt)}</div>
+            </div>
+          </div>`).join('');
+    }
+}
+
+function rsbCancelSched(id) {
+    const arr = _schedLoad().filter(m => m.id !== id);
+    _schedSave(arr);
+    rsbSchedRefresh();
+    _schedRenderPending();
+}
+
+async function rsbRunNow(id) {
+    const arr = _schedLoad();
+    const mission = arr.find(m => m.id === id);
+    if (!mission) return;
+
+    try {
+        const res = await fetch('/api/v1/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mission.payload),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            showToast('⏰ Launched: ' + (mission.name || mission.target));
+
+            // Remove one-time, keep recurring (reschedule)
+            let remaining = arr.filter(m => m.id !== id);
+            if (mission.recurrence && mission.recurrence.type !== 'once') {
+                const next = _rsbNextOccurrence(mission.recurrence, Date.now());
+                if (next) {
+                    remaining.push({ ...mission, scheduledAt: next.toISOString(), recurrence: { ...mission.recurrence, runsCompleted: (mission.recurrence.runsCompleted || 0) + 1 } });
+                }
+            }
+            _schedSave(remaining);
+
+            // History
+            const hist = (() => { try { return JSON.parse(localStorage.getItem('tirpan_sched_history') || '[]'); } catch { return []; } })();
+            hist.unshift({ id: mission.id, name: mission.name, target: mission.target, launchedAt: new Date().toISOString(), status: 'launched', recurrent: !!(mission.recurrence && mission.recurrence.type !== 'once') });
+            localStorage.setItem('tirpan_sched_history', JSON.stringify(hist.slice(0, 100)));
+
+            if (data.session_id) {
+                activeMissionId = data.session_id;
+                try { startMissionPoll(activeMissionId); startMissionUptime(); } catch(_) {}
+            }
+        } else {
+            showToast('Launch failed');
+        }
+    } catch(e) { showToast('Error: ' + e.message); }
+
+    rsbSchedRefresh();
+}
+
+function rsbClearHistory() {
+    localStorage.removeItem('tirpan_sched_history');
+    rsbSchedRefresh();
+}
+
+// ── Schedule Intel Tab (full-page expanded view) ──────────────────────────────
+
+function schedIntelRefresh() {
+    const arr = _schedLoad();
+    const history = (() => { try { return JSON.parse(localStorage.getItem('tirpan_sched_history') || '[]'); } catch { return []; } })();
+
+    const now = Date.now();
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    const completedToday = history.filter(h => h.status === 'launched' && new Date(h.launchedAt) >= todayStart).length;
+    const recurringCount = arr.filter(m => m.recurrence && m.recurrence.type !== 'once').length;
+    const overdueCount = arr.filter(m => new Date(m.scheduledAt).getTime() < now).length;
+
+    // Next launch
+    const sorted = [...arr].sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    const next = sorted[0];
+    const nextCountdown = next ? (_schedCountdown(next.scheduledAt) || '⚠ overdue') : '—';
+
+    // Stat cards
+    const _si = id => document.getElementById(id);
+    if (_si('si-pending-count')) _si('si-pending-count').textContent = arr.length;
+    if (_si('si-recurring-count')) _si('si-recurring-count').textContent = recurringCount;
+    if (_si('si-completed-today')) _si('si-completed-today').textContent = completedToday;
+    if (_si('si-overdue-count')) _si('si-overdue-count').textContent = overdueCount;
+    if (_si('si-next-launch')) _si('si-next-launch').textContent = nextCountdown;
+    if (_si('si-next-name')) _si('si-next-name').textContent = next ? (next.name || next.target || '—') : '—';
+
+    // Pending table
+    schedIntelRenderPending(arr);
+
+    // History list
+    schedIntelRenderHistory(history);
+}
+
+function schedIntelRenderPending(arr) {
+    const tbody = document.getElementById('si-pending-tbody');
+    if (!tbody) return;
+
+    if (!arr || arr.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-5 py-8 text-center text-[10px] text-secondary-text mono-text">No scheduled scans</td></tr>';
+        return;
+    }
+
+    const now = Date.now();
+    tbody.innerHTML = arr.map(m => {
+        const isPast = new Date(m.scheduledAt).getTime() < now;
+        const cd = _schedCountdown(m.scheduledAt);
+        const recLabel = m.recurrence && m.recurrence.type !== 'once' ? _rsbRecLabel(m.recurrence) : 'Once';
+        const priColor = { high: 'text-red-400', normal: 'text-primary', low: 'text-secondary-text' }[m.recurrence?.priority || 'normal'] || 'text-primary';
+
+        return `<tr class="border-b border-border-color/30 hover:bg-surface/50 group ${isPast ? 'bg-red-500/5' : ''}">
+          <td class="px-5 py-3">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[14px] ${isPast ? 'text-red-400' : 'text-primary'}">
+                ${m.recurrence && m.recurrence.type !== 'once' ? 'repeat' : 'alarm'}
+              </span>
+              <div>
+                <div class="text-[11px] font-bold">${m.name || m.target || '—'}</div>
+                <div class="text-[9px] text-secondary-text mono-text">${m.target || ''}</div>
+              </div>
+            </div>
+          </td>
+          <td class="px-4 py-3 text-[10px] mono-text text-slate-300">${m.mode || '—'}</td>
+          <td class="px-4 py-3 text-[10px] mono-text">
+            <div class="${isPast ? 'text-red-400' : 'text-slate-300'}">${_schedFmt(m.scheduledAt)}</div>
+            <div class="${isPast ? 'text-red-400 font-bold' : 'text-primary'} text-[9px]">${isPast ? '⚠ overdue' : 'in ' + cd}</div>
+          </td>
+          <td class="px-4 py-3">
+            <span class="text-[9px] mono-text px-2 py-0.5 border ${m.recurrence && m.recurrence.type !== 'once' ? 'border-blue-500/40 text-blue-400' : 'border-border-color text-secondary-text'}">${recLabel}</span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="${priColor} text-[9px] mono-text uppercase">${m.recurrence?.priority || 'normal'}</span>
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onclick="schedIntelRunNow('${m.id}')" class="flex items-center gap-1 text-[9px] text-primary hover:text-primary/80 border border-primary/30 px-2 py-1 hover:border-primary/60 transition-colors" title="Run now">
+                <span class="material-symbols-outlined text-[12px]">play_arrow</span> Run
+              </button>
+              <button onclick="schedIntelCancel('${m.id}')" class="flex items-center gap-1 text-[9px] text-secondary-text hover:text-red-400 border border-border-color px-2 py-1 hover:border-red-500/40 transition-colors" title="Cancel">
+                <span class="material-symbols-outlined text-[12px]">delete</span>
+              </button>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+}
+
+function schedIntelRenderHistory(history) {
+    const list = document.getElementById('si-history-list');
+    if (!list) return;
+
+    if (!history || history.length === 0) {
+        list.innerHTML = '<p class="text-[10px] text-secondary-text mono-text text-center py-6 opacity-60">No launch history</p>';
+        return;
+    }
+
+    list.innerHTML = history.slice(0, 30).map(h => {
+        const isOk = h.status === 'launched';
+        return `<div class="flex items-center gap-3 py-2.5 border-b border-border-color/20">
+          <span class="material-symbols-outlined text-[14px] ${isOk ? 'text-green-400' : 'text-red-400'} shrink-0">
+            ${isOk ? 'check_circle' : 'error'}
+          </span>
+          <div class="flex-1 min-w-0">
+            <div class="text-[10px] truncate">${h.name || h.target || '—'}${h.recurrent ? ' <span class="text-blue-400 text-[8px]">↻ recurring</span>' : ''}</div>
+            <div class="text-[9px] text-secondary-text mono-text">${_schedFmt(h.launchedAt)}</div>
+            ${h.message ? `<div class="text-[9px] ${isOk ? 'text-secondary-text' : 'text-red-400/70'} mono-text truncate">${h.message}</div>` : ''}
+          </div>
+          <span class="text-[8px] mono-text px-1.5 py-0.5 border ${isOk ? 'border-green-500/30 text-green-400' : 'border-red-500/30 text-red-400'}">${h.status}</span>
+        </div>`;
+    }).join('');
+}
+
+function schedIntelCancel(id) {
+    if (!confirm('Cancel this scheduled scan?')) return;
+    const arr = _schedLoad().filter(m => m.id !== id);
+    _schedSave(arr);
+    schedIntelRefresh();
+    rsbSchedRefresh();
+    _schedRenderPending();
+}
+
+async function schedIntelRunNow(id) {
+    const arr = _schedLoad();
+    const mission = arr.find(m => m.id === id);
+    if (!mission) return;
+
+    showToast('⏰ Launching: ' + (mission.name || mission.target));
+
+    try {
+        const res = await fetch('/api/v1/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('tirpan_token') || '') },
+            body: JSON.stringify(mission.payload),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            showToast('✓ Launched: ' + (mission.name || mission.target));
+            let remaining = arr.filter(m => m.id !== id);
+            if (mission.recurrence && mission.recurrence.type !== 'once') {
+                const next = _rsbNextOccurrence(mission.recurrence, Date.now());
+                if (next) remaining.push({ ...mission, scheduledAt: next.toISOString(), recurrence: { ...mission.recurrence, runsCompleted: (mission.recurrence.runsCompleted || 0) + 1 } });
+            }
+            _schedSave(remaining);
+            const hist = (() => { try { return JSON.parse(localStorage.getItem('tirpan_sched_history') || '[]'); } catch { return []; } })();
+            hist.unshift({ id: mission.id, name: mission.name, target: mission.target, launchedAt: new Date().toISOString(), status: 'launched', recurrent: !!(mission.recurrence && mission.recurrence.type !== 'once') });
+            localStorage.setItem('tirpan_sched_history', JSON.stringify(hist.slice(0, 100)));
+            if (data.session_id) { activeMissionId = data.session_id; try { startMissionPoll(activeMissionId); startMissionUptime(); } catch(_) {} }
+        } else {
+            showToast('✗ Launch failed');
+            const hist = (() => { try { return JSON.parse(localStorage.getItem('tirpan_sched_history') || '[]'); } catch { return []; } })();
+            hist.unshift({ id: mission.id, name: mission.name, target: mission.target, launchedAt: new Date().toISOString(), status: 'failed', message: 'HTTP ' + res.status });
+            localStorage.setItem('tirpan_sched_history', JSON.stringify(hist.slice(0, 100)));
+        }
+    } catch(e) {
+        showToast('✗ Error: ' + e.message);
+    }
+    schedIntelRefresh();
+    rsbSchedRefresh();
+    _schedRenderPending();
+}
+
+function schedIntelClearHistory() {
+    if (!confirm('Clear all launch history?')) return;
+    localStorage.removeItem('tirpan_sched_history');
+    schedIntelRefresh();
+    rsbSchedRefresh();
+}
+
+// Hook into existing intel-nav-item click to refresh schedule panel when opened
+document.addEventListener('click', function(e) {
+    const item = e.target.closest('.intel-nav-item[data-panel="schedule"]');
+    if (item) setTimeout(rsbSchedRefresh, 50);
+});
+
+// Periodic refresh of RSB schedule panel (every 30s)
+setInterval(function() {
+    const schedPanel = document.getElementById('intel-panel-schedule');
+    if (schedPanel && !schedPanel.classList.contains('hidden')) rsbSchedRefresh();
+    // Also update nav badge always
+    const arr = _schedLoad();
+    const navBadge = document.getElementById('rsb-sched-nav-badge');
+    if (navBadge) {
+        if (arr.length > 0) { navBadge.textContent = arr.length; navBadge.classList.remove('hidden'); navBadge.classList.add('flex'); }
+        else { navBadge.classList.add('hidden'); navBadge.classList.remove('flex'); }
+    }
+}, 30000);

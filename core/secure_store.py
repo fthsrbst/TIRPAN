@@ -69,3 +69,72 @@ async def async_get_secret(key: str) -> str:
 async def async_set_secret(key: str, value: str) -> bool:
     """Async wrapper around set_secret."""
     return await asyncio.to_thread(set_secret, key, value)
+
+
+# ── Fernet helpers for symmetric value encryption ────────────────────────────
+# Used by core code that needs to encrypt sensitive payloads (e.g. harvested
+# credentials) without taking a dependency on the web layer's encrypt_cred_data.
+# Reads the same key the web layer uses, falling back to a marker on misconfig.
+
+_PLAINTEXT_MARKER = "TIRPAN_PLAINTEXT::"
+
+
+def _fernet():
+    """Return a Fernet instance keyed by cred_encryption_key, or None on misconfig.
+
+    Lookup order:
+      1. config.settings.cred_encryption_key
+      2. core.secure_store keychain entry 'cred_encryption_key'
+    Returns None (rather than raising) so callers can fall back to a plain-text
+    marker — losing finding visibility is worse than losing at-rest encryption.
+    """
+    try:
+        from cryptography.fernet import Fernet
+    except Exception:
+        return None
+    key = ""
+    try:
+        from config import settings as _settings
+        key = (getattr(_settings, "cred_encryption_key", "") or "").strip()
+    except Exception:
+        pass
+    if not key:
+        key = (get_secret("cred_encryption_key") or "").strip()
+    if not key:
+        return None
+    try:
+        return Fernet(key.encode() if isinstance(key, str) else key)
+    except Exception as exc:
+        logger.warning("Fernet init failed: %s", exc)
+        return None
+
+
+def encrypt_value(plaintext: str) -> str:
+    """Encrypt a string. On any failure, returns a plaintext marker so callers
+    can still persist — never raises."""
+    if not plaintext:
+        return ""
+    f = _fernet()
+    if f is None:
+        return _PLAINTEXT_MARKER + plaintext
+    try:
+        return f.encrypt(plaintext.encode()).decode()
+    except Exception as exc:
+        logger.warning("encrypt_value failed: %s — storing as plaintext marker", exc)
+        return _PLAINTEXT_MARKER + plaintext
+
+
+def decrypt_value(token: str) -> str:
+    """Decrypt a string produced by encrypt_value. Returns '' on failure."""
+    if not token:
+        return ""
+    if token.startswith(_PLAINTEXT_MARKER):
+        return token[len(_PLAINTEXT_MARKER):]
+    f = _fernet()
+    if f is None:
+        return ""
+    try:
+        return f.decrypt(token.encode()).decode()
+    except Exception as exc:
+        logger.warning("decrypt_value failed: %s", exc)
+        return ""

@@ -168,74 +168,9 @@ cp .env.example .env
 # Start Metasploit RPC (required for exploitation; scan-only mode can skip)
 msfrpcd -P your_password -S
 
-# Launch web UI (supports V1 and V2)
+# Launch web UI
 python3 main.py
 # Open http://localhost:8000
-
-# Or run headless from the terminal (V1 single-agent)
-python3 main.py run --target 192.168.1.0/24 --mode full_auto --scope 192.168.1.0/24
-```
-
-**Quick lab setup with Docker:**
-
-```bash
-# Start a vulnerable target (Metasploitable 2)
-docker run -d --name target tleemcjr/metasploitable2
-
-# Point TIRPAN at it
-python3 main.py run --target $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' target)
-```
-
----
-
-## CLI Reference
-
-TIRPAN operates in two modes: **web UI** (default, supports V1 and V2) and **terminal** (V1 headless).
-
-### Web UI
-
-```bash
-python3 main.py [--host HOST] [--port PORT] [--no-reload] [--log-level LEVEL]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--host` | `127.0.0.1` | Bind address |
-| `--port` | `8000` | Listen port |
-| `--no-reload` | off | Disable hot-reload |
-| `--log-level` | `info` | debug / info / warning / error |
-
-### Terminal Mode
-
-```bash
-python3 main.py run --target TARGET [options]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--target` / `-t` | required | IP, CIDR, hostname, or URL |
-| `--mode` / `-m` | `scan_only` | `full_auto` / `ask_before_exploit` / `scan_only` |
-| `--scope` | `0.0.0.0/0` | Hard CIDR boundary — agent cannot leave this range |
-| `--exclude-ips` | — | Comma-separated IPs to skip entirely |
-| `--exclude-ports` | — | Comma-separated ports to skip |
-| `--time-limit` | `0` (none) | Auto-stop after N seconds |
-| `--rate-limit` | `10` | Maximum requests per second |
-| `--max-iterations` | `50` | Maximum agent decision cycles |
-| `--no-dos-block` | off | Permit DoS-category exploits (dangerous) |
-| `--no-destructive-block` | off | Permit destructive exploits (dangerous) |
-| `--output` / `-o` | `reports/` | Report output directory |
-
-**Examples:**
-
-```bash
-# Reconnaissance only — no exploitation
-python3 main.py run --target 10.0.0.0/24
-
-# Full engagement with scope enforcement and time limit
-python3 main.py run --target 10.0.0.1 --mode full_auto --scope 10.0.0.0/24 --time-limit 3600
-
-# Scan with exclusions
-python3 main.py run --target 192.168.1.0/24 --exclude-ips 192.168.1.1,192.168.1.254 --exclude-ports 22,3389
 ```
 
 ---
@@ -431,34 +366,6 @@ The agent discovers, loads, and uses plugins automatically — including exposin
 
 ---
 
-## Comparison with XBOW
-
-XBOW is the current commercial benchmark for autonomous AI pentesting. TIRPAN is the open-source equivalent.
-
-| Capability | XBOW | TIRPAN V1 | TIRPAN V2+ |
-|------------|------|----------|-----------|
-| Network scanning and exploitation | Yes | Yes | Yes |
-| AI-driven ReAct loop | Yes | Yes | Yes |
-| Safety guardrails | Yes | Yes | Yes |
-| Cross-session knowledge base | Yes | Yes | Yes |
-| Full audit logging | Yes | Yes | Yes |
-| Web application testing | Yes | No | Yes |
-| Active Directory attacks | Yes | No | Yes |
-| OSINT and passive reconnaissance | Yes | No | Yes |
-| Self-correction on failure | Yes | No | Yes |
-| Docker-isolated tool execution | Yes | No | No |
-| Multi-agent coordinator architecture | Yes | No | Yes |
-| Open source | No | Yes | Yes |
-| Free to use | No | Yes | Yes |
-| Extensible plugin ecosystem | No | Yes | Yes |
-| Local LLM support | No | Yes | Yes |
-| ML-based exploit prediction | No | No | Yes |
-| Network defense (blue team) | No | No | Yes |
-| Attack graph visualization | Partial | Yes | Yes (React) |
-| LoRA training data capture | No | No | Yes |
-
-Full comparison: [docs/01_XBOW_COMPARISON.md](docs/01_XBOW_COMPARISON.md)
-
 ---
 
 ## Tech Stack
@@ -507,7 +414,6 @@ Never test on systems you do not own or have explicit written authorization to t
 | [Prerequisites](docs/03_PREREQUISITES.md) | Installation and dependency setup |
 | [Roadmap](docs/04_ROADMAP.md) | Completed and planned feature plan |
 | [Safety and Legal](docs/05_SAFETY_AND_LEGAL.md) | All 10 guardrails and legal requirements |
-| [XBOW Comparison](docs/01_XBOW_COMPARISON.md) | Feature gap analysis |
 | [Plugin System](docs/09_PLUGIN_SYSTEM.md) | Plugin authoring guide |
 | [Multi-Agent Spec](docs/11_MULTI_AGENT_SPEC.md) | V2 multi-agent architecture |
 | [Defense Module](docs/07_NETWORK_DEFENSE_MODULE.md) | Blue team defense architecture |

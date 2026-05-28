@@ -254,6 +254,50 @@ function buildTopology(session: any): GraphView {
   return { nodes, edges, bounds: { minX: 0, minY: 0, maxX: maxX + 40, maxY: maxY + 40 } };
 }
 
+// ─── OS detection helper ─────────────────────────────────────────────────────
+
+function detectOS(host: any): "linux" | "windows" | "unknown" {
+  const os = (host?.os_type || host?.os || "").toLowerCase();
+  if (os.includes("windows") || os.includes("win")) return "windows";
+  if (os.includes("linux") || os.includes("ubuntu") || os.includes("debian") || os.includes("centos") || os.includes("unix")) return "linux";
+  return "unknown";
+}
+
+function credToolFor(os: "linux" | "windows" | "unknown"): string {
+  if (os === "linux") return "hashdump/shadow";
+  if (os === "windows") return "mimikatz";
+  return "cred-harvester";
+}
+
+function privescToolFor(os: "linux" | "windows" | "unknown"): string {
+  if (os === "linux") return "sudo/kernel-exploit";
+  if (os === "windows") return "local_exploit_suggester";
+  return "privesc";
+}
+
+function postRootLabelFor(os: "linux" | "windows" | "unknown"): string {
+  if (os === "windows") return "Domain Admin";
+  return "Root Access";
+}
+
+function mitreFor(nodeId: string): string {
+  const map: Record<string, string> = {
+    portscan: "T1046 Network Service Discovery",
+    searchsploit: "T1595 Active Scanning",
+    creddump: "T1003 Credential Dumping",
+    privesc: "T1068 Exploitation for Privilege Escalation",
+    domainadmin: "T1078 Valid Accounts",
+  };
+  return map[nodeId] ?? "";
+}
+
+// Minor positional jitter so nodes don't look pixel-perfect rigid
+function jitter(base: number, seed: string, amplitude = 18): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffff;
+  return base + ((h % (amplitude * 2)) - amplitude);
+}
+
 // ─── 2D Attack Path Graph Builder ────────────────────────────────────────────
 
 function buildAttackPath(session: any, hostIp: string | null): GraphView {
@@ -288,6 +332,7 @@ function buildAttackPath(session: any, hostIp: string | null): GraphView {
   const hostExploits = exploits.filter((e: any) => e.host_ip === hostIp);
   const hostScan = scanResults.find((sr: any) => (sr.hosts || []).some((h: any) => h.ip === hostIp));
   const hostPorts = (targetHost.ports || []).filter((p: any) => p.state === "open");
+  const hostOS = detectOS(targetHost);
 
   const nodes: CanvasNode[] = [];
   const edges: CanvasEdge[] = [];
@@ -316,11 +361,11 @@ function buildAttackPath(session: any, hostIp: string | null): GraphView {
 
   nodes.push({
     id: "portscan", type: "action",
-    x: MAIN_X, y: cy,
+    x: jitter(MAIN_X, "portscan", 8), y: cy,
     label: "Port Scan",
     subtitle: portsDone ? `${hostPorts.length} open port${hostPorts.length !== 1 ? "s" : ""} · nmap` : "Scanning…",
     status: portScanStatus,
-    data: { ports: hostPorts, portList, hostCount: 1, tool: "nmap" },
+    data: { ports: hostPorts, portList, hostCount: 1, tool: "nmap", mitre: mitreFor("portscan") },
   });
   edges.push({ id: "e-att-ps", source: lastId, target: "portscan", type: "next" });
   lastId = "portscan";
@@ -352,11 +397,11 @@ function buildAttackPath(session: any, hostIp: string | null): GraphView {
     const vsStatus: NodeStatus = vulnsDone ? "completed" : isRunning ? "active" : "pending";
     nodes.push({
       id: "searchsploit", type: "action",
-      x: MAIN_X, y: cy,
+      x: jitter(MAIN_X, "searchsploit", 8), y: cy,
       label: "Vulnerability Scan",
       subtitle: vulnsDone ? `${hostVulns.length} vuln${hostVulns.length !== 1 ? "s" : ""} · searchsploit` : "Searching exploits…",
       status: vsStatus,
-      data: { vulns: hostVulns, tool: "searchsploit" },
+      data: { vulns: hostVulns, tool: "searchsploit", mitre: mitreFor("searchsploit") },
     });
     edges.push({ id: "e-ps-vs", source: lastId, target: "searchsploit", type: "next" });
     lastId = "searchsploit";
@@ -432,7 +477,9 @@ function buildAttackPath(session: any, hostIp: string | null): GraphView {
               sessionOpened: exp.session_opened,
               sessionType: exp.session_type,
               output: exp.output?.slice(0, 120),
-              tool: "metasploit",
+              tool: exp.module?.startsWith("exploit/") ? "metasploit" : (exp.module ? exp.module.split("/")[0] : "exploit"),
+              mitre: "T1190 Exploit Public-Facing Application",
+              os: hostOS,
             },
           });
           edges.push({
@@ -471,13 +518,14 @@ function buildAttackPath(session: any, hostIp: string | null): GraphView {
   if (hasSession || isRunning) {
     const credCount = mc.credentials_count || 0;
     const credDone = hasSession && credCount > 0;
+    const _credTool = credToolFor(hostOS);
     nodes.push({
       id: "creddump", type: "action",
-      x: MAIN_X, y: cy,
+      x: jitter(MAIN_X, "creddump", 8), y: cy,
       label: "Credential Dump",
-      subtitle: credDone ? `${credCount} credential${credCount !== 1 ? "s" : ""} · mimikatz` : "Harvesting creds…",
+      subtitle: credDone ? `${credCount} credential${credCount !== 1 ? "s" : ""} · ${_credTool}` : "Harvesting creds…",
       status: credDone ? "completed" : isRunning ? "active" : "pending",
-      data: { credCount, tool: "mimikatz" },
+      data: { credCount, tool: _credTool, mitre: mitreFor("creddump"), os: hostOS },
     });
     edges.push({ id: `e-${lastId}-creddump`, source: lastId, target: "creddump", type: "next" });
     lastId = "creddump";
@@ -489,13 +537,14 @@ function buildAttackPath(session: any, hostIp: string | null): GraphView {
   const hasPriv = hostSession && (hostSession.privilege_level || 0) >= 2;
   if (hasPriv || isRunning) {
     const privUser = hostSession?.username || "SYSTEM";
+    const _privTool = privescToolFor(hostOS);
     nodes.push({
       id: "privesc", type: "action",
-      x: MAIN_X, y: cy,
+      x: jitter(MAIN_X, "privesc", 8), y: cy,
       label: "Privilege Escalation",
       subtitle: hasPriv ? `→ ${privUser}` : "Escalating…",
       status: hasPriv ? "completed" : isRunning ? "active" : "pending",
-      data: { user: privUser, tool: "local_exploit_suggester" },
+      data: { user: privUser, tool: _privTool, mitre: mitreFor("privesc"), os: hostOS },
     });
     edges.push({ id: `e-${lastId}-privesc`, source: lastId, target: "privesc", type: "next" });
     lastId = "privesc";
@@ -505,16 +554,40 @@ function buildAttackPath(session: any, hostIp: string | null): GraphView {
   // ── DOMAIN ADMIN
   const hasDA = hostSession && (hostSession.privilege_level || 0) >= 3;
   if (hasDA) {
+    const _postRootLabel = postRootLabelFor(hostOS);
+    const _postTool = hostOS === "windows" ? "dcsync" : "root-shell";
     nodes.push({
       id: "domainadmin", type: "action",
-      x: MAIN_X, y: cy,
-      label: "Domain Admin",
-      subtitle: hostSession?.username || "Administrator",
+      x: jitter(MAIN_X, "domainadmin", 8), y: cy,
+      label: _postRootLabel,
+      subtitle: hostSession?.username || (hostOS === "linux" ? "root" : "Administrator"),
       status: "completed",
-      data: { user: hostSession?.username, tool: "dcsync" },
+      data: { user: hostSession?.username, tool: _postTool, mitre: mitreFor("domainadmin"), os: hostOS },
     });
     edges.push({ id: `e-${lastId}-da`, source: lastId, target: "domainadmin", type: "exploit" });
     cy += ROW_DY;
+  }
+
+  // ── LOOT CARDS from mission_context.loot (right-branch)
+  const hostLoot: any[] = Array.isArray(mc.loot)
+    ? mc.loot.filter((l: any) => !l.source_host || l.source_host === hostIp)
+    : [];
+  if (hostLoot.length > 0 && nodes.some((n) => n.id === "domainadmin" || n.id === "privesc")) {
+    const lootAnchor = nodes.find((n) => n.id === "domainadmin") || nodes.find((n) => n.id === "privesc");
+    if (lootAnchor) {
+      hostLoot.slice(0, 4).forEach((l: any, i: number) => {
+        const lid = `loot-${i}`;
+        nodes.push({
+          id: lid, type: "tool",
+          x: RIGHT_X, y: lootAnchor.y + i * (MICRO_H + 10),
+          label: l.loot_type === "flag" ? `🚩 ${l.description?.slice(0, 18) || "flag"}` : (l.description?.slice(0, 22) || "loot"),
+          subtitle: l.content?.slice(0, 24) || l.file_path?.slice(0, 24) || "",
+          status: "completed",
+          data: { ...l, mitre: "T1005 Data from Local System" },
+        });
+        edges.push({ id: `e-loot-${i}`, source: lootAnchor.id, target: lid, type: "leads_to" });
+      });
+    }
   }
 
   const maxNodeX = Math.max(800, ...nodes.map((n) => n.x + (n.type === "tool" || n.type === "vuln" || n.type === "session_node" ? MICRO_W : CARD_W) + 20));

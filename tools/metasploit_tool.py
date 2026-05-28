@@ -22,7 +22,7 @@ from tools.base_tool import BaseTool, ToolMetadata
 
 logger = logging.getLogger(__name__)
 
-EXPLOIT_TIMEOUT = 90   # seconds for RPC
+EXPLOIT_TIMEOUT = 180  # seconds for RPC (raised from 90s — many MSF exploits need time to settle)
 MSF_CONSOLE_TIMEOUT = 120  # seconds for msfconsole subprocess (slower to start)
 _CMD_TIMEOUT = 30  # seconds for session command execution
 _RPC_SESSION_POLL_TIMEOUT = 30.0
@@ -156,12 +156,42 @@ class MetasploitTool(BaseTool):
 
     # Common module path mistakes by LLMs → correct paths
     _MODULE_ALIASES: dict[str, str] = {
-        "exploit/linux/samba/usermap_script":  "exploit/multi/samba/usermap_script",
-        "exploit/unix/samba/usermap_script":   "exploit/multi/samba/usermap_script",
-        "exploit/unix/smb/usermap_script":     "exploit/multi/samba/usermap_script",
-        "exploit/linux_x86/samba/trans2open":  "exploit/linux/samba/trans2open",
-        "exploit/linux/samba/nttrans":         "exploit/multi/samba/nttrans",
-        "exploit/linux/samba/is_known_pipename": "exploit/linux/samba/is_known_pipename",
+        # Samba
+        "exploit/linux/samba/usermap_script":    "exploit/multi/samba/usermap_script",
+        "exploit/unix/samba/usermap_script":     "exploit/multi/samba/usermap_script",
+        "exploit/unix/smb/usermap_script":       "exploit/multi/samba/usermap_script",
+        "exploit/linux_x86/samba/trans2open":    "exploit/linux/samba/trans2open",
+        "exploit/linux/samba/nttrans":           "exploit/multi/samba/nttrans",
+        # vsFTPd
+        "exploit/linux/ftp/vsftpd_234_backdoor": "exploit/unix/ftp/vsftpd_234_backdoor",
+        "exploit/unix/vsftpd_234_backdoor":      "exploit/unix/ftp/vsftpd_234_backdoor",
+        "exploit/ftp/vsftpd_234_backdoor":       "exploit/unix/ftp/vsftpd_234_backdoor",
+        # Tomcat
+        "exploit/multi/http/tomcat_mgr_deploy":  "exploit/multi/http/tomcat_mgr_upload",
+        # Ingreslock
+        "exploit/unix/misc/ingreslock":          "exploit/unix/misc/ingreslock",
+        # distccd / distcc
+        "exploit/linux/misc/distccd_exec":       "exploit/unix/misc/distcc_exec",
+        "exploit/unix/misc/distccd_exec":        "exploit/unix/misc/distcc_exec",
+        "exploit/linux/misc/distcc_exec":        "exploit/unix/misc/distcc_exec",
+        "exploit/multi/misc/distcc_exec":        "exploit/unix/misc/distcc_exec",
+        "exploit/linux/distcc/distcc_exec":      "exploit/unix/misc/distcc_exec",
+        "exploit/unix/distcc/distcc_exec":       "exploit/unix/misc/distcc_exec",
+        # postgresql
+        "exploit/linux/postgres/postgres_payload":  "exploit/linux/postgres/postgres_payload",
+        # samba trans2open
+        "exploit/multi/samba/trans2open":        "exploit/linux/samba/trans2open",
+        # mysql
+        "exploit/multi/mysql/mysql_auth_bypass": "auxiliary/scanner/mysql/mysql_authbypass_hashdump",
+        # PHP CGI
+        "exploit/linux/http/php_cgi_arg_injection": "exploit/multi/http/php_cgi_arg_injection",
+        # Unreal IRCd
+        "exploit/linux/irc/unreal_ircd_backdoor":   "exploit/unix/irc/unreal_ircd_3281_backdoor",
+        "exploit/unix/irc/unreal_ircd_backdoor":    "exploit/unix/irc/unreal_ircd_3281_backdoor",
+        # IRC
+        "exploit/unix/irc/unreal_ircd":             "exploit/unix/irc/unreal_ircd_3281_backdoor",
+        # MS17-010
+        "exploit/windows/smb/ms17_010_eternalblue_win7": "exploit/windows/smb/ms17_010_eternalblue",
     }
 
     @classmethod
@@ -215,10 +245,49 @@ class MetasploitTool(BaseTool):
         return ""
 
     async def _rpc_module_exists(self, client, module_path: str) -> bool:
+        """Check if an MSF module exists. Strategy: load the cached module list
+        for the given type (exploit/aux/post/payload), strip the type prefix
+        from module_path, and do an O(1) set lookup.
+
+        pymetasploit3 stores module names WITHOUT the type prefix:
+          client.modules.exploits  → ["unix/ftp/vsftpd_234_backdoor", "multi/samba/usermap_script", ...]
+        """
         module_path = (module_path or "").strip()
         if not module_path:
             return False
         loop = asyncio.get_running_loop()
+
+        parts = module_path.split("/", 1)
+        if len(parts) != 2:
+            return False
+        mod_type, mod_short = parts[0], parts[1]
+
+        # Map module type → pymetasploit3 property name (cached set lookup)
+        prop_map = {
+            "exploit":   "exploits",
+            "auxiliary": "auxiliary",
+            "post":      "post",
+            "payload":   "payloads",
+            "encoder":   "encoders",
+            "nop":       "nops",
+        }
+        prop_name = prop_map.get(mod_type)
+        if prop_name:
+            try:
+                modules_list = await loop.run_in_executor(
+                    None, lambda: getattr(client.modules, prop_name, [])
+                )
+                if isinstance(modules_list, (list, tuple, set)):
+                    module_set = set(modules_list)
+                    if mod_short in module_set:
+                        return True
+                    # Also try the full path (some pymetasploit3 versions include type prefix)
+                    if module_path in module_set:
+                        return True
+            except Exception as exc:
+                logger.debug("[MSF-RPC] %s property lookup failed: %s", prop_name, exc)
+
+        # Fallback: fulltext search (tolerant parsing)
         try:
             result = await loop.run_in_executor(
                 None, lambda: client.modules.search(f"fullname:{module_path}")
@@ -231,22 +300,35 @@ class MetasploitTool(BaseTool):
         if isinstance(result, list):
             modules = result
         elif isinstance(result, dict):
-            if isinstance(result.get("modules"), list):
-                modules = result["modules"]
-            elif isinstance(result.get("results"), list):
-                modules = result["results"]
-        elif isinstance(result, bool):
-            # Some clients may return a bool for empty search results.
-            return False
+            for key in ("modules", "results", "exploits"):
+                if isinstance(result.get(key), list):
+                    modules = result[key]
+                    break
+            if not modules:
+                for v in result.values():
+                    if isinstance(v, list) and v:
+                        modules = v
+                        break
 
         for item in modules:
             name = self._extract_module_name(item)
-            if name == module_path:
+            if name == module_path or name == mod_short:
                 return True
+            if module_path.endswith("/" + name) or name.endswith("/" + mod_short):
+                return True
+
         return False
 
     async def _resolve_module_path_rpc(self, client, module_path: str) -> tuple[str, str | None]:
         canonical = self._MODULE_ALIASES.get(module_path, module_path)
+        # Curated short-circuit — modules that ship with stock msf6 don't need
+        # an RPC round-trip to verify existence. Avoids a slow modules.search
+        # call when the answer is already known.
+        if (canonical in self._NATIVE_SHELL_MODULES
+                or canonical in set(self._MODULE_ALIASES.values())):
+            if canonical != module_path:
+                logger.info("[MSF-RPC] canonicalized module '%s' -> '%s'", module_path, canonical)
+            return canonical, None
         if await self._rpc_module_exists(client, canonical):
             if canonical != module_path:
                 logger.info("[MSF-RPC] canonicalized module '%s' -> '%s'", module_path, canonical)
@@ -261,7 +343,27 @@ class MetasploitTool(BaseTool):
         return bool(re.match(r"^(exploit|auxiliary|post|payload|encoder|nop)/[a-z0-9_./-]+$", module_path or ""))
 
     async def _resolve_module_path_msfconsole(self, module_path: str) -> tuple[str, str | None]:
-        """Resolve aliases and fail-fast validate module availability in msfconsole mode."""
+        """Resolve aliases and validate module availability in msfconsole mode.
+
+        Two-bug fix from test3 + test4 forensics:
+          1. The previous `search exploit/unix/misc/distcc_exec` query did NOT
+             match anything in modern msf6 — `search` treats the slash-prefixed
+             form as a substring against the module Name field, and msf6 stores
+             names WITHOUT the type prefix. The search returned zero rows in
+             ~1.9s, so the resolver rejected valid native-shell modules
+             (distcc_exec, vsftpd_234_backdoor, samba/usermap_script) as
+             "module_not_found" before msfconsole ever tried to load them.
+          2. Even when the search did return rows, the comparison required an
+             exact match including the type prefix, which msfconsole strips
+             from its output columns.
+
+        Fix: search with the prefix-less canonical (which msf6's Name field
+        actually contains), and accept matches with or without the prefix
+        in the parsed output. We also short-circuit when the canonical is a
+        member of curated `_NATIVE_SHELL_MODULES` / `_MODULE_ALIASES` values —
+        those are well-known stock modules and the search round-trip is pure
+        cost.
+        """
         requested = (module_path or "").strip()
         canonical = self._MODULE_ALIASES.get(requested, requested)
 
@@ -271,13 +373,35 @@ class MetasploitTool(BaseTool):
                 f"(canonical: '{canonical}')"
             )
 
-        output = await self._run_msfconsole([f"search {canonical}"], timeout=45)
+        canonical_noprefix = re.sub(
+            r"^(exploit|auxiliary|post|payload|encoder|nop)/", "", canonical,
+        )
+
+        # ── Curated short-circuit ────────────────────────────────────────────
+        # If the module is one we already vetted, skip the slow msfconsole
+        # round-trip entirely. msf6 ships these as part of stock framework.
+        if (canonical in self._NATIVE_SHELL_MODULES
+                or canonical in set(self._MODULE_ALIASES.values())):
+            if canonical != requested:
+                self._emit_msf_event(
+                    "msfconsole_module_canonicalized",
+                    requested=requested,
+                    canonical=canonical,
+                )
+            return canonical, None
+
+        # ── Fallback: search via msfconsole with prefix-LESS path ────────────
+        # `search unix/misc/distcc_exec` matches the Name field substring.
+        # `search exploit/unix/misc/distcc_exec` did NOT match (msf6 doesn't
+        # include the prefix in the indexed field).
+        output = await self._run_msfconsole([f"search {canonical_noprefix}"], timeout=45)
         found_paths: set[str] = set()
         for line in output.splitlines():
             m = re.match(r"^\s*\d+\s+(\S+/\S+)\s+", line.strip())
             if m:
                 found_paths.add(m.group(1).strip())
-        if canonical in found_paths:
+
+        if canonical in found_paths or canonical_noprefix in found_paths:
             if canonical != requested:
                 self._emit_msf_event(
                     "msfconsole_module_canonicalized",
@@ -671,6 +795,20 @@ class MetasploitTool(BaseTool):
         }
         try:
             base_exploit = client.modules.use("exploit", module_path)
+            # pymetasploit3 may return False/None for invalid module names instead of raising.
+            # Guard against this so we don't get "'bool' object is not subscriptable" downstream.
+            if not base_exploit or isinstance(base_exploit, bool):
+                run_meta["result"] = ExploitResult(
+                    success=False,
+                    module=module_path,
+                    target_ip=target_ip,
+                    target_port=target_port,
+                    error=(
+                        f"Metasploit module '{module_path}' could not be loaded "
+                        f"(modules.use returned {type(base_exploit).__name__})"
+                    ),
+                )
+                return run_meta
             available_options = self._available_option_names(base_exploit)
             is_native_mod = self._is_native_shell_module(module_path)
             enforce_option_whitelist = bool(available_options)
