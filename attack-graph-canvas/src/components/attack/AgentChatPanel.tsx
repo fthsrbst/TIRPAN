@@ -344,7 +344,7 @@ function DefaultBubble({ ev }: { ev: AgentEvent }) {
       </div>
       <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-muted/30 border border-border/30 px-3 py-2">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{ev.event_type.replace("_", " ")}</span>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{String(ev.event_type || "event").replace("_", " ")}</span>
           <span className="text-[9px] text-muted-foreground font-mono ml-auto">{fmtTs(ev.created_at)}</span>
         </div>
         <p className="text-[11px] text-foreground/70 font-mono break-all">{truncate(JSON.stringify(ev.data), 160)}</p>
@@ -414,7 +414,15 @@ export const AgentChatPanel = ({ open, onClose }: Props) => {
     refetchInterval: (target?.is_running || target?.status === "running") ? 3000 : false,
   });
 
-  const allEvents: AgentEvent[] = (eventsData as any)?.events || (Array.isArray(eventsData) ? eventsData : []);
+  const rawEvents: any[] = (eventsData as any)?.events || (Array.isArray(eventsData) ? eventsData : []);
+  // Normalize event shape: the live API emits { event_type, data } while demo and
+  // legacy payloads use { type, content }. Guarantee both fields so a malformed
+  // event can never crash the whole panel on an undefined event_type.
+  const allEvents: AgentEvent[] = rawEvents.map((e: any) => ({
+    ...e,
+    event_type: e.event_type || e.type || "event",
+    data: e.data ?? (e.content != null ? { message: e.content } : {}),
+  }));
   const filtered = filter === "all" ? allEvents : allEvents.filter((e) => e.event_type === filter);
 
   useEffect(() => {

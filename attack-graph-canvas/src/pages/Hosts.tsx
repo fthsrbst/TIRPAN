@@ -1,11 +1,17 @@
 import { useState, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { PageShell } from "@/components/attack/PageShell";
 import { ListFilterToolbar, type FilterChipModel } from "@/components/attack/ListFilterToolbar";
+import { StatCard } from "@/components/attack/StatCard";
+import { ExportMenu } from "@/components/attack/ExportMenu";
+import { EmptyState } from "@/components/attack/EmptyState";
+import { exportCSV, exportJSON } from "@/lib/exportData";
 import { toggleInSet } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { getSessions, getSession } from "@/lib/api";
 import { useSessionContext } from "@/lib/SessionContext";
-import { Server, Globe, Network, Bug, Pencil, Check, X } from "lucide-react";
+import { Server, Globe, Network, Bug, Pencil, Check, X, Wifi, GitBranch, AlertCircle, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
@@ -18,28 +24,66 @@ const Hosts = () => {
   const [selectedHost, setSelectedHost] = useState<any>(null);
   const [editingName, setEditingName] = useState(false);
   const [hostName, setHostName] = useState("");
-  const { selectedSessionId, selectedSession } = useSessionContext();
+  const { selectedSessionId, selectedSession, setSelectedSessionId } = useSessionContext();
+  const navigate = useNavigate();
 
   const { data: sessions = [] } = useQuery({ queryKey: ["sessions"], queryFn: getSessions, refetchInterval: 10000 });
 
   const effectiveSid = selectedSessionId || (selectedSid !== "all" ? selectedSid : null);
+  // No explicit session picked → aggregate hosts across every session.
+  const isAggregate = !selectedSessionId && selectedSid === "all";
 
-  const { data: sessionDetails, isLoading } = useQuery({
+  const { data: sessionDetails, isLoading: singleLoading } = useQuery({
     queryKey: ["session-detail-hosts", effectiveSid],
     queryFn: () => getSession(effectiveSid!),
     enabled: !!effectiveSid,
   });
 
-  const hosts = useMemo(() => {
-    const sid = selectedSessionId ? selectedSession : sessionDetails;
-    const scans = sid?.scan_results || [];
+  const { data: aggregateSessions = [], isLoading: aggLoading } = useQuery({
+    queryKey: ["hosts-aggregate", (sessions as any[]).map((s: any) => s.id).join(",")],
+    queryFn: async () => {
+      const results = await Promise.all((sessions as any[]).map((s: any) => getSession(s.id).catch(() => null)));
+      return results.filter(Boolean);
+    },
+    enabled: isAggregate && sessions.length > 0,
+  });
+
+  const isLoading = isAggregate ? aggLoading : singleLoading;
+
+  const buildHosts = (sess: any) => {
+    const scans = sess?.scan_results || [];
     const flatHosts = scans.flatMap((s: any) => s.hosts || []);
-    const vulns = sid?.vulnerabilities || [];
+    const vulns = sess?.vulnerabilities || [];
     return flatHosts.map((h: any) => ({
       ...h,
+      sessionId: sess?.id,
+      target: sess?.target,
       vulnerabilities: vulns.filter((v: any) => v.host === h.ip || v.ip === h.ip || v.target_ip === h.ip),
     }));
-  }, [selectedSession, sessionDetails, selectedSessionId]);
+  };
+
+  const hosts = useMemo(() => {
+    if (isAggregate) return (aggregateSessions as any[]).flatMap(buildHosts);
+    const sess = selectedSessionId ? selectedSession : sessionDetails;
+    return sess ? buildHosts(sess) : [];
+  }, [isAggregate, aggregateSessions, selectedSession, sessionDetails, selectedSessionId]);
+
+  const scopeLabel = selectedSessionId
+    ? (selectedSession?.target || "current session")
+    : isAggregate
+      ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}`
+      : ((sessions as any[]).find((s: any) => s.id === selectedSid)?.target || "selected session");
+
+  const hostStats = useMemo(() => {
+    const up = hosts.filter((h: any) => String(h.state).toLowerCase() === "up").length;
+    const openPorts = hosts.reduce(
+      (s: number, h: any) => s + (h.ports || []).filter((p: any) => p.state === "open").length,
+      0,
+    );
+    const withVulns = hosts.filter((h: any) => (h.vulnerabilities?.length ?? 0) > 0).length;
+    return { up, openPorts, withVulns, total: hosts.length };
+  }, [hosts]);
+  const hpct = (n: number) => (hostStats.total ? Math.round((n / hostStats.total) * 100) : 0);
 
   const filtered = useMemo(() => {
     const minP = minOpenPorts === "" ? null : Number(minOpenPorts);
@@ -60,6 +104,38 @@ const Hosts = () => {
       return matchesSearch && matchesState && matchesVuln && matchesPorts;
     });
   }, [hosts, search, stateSet, hasVulnerabilitiesOnly, minOpenPorts]);
+
+  const exportRows = useMemo(
+    () =>
+      filtered.map((h: any) => {
+        const open = (h.ports || []).filter((p: any) => p.state === "open");
+        return {
+          ip: h.ip || "",
+          hostname: h.hostname || "",
+          os: h.os || h.os_type || "",
+          state: h.state || "",
+          open_ports: open.length,
+          services: open.map((p: any) => `${p.number}/${p.service || "?"}`).join("; "),
+          vulnerabilities: h.vulnerabilities?.length ?? 0,
+          target: h.target || "",
+        };
+      }),
+    [filtered],
+  );
+
+  const openInAttackGraph = useCallback((host: any) => {
+    if (host?.sessionId) setSelectedSessionId(host.sessionId);
+    navigate("/attack-graph", { state: { drillHostIp: host.ip } });
+  }, [navigate, setSelectedSessionId]);
+
+  const viewFindings = useCallback((host: any) => {
+    if (host?.sessionId) setSelectedSessionId(host.sessionId);
+    navigate("/findings");
+  }, [navigate, setSelectedSessionId]);
+
+  const copyIp = useCallback((ip: string) => {
+    navigator.clipboard?.writeText(ip).then(() => toast.success("IP copied"), () => toast.error("Copy failed"));
+  }, []);
 
   const clearAllFacets = useCallback(() => {
     setStateSet(new Set());
@@ -122,6 +198,38 @@ const Hosts = () => {
     <PageShell title="Hosts" subtitle="Discovered infrastructure inventory">
       <div className="flex h-full gap-4">
         <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-y-auto scrollbar-gutter-stable">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
+            <StatCard
+              icon={Server}
+              label="Total Hosts"
+              value={hostStats.total}
+              accent="primary"
+              sublabel={scopeLabel}
+            />
+            <StatCard
+              icon={Wifi}
+              label="Hosts Up"
+              value={hostStats.up}
+              accent="success"
+              progress={hpct(hostStats.up)}
+              sublabel={`${hpct(hostStats.up)}% reachable`}
+            />
+            <StatCard
+              icon={Network}
+              label="Open Services"
+              value={hostStats.openPorts}
+              accent="accent"
+              sublabel="across all hosts"
+            />
+            <StatCard
+              icon={Bug}
+              label="With Vulns"
+              value={hostStats.withVulns}
+              accent="destructive"
+              progress={hpct(hostStats.withVulns)}
+              sublabel={`${hpct(hostStats.withVulns)}% affected`}
+            />
+          </div>
           <div className="node-card !p-3">
             <ListFilterToolbar
               search={search}
@@ -138,7 +246,7 @@ const Hosts = () => {
                     onChange={(e) => setSelectedSid(e.target.value)}
                     className="h-9 shrink-0 rounded-full bg-muted border border-border text-xs px-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary max-w-[200px]"
                   >
-                    <option value="all">Select a session</option>
+                    <option value="all">All sessions</option>
                     {sessions.map((s: any) => (
                       <option key={s.id} value={s.id}>
                         {s.target || s.id}
@@ -146,6 +254,13 @@ const Hosts = () => {
                     ))}
                   </select>
                 ) : undefined
+              }
+              trailingActions={
+                <ExportMenu
+                  count={filtered.length}
+                  onExportCsv={() => exportCSV("hosts", exportRows)}
+                  onExportJson={() => exportJSON("hosts", filtered)}
+                />
               }
               filterPanel={
                 <div className="space-y-4">
@@ -206,11 +321,11 @@ const Hosts = () => {
               </thead>
               <tbody>
                 {isLoading && <tr><td colSpan={6} className="px-5 py-8 text-xs text-muted-foreground text-center">Loading hosts...</td></tr>}
-                {!isLoading && !effectiveSid && (
-                  <tr><td colSpan={6} className="px-5 py-8 text-xs text-muted-foreground text-center">{selectedSessionId ? "No host data" : "Select a session to view discovered hosts."}</td></tr>
+                {!isLoading && !effectiveSid && !isAggregate && (
+                  <tr><td colSpan={6} className="px-5 py-8 text-xs text-muted-foreground text-center">Select a session to view discovered hosts.</td></tr>
                 )}
-                {!isLoading && effectiveSid && filtered.length === 0 && (
-                  <tr><td colSpan={6} className="px-5 py-8 text-xs text-muted-foreground text-center">No hosts found.</td></tr>
+                {!isLoading && (effectiveSid || isAggregate) && filtered.length === 0 && (
+                  <tr><td colSpan={6}><EmptyState icon={Server} title="No hosts" hint="No discovered hosts match the current filters or scope." compact /></td></tr>
                 )}
                 {filtered.map((h: any, idx: number) => {
                   const open = (h.ports || []).filter((p: any) => p.state === "open");
@@ -257,6 +372,18 @@ const Hosts = () => {
                 )}
                 <div className="text-[11px] font-mono text-muted-foreground">{selectedHost.ip}</div>
               </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => openInAttackGraph(selectedHost)} className="flex flex-col items-center gap-1 rounded-xl border border-border bg-card px-2 py-2.5 text-[10px] hover:border-primary/50 hover:bg-primary/5 transition-colors" title="Open this host in the Attack Graph">
+                <GitBranch className="w-4 h-4 text-primary" /> Attack Graph
+              </button>
+              <button onClick={() => viewFindings(selectedHost)} className="flex flex-col items-center gap-1 rounded-xl border border-border bg-card px-2 py-2.5 text-[10px] hover:border-primary/50 hover:bg-primary/5 transition-colors" title="View findings for this session">
+                <AlertCircle className="w-4 h-4 text-warning" /> Findings
+              </button>
+              <button onClick={() => copyIp(selectedHost.ip)} className="flex flex-col items-center gap-1 rounded-xl border border-border bg-card px-2 py-2.5 text-[10px] hover:border-primary/50 hover:bg-primary/5 transition-colors" title="Copy IP address">
+                <Copy className="w-4 h-4 text-muted-foreground" /> Copy IP
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

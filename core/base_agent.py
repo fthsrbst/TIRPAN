@@ -892,10 +892,19 @@ class BaseAgent(ABC):
             if not approved:
                 self._log.info("Operator denied tool call: %s", tool_name)
                 self.emit_event("approval_denied", {"tool": tool_name, "params": params})
-                self.memory.add_user(
-                    f"[OPERATOR] Denied execution of '{tool_name}'. "
-                    "Acknowledge this and adjust your plan or reply with chat_reply."
-                )
+                if self.agent_type == "chat":
+                    # Interactive mode: a denial means STOP — do not chain alternative
+                    # tools (that produces the runaway "propose → deny → propose" loop).
+                    self.memory.add_user(
+                        f"[OPERATOR] Denied execution of '{tool_name}'. STOP — do NOT propose "
+                        "another tool or alternative action. Reply now with chat_reply: briefly "
+                        "acknowledge the denial and ask the operator what they want to do next."
+                    )
+                else:
+                    self.memory.add_user(
+                        f"[OPERATOR] Denied execution of '{tool_name}'. "
+                        "Acknowledge this and adjust your plan or reply with chat_reply."
+                    )
                 return {"success": False, "output": None, "error": "Operator denied this action."}
 
         # ── Execute ───────────────────────────────────────────────────────

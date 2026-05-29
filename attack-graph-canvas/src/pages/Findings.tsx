@@ -1,11 +1,16 @@
 import { useState, useMemo, useCallback } from "react";
 import { PageShell } from "@/components/attack/PageShell";
 import { ListFilterToolbar, type FilterChipModel } from "@/components/attack/ListFilterToolbar";
+import { StatCard } from "@/components/attack/StatCard";
+import { ExportMenu } from "@/components/attack/ExportMenu";
+import { EmptyState } from "@/components/attack/EmptyState";
+import { exportCSV, exportJSON } from "@/lib/exportData";
 import { toggleInSet } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { getSessions, getSession } from "@/lib/api";
 import { useSessionContext } from "@/lib/SessionContext";
-import { ShieldAlert, Shield, AlertTriangle, Info, BarChart3, Cpu } from "lucide-react";
+import { ShieldAlert, Shield, AlertTriangle, Info, BarChart3, Cpu, Bug, X, ExternalLink, Copy, Server, Target, Layers } from "lucide-react";
+import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
@@ -17,6 +22,19 @@ const severityMeta: Record<string, { label: string; color: string; icon: any; sc
   NONE: { label: "Info", color: "muted", icon: Info, scoreMin: 0 },
 };
 const severityOrder = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"];
+
+// Prefer an explicit severity field; otherwise derive it from the CVSS score so
+// high-scoring findings aren't all bucketed as "Info" when the backend omits severity.
+function effectiveSeverity(v: any): string {
+  const raw = (v.severity || "").toUpperCase();
+  if (raw && severityMeta[raw]) return raw;
+  const cvss = parseFloat(v.cvss_score) || 0;
+  if (cvss >= 9.0) return "CRITICAL";
+  if (cvss >= 7.0) return "HIGH";
+  if (cvss >= 4.0) return "MEDIUM";
+  if (cvss >= 0.1) return "LOW";
+  return "NONE";
+}
 
 // ── Attack-phase inference ─────────────────────────────────────────────────────
 // Prefers _cls.attack_phase from ML model; falls back to heuristic when absent.
@@ -130,6 +148,7 @@ const Findings = () => {
   const [phaseSet, setPhaseSet] = useState<Set<AttackPhaseKey>>(() => new Set());
   const [assetSet, setAssetSet] = useState<Set<string>>(() => new Set());
   const [selectedSession, setSelectedSession] = useState<string>("all");
+  const [selectedFinding, setSelectedFinding] = useState<any>(null);
   const { selectedSessionId, selectedSession: ctxSession, isLoading: ctxSessionLoading } = useSessionContext();
 
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
@@ -163,10 +182,18 @@ const Findings = () => {
 
   const findingsLoading = selectedSessionId ? ctxSessionLoading : aggregateFindingsLoading;
 
+  // Findings scoped to the active session selection (global context OR the in-page
+  // dropdown). All stat cards, facet counts and the table derive from this so they
+  // stay in sync with the selected session.
+  const sessionScoped = useMemo(() => {
+    if (selectedSessionId || selectedSession === "all") return allFindings;
+    return allFindings.filter((f: any) => f.sessionId === selectedSession);
+  }, [allFindings, selectedSessionId, selectedSession]);
+
   const filtered = useMemo(() => {
-    return allFindings
+    return sessionScoped
       .filter((f: any) => {
-        const sev = (f.severity || "NONE").toUpperCase();
+        const sev = effectiveSeverity(f);
         const phase = inferPhase(f);
         const asset = inferAsset(f);
         const mSearch =
@@ -179,17 +206,13 @@ const Findings = () => {
         const mSev = severitySet.size === 0 || severitySet.has(sev);
         const mPhase = phaseSet.size === 0 || phaseSet.has(phase);
         const mAsset = assetSet.size === 0 || assetSet.has(asset);
-        const mSess = selectedSession === "all" || f.sessionId === selectedSession;
-        const core = mSearch && mSev && mPhase && mAsset;
-        if (selectedSessionId) return core;
-        return core && mSess;
+        return mSearch && mSev && mPhase && mAsset;
       })
       .sort(
         (a: any, b: any) =>
-          severityOrder.indexOf((a.severity || "NONE").toUpperCase()) -
-          severityOrder.indexOf((b.severity || "NONE").toUpperCase()),
+          severityOrder.indexOf(effectiveSeverity(a)) - severityOrder.indexOf(effectiveSeverity(b)),
       );
-  }, [allFindings, search, severitySet, phaseSet, assetSet, selectedSession, selectedSessionId]);
+  }, [sessionScoped, search, severitySet, phaseSet, assetSet]);
 
   const clearAllFacets = useCallback(() => {
     setSeveritySet(new Set());
@@ -228,43 +251,111 @@ const Findings = () => {
 
   const phaseCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    allFindings.forEach((f: any) => {
+    sessionScoped.forEach((f: any) => {
       const p = inferPhase(f);
       counts[p] = (counts[p] || 0) + 1;
     });
     return counts;
-  }, [allFindings]);
+  }, [sessionScoped]);
 
   const stats = useMemo(() => {
     const counts: Record<string,number> = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0, NONE:0 };
-    allFindings.forEach((f:any)=>{const s=(f.severity||"NONE").toUpperCase();counts[s]=(counts[s]||0)+1});
+    sessionScoped.forEach((f:any)=>{const s=effectiveSeverity(f);counts[s]=(counts[s]||0)+1});
     return counts;
-  }, [allFindings]);
+  }, [sessionScoped]);
 
-  const mlCount = useMemo(() => allFindings.filter((f: any) => f._cls?.source === "ml").length, [allFindings]);
+  const mlCount = useMemo(() => sessionScoped.filter((f: any) => f._cls?.source === "ml").length, [sessionScoped]);
+
+  const total = sessionScoped.length;
+  const avgCvss = useMemo(() => {
+    if (!sessionScoped.length) return 0;
+    const sum = sessionScoped.reduce((s: number, f: any) => s + (parseFloat(f.cvss_score) || 0), 0);
+    return sum / sessionScoped.length;
+  }, [sessionScoped]);
+  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  const exploitable = useMemo(
+    () => sessionScoped.filter((f: any) => (parseFloat(f.cvss_score) || 0) >= 7.0).length,
+    [sessionScoped],
+  );
+
+  const exportRows = useMemo(
+    () =>
+      filtered.map((f: any) => ({
+        severity: effectiveSeverity(f),
+        title: f.title || "",
+        cve: f.cve_id || "",
+        cvss: f.cvss_score || 0,
+        phase: PHASE_META[inferPhase(f)].label,
+        asset: inferAsset(f),
+        service: f.service || "",
+        target: f.target || "",
+        host: f.host_ip || f.host || "",
+        mitre_ttps: (f._cls?.mitre_ttps || []).join("; "),
+        ml_classified: f._cls?.source === "ml" ? "yes" : "no",
+        description: f.description || "",
+      })),
+    [filtered],
+  );
+
+  const copyText = useCallback((text: string, what: string) => {
+    navigator.clipboard?.writeText(text).then(
+      () => toast.success(`${what} copied`),
+      () => toast.error("Copy failed"),
+    );
+  }, []);
+
+  const scopeLabel = selectedSessionId
+    ? (ctxSession?.target || "current session")
+    : selectedSession === "all"
+      ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}`
+      : (sessions.find((s: any) => s.id === selectedSession)?.target || "selected session");
 
   const isLoading = sessionsLoading || findingsLoading;
 
   return (
     <PageShell title="Findings" subtitle="Vulnerabilities discovered across engagements">
-      <div className="flex flex-col h-full gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 shrink-0 node-card !px-3 !py-2 text-[11px] text-muted-foreground">
-          {severityOrder.map((sev) => {
-            const meta = severityMeta[sev];
-            return (
-              <span key={sev} className="inline-flex items-center gap-1.5">
-                <span className={`font-semibold text-${meta.color}`}>{meta.label}</span>
-                <span className="font-mono text-foreground/80">{stats[sev] || 0}</span>
-              </span>
-            );
-          })}
-          {mlCount > 0 && (
-            <span className="inline-flex items-center gap-1 ml-auto text-violet-400">
-              <Cpu className="w-3 h-3" />
-              <span className="font-mono">{mlCount}</span>
-              <span>ML-classified</span>
-            </span>
-          )}
+      <div className="flex h-full gap-4">
+        <div className="flex-1 min-w-0 flex flex-col gap-3 min-h-0">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 shrink-0">
+          <StatCard
+            icon={Bug}
+            label="Total Findings"
+            value={total}
+            accent="primary"
+            sublabel={scopeLabel}
+          />
+          <StatCard
+            icon={ShieldAlert}
+            label="Critical"
+            value={stats.CRITICAL || 0}
+            accent="destructive"
+            progress={pct(stats.CRITICAL || 0)}
+            sublabel={`${pct(stats.CRITICAL || 0)}% of findings`}
+          />
+          <StatCard
+            icon={AlertTriangle}
+            label="High"
+            value={stats.HIGH || 0}
+            accent="warning"
+            progress={pct(stats.HIGH || 0)}
+            sublabel={`${exploitable} at CVSS ≥ 7`}
+          />
+          <StatCard
+            icon={BarChart3}
+            label="Avg CVSS"
+            value={avgCvss.toFixed(1)}
+            accent="accent"
+            progress={Math.min(avgCvss * 10, 100)}
+            sublabel="mean severity score"
+          />
+          <StatCard
+            icon={Cpu}
+            label="ML-Classified"
+            value={mlCount}
+            accent="violet"
+            progress={pct(mlCount)}
+            sublabel={`${pct(mlCount)}% auto-tagged`}
+          />
         </div>
 
         <div className="node-card !p-3 shrink-0">
@@ -275,7 +366,7 @@ const Findings = () => {
             activeFacetCount={activeFacetCount}
             chips={filterChips}
             onClearAllFacets={clearAllFacets}
-            summary={`Showing ${filtered.length} of ${allFindings.length} findings`}
+            summary={`Showing ${filtered.length} of ${sessionScoped.length} findings`}
             betweenSearchAndFilters={
               !selectedSessionId ? (
                 <select
@@ -293,9 +384,11 @@ const Findings = () => {
               ) : undefined
             }
             trailingActions={
-              <span className="hidden sm:inline text-[11px] text-muted-foreground whitespace-nowrap">
-                {sessions.length} sessions
-              </span>
+              <ExportMenu
+                count={filtered.length}
+                onExportCsv={() => exportCSV("findings", exportRows)}
+                onExportJson={() => exportJSON("findings", filtered)}
+              />
             }
             panelClassName="w-[300px]"
             filterPanel={
@@ -390,9 +483,9 @@ const Findings = () => {
               </thead>
               <tbody>
                 {isLoading&&<tr><td colSpan={8} className="px-4 py-8 text-xs text-muted-foreground text-center">Loading findings...</td></tr>}
-                {!isLoading&&filtered.length===0&&<tr><td colSpan={8} className="px-4 py-8 text-xs text-muted-foreground text-center">No findings match your filters.</td></tr>}
+                {!isLoading&&filtered.length===0&&<tr><td colSpan={8}><EmptyState icon={Bug} title="No findings" hint="Nothing matches the current filters or session scope." compact /></td></tr>}
                 {filtered.map((f:any,idx:number)=>{
-                  const sev=(f.severity||"NONE").toUpperCase();
+                  const sev=effectiveSeverity(f);
                   const meta=severityMeta[sev]||severityMeta.NONE;
                   const phase = inferPhase(f);
                   const phaseMeta = PHASE_META[phase];
@@ -401,7 +494,7 @@ const Findings = () => {
                   const clsSource: string | undefined = f._cls?.source;
                   const clsConf: number | undefined = f._cls?.confidence;
                   return(
-                    <tr key={`${f.sessionId}-${idx}`} className="border-b border-border/30 hover:bg-muted/30 transition-colors">
+                    <tr key={`${f.sessionId}-${idx}`} onClick={() => setSelectedFinding(selectedFinding === f ? null : f)} className={`border-b border-border/30 hover:bg-muted/30 transition-colors cursor-pointer ${selectedFinding === f ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""}`}>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-${meta.color}/15 text-${meta.color}`}>
                           <meta.icon className="w-3 h-3"/>{meta.label}
@@ -447,10 +540,121 @@ const Findings = () => {
             </table>
           </div>
           <div className="px-4 py-2 border-t border-border/50 text-[10px] text-muted-foreground flex items-center justify-between shrink-0">
-            <span>Showing {filtered.length} of {allFindings.length} findings</span>
+            <span>Showing {filtered.length} of {sessionScoped.length} findings</span>
             <span className="flex items-center gap-1"><BarChart3 className="w-3 h-3"/>{sessions.length} sessions</span>
           </div>
         </div>
+        </div>
+
+        {selectedFinding && (() => {
+          const f = selectedFinding;
+          const sev = effectiveSeverity(f);
+          const meta = severityMeta[sev] || severityMeta.NONE;
+          const phase = inferPhase(f);
+          const phaseMeta = PHASE_META[phase];
+          const asset = inferAsset(f);
+          const ttps: string[] = f._cls?.mitre_ttps || [];
+          const refs: string[] = Array.isArray(f.references) ? f.references : [];
+          const remediation = f.remediation || f.solution || f.fix;
+          const host = f.host_ip || f.host || f.target_ip;
+          const conf = f._cls?.confidence;
+          return (
+            <div className="w-[380px] shrink-0 node-card !p-5 overflow-y-auto scrollbar-gutter-stable flex flex-col gap-4">
+              <div className="flex items-center justify-between shrink-0">
+                <h3 className="font-display font-bold text-base">Finding Detail</h3>
+                <button onClick={() => setSelectedFinding(null)} className="w-7 h-7 rounded-full border border-border flex items-center justify-center hover:bg-muted text-muted-foreground"><X className="w-3.5 h-3.5" /></button>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-${meta.color}/15 text-${meta.color}`}><meta.icon className="w-5 h-5" /></div>
+                <div className="min-w-0">
+                  <div className="font-display font-bold text-sm leading-snug">{f.title || "Untitled finding"}</div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-${meta.color}/15 text-${meta.color}`}>{meta.label}</span>
+                    {f._cls?.source === "ml" && <MlBadge source={f._cls?.source} confidence={conf} />}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-muted/20">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1"><BarChart3 className="w-3 h-3" /> CVSS</div>
+                  <div className="font-display font-bold text-sm">{f.cvss_score || 0}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-muted/20">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1"><Layers className="w-3 h-3" /> Phase</div>
+                  <div className="font-display font-bold text-xs truncate" style={{ color: phaseMeta.color }}>{phaseMeta.label}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-muted/20">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1"><Shield className="w-3 h-3" /> Asset</div>
+                  <div className="font-display font-bold text-xs truncate">{asset}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-muted/20">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wider mb-1"><Server className="w-3 h-3" /> Service</div>
+                  <div className="font-display font-bold text-xs truncate">{f.service || "—"}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                {(f.cve_id) && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground flex items-center gap-1.5"><Target className="w-3 h-3" /> CVE</span>
+                    <a href={`https://nvd.nist.gov/vuln/detail/${f.cve_id}`} target="_blank" rel="noopener noreferrer" className="font-mono text-primary hover:underline flex items-center gap-1">{f.cve_id}<ExternalLink className="w-3 h-3" /></a>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">Target</span>
+                  <span className="font-mono truncate max-w-[200px]">{f.target || "—"}</span>
+                </div>
+                {host && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Host</span>
+                    <button onClick={() => copyText(host, "Host")} className="font-mono truncate max-w-[200px] hover:text-primary flex items-center gap-1">{host}<Copy className="w-3 h-3 opacity-60" /></button>
+                  </div>
+                )}
+              </div>
+
+              {ttps.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-2 flex items-center gap-1.5"><Target className="w-3 h-3" /> MITRE ATT&CK</h4>
+                  <TtpChips ttps={ttps} />
+                </div>
+              )}
+
+              {f.description && (
+                <div>
+                  <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1.5">Description</h4>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap">{f.description}</p>
+                </div>
+              )}
+
+              {remediation && (
+                <div>
+                  <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1.5 flex items-center gap-1.5"><Shield className="w-3 h-3 text-success" /> Remediation</h4>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap">{remediation}</p>
+                </div>
+              )}
+
+              {refs.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1.5">References</h4>
+                  <div className="space-y-1">
+                    {refs.slice(0, 8).map((r: string, i: number) => (
+                      <a key={i} href={r} target="_blank" rel="noopener noreferrer" className="block text-[11px] text-primary hover:underline truncate">{r}</a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={() => copyText(JSON.stringify(f, null, 2), "Finding JSON")}
+                className="mt-auto flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs hover:bg-muted transition-colors shrink-0"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copy as JSON
+              </button>
+            </div>
+          );
+        })()}
       </div>
     </PageShell>
   );

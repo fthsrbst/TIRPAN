@@ -1,5 +1,5 @@
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { GitBranch, Users, Server, AlertCircle, Key, Bug, Plus, X, Cpu, ChevronDown, Check, RefreshCw } from "lucide-react";
+import { GitBranch, Users, Server, AlertCircle, Key, Bug, Grid3x3, Plus, X, Cpu, ChevronDown, Check, RefreshCw, Radio } from "lucide-react";
 import { useSessionContext } from "@/lib/SessionContext";
 import { sessionDisplayLabel } from "@/lib/sessionDisplay";
 import { ThemeToggle } from "@/components/attack/ThemeToggle";
@@ -12,11 +12,13 @@ import { usePermissions } from "@/lib/permissions";
 // requireMin: bu seviye veya üstü görebilir
 const ALL_TABS = [
   { icon: GitBranch, label: "Atk Graph",   to: "/attack-graph", requireMin: "viewer"  },
+  { icon: Radio,     label: "Agent Flow",   to: "/agent-flow",   requireMin: "analyst" },
   { icon: Users,     label: "Agents",       to: "/agents",       requireMin: "analyst" },
   { icon: Server,    label: "Hosts",        to: "/hosts",        requireMin: "viewer"  },
   { icon: AlertCircle,label:"Findings",    to: "/findings",     requireMin: "viewer"  },
   { icon: Key,       label: "Credentials", to: "/credentials",  requireMin: "analyst" },
   { icon: Bug,       label: "Exploits",    to: "/exploits",     requireMin: "analyst" },
+  { icon: Grid3x3,   label: "ATT&CK",      to: "/attack-matrix", requireMin: "viewer"  },
 ];
 
 interface ModelEntry { provider: string; label: string; model: string; }

@@ -318,10 +318,37 @@ Include situation/hypothesis/decision only when they add meaningful context beyo
         EXPLOIT_KB is excluded here — it is 500+ lines and only relevant during
         active exploitation, not general chat. Format instruction comes first so
         the model sees it before the long identity block.
+
+        Unlike BrainAgent, this prompt runs in INTERACTIVE mode: the model takes
+        direct, single-turn orders from a human operator and must NOT autonomously
+        drive a full engagement. The interactive rules are stated up front AND
+        repeated at the end (recency) so they dominate the autonomous instincts in
+        BRAIN_SOUL / HACKER_MINDSET.
         """
         brain_soul = self.load("BRAIN_SOUL")
         mindset = self.load("HACKER_MINDSET")
         context_section = f"\nCONTEXT: {context}\n" if context.strip() else ""
+
+        interactive_rules = """## INTERACTIVE OPERATOR MODE — HIGHEST PRIORITY (overrides everything below)
+
+You are in a LIVE CHAT, taking direct orders from a human operator one message at a
+time. You are NOT running an autonomous engagement and you are NOT the Brain.
+
+1. Do EXACTLY what the operator asks — only the specific action(s) in their latest
+   message. Nothing more.
+2. Use the MINIMUM tool calls needed to fulfill that one request. The moment it is
+   done, STOP and respond with chat_reply summarizing what you did / found. Then WAIT
+   for the operator's next message.
+3. Do NOT chain extra steps the operator did not request. If they say "scan X", you
+   scan X and report — you do NOT then exploit, enumerate further, run nikto/searchsploit,
+   move to a "next phase", or try to complete a pentest. Autonomy is OFF.
+4. If a tool call is denied/rejected, DO NOT keep proposing other tools. Acknowledge
+   the denial in ONE short chat_reply and ask the operator what they want next. Never
+   loop suggesting new actions after a denial.
+5. You have NO sub-agents. The tools spawn_agent, spawn_agents_batch, wait_for_agents,
+   set_phase, update_context, ask_operator and mission_done DO NOT EXIST in this mode.
+   Use ONLY the tools listed under AVAILABLE TOOLS below, one at a time.
+6. Keep "thought" to 1-2 short sentences."""
 
         return f"""## STRICT OUTPUT FORMAT
 
@@ -336,8 +363,12 @@ You MUST respond with a single valid JSON object. Two forms:
 - Use chat_reply for any conversational response — questions, explanations, summaries.
 - Use tools for real actions: scans, exploits, local commands, recon, etc.
 - local_exec lets you run commands on this machine — use it freely when needed.
-- After finishing tool work, always close with chat_reply to report results.
+- After finishing the requested tool work, ALWAYS close with chat_reply to report results.
 - Never output raw text outside JSON.
+
+---
+
+{interactive_rules}
 
 ---
 
@@ -350,4 +381,9 @@ You MUST respond with a single valid JSON object. Two forms:
 ---
 
 {tools_desc}
-{context_section}"""
+{context_section}
+---
+
+REMINDER — INTERACTIVE MODE IS ACTIVE: Do only what the operator just asked, then
+chat_reply and stop. No autonomous follow-up actions, no sub-agent spawning, no
+endless alternatives after a denial. One order → minimal tools → report → wait."""

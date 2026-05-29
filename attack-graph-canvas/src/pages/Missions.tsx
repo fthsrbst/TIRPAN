@@ -628,30 +628,30 @@ function AssignButton({ sessionId, currentAssignee }: { sessionId: string; curre
       <button
         onClick={loadMembers}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/50 text-xs text-muted-foreground hover:bg-muted"
-        title="Kullanıcıya ata"
+        title="Assign to user"
       >
         <UserCheck className="w-3 h-3" />
-        {currentAssignee ? "Yeniden Ata" : "Ata"}
+        {currentAssignee ? "Reassign" : "Assign"}
       </button>
 
       {open && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setOpen(false)}>
           <div className="bg-card rounded-xl border border-border p-5 w-80 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-display font-semibold">Mission Ata</h3>
+            <h3 className="font-display font-semibold">Assign Mission</h3>
             <select
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
               className="w-full h-9 px-3 rounded-lg bg-muted border border-border text-sm text-foreground focus:outline-none"
             >
-              <option value="">— Atanmamış —</option>
+              <option value="">— Unassigned —</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>{m.full_name} ({m.role})</option>
               ))}
             </select>
             <div className="flex gap-2">
-              <button onClick={() => setOpen(false)} className="flex-1 h-9 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground">İptal</button>
+              <button onClick={() => setOpen(false)} className="flex-1 h-9 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground">Cancel</button>
               <button onClick={save} disabled={saving} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
-                {saving ? "Kaydediliyor..." : "Kaydet"}
+                {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </div>

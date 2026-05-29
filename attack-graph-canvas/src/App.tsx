@@ -12,6 +12,7 @@ import Missions from "./pages/Missions";
 import AttackGraphPage from "./pages/AttackGraphPage";
 import ExpertLogPage from "./pages/ExpertLogPage";
 import Agents from "./pages/Agents";
+import AgentFlow from "./pages/AgentFlow";
 import Hosts from "./pages/Hosts";
 import Findings from "./pages/Findings";
 import Credentials from "./pages/Credentials";
@@ -19,6 +20,7 @@ import Reports from "./pages/Reports";
 import Pipelines from "./pages/Pipelines";
 import TerminalPage from "./pages/TerminalPage";
 import Exploits from "./pages/Exploits";
+import AttackMatrix from "./pages/AttackMatrix";
 import SettingsPage from "./pages/SettingsPage";
 import NewMission from "./pages/NewMission";
 import ScheduledScans from "./pages/ScheduledScans";
@@ -30,6 +32,7 @@ import InvitePage from "./pages/InvitePage";
 import TeamPage from "./pages/TeamPage";
 import DemoEntry from "./pages/DemoEntry";
 import ProtectedRoute from "./components/ProtectedRoute";
+import { CommandPalette } from "./components/attack/CommandPalette";
 import { nextOccurrence, type Recurrence, type ScheduledMission } from "./pages/ScheduledScans";
 
 const SCHED_KEY   = "tirpan_scheduled_missions";
@@ -186,6 +189,7 @@ const App = () => (
         <Sonner position="bottom-right" richColors />
         <BrowserRouter basename="/normal">
           <ScheduleTicker />
+          <CommandPalette />
           <Routes>
             <Route path="/demo" element={<DemoEntry />} />
             <Route path="/login" element={<LoginPage />} />
@@ -197,6 +201,7 @@ const App = () => (
             <Route path="/attack-graph" element={<ProtectedRoute><AttackGraphPage /></ProtectedRoute>} />
             <Route path="/expert-log" element={<ProtectedRoute><ExpertLogPage /></ProtectedRoute>} />
             <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
+            <Route path="/agent-flow" element={<ProtectedRoute minRole="analyst"><AgentFlow /></ProtectedRoute>} />
             <Route path="/hosts" element={<ProtectedRoute><Hosts /></ProtectedRoute>} />
             <Route path="/findings" element={<ProtectedRoute><Findings /></ProtectedRoute>} />
             <Route path="/credentials" element={<ProtectedRoute><Credentials /></ProtectedRoute>} />
@@ -204,6 +209,7 @@ const App = () => (
             <Route path="/pipelines" element={<ProtectedRoute><Pipelines /></ProtectedRoute>} />
             <Route path="/terminal" element={<ProtectedRoute minRole="analyst"><TerminalPage /></ProtectedRoute>} />
             <Route path="/exploits" element={<ProtectedRoute><Exploits /></ProtectedRoute>} />
+            <Route path="/attack-matrix" element={<ProtectedRoute><AttackMatrix /></ProtectedRoute>} />
             <Route path="/v3-intel" element={<ProtectedRoute><V3IntelPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
             <Route path="/missions/new" element={<ProtectedRoute minRole="analyst"><NewMission /></ProtectedRoute>} />
