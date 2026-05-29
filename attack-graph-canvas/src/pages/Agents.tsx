@@ -1,6 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
 import { PageShell } from "@/components/attack/PageShell";
 import { ListFilterToolbar, type FilterChipModel } from "@/components/attack/ListFilterToolbar";
+import { StatCard } from "@/components/attack/StatCard";
+import { ExportMenu } from "@/components/attack/ExportMenu";
+import { EmptyState } from "@/components/attack/EmptyState";
+import { exportCSV, exportJSON } from "@/lib/exportData";
 import { toggleInSet } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { getSessions, getSessionAgents, getSessionEvents } from "@/lib/api";
@@ -27,14 +31,48 @@ const Agents = () => {
   const { data: sessions = [] } = useQuery({ queryKey: ["sessions"], queryFn: getSessions, refetchInterval: 10000 });
 
   const effectiveSid = selectedSessionId || (selectedSid !== "all" ? selectedSid : null);
+  const isAggregate = !selectedSessionId && selectedSid === "all";
 
-  const { data: agentsData, isLoading } = useQuery({
+  const { data: agentsData, isLoading: singleLoading } = useQuery({
     queryKey: ["session-agents", effectiveSid],
     queryFn: () => getSessionAgents(effectiveSid!),
     enabled: !!effectiveSid,
   });
 
-  const agents = useMemo(() => (agentsData?.agents || []), [agentsData]);
+  const { data: aggAgents = [], isLoading: aggLoading } = useQuery({
+    queryKey: ["agents-aggregate", (sessions as any[]).map((s: any) => s.id).join(",")],
+    queryFn: async () => {
+      const results = await Promise.all(
+        (sessions as any[]).map((s: any) => getSessionAgents(s.id).catch(() => null)),
+      );
+      return results.flatMap((r: any) => r?.agents || []);
+    },
+    enabled: isAggregate && sessions.length > 0,
+  });
+
+  const isLoading = isAggregate ? aggLoading : singleLoading;
+
+  const agents = useMemo(
+    () => (isAggregate ? aggAgents : agentsData?.agents || []),
+    [isAggregate, aggAgents, agentsData],
+  );
+
+  const scopeLabel = selectedSessionId
+    ? ((sessions as any[]).find((s: any) => s.id === selectedSessionId)?.target || "current session")
+    : isAggregate
+      ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}`
+      : ((sessions as any[]).find((s: any) => s.id === selectedSid)?.target || "selected session");
+
+  const agentStats = useMemo(() => {
+    const active = agents.filter((a: any) => {
+      const s = String(a.status || "").toLowerCase();
+      return s === "running" || s === "active";
+    }).length;
+    const findings = agents.reduce((s: number, a: any) => s + (a.findings?.length ?? 0), 0);
+    const iterations = agents.reduce((s: number, a: any) => s + (a.iterations || 0), 0);
+    return { active, findings, iterations, total: agents.length };
+  }, [agents]);
+  const apct = (n: number) => (agentStats.total ? Math.round((n / agentStats.total) * 100) : 0);
 
   const agentTypesInData = useMemo(() => {
     const ts = new Set<string>();
@@ -77,6 +115,20 @@ const Agents = () => {
       return matchesSearch && matchesStatus && matchesType && matchesTasks;
     });
   }, [agents, search, statusSet, agentTypeSet, minTasks]);
+
+  const exportRows = useMemo(
+    () =>
+      filtered.map((a: any) => ({
+        id: a.id || "",
+        agent_type: a.agent_type || "",
+        status: a.status || "idle",
+        iterations: a.iterations || 0,
+        findings: a.findings?.length ?? 0,
+        target: a.target || "",
+        started_at: a.created_at ? new Date(a.created_at * 1000).toISOString() : "",
+      })),
+    [filtered],
+  );
 
   const clearAllFacets = useCallback(() => {
     setStatusSet(new Set());
@@ -134,6 +186,15 @@ const Agents = () => {
     return a.findings?.length ?? 0;
   }
 
+  function relAgo(ts?: number): string {
+    if (!ts) return "—";
+    const d = Math.floor(Date.now() / 1000 - ts);
+    if (d < 60) return `${d}s ago`;
+    if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+    if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
+    return `${Math.floor(d / 86400)}d ago`;
+  }
+
   // Filter events relevant to the selected agent
   const agentEvents = useMemo(() => {
     if (!selectedAgent) return [];
@@ -168,6 +229,37 @@ const Agents = () => {
     <PageShell title="AI Agents" subtitle="Autonomous pentest agent fleet">
       <div className="flex h-full gap-4">
         <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-y-auto scrollbar-gutter-stable">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
+            <StatCard
+              icon={Bot}
+              label="Total Agents"
+              value={agentStats.total}
+              accent="primary"
+              sublabel={scopeLabel}
+            />
+            <StatCard
+              icon={Activity}
+              label="Active"
+              value={agentStats.active}
+              accent="success"
+              progress={apct(agentStats.active)}
+              sublabel={`${apct(agentStats.active)}% running`}
+            />
+            <StatCard
+              icon={Zap}
+              label="Findings"
+              value={agentStats.findings}
+              accent="warning"
+              sublabel="surfaced by agents"
+            />
+            <StatCard
+              icon={Cpu}
+              label="Iterations"
+              value={agentStats.iterations}
+              accent="accent"
+              sublabel="total cycles"
+            />
+          </div>
           <div className="node-card !p-3">
             <ListFilterToolbar
               search={search}
@@ -184,7 +276,7 @@ const Agents = () => {
                     onChange={(e) => setSelectedSid(e.target.value)}
                     className="h-9 shrink-0 rounded-full bg-muted border border-border text-xs px-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary max-w-[200px]"
                   >
-                    <option value="all">Select a session</option>
+                    <option value="all">All sessions</option>
                     {sessions.map((s: any) => (
                       <option key={s.id} value={s.id}>
                         {s.target || s.id}
@@ -192,6 +284,13 @@ const Agents = () => {
                     ))}
                   </select>
                 ) : undefined
+              }
+              trailingActions={
+                <ExportMenu
+                  count={filtered.length}
+                  onExportCsv={() => exportCSV("agents", exportRows)}
+                  onExportJson={() => exportJSON("agents", filtered)}
+                />
               }
               filterPanel={
                 <div className="space-y-4">
@@ -253,10 +352,10 @@ const Agents = () => {
               }
             />
           </div>
-        <div className={`grid gap-4 ${selectedAgent ? 'grid-cols-2' : 'grid-cols-3'} overflow-y-auto scrollbar-gutter-stable`}>
-          {isLoading&&<div className="text-xs text-muted-foreground col-span-3 text-center py-8">Loading agents...</div>}
-          {!isLoading&&!effectiveSid&&<div className="text-xs text-muted-foreground col-span-3 text-center py-8">Select a session to view agents.</div>}
-          {!isLoading&&effectiveSid&&filtered.length===0&&<div className="text-xs text-muted-foreground col-span-3 text-center py-8">No agents found.</div>}
+        <div className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${selectedAgent ? '' : 'xl:grid-cols-3'} overflow-y-auto scrollbar-gutter-stable`}>
+          {isLoading&&<div className="text-xs text-muted-foreground col-span-full text-center py-8">Loading agents...</div>}
+          {!isLoading&&!effectiveSid&&!isAggregate&&<div className="col-span-full"><EmptyState icon={Bot} title="No session selected" hint="Pick a session above to view its agent fleet." compact /></div>}
+          {!isLoading&&(effectiveSid||isAggregate)&&filtered.length===0&&<div className="col-span-full"><EmptyState icon={Bot} title="No agents" hint="No agents match the current filters or scope." compact /></div>}
           {filtered.map((a:any,idx:number)=>{
             const typeKey=(a.agent_type||"recon").toLowerCase();
             const Icon=iconMap[Object.keys(iconMap).find(k=>typeKey.includes(k))||"recon"]||Eye;
@@ -319,6 +418,12 @@ const Agents = () => {
                 <span className="text-xs font-mono text-muted-foreground">{selectedAgent.iterations||0} iters</span>
               </div>
             </div>
+            {selectedAgent.created_at && (
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> Started</span>
+                <span className="font-mono text-muted-foreground">{relAgo(selectedAgent.created_at)}</span>
+              </div>
+            )}
             <div>
               <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-2 flex items-center gap-1.5"><Terminal className="w-3 h-3" /> Recent Activity</h4>
               <div className="space-y-1.5 max-h-[300px] overflow-y-auto">

@@ -204,7 +204,7 @@ export const resumeSession = (sid: string) =>
 export const injectSession = (sid: string, content: string) =>
   isDemoMode()
     ? mockDelay({ ok: true })
-    : apiFetch<any>(`/api/v1/sessions/${sid}/inject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
+    : apiFetch<any>(`/api/v1/sessions/${sid}/inject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: content }) });
 
 export const deleteSession = (sid: string) => {
   if (isDemoMode()) return mockDelay({ ok: true });

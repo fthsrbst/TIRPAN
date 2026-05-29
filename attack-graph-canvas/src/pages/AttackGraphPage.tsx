@@ -135,9 +135,9 @@ const AttackGraphPage = () => {
             {/* Network / Attack Flow toggle — always visible */}
             <div className="flex items-center gap-0.5 bg-muted/50 rounded-lg px-1 py-1 mr-2 self-center">
               <button
-                onClick={() => setTopologySubView("network")}
+                onClick={() => { setTopologySubView("network"); setActiveTabId(null); }}
                 className={`flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md transition-colors ${
-                  topologySubView === "network"
+                  topologySubView === "network" && activeTabId === null
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -146,9 +146,9 @@ const AttackGraphPage = () => {
                 Network
               </button>
               <button
-                onClick={() => setTopologySubView("flow")}
+                onClick={() => { setTopologySubView("flow"); setActiveTabId(null); }}
                 className={`flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md transition-colors ${
-                  topologySubView === "flow"
+                  topologySubView === "flow" && activeTabId === null
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
