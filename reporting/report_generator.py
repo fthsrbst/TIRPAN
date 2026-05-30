@@ -716,15 +716,35 @@ class ReportGenerator:
             return cleaned
         return f"Affected service: {service_name.upper()}. {cleaned}"
 
-    async def _resolve_reporting_ai_provider(self) -> str:
+    async def _reporting_router(self):
+        """LLM router for report synthesis.
+
+        Uses the per-report override (Settings → LLM Provider → Reports) when
+        configured, otherwise the global active provider. Never forces a model
+        the operator did not select.
+        """
+        from core.llm_client import llm_router, make_agent_llm
+        try:
+            from database.db import get_all_settings
+
+            saved = await get_all_settings()
+            provider = (saved.get("reporting_provider") or "").strip().lower()
+            model = (saved.get("reporting_model") or "").strip()
+            if provider:
+                return make_agent_llm(provider, model)
+        except Exception:
+            pass
+        return llm_router
+
+    async def _resolve_reporting_ai_provider(self, router=None) -> str:
         """
         Resolve an available LLM provider quickly.
         Returns an empty string when no provider is reachable.
         """
         try:
-            from core.llm_client import llm_router
-
-            provider = await asyncio.wait_for(llm_router.active_provider(), timeout=2.0)
+            if router is None:
+                router = await self._reporting_router()
+            provider = await asyncio.wait_for(router.active_provider(), timeout=2.0)
             if provider and provider != "none":
                 return provider
         except Exception:
@@ -815,7 +835,8 @@ class ReportGenerator:
             }
             return vuln_rows
 
-        provider = await self._resolve_reporting_ai_provider()
+        router = await self._reporting_router()
+        provider = await self._resolve_reporting_ai_provider(router)
         self._reporting_ai_provider = provider
         if not provider:
             self._reporting_ai_info = {
@@ -876,10 +897,8 @@ class ReportGenerator:
         )
 
         try:
-            from core.llm_client import llm_router
-
             response = await asyncio.wait_for(
-                llm_router.chat(
+                router.chat(
                     [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},

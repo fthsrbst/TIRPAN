@@ -96,8 +96,10 @@ const Overview = () => {
   }, [user?.id]);
   const [sections, setSections] = useState<SectionConfig[]>(() => loadLayout(user?.id));
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  // Pointer-based drag reorder (replaces native HTML5 drag — no ghost image, animated).
+  const [drag, setDrag] = useState<{ from: number; to: number; delta: number } | null>(null);
+  const dragMeta = useRef<{ startY: number; centers: number[]; unit: number } | null>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     sections.forEach((s) => { init[s.key] = s.defaultOpen; });
@@ -132,6 +134,73 @@ const Overview = () => {
   const toggleSection = useCallback((key: string) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
+
+  // Start a pointer drag from a section header. We measure the live geometry of
+  // every row once, then translate the active row with the pointer and slide the
+  // others out of the way via CSS transitions — a smooth, ghost-image-free reorder.
+  const beginDrag = useCallback((index: number, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const rects = sections.map((_, i) => {
+      const r = itemRefs.current[i]?.getBoundingClientRect();
+      return r ? { top: r.top, height: r.height } : { top: 0, height: 0 };
+    });
+    const centers = rects.map((r) => r.top + r.height / 2);
+    const gap = rects.length > 1 ? Math.max(0, rects[1].top - (rects[0].top + rects[0].height)) : 16;
+    dragMeta.current = { startY: e.clientY, centers, unit: rects[index].height + gap };
+    setDrag({ from: index, to: index, delta: 0 });
+  }, [sections]);
+
+  useEffect(() => {
+    if (!drag) return;
+    const from = drag.from;
+    const onMove = (e: PointerEvent) => {
+      const m = dragMeta.current;
+      if (!m) return;
+      const delta = e.clientY - m.startY;
+      const activeCenter = m.centers[from] + delta;
+      let to = 0;
+      m.centers.forEach((c, i) => { if (i !== from && c < activeCenter) to++; });
+      setDrag((d) => (d ? { ...d, delta, to } : d));
+    };
+    const onUp = () => {
+      setDrag((d) => {
+        if (d && d.from !== d.to) moveSection(d.from, d.to);
+        return null;
+      });
+      dragMeta.current = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [drag?.from, moveSection]);
+
+  const itemStyle = useCallback((i: number): React.CSSProperties => {
+    if (!drag) return {};
+    if (i === drag.from) {
+      return {
+        transform: `translateY(${drag.delta}px) scale(1.015)`,
+        transition: "none",
+        position: "relative",
+        zIndex: 50,
+        cursor: "grabbing",
+        boxShadow: "0 12px 32px -8px hsl(var(--primary) / 0.35)",
+      };
+    }
+    const unit = dragMeta.current?.unit ?? 0;
+    let shift = 0;
+    if (drag.from < drag.to && i > drag.from && i <= drag.to) shift = -unit;
+    else if (drag.from > drag.to && i >= drag.to && i < drag.from) shift = unit;
+    return {
+      transform: `translateY(${shift}px)`,
+      transition: "transform 220ms cubic-bezier(0.2, 0, 0, 1)",
+      position: "relative",
+      zIndex: 1,
+    };
+  }, [drag]);
 
   const { data: sessions = [] } = useQuery({
     queryKey: ["sessions"],
@@ -589,24 +658,21 @@ const Overview = () => {
         {(settingsOpen ? sections : visibleSections).map((sec, idx) => {
           const isOpen = openSections[sec.key] !== false;
           const meta = sectionMeta[sec.key];
-          const realIdx = sections.findIndex((s) => s.key === sec.key);
           return (
             <Collapsible
               key={sec.key}
-              open={isOpen && sec.visible}
+              ref={settingsOpen ? ((el: HTMLDivElement | null) => { itemRefs.current[idx] = el; }) : undefined}
+              open={settingsOpen ? false : (isOpen && sec.visible)}
               onOpenChange={() => { if (!settingsOpen) toggleSection(sec.key); }}
-              className={`col-span-12 transition-opacity ${settingsOpen && !sec.visible ? "opacity-40" : ""}`}
-              draggable={settingsOpen}
-              onDragStart={() => settingsOpen && setDragIdx(realIdx)}
-              onDragOver={(e) => { if (settingsOpen) { e.preventDefault(); setDragOverIdx(realIdx); } }}
-              onDrop={() => { if (settingsOpen && dragIdx !== null && dragIdx !== realIdx) moveSection(dragIdx, realIdx); setDragIdx(null); setDragOverIdx(null); }}
-              onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
+              className={`col-span-12 ${settingsOpen && !sec.visible ? "opacity-40" : ""}`}
+              style={settingsOpen ? itemStyle(idx) : undefined}
             >
               <div
-                className={`flex items-center gap-2 mb-3 select-none group transition-all
+                className={`flex items-center gap-2 mb-3 select-none group
                   ${settingsOpen
-                    ? `rounded-xl px-3 py-2 border cursor-grab active:cursor-grabbing ${dragOverIdx === realIdx ? "ring-2 ring-primary border-primary/50 bg-primary/5" : dragIdx === realIdx ? "opacity-50 border-border" : "border-border/50 bg-muted/20 hover:bg-muted/40 hover:border-border"}`
-                    : "cursor-pointer"}`}
+                    ? `rounded-xl px-3 py-2 border touch-none cursor-grab active:cursor-grabbing transition-colors ${drag?.from === idx ? "ring-2 ring-primary border-primary/60 bg-primary/10" : "border-border/50 bg-muted/20 hover:bg-muted/40 hover:border-border"}`
+                    : "cursor-pointer transition-all"}`}
+                onPointerDown={settingsOpen ? (e) => beginDrag(idx, e) : undefined}
                 onClick={() => { if (!settingsOpen) toggleSection(sec.key); }}
               >
                 {settingsOpen
@@ -620,6 +686,7 @@ const Overview = () => {
                 {!settingsOpen && meta?.badge}
                 {settingsOpen && (
                   <button
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => { e.stopPropagation(); toggleVisibility(sec.key); }}
                     className="ml-auto p-1 rounded-lg hover:bg-muted transition-colors shrink-0"
                     title={sec.visible ? "Hide section" : "Show section"}

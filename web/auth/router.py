@@ -13,6 +13,8 @@ from web.auth.models import (
     OrgCreate,
     OrgResponse,
     OrgUpdate,
+    PasswordChange,
+    ProfileUpdate,
     RoleUpdate,
     Token,
     UserCreate,
@@ -140,6 +142,61 @@ async def login(body: UserLogin):
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
     return UserResponse.from_row(current_user)
+
+
+# Max avatar payload (base64 data URL). ~350 KB encoded ≈ 256×256 JPEG.
+_MAX_AVATAR_CHARS = 500_000
+
+
+@router.put("/me")
+async def update_me(
+    body: ProfileUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update the signed-in user's own profile (name, email, avatar photo)."""
+    uid = current_user["id"]
+
+    # Validate the avatar payload: small base64 image data URL, or "" to clear.
+    avatar = body.avatar
+    if avatar is not None:
+        avatar = avatar.strip()
+        if avatar:
+            if not avatar.startswith("data:image/"):
+                raise HTTPException(status_code=400, detail="Avatar must be an image data URL.")
+            if len(avatar) > _MAX_AVATAR_CHARS:
+                raise HTTPException(
+                    status_code=413,
+                    detail="Avatar is too large. Please choose a smaller image (it is downscaled automatically).",
+                )
+
+    # Block email collisions with another account.
+    if body.email and body.email.lower() != (current_user.get("email") or "").lower():
+        if await _repo.email_exists(body.email):
+            raise HTTPException(status_code=409, detail="This email is already in use.")
+
+    updated = await _repo.update_profile(
+        uid,
+        full_name=body.full_name,
+        email=body.email,
+        avatar=avatar,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return {"ok": True, "user": UserResponse.from_row(updated).model_dump()}
+
+
+@router.post("/change-password")
+async def change_password(
+    body: PasswordChange,
+    current_user: dict = Depends(get_current_user),
+):
+    """Change the signed-in user's password (requires the current password)."""
+    if not verify_password(body.current_password, current_user["hashed_password"]):
+        raise HTTPException(status_code=403, detail="Current password is incorrect.")
+    if verify_password(body.new_password, current_user["hashed_password"]):
+        raise HTTPException(status_code=400, detail="New password must differ from the current one.")
+    await _repo.update_password(current_user["id"], hash_password(body.new_password))
+    return {"ok": True}
 
 
 # ── Kullanıcı yönetimi (owner / admin) ───────────────────────────────────────

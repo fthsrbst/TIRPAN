@@ -102,6 +102,20 @@ export interface AuthUser {
   org_id: string | null;
   is_active: boolean;
   created_at: number;
+  avatar?: string;
+  last_login?: number | null;
+}
+
+/** Persist a partial update to the stored user and notify listeners (sidebar avatar, etc.). */
+export function updateStoredUser(patch: Partial<AuthUser>): void {
+  const store = localStorage.getItem("tirpan_user") ? localStorage : sessionStorage;
+  try {
+    const cur = JSON.parse(store.getItem("tirpan_user") || "{}");
+    store.setItem("tirpan_user", JSON.stringify({ ...cur, ...patch }));
+  } catch {
+    store.setItem("tirpan_user", JSON.stringify(patch));
+  }
+  window.dispatchEvent(new Event("tirpan-auth"));
 }
 
 export const ROLE_HIERARCHY: Record<string, number> = {

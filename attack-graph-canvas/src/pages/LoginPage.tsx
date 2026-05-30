@@ -34,7 +34,7 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.detail || "Giris basarisiz");
+        setError(data.detail || "Login failed");
         setLoading(false);
         return;
       }
@@ -48,7 +48,7 @@ export default function LoginPage() {
         window.location.href = from;
       }
     } catch {
-      setError("Sunucu baglantisi basarisiz");
+      setError("Server connection failed");
       setLoading(false);
     }
   };
@@ -68,8 +68,8 @@ export default function LoginPage() {
 
         <Card className="shadow-[var(--shadow-elevated)]">
           <CardHeader className="pb-4">
-            <CardTitle className="font-display text-xl">Giris Yap</CardTitle>
-            <CardDescription>Hesabiniza giris yaparak islemlerinize devam edin</CardDescription>
+            <CardTitle className="font-display text-xl">Sign In</CardTitle>
+            <CardDescription>Sign in to your account to continue</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -79,11 +79,11 @@ export default function LoginPage() {
                 </div>
               )}
               <div className="space-y-2">
-                <Label htmlFor="email">E-posta</Label>
+                <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="ornek@email.com"
+                  placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -91,7 +91,7 @@ export default function LoginPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Sifre</Label>
+                <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
                   type="password"
@@ -109,7 +109,7 @@ export default function LoginPage() {
                   onCheckedChange={(v) => setRememberMe(v === true)}
                 />
                 <Label htmlFor="remember-me" className="text-sm text-muted-foreground cursor-pointer">
-                  Beni Hatirla
+                  Remember me
                 </Label>
               </div>
               <Button
@@ -117,15 +117,15 @@ export default function LoginPage() {
                 className="w-full h-11 font-display font-bold text-sm"
                 disabled={loading}
               >
-                {loading ? "Giris yapiliyor..." : "Giris Yap"}
+                {loading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
           </CardContent>
           <CardFooter className="flex flex-col gap-3 border-t pt-4">
             <p className="text-sm text-muted-foreground">
-              Hesabiniz yok mu?{" "}
+              Don&apos;t have an account?{" "}
               <Link to="/signup" className="text-accent font-semibold hover:underline">
-                Kayit Ol
+                Sign Up
               </Link>
             </p>
           </CardFooter>

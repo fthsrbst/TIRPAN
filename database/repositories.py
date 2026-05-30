@@ -1286,6 +1286,45 @@ class UserRepository:
             await db.commit()
             return db.total_changes > 0
 
+    async def update_profile(
+        self,
+        user_id: str,
+        full_name: str | None = None,
+        email: str | None = None,
+        avatar: str | None = None,
+    ) -> dict | None:
+        """Update editable profile fields. Only non-None fields are written."""
+        sets: list[str] = []
+        params: list = []
+        if full_name is not None:
+            sets.append("full_name=?")
+            params.append(full_name)
+        if email is not None:
+            sets.append("email=?")
+            params.append(email.lower())
+        if avatar is not None:
+            sets.append("avatar=?")
+            params.append(avatar)
+        if not sets:
+            return await self.get_by_id(user_id)
+        params.append(user_id)
+        async with _connect(self._path) as db:
+            await db.execute(
+                f"UPDATE users SET {', '.join(sets)} WHERE id=?",
+                params,
+            )
+            await db.commit()
+        return await self.get_by_id(user_id)
+
+    async def update_password(self, user_id: str, hashed_password: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET hashed_password=? WHERE id=?",
+                (hashed_password, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
 
 # ── OrganizationRepository ─────────────────────────────────────────────────────
 

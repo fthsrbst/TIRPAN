@@ -7,6 +7,7 @@ import { getSessions } from "@/lib/api";
 import { useSessionContext } from "@/lib/SessionContext";
 import { sessionDisplayLabel } from "@/lib/sessionDisplay";
 import { MessageSquare, Radio, X } from "lucide-react";
+import { UserAvatar } from "@/components/attack/UserAvatar";
 
 const AgentFlow = () => {
   const { selectedSessionId } = useSessionContext();
@@ -66,6 +67,19 @@ const AgentFlow = () => {
                 {session.status || "idle"}
               </span>
               {session.mode && <span className="hidden md:inline">mode: {session.mode}</span>}
+            </div>
+          )}
+
+          {session?.operator && (
+            <div
+              className="flex items-center gap-2 h-9 pl-1.5 pr-3 rounded-full bg-muted/50 border border-border/50"
+              title={`Operator: ${session.operator.name}`}
+            >
+              <UserAvatar name={session.operator.name} avatar={session.operator.avatar} role={session.operator.role} size={26} ring />
+              <div className="leading-tight">
+                <div className="text-[11px] font-medium truncate max-w-[120px]">{session.operator.name}</div>
+                <div className="text-[9px] text-muted-foreground">{session.operator.role_label || session.operator.role}</div>
+              </div>
             </div>
           )}
 

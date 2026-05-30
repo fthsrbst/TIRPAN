@@ -4,7 +4,7 @@ import { Crosshair, Terminal, Settings, ListTodo, FileText, ScrollText, Users, U
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/utils";
-import { ProfilePanel } from "./ProfilePanel";
+import { UserAvatar } from "./UserAvatar";
 
 const SCHED_KEY  = "tirpan_scheduled_missions";
 const NOTIF_KEY  = "tirpan_notifications";
@@ -48,11 +48,22 @@ export const Sidebar = () => {
   const location = useLocation();
   const perms = usePermissions();
   const { user } = useAuth();
-  const [profileOpen, setProfileOpen] = useState(false);
   const [schedCount, setSchedCount] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
   const { notifs, unreadCount, markAllRead, dismiss, clearAll } = useNotifications();
+
+  // Re-read the stored user (avatar/name) when the profile changes elsewhere.
+  const [, forceAuth] = useState(0);
+  useEffect(() => {
+    const h = () => forceAuth((v) => v + 1);
+    window.addEventListener("tirpan-auth", h);
+    window.addEventListener("storage", h);
+    return () => {
+      window.removeEventListener("tirpan-auth", h);
+      window.removeEventListener("storage", h);
+    };
+  }, []);
 
   // Close bell panel when clicking outside
   useEffect(() => {
@@ -97,7 +108,6 @@ export const Sidebar = () => {
   // py-4 = 16px top padding, each item is h-11 (44px) + gap-1 (4px) = 48px per slot
   const pillTop = 16 + Math.max(0, activeIndex) * 48;
 
-  const initials = (user?.full_name || "U")[0].toUpperCase();
 
   return (
     <>
@@ -235,12 +245,18 @@ export const Sidebar = () => {
           <div className="pt-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  onClick={() => setProfileOpen(true)}
-                  className="w-11 h-11 rounded-full flex items-center justify-center bg-primary/15 text-primary hover:bg-primary/25 transition-colors font-display font-bold text-sm"
+                <NavLink
+                  to="/profile"
+                  className="block rounded-full hover:opacity-90 transition-opacity focus:outline-none"
                 >
-                  {user ? initials : <User className="w-4 h-4" />}
-                </button>
+                  {user ? (
+                    <UserAvatar name={user.full_name} avatar={user.avatar} role={user.role} size={44} ring />
+                  ) : (
+                    <span className="w-11 h-11 rounded-full flex items-center justify-center bg-primary/15 text-primary">
+                      <User className="w-4 h-4" />
+                    </span>
+                  )}
+                </NavLink>
               </TooltipTrigger>
               <TooltipContent side="right" sideOffset={10}>
                 <p className="text-xs font-medium">{user?.full_name || "Profile"}</p>
@@ -250,8 +266,6 @@ export const Sidebar = () => {
           </div>
         </TooltipProvider>
       </aside>
-
-      <ProfilePanel open={profileOpen} onClose={() => setProfileOpen(false)} />
     </>
   );
 };

@@ -8,7 +8,8 @@ import { useSessionContext } from "@/lib/SessionContext";
 import { sessionDisplayLabel } from "@/lib/sessionDisplay";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { FileText, Calendar, Bug, Download, Clock, Target, Activity } from "lucide-react";
+import { FileText, Calendar, Bug, Download, Clock, Target, Activity, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { StatCard } from "@/components/attack/StatCard";
 
 const severityFromScore = (vulns: number, exploits: number) => {
   if (exploits > 0 && vulns > 5) return { label: "Critical", color: "destructive" };
@@ -120,6 +121,22 @@ const Reports = () => {
     [sessions, effectiveSid]
   );
 
+  const stats = useMemo(() => {
+    const sum = (key: string) => sessions.reduce((a: number, s: any) => a + (s[key] || 0), 0);
+    const critical = sessions.filter(
+      (s: any) => severityFromScore(s.vulns_found || 0, s.exploits_run || 0).label === "Critical"
+    ).length;
+    const completed = sessions.filter((s: any) => (s.status || "") === "done").length;
+    return {
+      count: sessions.length,
+      hosts: sum("hosts_found"),
+      vulns: sum("vulns_found"),
+      exploits: sum("exploits_run"),
+      critical,
+      completed,
+    };
+  }, [sessions]);
+
   const handleDownloadHtml = () => {
     if (!reportHtml || !effectiveSid) return;
     const blob = new Blob([reportHtml], { type: "text/html" });
@@ -157,7 +174,18 @@ const Reports = () => {
 
   return (
     <PageShell title="Reports" subtitle="Generated engagement deliverables">
-      <div className="flex h-full gap-4">
+      <div className="flex flex-col h-full gap-4 min-h-0">
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
+          <StatCard icon={FileText} label="Reports" value={stats.count} accent="primary" sublabel={`${filtered.length} shown`} />
+          <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} accent="success" />
+          <StatCard icon={Target} label="Hosts" value={stats.hosts} accent="accent" sublabel="discovered" />
+          <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" />
+          <StatCard icon={Activity} label="Exploits" value={stats.exploits} accent="primary" sublabel="executed" />
+          <StatCard icon={ShieldAlert} label="Critical" value={stats.critical} accent="destructive" sublabel="reports" />
+        </div>
+
+        <div className="flex flex-1 min-h-0 gap-4">
         {/* Left Panel */}
         <div className="w-[340px] shrink-0 flex flex-col gap-3 h-full">
           <div className="node-card !p-3 shrink-0">
@@ -321,7 +349,7 @@ const Reports = () => {
                     className="flex items-center gap-2 px-3 py-2 rounded-full bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-50"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    {pdfLoading ? "Oluşturuluyor..." : "PDF İndir"}
+                    {pdfLoading ? "Generating..." : "PDF"}
                   </button>
                 </div>
               </div>
@@ -345,6 +373,7 @@ const Reports = () => {
               <p className="text-sm">Select a report from the left panel to view details.</p>
             </div>
           )}
+        </div>
         </div>
       </div>
     </PageShell>

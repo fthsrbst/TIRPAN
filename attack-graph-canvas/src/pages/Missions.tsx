@@ -16,6 +16,7 @@ import {
   Server, AlertTriangle, Globe, RefreshCw, FileText, Pencil, ScrollText, Shield,
   Plus, UserCheck,
 } from "lucide-react";
+import { StatCard } from "@/components/attack/StatCard";
 
 const MISSION_STATUSES = ["running", "paused", "done", "error", "idle"] as const;
 type RiskBand = "low" | "medium" | "high" | "critical";
@@ -91,6 +92,20 @@ const Missions = () => {
     setMinExploits("");
   }, []);
 
+  const stats = useMemo(() => {
+    const num = (s: any, primary: string, arr: string) => s[primary] ?? s[arr]?.length ?? 0;
+    let hosts = 0, vulns = 0, exploits = 0, running = 0, highRisk = 0;
+    for (const s of sessions as any[]) {
+      hosts += s.hosts_found || 0;
+      vulns += num(s, "vulns_found", "vulnerabilities");
+      exploits += num(s, "exploits_run", "exploit_results");
+      if ((s.status || "") === "running") running += 1;
+      const band = riskBand(s);
+      if (band === "critical" || band === "high") highRisk += 1;
+    }
+    return { total: sessions.length, running, hosts, vulns, exploits, highRisk };
+  }, [sessions, riskBand]);
+
   const filterChips: FilterChipModel[] = useMemo(() => {
     const chips: FilterChipModel[] = [];
     statusSet.forEach((st) => {
@@ -154,7 +169,18 @@ const Missions = () => {
 
   return (
     <PageShell title="Missions" subtitle="Pentest mission management &amp; details">
-      <div className="flex h-full gap-4">
+      <div className="flex flex-col h-full gap-4 min-h-0">
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
+          <StatCard icon={Target} label="Missions" value={stats.total} accent="primary" />
+          <StatCard icon={Activity} label="Running" value={stats.running} accent="success" />
+          <StatCard icon={Server} label="Hosts" value={stats.hosts} accent="accent" />
+          <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" />
+          <StatCard icon={Play} label="Exploits" value={stats.exploits} accent="primary" />
+          <StatCard icon={AlertTriangle} label="High risk" value={stats.highRisk} accent="destructive" />
+        </div>
+
+        <div className="flex flex-1 min-h-0 gap-4">
         {/* Left Panel */}
         <div className="w-[360px] shrink-0 flex flex-col gap-3 h-full">
           <div className="node-card !p-3 shrink-0">
@@ -503,6 +529,7 @@ const Missions = () => {
           ) : (
             <div className="flex items-center justify-center h-full text-xs text-muted-foreground">No data available.</div>
           )}
+        </div>
         </div>
       </div>
     </PageShell>
