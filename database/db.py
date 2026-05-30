@@ -660,6 +660,23 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v23 applied: soft-blended post-run confidence")
 
+        if version < 24:
+            # User profile avatars — stored inline as a small base64 data URL
+            # (downscaled client-side). Keeps the app self-contained: no file
+            # store, and mini-avatars travel with the user row to Team / Agent Flow.
+            try:
+                await db.execute(
+                    "ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass  # column may already exist
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (24, time.time(), "users: avatar (base64 data URL) for profile photos"),
+            )
+            await db.commit()
+            logger.info("DB migration v24 applied: user avatar column")
+
     logger.info("Database ready: %s", path)
 
 

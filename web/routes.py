@@ -395,7 +395,48 @@ _ALLOWED_SETTINGS_KEYS: frozenset[str] = frozenset({
     # Set to 0 to disable. Default 0.15. test7 forensics: ~15 spawns at
     # P≤0.10 wasted turns.
     "ml_min_spawn_probability",
+    # ── Per-operation LLM override: Reports ─────────────────────────────
+    # Empty provider = inherit the global active provider. Lets the operator
+    # run report remediation synthesis on a different/cheaper model than chat.
+    "reporting_provider",
+    "reporting_model",
 })
+
+# Providers accepted anywhere a provider can be selected.
+_VALID_PROVIDERS: frozenset[str] = frozenset(
+    {"ollama", "lmstudio", "openrouter", "opencode_go", "anthropic"}
+)
+
+
+def _apply_llm_setting_live(key: str, value) -> None:
+    """Apply LLM-related settings to the live `settings` object immediately.
+
+    Without this, changing the active provider/model only writes the DB and
+    does not take effect until the next server restart — which is exactly the
+    "I selected OpenCode Go but it still calls OpenRouter" symptom. Reading the
+    value back into the live config makes the switch instant for chat, scans,
+    and reports.
+    """
+    if value is None:
+        return
+    val = str(value).strip()
+    if not val:
+        return
+    if key == "active_provider":
+        if val in _VALID_PROVIDERS:
+            settings.llm.provider = val
+    elif key == "cloud_model":
+        settings.llm.cloud_model = val
+    elif key == "opencode_go_model":
+        settings.opencode_go.model = val
+    elif key == "ollama_model":
+        settings.ollama.model = val
+    elif key == "ollama_base_url":
+        settings.ollama.base_url = val
+    elif key == "lmstudio_model":
+        settings.lmstudio.model = val
+    elif key == "lmstudio_base_url":
+        settings.lmstudio.base_url = val
 
 
 @router.get("/settings")
@@ -407,7 +448,10 @@ async def get_settings():
 async def set_setting(key: str, body: dict):
     if key not in _ALLOWED_SETTINGS_KEYS:
         raise HTTPException(400, f"Unknown setting key: '{key}'")
-    await database.set_setting(key, body.get("value"))
+    value = body.get("value")
+    await database.set_setting(key, value)
+    # Apply provider/model changes to the live config so they take effect now.
+    _apply_llm_setting_live(key, value)
     return {"ok": True}
 
 
@@ -853,6 +897,39 @@ async def opencode_go_models():
             return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
+
+
+# ── Reporting LLM Override (per-operation) ──────────────────────────────────────
+
+class ReportingLLMSettings(BaseModel):
+    provider: str = ""   # "" → inherit the global active provider
+    model: str = ""      # "" → use the provider's configured default model
+
+
+@router.get("/config/reporting-llm")
+async def get_reporting_llm_config():
+    """Return the per-report LLM override (empty = inherit global provider)."""
+    saved = await database.get_all_settings()
+    return {
+        "provider": (saved.get("reporting_provider", "") or ""),
+        "model": (saved.get("reporting_model", "") or ""),
+    }
+
+
+@router.post("/config/reporting-llm")
+async def save_reporting_llm_config(body: ReportingLLMSettings):
+    """Set the LLM used for report remediation synthesis.
+
+    Pass an empty provider to inherit the global active provider — nothing is
+    ever forced onto a model the operator did not choose.
+    """
+    provider = (body.provider or "").strip().lower()
+    if provider and provider not in _VALID_PROVIDERS:
+        raise HTTPException(400, f"Unknown provider: '{provider}'")
+    model = (body.model or "").strip()
+    await database.set_setting("reporting_provider", provider)
+    await database.set_setting("reporting_model", model)
+    return {"ok": True, "provider": provider, "model": model}
 
 
 # ── Nmap Config ────────────────────────────────────────────────────────────────

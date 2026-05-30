@@ -47,9 +47,9 @@ class UserCreate(BaseModel):
     @classmethod
     def password_complexity(cls, v: str) -> str:
         if not any(c.isupper() for c in v):
-            raise ValueError("Şifre en az bir büyük harf içermelidir")
+            raise ValueError("Password must contain at least one uppercase letter")
         if not any(c.isdigit() for c in v):
-            raise ValueError("Şifre en az bir rakam içermelidir")
+            raise ValueError("Password must contain at least one number")
         return v
 
 
@@ -62,7 +62,7 @@ class UserLogin(BaseModel):
     @classmethod
     def validate_email(cls, v: str) -> str:
         if not _EMAIL_RE.match(v):
-            raise ValueError("Geçersiz email formatı")
+            raise ValueError("Invalid email format")
         return v.lower()
 
 
@@ -75,6 +75,8 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: float
     org_id: str | None = None
+    avatar: str = ""
+    last_login: float | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> "UserResponse":
@@ -88,7 +90,32 @@ class UserResponse(BaseModel):
             is_active=bool(row["is_active"]),
             created_at=row["created_at"],
             org_id=row.get("org_id"),
+            avatar=row.get("avatar") or "",
+            last_login=row.get("last_login"),
         )
+
+
+# ── Profil güncelleme ──────────────────────────────────────────────────────────
+
+class ProfileUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=2, max_length=80)
+    email: str | None = Field(default=None, pattern=r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    # Base64 data URL (data:image/...;base64,...) or "" to clear. Capped server-side.
+    avatar: str | None = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one number")
+        return v
 
 
 class Token(BaseModel):

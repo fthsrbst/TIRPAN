@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { PageShell } from "@/components/attack/PageShell";
+import { UserAvatar } from "@/components/attack/UserAvatar";
+import { getSessions } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +51,10 @@ import {
   UserX,
   Hash,
   Crown,
+  Search,
+  Activity,
+  Target,
+  Radio,
 } from "lucide-react";
 import { api, useAuth, hasRole } from "@/lib/utils";
 
@@ -73,6 +79,15 @@ interface Member {
   is_active: boolean;
   created_at: number;
   org_id: string | null;
+  avatar?: string;
+  last_login?: number | null;
+}
+
+interface MemberActivity {
+  missions: number;   // sessions created by this member
+  assigned: number;   // sessions assigned to this member
+  running: number;    // currently running among them
+  lastActive: number; // most recent session updated_at (unix s)
 }
 
 interface Invitation {
@@ -115,6 +130,19 @@ function formatExpiry(ts: number) {
 
 function formatDate(ts: number) {
   return new Date(ts * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatRelative(ts?: number | null) {
+  if (!ts) return "Never";
+  const diff = Date.now() - ts * 1000;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 // ── CopyButton ────────────────────────────────────────────────────────────────
@@ -210,6 +238,9 @@ export default function TeamPage() {
   const [org, setOrg] = useState<OrgInfo | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [detailMember, setDetailMember] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -240,6 +271,50 @@ export default function TeamPage() {
 
   const activeCount = members.filter((m) => m.is_active).length;
   const pendingInvites = invitations.filter((i) => i.is_valid && !i.used_at).length;
+
+  // Per-member activity derived from sessions (created / assigned / running).
+  const activityByUser = useMemo(() => {
+    const map: Record<string, MemberActivity> = {};
+    const ensure = (uid: string) =>
+      (map[uid] || (map[uid] = { missions: 0, assigned: 0, running: 0, lastActive: 0 }));
+    for (const s of sessions) {
+      const updated = s.updated_at || s.created_at || 0;
+      const running = !!(s.is_running || s.status === "running");
+      if (s.created_by) {
+        const a = ensure(s.created_by);
+        a.missions += 1;
+        if (running) a.running += 1;
+        if (updated > a.lastActive) a.lastActive = updated;
+      }
+      if (s.assigned_to && s.assigned_to !== s.created_by) {
+        const a = ensure(s.assigned_to);
+        a.assigned += 1;
+        if (updated > a.lastActive) a.lastActive = updated;
+      }
+    }
+    return map;
+  }, [sessions]);
+
+  // Search + role-ranked sort for the member list.
+  const filteredMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    const list = q
+      ? members.filter(
+          (m) =>
+            m.full_name.toLowerCase().includes(q) ||
+            m.email.toLowerCase().includes(q) ||
+            m.role.includes(q),
+        )
+      : members;
+    const rank: Record<string, number> = { owner: 0, admin: 1, analyst: 2, viewer: 3 };
+    return [...list].sort(
+      (a, b) =>
+        (rank[a.role] ?? 9) - (rank[b.role] ?? 9) ||
+        a.full_name.localeCompare(b.full_name),
+    );
+  }, [members, memberSearch]);
+
+  const totalMissions = sessions.length;
 
   const applyNewToken = (token: string, userData: Record<string, unknown>) => {
     localStorage.setItem("tirpan_token", token);
@@ -284,14 +359,16 @@ export default function TeamPage() {
 
       if (!orgData) { setMembers([]); setInvitations([]); return; }
 
-      const [membersData, invData, brandingData] = await Promise.allSettled([
+      const [membersData, invData, brandingData, sessionsData] = await Promise.allSettled([
         isAdmin ? api.get<Member[]>("/auth/users") : Promise.resolve([]),
         isAdmin ? api.get<Invitation[]>("/auth/org/invitations") : Promise.resolve([]),
         api.get<{ company_name: string; logo_url: string; has_logo: boolean }>("/config/branding"),
+        isAdmin ? getSessions() : Promise.resolve([]),
       ]);
 
       if (membersData.status === "fulfilled") setMembers(membersData.value);
       if (invData.status === "fulfilled") setInvitations(invData.value);
+      if (sessionsData.status === "fulfilled") setSessions(sessionsData.value as any[]);
       if (brandingData.status === "fulfilled") {
         setBrandingName(brandingData.value.company_name);
         setBrandingLogoUrl(brandingData.value.logo_url);
@@ -545,32 +622,62 @@ export default function TeamPage() {
             {/* ── Members tab ─────────────────────────────────────────────── */}
             {tab === "members" && (
               <div className="node-card overflow-hidden !p-0">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                  <h3 className="font-semibold text-sm">Team members</h3>
+                <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
+                  <h3 className="font-semibold text-sm shrink-0">Team members</h3>
+                  <div className="relative flex-1 max-w-xs ml-auto">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Input
+                      value={memberSearch}
+                      onChange={(e) => setMemberSearch(e.target.value)}
+                      placeholder="Search members…"
+                      className="h-8 pl-8 text-xs"
+                    />
+                  </div>
                   {isAdmin && (
-                    <Button size="sm" onClick={() => { setInviteOpen(true); setNewInviteUrl(""); setInviteError(""); }} className="h-8 gap-1.5">
+                    <Button size="sm" onClick={() => { setInviteOpen(true); setNewInviteUrl(""); setInviteError(""); }} className="h-8 gap-1.5 shrink-0">
                       <Plus className="w-3.5 h-3.5" /> Invite
                     </Button>
                   )}
                 </div>
                 <div className="divide-y divide-border">
-                  {members.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-10">No members found.</p>
+                  {filteredMembers.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-10">
+                      {memberSearch ? "No members match your search." : "No members found."}
+                    </p>
                   )}
-                  {members.map((m) => (
+                  {filteredMembers.map((m) => {
+                    const act = activityByUser[m.id];
+                    return (
                     <div key={m.id} className={`flex items-center gap-3 px-4 py-3 transition-opacity ${!m.is_active ? "opacity-45" : ""}`}>
-                      <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center shrink-0 font-bold text-sm text-primary uppercase">
-                        {m.full_name.charAt(0)}
-                      </div>
+                      <UserAvatar name={m.full_name} avatar={m.avatar} role={m.role} ring size={40} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm truncate">{m.full_name}</span>
+                          <button
+                            onClick={() => setDetailMember(m)}
+                            className="font-medium text-sm truncate hover:text-primary transition-colors text-left"
+                          >
+                            {m.full_name}
+                          </button>
                           {m.id === user?.id && <span className="text-[10px] text-muted-foreground">(you)</span>}
+                          {act?.running ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-success">
+                              <Radio className="w-2.5 h-2.5 animate-pulse" /> live
+                            </span>
+                          ) : null}
                           {!m.is_active && <Badge variant="outline" className="text-[10px] text-destructive border-destructive/30 py-0">Inactive</Badge>}
                         </div>
                         <p className="text-xs text-muted-foreground truncate">{m.email}</p>
                       </div>
-                      <div className="text-[10px] text-muted-foreground hidden sm:block shrink-0">
+
+                      {/* Activity + last seen */}
+                      <div className="hidden md:flex flex-col items-end shrink-0 text-[10px] text-muted-foreground leading-tight">
+                        <span className="flex items-center gap-1" title="Missions created / assigned">
+                          <Target className="w-3 h-3" /> {act?.missions ?? 0}
+                          {act?.assigned ? <span className="opacity-60">+{act.assigned}</span> : null}
+                        </span>
+                        <span title="Last login">Login {formatRelative(m.last_login)}</span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground hidden lg:block shrink-0 w-20 text-right" title="Joined">
                         {formatDate(m.created_at)}
                       </div>
 
@@ -614,7 +721,8 @@ export default function TeamPage() {
                         </button>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

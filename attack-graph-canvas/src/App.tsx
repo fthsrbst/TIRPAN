@@ -30,6 +30,7 @@ import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import InvitePage from "./pages/InvitePage";
 import TeamPage from "./pages/TeamPage";
+import ProfilePage from "./pages/ProfilePage";
 import DemoEntry from "./pages/DemoEntry";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { CommandPalette } from "./components/attack/CommandPalette";
@@ -212,6 +213,7 @@ const App = () => (
             <Route path="/attack-matrix" element={<ProtectedRoute><AttackMatrix /></ProtectedRoute>} />
             <Route path="/v3-intel" element={<ProtectedRoute><V3IntelPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/missions/new" element={<ProtectedRoute minRole="analyst"><NewMission /></ProtectedRoute>} />
             <Route path="/scheduled-scans" element={<ProtectedRoute><ScheduledScans /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />

@@ -61,6 +61,14 @@ const tabs: { id: Tab; label: string; icon: typeof Cpu }[] = [
   { id: "ml-models", label: "ML Models", icon: Cpu },
 ];
 
+const PROVIDER_LABELS: Record<string, string> = {
+  ollama: "Ollama",
+  lmstudio: "LM Studio",
+  openrouter: "OpenRouter",
+  opencode_go: "OpenCode Go",
+  anthropic: "Anthropic",
+};
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-4">
@@ -141,6 +149,10 @@ const SettingsPage = () => {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelPickerOnSelect, setModelPickerOnSelect] = useState<((model: string, provider: string) => void) | null>(null);
   const [modelPickerFilter, setModelPickerFilter] = useState<string[] | null>(null);
+
+  // ── Per-operation: Reports LLM override ("" provider = inherit global) ──
+  const [reportingProvider, setReportingProvider] = useState("");
+  const [reportingModel, setReportingModel] = useState("");
 
   // ── Agent Models state
   const [agentModels, setAgentModels] = useState<Record<string, string>>({});
@@ -231,6 +243,11 @@ const SettingsPage = () => {
       if (settings.ollama_base_url) setOllamaUrl(settings.ollama_base_url);
       if (settings.lmstudio_base_url) setLmstudioUrl(settings.lmstudio_base_url);
       if (settings.opencode_go_api_key) setOcgApiKey(settings.opencode_go_api_key);
+      const rep = await api.get<{ provider: string; model: string }>("/config/reporting-llm").catch(() => null);
+      if (rep) {
+        setReportingProvider(rep.provider || "");
+        setReportingModel(rep.model || "");
+      }
     } catch {}
   }, []);
 
@@ -411,6 +428,15 @@ const SettingsPage = () => {
     setSaving(false);
   };
 
+  const saveReportingLLM = async () => {
+    setSaving(true);
+    try {
+      await api.post("/config/reporting-llm", { provider: reportingProvider, model: reportingModel });
+      flash("ok", reportingProvider ? "Report LLM override saved" : "Reports now follow the global provider");
+    } catch (e: unknown) { flash("err", String(e)); }
+    setSaving(false);
+  };
+
   const saveSafety = async () => {
     setSaving(true);
     try {
@@ -542,9 +568,27 @@ const SettingsPage = () => {
           {tab === "llm" && (
             <div className="space-y-6">
               <Section title="LLM Provider">
-                <p className="text-sm text-muted-foreground mb-4">
-                  Choose the AI provider used for engagements.
-                </p>
+                <div className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
+                  <div className="flex items-center gap-2 font-medium">
+                    <Cpu className="w-4 h-4 text-primary" />
+                    Global provider —
+                    <span className="font-display font-bold text-primary">
+                      {PROVIDER_LABELS[activeProvider] || activeProvider}
+                    </span>
+                    <span className="text-muted-foreground font-normal">
+                      {activeProvider === "ollama" && ollamaModel ? `· ${ollamaModel}` : ""}
+                      {activeProvider === "lmstudio" && lmstudioModel ? `· ${lmstudioModel}` : ""}
+                      {activeProvider === "openrouter" && orModel ? `· ${orModel}` : ""}
+                      {activeProvider === "opencode_go" && ocgModel ? `· ${ocgModel}` : ""}
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground mt-1.5 leading-relaxed">
+                    This provider &amp; model are used for <strong>everything</strong> — chat, scans, and reports —
+                    unless you override a specific operation below (Reports) or per scan-agent (Agent Models tab).
+                    Selecting a provider and clicking <strong>Save</strong> applies it instantly; nothing is ever
+                    forced onto a model you didn&apos;t choose.
+                  </p>
+                </div>
                 <div className="flex gap-2 flex-wrap">
                   {(
                     [
@@ -723,6 +767,53 @@ const SettingsPage = () => {
                   </Button>
                 </Section>
               )}
+
+              <Separator />
+
+              {/* ── Per-operation override: Reports ───────────────── */}
+              <Section title="Reports LLM (per-operation override)">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Choose which model writes report remediation guidance. Leave on{" "}
+                  <strong>Inherit global</strong> to use the provider above, or pick a dedicated
+                  (e.g. cheaper) model just for reports — your scans and chat stay on the global provider.
+                </p>
+                <FieldRow label="Report provider" desc="Used only for report AI synthesis">
+                  <Select
+                    value={reportingProvider || "__inherit__"}
+                    onValueChange={(v) => {
+                      const p = v === "__inherit__" ? "" : v;
+                      setReportingProvider(p);
+                      setReportingModel("");
+                    }}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__inherit__">
+                        Inherit global ({PROVIDER_LABELS[activeProvider] || activeProvider})
+                      </SelectItem>
+                      <SelectItem value="ollama">Ollama</SelectItem>
+                      <SelectItem value="lmstudio">LM Studio</SelectItem>
+                      <SelectItem value="openrouter">OpenRouter</SelectItem>
+                      <SelectItem value="opencode_go">OpenCode Go</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FieldRow>
+                {reportingProvider && (
+                  <FieldRow label="Report model" desc="Model for this provider (blank = provider default)">
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal"
+                      onClick={() => openModelPickerFor((model) => setReportingModel(model), [reportingProvider])}
+                    >
+                      {reportingModel || "Click to select model..."}
+                    </Button>
+                  </FieldRow>
+                )}
+                <Button onClick={saveReportingLLM} disabled={saving} className="gap-2">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save Report LLM
+                </Button>
+              </Section>
             </div>
           )}
 
