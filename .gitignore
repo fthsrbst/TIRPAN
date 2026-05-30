@@ -25,7 +25,9 @@ data/branding/
 
 # Build artifacts
 site/
-web/static/normal/
+# NOTE: web/static/normal/ (the built "normal" React UI) is intentionally
+# committed so fresh clones serve /normal/ without a Node toolchain.
+# Rebuild with: cd attack-graph-canvas && npm install && npm run build
 
 # Reports output
 reports/

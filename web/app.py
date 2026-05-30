@@ -14,7 +14,7 @@ import shutil
 
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
@@ -384,6 +384,29 @@ def create_app() -> FastAPI:
 
     normal_dir = settings.static_dir / "normal"
 
+    # The "normal" UI is a Vite/React build (source in attack-graph-canvas/).
+    # Its output (web/static/normal/) is a build artifact and is git-ignored, so
+    # a fresh clone won't have it until `npm run build` is run. Serve a clear
+    # instruction page instead of a 500 when the build is missing.
+    _NORMAL_NOT_BUILT_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>TIRPAN — Normal UI not built</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{background:#0b0f0a;color:#e6ede3;font-family:ui-monospace,Menlo,Consolas,monospace;
+display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.card{max-width:640px;padding:2rem;border:1px solid #ccff0033;border-radius:12px;background:#11160e}
+h1{color:#ccff00;font-size:1.25rem;margin:0 0 .75rem}code{background:#000;color:#ccff00;padding:.15rem .4rem;border-radius:5px}
+pre{background:#000;border:1px solid #ffffff14;border-radius:8px;padding:1rem;overflow:auto}
+a{color:#ccff00}</style></head><body><div class="card">
+<h1>Normal UI is not built yet</h1>
+<p>The simplified ("normal") interface is a separate React build that isn't shipped in git.
+Build it once on this machine:</p>
+<pre>cd attack-graph-canvas
+npm install
+npm run build</pre>
+<p>This writes <code>web/static/normal/</code>. Refresh this page afterwards, or use the
+full interface at <a href="/">/</a>.</p>
+</div></body></html>"""
+
     @application.get("/normal/{full_path:path}")
     async def normal_spa_fallback(full_path: str):
         _resolved_base = normal_dir.resolve()
@@ -392,7 +415,10 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
         if file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(normal_dir / "index.html")
+        index_html = normal_dir / "index.html"
+        if not index_html.is_file():
+            return HTMLResponse(content=_NORMAL_NOT_BUILT_HTML, status_code=503)
+        return FileResponse(index_html)
 
     application.mount(
         "/",

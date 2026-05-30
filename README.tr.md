@@ -149,28 +149,44 @@ V2 ile Brain ajan, MissionContext, async mesaj yolu, kalıcı shell yöneticisi 
 
 ## Hızlı Başlangıç
 
-**Gereksinimler:** Python 3.11+, Nmap 7.94+, Metasploit Framework 6.x, SearchSploit
+**Gereksinimler:** Python 3.11+, Nmap 7.94+, Metasploit Framework 6.x, SearchSploit. Node.js 18+ isteğe bağlı — yalnızca "normal" arayüzü *yeniden derlemek* için gerekir (repoda hazır derlenmiş bir kopya gelir).
 
 ```bash
 # Kopyala
 git clone https://github.com/fthsrbst/tirpan.git
 cd tirpan
 
-# Bağımlılıkları yükle
+# Tek komutluk kurulum: sanal ortam + bağımlılıklar + .env
+./setup.sh
+
+# …veya elle:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Yapılandır
 cp .env.example .env
 # Bulut LLM için OPENROUTER_API_KEY, yerel çıkarım için OLLAMA_MODEL ayarla
 
 # Metasploit RPC'yi başlat (exploitation için gerekli; yalnızca tarama modunda atla)
 msfrpcd -P sifreniz -S
 
-# Web arayüzünü başlat
+# Web arayüzünü başlat — SQLite veritabanı ilk çalıştırmada otomatik oluşturulur ve migrate edilir
 python3 main.py
-# http://localhost:8000 adresini aç
+# http://localhost:8000          tam / uzman arayüz
+#  ·   http://localhost:8000/normal    basitleştirilmiş arayüz (hazır derlenmiş)
+```
+
+**İlk giriş** — uygulamayı açıp kayıt ol; organizasyon adıyla oluşturulan ilk hesap **owner** olur. Ya da CLI'dan oluştur:
+
+```bash
+python manage.py --email siz@ornek.com --name "Siz" --password "changeme123"
+# veya demo hesapları oluştur (owner/admin/analyst/viewer @demo.tirpan, şifre Demo1234!):
+python seed_demo.py
+```
+
+**Normal arayüzü yeniden derleme** — yalnızca `attack-graph-canvas/` kaynaklarını değiştirince gerekir:
+
+```bash
+cd attack-graph-canvas && npm install && npm run build   # çıktı: web/static/normal/
 ```
 
 TIRPAN her eylemde on yapılandırılabilir güvenlik kısıtlaması uygular. Bu kısıtlamalar LLM tarafından aşılamaz — herhangi bir araç çalışmadan önce ayrı bir katmanda değerlendirilir.

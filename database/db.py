@@ -466,6 +466,65 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v10 applied: defense module tables")
 
+        if version < 11:
+            # Auth + RBAC base tables. This block (originally migration v11) was
+            # lost in a refactor, which left every freshly-cloned database
+            # without a `users` table — the v12 index and v14 ALTER below then
+            # crashed init_db() on a clean checkout (no such table: users).
+            # Restored so a brand-new DB builds the full auth schema. Idempotent
+            # (CREATE ... IF NOT EXISTS) and version-gated, so existing databases
+            # that already have these tables are untouched.
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS organizations (
+                    id         TEXT PRIMARY KEY,
+                    name       TEXT NOT NULL,
+                    plan       TEXT NOT NULL DEFAULT 'free',
+                    created_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS users (
+                    id                    TEXT    PRIMARY KEY,
+                    email                 TEXT    NOT NULL UNIQUE,
+                    full_name             TEXT    NOT NULL DEFAULT '',
+                    hashed_password       TEXT    NOT NULL,
+                    role                  TEXT    NOT NULL DEFAULT 'operator',
+                    is_active             INTEGER NOT NULL DEFAULT 1,
+                    is_verified           INTEGER NOT NULL DEFAULT 1,
+                    created_at            REAL    NOT NULL,
+                    last_login            REAL,
+                    org_id                TEXT    REFERENCES organizations(id),
+                    avatar_color          TEXT    NOT NULL DEFAULT '#2563eb',
+                    failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+                    locked_until          REAL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+                CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
+
+                CREATE TABLE IF NOT EXISTS refresh_tokens (
+                    id         TEXT    PRIMARY KEY,
+                    user_id    TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token_hash TEXT    NOT NULL UNIQUE,
+                    expires_at REAL    NOT NULL,
+                    created_at REAL    NOT NULL,
+                    revoked    INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_reftok_user ON refresh_tokens(user_id);
+
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id         TEXT    PRIMARY KEY,
+                    user_id    TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token_hash TEXT    NOT NULL UNIQUE,
+                    expires_at REAL    NOT NULL,
+                    used       INTEGER NOT NULL DEFAULT 0
+                );
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (11, time.time(), "auth: organizations, users, refresh_tokens, password_reset_tokens"),
+            )
+            await db.commit()
+            logger.info("DB migration v11 applied: auth tables (organizations, users, refresh_tokens, password_reset_tokens)")
+
         if version < 12:
             # Ensure indexes on the users table (table already exists from v11)
             await db.executescript("""
@@ -478,6 +537,20 @@ async def init_db(db_path: Path | None = None) -> None:
             )
             await db.commit()
             logger.info("DB migration v12 applied: users indexes")
+
+        if version < 13:
+            # audit_log event_type index (originally migration v13; lost in the
+            # same refactor as v11). audit_log exists from v2, so this is safe.
+            await db.executescript("""
+                CREATE INDEX IF NOT EXISTS idx_audit_log_event_type
+                    ON audit_log(event_type, created_at);
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (13, time.time(), "audit_log event_type index"),
+            )
+            await db.commit()
+            logger.info("DB migration v13 applied: audit_log event_type index")
 
         if version < 15:
             # Add created_by + assigned_to to pentest_sessions for RBAC-based filtering

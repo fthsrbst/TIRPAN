@@ -149,28 +149,45 @@ V2 adds a Brain agent, a mission context shared across agents, an async message 
 
 ## Quick Start
 
-**Prerequisites:** Python 3.11+, Nmap 7.94+, Metasploit Framework 6.x, SearchSploit
+**Prerequisites:** Python 3.11+, Nmap 7.94+, Metasploit Framework 6.x, SearchSploit. Node.js 18+ is optional — only needed to *rebuild* the "normal" UI (a prebuilt copy ships in the repo).
 
 ```bash
 # Clone
 git clone https://github.com/fthsrbst/tirpan.git
 cd tirpan
 
-# Install dependencies
+# One-shot setup: virtualenv + dependencies + .env
+./setup.sh
+
+# …or do it manually:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Configure
 cp .env.example .env
 # Set OPENROUTER_API_KEY for cloud LLM, or configure OLLAMA_MODEL for local inference
 
 # Start Metasploit RPC (required for exploitation; scan-only mode can skip)
 msfrpcd -P your_password -S
 
-# Launch web UI
+# Launch web UI — the SQLite database is created & migrated automatically on first run
 python3 main.py
-# Open http://localhost:8000
+# Open http://localhost:8000          full / expert UI
+#  ·   http://localhost:8000/normal    simplified UI (prebuilt, served as-is)
+```
+
+**First login** — open the app and register; the first account created with an
+organization name becomes the **owner**. Or create one from the CLI:
+
+```bash
+python manage.py --email you@example.com --name "You" --password "changeme123"
+# or seed demo accounts (owner/admin/analyst/viewer @demo.tirpan, password Demo1234!):
+python seed_demo.py
+```
+
+**Rebuilding the normal UI** — only needed after changing `attack-graph-canvas/` sources:
+
+```bash
+cd attack-graph-canvas && npm install && npm run build   # outputs to web/static/normal/
 ```
 
 ---
