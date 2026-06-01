@@ -16,6 +16,7 @@ V2 additions:
 
 import asyncio
 import logging
+import re
 import shutil
 import time
 import xml.etree.ElementTree as ET
@@ -82,6 +83,28 @@ class NmapTool(BaseTool):
             filtered.insert(1, "-sV")
 
         return filtered
+
+    @staticmethod
+    def _resolve_port_args(port_range: str) -> list[str]:
+        """Translate an LLM-supplied port spec into nmap port-selection flags.
+
+        LLMs routinely emit nmap's natural "top N ports" shorthand as the
+        port_range value (e.g. 'top1000', 'top-1000', 'top 100',
+        '--top-ports 1000'). Passed straight to '-p', nmap rejects it with
+        "Found no matches for the service mask 'top1000'" and quits. Detect
+        that family and emit '--top-ports N' instead; anything else becomes a
+        normal '-p <range>' selection.
+        """
+        spec = (port_range or "").strip()
+        if not spec:
+            return ["-p", "1-65535"]
+        normalized = spec.lower().lstrip("-")
+        if normalized.startswith("top"):
+            match = re.search(r"\d+", normalized)
+            n = int(match.group()) if match else 1000
+            n = max(1, min(65535, n))
+            return ["--top-ports", str(n)]
+        return ["-p", spec]
 
     @property
     def metadata(self) -> ToolMetadata:
@@ -269,22 +292,24 @@ class NmapTool(BaseTool):
         else:
             base = ["nmap", "-oX", "-"] + timing_flags
 
+        port_args = self._resolve_port_args(port_range)
+
         if scan_type == "ping":
             base += ["-sn"]
         elif scan_type == "service":
             # -Pn: treat host as up even if ICMP ping fails (firewalled hosts)
-            base += (["-Pn", "-sS", "-sV", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
+            base += (["-Pn", "-sS", "-sV", *port_args] if can_do_os else ["-Pn", "-sV", *port_args])
         elif scan_type == "udp":
             # UDP scan — requires root/sudo; port_range must be plain numbers (e.g. "53,67,161")
             if not can_do_os:
                 logger.warning("UDP scan requested but not running as root — falling back to TCP service scan")
-                base += ["-Pn", "-sV", "-p", port_range]
+                base += ["-Pn", "-sV", *port_args]
             else:
-                base += ["-Pn", "-sU", "-p", port_range]
+                base += ["-Pn", "-sU", *port_args]
         elif scan_type == "os":
-            base += (["-Pn", "-O", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
+            base += (["-Pn", "-O", *port_args] if can_do_os else ["-Pn", "-sV", *port_args])
         elif scan_type == "full":
-            base += (["-Pn", "-sS", "-sU", "-sV", "-O", "-p", port_range] if can_do_os else ["-Pn", "-sV", "-p", port_range])
+            base += (["-Pn", "-sS", "-sU", "-sV", "-O", *port_args] if can_do_os else ["-Pn", "-sV", *port_args])
 
         # NSE scripts
         if scripts.strip() and scan_type != "ping":
