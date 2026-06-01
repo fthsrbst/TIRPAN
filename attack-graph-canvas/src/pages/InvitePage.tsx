@@ -24,15 +24,15 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  owner:   "Organizasyonun tüm ayarlarını yönetebilir, üye ekleyip çıkarabilir.",
-  admin:   "Takım yöneticisi — üye davet edebilir ve pentest oturumlarını yönetebilir.",
-  analyst: "Pentest oturumları oluşturabilir, tarama ve exploit çalıştırabilir.",
-  viewer:  "Tüm raporları ve bulguları görüntüleyebilir (salt-okunur).",
+  owner:   "Full control over organization settings, members, and billing.",
+  admin:   "Team manager — can invite members and manage pentest sessions.",
+  analyst: "Can create pentest sessions, run scans and exploits.",
+  viewer:  "Read-only access to all reports and findings.",
 };
 
 function formatExpiry(ts: number): string {
   const d = new Date(ts * 1000);
-  return d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function InvitePage() {
@@ -45,7 +45,7 @@ export default function InvitePage() {
 
   useEffect(() => {
     if (!token) {
-      setError("Davet bağlantısı geçersiz.");
+      setError("Invalid invitation link.");
       setLoading(false);
       return;
     }
@@ -53,7 +53,7 @@ export default function InvitePage() {
       .then(async (res) => {
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          throw new Error(data.detail || "Davet bulunamadı.");
+          throw new Error(data.detail || "Invitation not found.");
         }
         return res.json() as Promise<InvitePreview>;
       })
@@ -61,7 +61,7 @@ export default function InvitePage() {
         setPreview(data);
       })
       .catch((err) => {
-        setError(err.message || "Davet yüklenirken bir hata oluştu.");
+        setError(err.message || "Failed to load invitation.");
       })
       .finally(() => setLoading(false));
   }, [token]);
@@ -89,7 +89,7 @@ export default function InvitePage() {
             <CardContent className="py-12">
               <div className="flex flex-col items-center gap-3 text-muted-foreground">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p className="text-sm">Davet kontrol ediliyor...</p>
+                <p className="text-sm">Checking invitation...</p>
               </div>
             </CardContent>
           )}
@@ -102,8 +102,8 @@ export default function InvitePage() {
                     <AlertCircle className="w-5 h-5 text-destructive" />
                   </div>
                   <div>
-                    <p className="font-display font-semibold text-foreground">Davet Geçersiz</p>
-                    <p className="text-sm text-muted-foreground">Bu bağlantı kullanılamıyor</p>
+                    <p className="font-display font-semibold text-foreground">Invalid Invitation</p>
+                    <p className="text-sm text-muted-foreground">This link cannot be used</p>
                   </div>
                 </div>
               </CardHeader>
@@ -114,7 +114,7 @@ export default function InvitePage() {
               </CardContent>
               <CardFooter className="border-t pt-4">
                 <Button variant="outline" className="w-full" onClick={() => navigate("/login")}>
-                  Giriş Yap
+                  Sign In
                 </Button>
               </CardFooter>
             </>
@@ -129,8 +129,8 @@ export default function InvitePage() {
                       <CheckCircle2 className="w-5 h-5 text-green-400" />
                     </div>
                     <div>
-                      <p className="font-display font-semibold text-foreground">Davet Aldınız!</p>
-                      <p className="text-sm text-muted-foreground">Aşağıdaki organizasyona katılmak için davet edildiniz</p>
+                      <p className="font-display font-semibold text-foreground">You've been invited!</p>
+                      <p className="text-sm text-muted-foreground">You have been invited to join the following organization</p>
                     </div>
                   </div>
                 ) : (
@@ -139,22 +139,21 @@ export default function InvitePage() {
                       <Clock className="w-5 h-5 text-amber-400" />
                     </div>
                     <div>
-                      <p className="font-display font-semibold text-foreground">Davet Süresi Dolmuş</p>
-                      <p className="text-sm text-muted-foreground">Bu bağlantı artık geçerli değil</p>
+                      <p className="font-display font-semibold text-foreground">Invitation Expired</p>
+                      <p className="text-sm text-muted-foreground">This link is no longer valid</p>
                     </div>
                   </div>
                 )}
               </CardHeader>
 
               <CardContent className="space-y-4">
-                {/* Org bilgisi */}
                 <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-lg bg-primary/15 flex items-center justify-center">
                       <Building2 className="w-4 h-4 text-primary" />
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider">Organizasyon</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider">Organization</p>
                       <p className="font-semibold text-foreground">{preview.org_name}</p>
                     </div>
                   </div>
@@ -164,7 +163,7 @@ export default function InvitePage() {
                       <Shield className="w-4 h-4 text-primary" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Atanacak Rol</p>
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Assigned Role</p>
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${ROLE_COLORS[preview.role] || ""}`}>
                         {preview.role_label}
                       </span>
@@ -176,18 +175,18 @@ export default function InvitePage() {
 
                   {preview.email && (
                     <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-1">
-                      Bu davet yalnızca <strong className="text-foreground">{preview.email}</strong> adresi için geçerlidir.
+                      This invitation is only valid for <strong className="text-foreground">{preview.email}</strong>.
                     </p>
                   )}
 
                   <p className="text-xs text-muted-foreground border-t border-border pt-2">
-                    Son geçerlilik: <span className="text-foreground">{formatExpiry(preview.expires_at)}</span>
+                    Expires: <span className="text-foreground">{formatExpiry(preview.expires_at)}</span>
                   </p>
                 </div>
 
                 {!preview.is_valid && (
                   <div className="bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg px-4 py-3 text-sm">
-                    Bu davet bağlantısının süresi dolmuş. Organizasyon yöneticinizden yeni bir davet göndermesini isteyin.
+                    This invitation has expired. Ask your organization admin to send a new one.
                   </div>
                 )}
               </CardContent>
@@ -198,17 +197,17 @@ export default function InvitePage() {
                     className="w-full h-11 font-display font-bold"
                     onClick={handleAccept}
                   >
-                    Daveti Kabul Et ve Kayıt Ol
+                    Accept Invitation & Sign Up
                   </Button>
                 ) : (
                   <Button variant="outline" className="w-full" onClick={() => navigate("/login")}>
-                    Giriş Yap
+                    Sign In
                   </Button>
                 )}
                 <p className="text-xs text-muted-foreground text-center">
-                  Zaten hesabınız var mı?{" "}
+                  Already have an account?{" "}
                   <button onClick={() => navigate("/login")} className="text-accent hover:underline">
-                    Giriş yap
+                    Sign in
                   </button>
                 </p>
               </CardFooter>

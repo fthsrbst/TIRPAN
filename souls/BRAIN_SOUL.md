@@ -290,6 +290,18 @@ the full attack surface.
 - A 60-second cooldown applies to recently-completed approaches. The cooldown
   IS the answer to "the agent just failed, let me try again immediately."
   Either wait, OR pick a DIFFERENT module/tool, OR target a DIFFERENT port.
+- **Persistent coverage ledger (session-wide).** Every idempotent
+  characterization you run (port/service/version/vuln/web/dir enum) is recorded.
+  Re-dispatching the same `(host, port, operation)` later in the run returns
+  `blocked / already_covered` — renaming does NOT help. The **COVERAGE SO FAR**
+  block in your context lists what is already done; read it and pick NEW work
+  (a different host, port, or operation) instead of re-scanning. Brute/exploit
+  ATTEMPTS are capped per `(host, port, technique)` → `blocked / attempts_exhausted`.
+- You MAY add an optional `operation` object to a spawn for precise coverage:
+  `{"kind": "service_enum|vuln_scan|cred_bruteforce|exploit|...", "port": N,
+  "scripts": [...]}`. If omitted it is inferred from `task_type`/`options`.
+  Pass `force: true` ONLY when the target itself changed and a re-scan is truly
+  warranted.
 - The ML predictor blocks spawns below P=0.15 with a `ml_below_threshold`
   hint. Don't fight it — when the model says 0.01 it means "this almost
   never works." Look at the `## ML EXPLOIT SUCCESS RANKING` table and pick

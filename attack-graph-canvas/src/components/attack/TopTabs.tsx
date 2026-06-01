@@ -324,15 +324,6 @@ export const TopTabs = () => {
           <ThemeToggle />
         </div>
 
-        {perms.isAnalyst && (
-          <a
-            href="/"
-            className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title="Expert Mode"
-          >
-            <Cpu className="w-4 h-4" />
-          </a>
-        )}
       </nav>
     </div>
   );

@@ -28,8 +28,15 @@ def make_context(**kwargs) -> MissionContext:
     return MissionContext.from_mission_brief("test-mission-01", brief, target="10.0.0.1")
 
 
+# Persistent event loop reused across run() calls. Python 3.14 removed the
+# implicit-loop behaviour of asyncio.get_event_loop(); a single shared loop
+# keeps asyncio primitives (Events/Locks created in fixtures) bound to one loop.
+_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(_loop)
+
+
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return _loop.run_until_complete(coro)
 
 
 def make_host(ip: str = "10.0.0.1", **kwargs) -> HostInfo:
@@ -515,7 +522,7 @@ class TestMissionContextConcurrency:
         async def run_concurrent():
             await asyncio.gather(spam(), spam(), spam())
 
-        asyncio.get_event_loop().run_until_complete(run_concurrent())
+        _loop.run_until_complete(run_concurrent())
         assert len(ctx.hosts) == 20
 
     def test_concurrent_vuln_adds(self):
@@ -530,6 +537,6 @@ class TestMissionContextConcurrency:
         async def run_concurrent():
             await asyncio.gather(add_vulns(), add_vulns())
 
-        asyncio.get_event_loop().run_until_complete(run_concurrent())
+        _loop.run_until_complete(run_concurrent())
         # Deduplication: 10 unique titles
         assert len(ctx.vulnerabilities) == 10

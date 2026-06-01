@@ -10,8 +10,15 @@ from core.shell_manager import ShellManager, ShellSession
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# Persistent event loop reused across run() calls. Python 3.14 removed the
+# implicit-loop behaviour of asyncio.get_event_loop(); a single shared loop
+# keeps asyncio primitives (Events/Locks created in fixtures) bound to one loop.
+_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(_loop)
+
+
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return _loop.run_until_complete(coro)
 
 
 class FakeShellTool:

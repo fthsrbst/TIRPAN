@@ -1912,6 +1912,7 @@ async def delete_session(sid: str, current_user: dict = Depends(require_min_role
 
 class AssignSessionRequest(BaseModel):
     assigned_to: str | None = None
+    access_scope: list[str] | None = None  # e.g. ["scan_results","vulnerabilities","credentials","exploit_results"]
 
 
 @router.patch("/sessions/{sid}/assign")
@@ -1920,14 +1921,14 @@ async def assign_session(
     body: AssignSessionRequest,
     current_user: dict = Depends(require_role("owner", "admin")),
 ):
-    """Session'ı bir kullanıcıya ata (owner / admin)."""
+    """Session'ı bir kullanıcıya ata, opsiyonel erişim kapsamıyla (owner / admin)."""
     session = await _session_repo.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
-    ok = await _session_repo.assign(sid, body.assigned_to)
+    ok = await _session_repo.assign(sid, body.assigned_to, body.access_scope)
     if not ok:
         raise HTTPException(500, "Atama başarısız")
-    return {"ok": True, "assigned_to": body.assigned_to}
+    return {"ok": True, "assigned_to": body.assigned_to, "access_scope": body.access_scope}
 
 
 class RenameSessionRequest(BaseModel):

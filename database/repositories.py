@@ -82,13 +82,26 @@ class SessionRepository:
             await db.commit()
         return await self.get(sid)
 
-    async def assign(self, session_id: str, user_id: str | None) -> bool:
-        """Assign (or unassign) a session to a user."""
+    async def assign(
+        self,
+        session_id: str,
+        user_id: str | None,
+        access_scope: list[str] | None = None,
+    ) -> bool:
+        """Assign (or unassign) a session to a user, with optional data access scope."""
+        import json as _json
+        scope_json = _json.dumps(access_scope) if access_scope is not None else None
         async with _connect(self._path) as db:
-            await db.execute(
-                "UPDATE pentest_sessions SET assigned_to=?, updated_at=? WHERE id=?",
-                (user_id, _now(), session_id),
-            )
+            if scope_json is not None:
+                await db.execute(
+                    "UPDATE pentest_sessions SET assigned_to=?, access_scope_json=?, updated_at=? WHERE id=?",
+                    (user_id, scope_json, _now(), session_id),
+                )
+            else:
+                await db.execute(
+                    "UPDATE pentest_sessions SET assigned_to=?, updated_at=? WHERE id=?",
+                    (user_id, _now(), session_id),
+                )
             await db.commit()
             return db.total_changes > 0
 
@@ -1763,3 +1776,99 @@ class DefenseEventRepository:
             d["payload"] = json.loads(d.get("payload") or "{}")
             result.append(d)
         return result
+
+
+# ── CoverageRepository ──────────────────────────────────────────────────────────
+
+class CoverageRepository:
+    """Persists the operation-coverage ledger (scan_coverage table).
+
+    Keyed by a stable operation signature (see core/operation_signature.py) so
+    the brain can tell whether a spawn would re-do work it has already done.
+    Kept free of any core/ import — callers pass primitive fields.
+    """
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def lookup(self, session_id: str, signature: str) -> dict | None:
+        """Return the coverage row for this signature, or None if unseen."""
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM scan_coverage WHERE session_id=? AND signature=?",
+            (session_id, signature),
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def record_running(
+        self,
+        session_id: str,
+        *,
+        signature: str,
+        op_class: str,
+        agent_type: str = "",
+        host: str = "",
+        port: int | None = None,
+        kind: str = "",
+        scripts: str = "",
+        agent_id: str = "",
+    ) -> dict:
+        """Mark a signature as running. First sighting → attempts=1; a repeat
+        bumps attempts. Returns the resulting row (with the post-update count)."""
+        now = _now()
+        async with _connect(self._path) as db:
+            await db.execute(
+                """
+                INSERT INTO scan_coverage
+                    (session_id, signature, op_class, agent_type, host, port,
+                     kind, scripts, status, attempts, findings_count, agent_id,
+                     first_seen, last_update)
+                VALUES (?,?,?,?,?,?,?,?, 'running', 1, 0, ?, ?, ?)
+                ON CONFLICT(session_id, signature) DO UPDATE SET
+                    status      = 'running',
+                    attempts    = attempts + 1,
+                    agent_id    = excluded.agent_id,
+                    last_update = excluded.last_update
+                """,
+                (session_id, signature, op_class, agent_type, host, port,
+                 kind, scripts, agent_id, now, now),
+            )
+            await db.commit()
+        row = await self.lookup(session_id, signature)
+        return row or {}
+
+    async def mark_finished(
+        self,
+        session_id: str,
+        signature: str,
+        *,
+        status: str,
+        findings_count: int = 0,
+    ) -> None:
+        """Close out a signature: status ∈ done|empty|failed|exhausted."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE scan_coverage SET status=?, findings_count=?, last_update=? "
+                "WHERE session_id=? AND signature=?",
+                (status, findings_count, _now(), session_id, signature),
+            )
+            await db.commit()
+
+    async def list_for_session(self, session_id: str) -> list[dict]:
+        """All coverage rows for a session (newest first) — for prompt injection."""
+        async with _connect(self._path) as db, db.execute(
+            "SELECT host, port, kind, op_class, status, attempts, findings_count "
+            "FROM scan_coverage WHERE session_id=? ORDER BY last_update DESC",
+            (session_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def delete_after(self, session_id: str, timestamp: float) -> None:
+        """Drop coverage recorded after a timestamp (mirrors other repos' rollback)."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "DELETE FROM scan_coverage WHERE session_id=? AND last_update>?",
+                (session_id, timestamp),
+            )
+            await db.commit()

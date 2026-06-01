@@ -57,6 +57,7 @@ from core.training_data import get_collector as _get_training_collector
 import core.debug_logger as dbg
 from core.session_tracer import get_tracer as _get_tracer
 from database.repositories import AgentInstanceRepository as _AgentInstanceRepo
+from database.repositories import CoverageRepository as _CoverageRepo
 
 _agent_instance_repo = _AgentInstanceRepo()
 from core.mission_context import (
@@ -87,6 +88,7 @@ _AGENT_REGISTRY: dict[str, tuple[str, str]] = {
     "osint":        ("core.agents.osint_agent",      "OSINTAgent"),
     "lateral":      ("core.agents.lateral_agent",    "LateralMovementAgent"),
     "reporting":    ("core.agents.reporting_agent",  "ReportingAgent"),
+    "cred_attack":  ("core.agents.cred_attack_agent", "CredAttackAgent"),
 }
 
 _AGENT_TYPE_TO_MODEL_KEY: dict[str, str] = {
@@ -97,6 +99,7 @@ _AGENT_TYPE_TO_MODEL_KEY: dict[str, str] = {
     "lateral": "lateral",
     "osint": "osint",
     "reporting": "reporting",
+    "cred_attack": "exploit",  # reuse the exploit model tier for credential attacks
 }
 
 _LEGACY_CHILD_MODEL_FALLBACK: dict[str, tuple[str, ...]] = {
@@ -104,6 +107,7 @@ _LEGACY_CHILD_MODEL_FALLBACK: dict[str, tuple[str, ...]] = {
     "webapp": ("scanner",),
     "lateral": ("osint",),
     "post_exploit": ("post_exploit",),
+    "cred_attack": ("exploit", "scanner"),
 }
 
 
@@ -170,6 +174,36 @@ class BrainAgent(BaseAgent):
         self._active_agent_targets: dict[str, str] = {}
         # Track spawn options per agent for port-based dedup: agent_id → options dict
         self._active_agent_options: dict[str, dict] = {}
+        # ── Operation-coverage ledger (anti-repetition, Faz 1) ───────────────
+        # Persistent record of every operation signature dispatched this
+        # session, so the brain never re-runs idempotent characterization
+        # (session test1: 192.168.1.4 scanned by ~10 scanner agents). See
+        # core/operation_signature.py + docs/13_ORCHESTRATION_EFFICIENCY_REDESIGN.md.
+        self._coverage_repo = _CoverageRepo()
+        # agent_id → (signature, op_class) so we can close the row on done.
+        self._agent_signatures: dict[str, tuple[str, str]] = {}
+        # Attempt budget for ACTION ops (brute/exploit) keyed by signature.
+        self._coverage_action_budget = 2
+        # Serialize the brain's own coverage writes so record_running (spawn)
+        # never contends with a concurrent mark_finished (a finishing child) on
+        # the same SQLite file — that contention can stall on busy_timeout.
+        self._coverage_lock = asyncio.Lock()
+        # In-memory mirror of this session's coverage for the (sync) prompt
+        # builder, so the brain proactively sees what it has already done and
+        # stops proposing repeats (the hard block is the safety net).
+        # signature → {host, port, kind, op_class, status}
+        self._covered_ops: dict[str, dict] = {}
+
+        # ── Progress / idle tracking (Faz 3) ─────────────────────────────────
+        # Mission completion is AI-driven (operator: "görevin bitmesine AI karar
+        # vermeli"). We feed the brain an idle/progress signal so it can decide
+        # to call mission_done when nothing new is being found and no leads
+        # remain — instead of spinning until the operator force-stops (test1).
+        self._last_finding_count: int = 0
+        self._idle_since_ts: float | None = None   # when findings last stopped growing
+        self._idle_iterations: int = 0
+        self._idle_backstop_minutes: float = 45.0  # soft wrap-up nudge threshold
+        self._hard_stop_minutes: float = 0.0       # 0 = disabled (runaway last resort)
         # Track child agent instances for pause/resume propagation: agent_id → BaseAgent
         self._child_agents: dict[str, BaseAgent] = {}
         # Cache of pending operator questions: correlation_id → Future
@@ -203,10 +237,16 @@ class BrainAgent(BaseAgent):
         # ── Concurrency cap for child agents ─────────────────────────────────
         # test3 forensics: 18 children spawned simultaneously caused 9 wall-clock
         # timeouts because the shared LLM API queue starved everyone.
-        # Cap is read from app_settings.spawn_max_parallel (default 3).
+        # Cap is read from app_settings.spawn_max_parallel (default 6). Raised
+        # from 3 now that the shared LLM concurrency gate (llm_client._get_llm_gate)
+        # decouples agent count from LLM throughput — see Faz 3 / §8.
         # Created lazily inside the running loop so the right loop owns it.
         self._spawn_semaphore: asyncio.Semaphore | None = None
-        self._spawn_max_parallel: int = 3  # refreshed from settings on demand
+        self._spawn_max_parallel: int = 6  # refreshed from settings on demand
+        # cred_attack runs on a SEPARATE background pool (Faz 2 / §8) so brute
+        # never steals slots from the main scanner/exploit/webapp pool.
+        self._cred_attack_semaphore: asyncio.Semaphore | None = None
+        self._cred_attack_max_parallel: int = 2
 
         # ── Per-spawn ML success prediction cache ────────────────────────────
         # Filled by _spawn_agents_batch; consumed by _spawn_agent so the child
@@ -644,6 +684,26 @@ class BrainAgent(BaseAgent):
                     "hint": f"Split target into {len(ipv4_parts)} agents: {ipv4_parts}",
                 }
 
+        # ── Route credential attacks out of the scanner lane (Faz 2 / §7) ────
+        # Brute NSE (ssh-brute/vnc-brute) used to run as a "scanner", hogging the
+        # main pool and the 600s budget for 0 results (session test1). Reroute to
+        # the background cred_attack agent so the brain is never blocked by brute.
+        if agent_type == "scanner":
+            try:
+                from core.operation_signature import derive_signature as _dsig
+                _k = _dsig(agent_type="scanner", target=target, task_type=task_type,
+                           options=options, operation=params.get("operation")).kind
+                if _k == "cred_bruteforce":
+                    self.emit_event("brute_rerouted", {
+                        "from": "scanner", "to": "cred_attack",
+                        "target": target, "task_type": task_type,
+                    })
+                    logger.info("Brain: rerouting brute %s on %s scanner→cred_attack",
+                                task_type, target)
+                    agent_type = "cred_attack"
+            except Exception:
+                pass
+
         if self._dispatch_blocked_reason:
             reason = self._dispatch_blocked_reason
             self.emit_event("dispatch_blocked", {
@@ -787,6 +847,65 @@ class BrainAgent(BaseAgent):
                     f"port/host, or wait 60s before re-trying."
                 ),
             }
+
+        # ── Coverage ledger guard (anti-repetition, persistent) ──────────────
+        # The 60s recent-done window above only catches near-simultaneous
+        # repeats. The coverage ledger is the durable cross-iteration layer: it
+        # blocks re-running idempotent CHARACTERIZATION (port/service/vuln/web/
+        # dir enum) already completed this session, and caps ACTION (brute/
+        # exploit) attempts. PROGRESSIVE ops carry their specific sub-op in the
+        # signature, so a deeper step is a different signature → never blocked.
+        # Computed always (for recording); the block is skipped when force=true.
+        _force_spawn = bool(params.get("force") or (options or {}).get("force"))
+        _op_sig = None
+        if self.session_id:
+            try:
+                from core.operation_signature import (
+                    derive_signature, CHARACTERIZATION, ACTION,
+                )
+                _op_sig = derive_signature(
+                    agent_type=agent_type, target=target, task_type=task_type,
+                    options=options, operation=params.get("operation"),
+                )
+                if not _force_spawn:
+                    _cov = await self._coverage_repo.lookup(self.session_id, _op_sig.signature)
+                    if _cov is not None and _op_sig.op_class == CHARACTERIZATION \
+                            and _cov["status"] in ("done", "empty", "running"):
+                        self.emit_event("coverage_block", {
+                            "signature": _op_sig.signature, "op_class": _op_sig.op_class,
+                            "kind": _op_sig.kind, "status": _cov["status"],
+                            "agent_type": agent_type, "target": target,
+                        })
+                        return {
+                            "success": False, "status": "blocked",
+                            "reason": "already_covered", "signature": _op_sig.signature,
+                            "error": (
+                                f"{_op_sig.kind} on {_op_sig.host}:{_op_sig.port} was already "
+                                f"'{_cov['status']}' this session ({_cov['findings_count']} findings). "
+                                f"Re-running idempotent characterization yields no new info. Use the "
+                                f"existing results, target a DIFFERENT host/port, or pick a different "
+                                f"operation. Pass force=true only if the target itself changed."
+                            ),
+                        }
+                    if _cov is not None and _op_sig.op_class == ACTION \
+                            and _cov["attempts"] >= self._coverage_action_budget:
+                        self.emit_event("coverage_block", {
+                            "signature": _op_sig.signature, "op_class": _op_sig.op_class,
+                            "kind": _op_sig.kind, "attempts": _cov["attempts"],
+                            "agent_type": agent_type, "target": target,
+                        })
+                        return {
+                            "success": False, "status": "blocked",
+                            "reason": "attempts_exhausted", "signature": _op_sig.signature,
+                            "error": (
+                                f"{_op_sig.kind} on {_op_sig.host}:{_op_sig.port} already attempted "
+                                f"{_cov['attempts']}x this session (budget {self._coverage_action_budget}). "
+                                f"Try a different module/wordlist/vector, or a different host."
+                            ),
+                        }
+            except Exception as _cov_e:
+                logger.debug("coverage lookup failed (non-fatal): %s", _cov_e)
+                _op_sig = None
 
         # ── Exploit guard: don't spawn another exploit agent if we already have
         #    an active shell on this target — one shell is enough.
@@ -1044,6 +1163,25 @@ class BrainAgent(BaseAgent):
         self._active_agent_targets[agent_id] = target
         self._active_agent_options[agent_id] = options or {}
 
+        # Record this operation in the coverage ledger (anti-repetition). Stored
+        # against agent_id so _run_child can close the row with the final status.
+        if _op_sig is not None and self.session_id:
+            self._agent_signatures[agent_id] = (_op_sig.signature, _op_sig.op_class)
+            self._covered_ops[_op_sig.signature] = {
+                "host": _op_sig.host, "port": _op_sig.port, "kind": _op_sig.kind,
+                "op_class": _op_sig.op_class, "status": "running",
+            }
+            try:
+                async with self._coverage_lock:
+                    await self._coverage_repo.record_running(
+                        self.session_id, signature=_op_sig.signature,
+                        op_class=_op_sig.op_class, agent_type=agent_type,
+                        host=_op_sig.host, port=_op_sig.port, kind=_op_sig.kind,
+                        scripts="+".join(_op_sig.scripts), agent_id=agent_id,
+                    )
+            except Exception as _rec_e:
+                logger.debug("coverage record_running failed (non-fatal): %s", _rec_e)
+
         # Make this child visible in the attack graph straight away — operator
         # sees the agent node + a "targeting" edge to its host/service before
         # any tool call comes back.
@@ -1093,19 +1231,28 @@ class BrainAgent(BaseAgent):
             return {"success": False, "status": "error", "output": None, "error": "spawn_agents_batch requires 'agents' list"}
 
         # ── Refresh runtime knobs from settings (cheap, every batch) ──────────
-        # spawn_max_parallel: hard cap; default 3 keeps LLM queue healthy.
+        # spawn_max_parallel: hard cap; default 6 (safe now that the shared LLM
+        # concurrency gate caps actual LLM throughput — Faz 3 / §8).
         # ml_inject_exploit_pred: gates per-module success-prob injection.
-        _spawn_cap = 3
+        _spawn_cap = 6
+        _cred_cap = 2
         _ml_pred_enabled = True
         try:
             from database import db as _db
-            _spawn_cap = int(await _db.get_setting("spawn_max_parallel", 3) or 3)
+            _spawn_cap = int(await _db.get_setting("spawn_max_parallel", 6) or 6)
+            _cred_cap = int(await _db.get_setting("cred_attack_max_parallel", 2) or 2)
             _ml_pred_enabled = bool(await _db.get_setting("ml_inject_exploit_pred", True))
+            # Faz 3 idle thresholds (minutes): soft nudge default 45, hard stop off.
+            self._idle_backstop_minutes = float(
+                await _db.get_setting("idle_backstop_minutes", 45) or 45)
+            self._hard_stop_minutes = float(
+                await _db.get_setting("idle_hard_stop_minutes", 0) or 0)
         except Exception:
             pass
         # Clamp to a sane band.
         _spawn_cap = max(1, min(_spawn_cap, 16))
         self._spawn_max_parallel = _spawn_cap
+        self._cred_attack_max_parallel = max(1, min(_cred_cap, 8))
 
         # ── ML pre-run prioritization (fixed API binding) ─────────────────────
         # Previous code called get_ml_predictor() / predict_success_probability()
@@ -1215,11 +1362,20 @@ class BrainAgent(BaseAgent):
         # ── Concurrency gate: only spawn_max_parallel children run at once ──
         # Lazily create the semaphore in the running loop so we don't tie it to
         # the constructor's loop (which may not be the running one).
-        if self._spawn_semaphore is None:
-            self._spawn_semaphore = asyncio.Semaphore(max(1, int(self._spawn_max_parallel or 3)))
+        # cred_attack uses its OWN pool so background brute never starves the
+        # main pool (Faz 2 / §8).
+        if agent_type == "cred_attack":
+            if self._cred_attack_semaphore is None:
+                self._cred_attack_semaphore = asyncio.Semaphore(
+                    max(1, int(self._cred_attack_max_parallel or 2)))
+            _sem = self._cred_attack_semaphore
+        else:
+            if self._spawn_semaphore is None:
+                self._spawn_semaphore = asyncio.Semaphore(max(1, int(self._spawn_max_parallel or 3)))
+            _sem = self._spawn_semaphore
 
         sem_t0 = asyncio.get_event_loop().time()
-        async with self._spawn_semaphore:
+        async with _sem:
             sem_wait = asyncio.get_event_loop().time() - sem_t0
             if sem_wait > 0.5:
                 dbg.info(agent_id, f"_run_child: waited {sem_wait:.1f}s for spawn slot")
@@ -1233,13 +1389,60 @@ class BrainAgent(BaseAgent):
                 except Exception:
                     pass
             # Per-agent wall-clock timeout — kills hung agents that don't make progress.
-            # Scanner: 600s (10min, big port ranges take time)
-            # Exploit: 480s (8min, MSF exploits + multiple attempts)
-            # Others:  300s (5min)
+            # Defaults are tunable via app_settings; a single-host full-range TCP
+            # scan gets a longer budget because 1-65535 legitimately takes minutes
+            # (redesign doc §6a). Lowered from the old flat 600/480/300 — session
+            # test1 burned ~10 agents on 600s timeouts (mostly brute NSE that
+            # should not run in the scanner lane; that move is Faz 2).
             # IMPORTANT: timer starts AFTER semaphore acquisition so a queued
             # child is not penalised for the wait it didn't choose.
-            _agent_timeout_s = {"scanner": 600, "exploit": 480}.get(agent_type, 300)
+            _agent_timeout_s = await self._resolve_agent_timeout(agent_id, agent_type)
             return await self._execute_child(agent, agent_id, agent_type, _agent_timeout_s)
+
+    async def _resolve_agent_timeout(self, agent_id: str, agent_type: str) -> int:
+        """Per-agent wall-clock budget (seconds).
+
+        Replaces the old flat {scanner:600, exploit:480, *:300}. Conservative
+        Faz-0 stance — we ONLY shorten the budget for the work that actually
+        wasted time in session test1: NARROW single-host scanner scans (single
+        port / small range), which were mostly brute NSE (ssh-brute/vnc-brute)
+        that hung to the 600s ceiling. BROAD scans (subnet sweeps, full 1-65535)
+        keep the old 600s so legit discovery is never cut short. All values are
+        tunable via app_settings.
+        """
+        # cred_attack runs in the background and is allowed to run long (brute is
+        # slow by nature); the wall-clock here is just a runaway backstop.
+        _defaults = {"scanner": 240, "exploit": 360, "cred_attack": 900}
+        base = _defaults.get(agent_type, 300)
+        try:
+            from database import db as _db
+            base = int(await _db.get_setting(f"agent_timeout_{agent_type}", base) or base)
+        except Exception:
+            pass
+
+        if agent_type == "scanner":
+            opts = self._active_agent_options.get(agent_id, {}) or {}
+            target = self._active_agent_targets.get(agent_id, "") or ""
+            ports = str(opts.get("ports") or opts.get("port_range") or "").strip().lower()
+            # Narrow = single host AND an explicit small port set. Anything else
+            # (subnet target, whole-range/keyword, wide span) is "broad".
+            narrow = False
+            if "/" not in target and ports and ports not in ("-", "all", "top1000", "top-ports"):
+                if "-" in ports:
+                    try:
+                        lo, hi = ports.split("-", 1)
+                        narrow = (int(hi) - int(lo)) < 1000
+                    except (ValueError, TypeError):
+                        narrow = False
+                else:
+                    narrow = True  # explicit list like "22" or "445,5900"
+            if not narrow:
+                try:
+                    from database import db as _db
+                    return int(await _db.get_setting("agent_timeout_scanner_broad", 600) or 600)
+                except Exception:
+                    return 600
+        return base
 
     async def _execute_child(
         self, agent: BaseAgent, agent_id: str, agent_type: str, _agent_timeout_s: int,
@@ -1351,6 +1554,24 @@ class BrainAgent(BaseAgent):
             except Exception:
                 pass  # non-critical
 
+        # Close the coverage ledger row: done (found something) / empty (ran but
+        # nothing) / failed. 'empty' still blocks re-runs of idempotent characte-
+        # rization — re-scanning a port that returned nothing is also waste.
+        _sig_pair = self._agent_signatures.pop(agent_id, None)
+        if _sig_pair and self.session_id:
+            _sig = _sig_pair[0]
+            _n = len(result.findings or [])
+            _cov_status = "failed" if final_status == "failed" else ("done" if _n else "empty")
+            if _sig in self._covered_ops:
+                self._covered_ops[_sig]["status"] = _cov_status
+            try:
+                async with self._coverage_lock:
+                    await self._coverage_repo.mark_finished(
+                        self.session_id, _sig, status=_cov_status, findings_count=_n,
+                    )
+            except Exception as _mf_e:
+                logger.debug("coverage mark_finished failed (non-fatal): %s", _mf_e)
+
         return result
 
     # ── wait_for_agents ──────────────────────────────────────────────────────
@@ -1382,18 +1603,25 @@ class BrainAgent(BaseAgent):
         timeout: float = float(params.get("timeout", 3600))
         raw_wait_count = params.get("wait_count", "all")
 
-        # Support "all" shorthand to wait for all currently tracked agents
+        # Support "all" shorthand to wait for all currently tracked agents.
+        # cred_attack agents are EXCLUDED from "all": they run in the background
+        # (fire-and-forget) and the brain must not block on slow brute — their
+        # credential findings arrive asynchronously via the bus. An explicit
+        # agent_ids list can still wait on a specific cred_attack if desired.
         if raw_ids == "all" or raw_ids == ["all"]:
-            # 1. Currently running agents
-            agent_ids = list(self._active_agents.keys())
+            # 1. Currently running agents (minus background cred_attack)
+            agent_ids = [aid for aid, atype in self._active_agents.items()
+                         if atype != "cred_attack"]
             # 2. Tasks not yet done (may have been removed from _active_agents early)
             for aid, t in self._child_tasks.items():
-                if not t.done() and aid not in agent_ids:
+                if (not t.done() and aid not in agent_ids
+                        and self._active_agents.get(aid) != "cred_attack"):
                     agent_ids.append(aid)
             # 3. Also include any that already completed (pre-resolved futures)
             #    so the caller gets a full picture of what ran
             if not agent_ids:
-                agent_ids = list(self._child_tasks.keys())
+                agent_ids = [aid for aid in self._child_tasks.keys()
+                             if self._active_agents.get(aid) != "cred_attack"]
         else:
             agent_ids = raw_ids if isinstance(raw_ids, list) else [raw_ids]
 
@@ -2330,6 +2558,14 @@ class BrainAgent(BaseAgent):
             max_entries=12,
         )
         attack_path_section = self._build_attack_path_section()
+        # Append the coverage ledger so the brain proactively avoids re-dispatching
+        # work it already did (the hard block in _spawn_agent is the safety net).
+        for _extra in (self._build_progress_section(), self._build_coverage_section()):
+            if _extra:
+                attack_path_section = (
+                    (attack_path_section + "\n\n" + _extra).strip()
+                    if attack_path_section else _extra
+                )
         return self._soul.build_brain_prompt(
             ctx_summary=ctx_summary,
             active_agents=self._active_agents,
@@ -2338,6 +2574,30 @@ class BrainAgent(BaseAgent):
             discovered_services=discovered or None,
             attack_path_section=attack_path_section,
         )
+
+    def _build_coverage_section(self) -> str:
+        """Render this session's operation coverage for the system prompt so the
+        brain sees what it has already attempted and stops proposing repeats."""
+        if not self._covered_ops:
+            return ""
+        from collections import defaultdict
+        by_host: dict[str, list[str]] = defaultdict(list)
+        for info in self._covered_ops.values():
+            port = info.get("port")
+            kind = info.get("kind", "op")
+            status = info.get("status", "?")
+            by_host[info.get("host", "?")].append(
+                f"{kind}@{port}={status}" if port else f"{kind}={status}"
+            )
+        lines = [
+            "## COVERAGE SO FAR — already attempted this session",
+            "Do NOT re-dispatch a completed characterization (port/service/vuln/web/dir "
+            "enum); it is BLOCKED. Use the existing results, or pick a NEW host/port/operation.",
+        ]
+        for host in sorted(by_host)[:40]:
+            ops = ", ".join(sorted(set(by_host[host]))[:14])
+            lines.append(f"- {host}: {ops}")
+        return "\n".join(lines)
 
     def _build_attack_path_section(self) -> str:
         """Ask the ML attack-path model for the next likely TTPs and render a
@@ -2962,6 +3222,10 @@ class BrainAgent(BaseAgent):
         Called by BaseAgent.run() after every act/observe cycle.
         Only writes if we have a captured action from this iteration.
         """
+        # Progress/idle tracking runs every iteration (Faz 3), before the
+        # training-capture early-return below.
+        self._update_progress_tracking()
+
         if not self._last_action or not self._last_messages:
             return
         try:
@@ -2979,6 +3243,80 @@ class BrainAgent(BaseAgent):
             # Reset so a missed act() doesn't re-emit stale data
             self._last_action = {}
             self._last_result = {}
+
+    # ── Progress / idle tracking (Faz 3) ───────────────────────────────────────
+
+    def _foreground_active_count(self) -> int:
+        """Running agents that block completion — excludes background cred_attack."""
+        n = 0
+        for aid, task in self._child_tasks.items():
+            if task.done():
+                continue
+            if self._active_agents.get(aid) == "cred_attack":
+                continue
+            n += 1
+        return n
+
+    def _update_progress_tracking(self) -> None:
+        """Track findings-vs-time for the idle signal, and (optional, off by
+        default) hard-stop a runaway that never self-terminates."""
+        import time as _t
+        now = _t.time()
+        cur = len(self._findings)
+        if cur > self._last_finding_count:
+            self._last_finding_count = cur
+            self._idle_since_ts = now
+            self._idle_iterations = 0
+            return
+        if self._idle_since_ts is None:
+            self._idle_since_ts = now
+        self._idle_iterations += 1
+
+        # Hard idle backstop (default OFF) — last resort against a brain that
+        # ignores the wrap-up nudge and spins with no foreground work.
+        if self._hard_stop_minutes and not self._mission_done:
+            idle_min = (now - self._idle_since_ts) / 60.0
+            if idle_min >= self._hard_stop_minutes and self._foreground_active_count() == 0:
+                logger.warning(
+                    "Brain: hard idle backstop (%.0f min, no active agents) — finalizing",
+                    idle_min)
+                self.emit_event("idle_hard_stop", {"idle_minutes": round(idle_min, 1)})
+                self._mission_done = True
+                if not self._mission_narrative:
+                    self._mission_narrative = (
+                        f"Mission auto-finalized after ~{idle_min:.0f} min with no new "
+                        f"findings and no active agents.")
+                self.memory.add_user(
+                    "[SYSTEM] Idle backstop reached — no progress and no active agents. "
+                    "Finalize the mission now.")
+
+    def _build_progress_section(self) -> str:
+        """Idle/progress signal so the brain can decide to wrap up (Faz 3)."""
+        import time as _t
+        fg = self._foreground_active_count()
+        idle_min = 0.0
+        if self._idle_since_ts is not None and self._idle_iterations > 0:
+            idle_min = (_t.time() - self._idle_since_ts) / 60.0
+        done_ops = sum(1 for o in self._covered_ops.values()
+                       if o.get("status") in ("done", "empty", "failed"))
+        lines = [
+            "## MISSION PROGRESS",
+            f"- Findings: {len(self._findings)} · coverage ops done: {done_ops} · "
+            f"active agents: {fg} · iterations with no new finding: {self._idle_iterations}"
+            + (f" (~{idle_min:.0f} min)" if idle_min >= 1 else ""),
+        ]
+        if fg == 0 and self._idle_iterations >= 3:
+            if idle_min >= self._idle_backstop_minutes:
+                lines.append(
+                    f"- ⚠️ No active agents and no new findings for ~{idle_min:.0f} min. If every "
+                    f"worthwhile lead is exhausted and further attempts add no value, call "
+                    f"mission_done NOW with a summary. Continue ONLY if you can name a concrete NEW lead.")
+            else:
+                lines.append(
+                    "- No active agents and recent iterations found nothing new. Either pursue a "
+                    "concrete NEW lead (different host/port/technique), or call mission_done if the "
+                    "mission is genuinely complete. Do NOT re-dispatch covered scans.")
+        return "\n".join(lines)
 
     # ── Handle terminal action ────────────────────────────────────────────────
 

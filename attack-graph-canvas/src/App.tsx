@@ -197,7 +197,7 @@ const App = () => (
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/invite/:token" element={<InvitePage />} />
             <Route path="/" element={<ProtectedRoute><Overview /></ProtectedRoute>} />
-            <Route path="/team" element={<ProtectedRoute minRole="admin"><TeamPage /></ProtectedRoute>} />
+            <Route path="/team" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
             <Route path="/missions" element={<ProtectedRoute><Missions /></ProtectedRoute>} />
             <Route path="/attack-graph" element={<ProtectedRoute><AttackGraphPage /></ProtectedRoute>} />
             <Route path="/expert-log" element={<ProtectedRoute><ExpertLogPage /></ProtectedRoute>} />
