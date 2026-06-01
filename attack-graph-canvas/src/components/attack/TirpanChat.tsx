@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   MessageSquare, Send, Bot, User, Square, Plus, Wrench, CheckCircle,
   XCircle, Shield, Clock, Copy, Check, X, ChevronDown, Cpu, AlertTriangle,
+  History, ChevronLeft,
 } from "lucide-react";
 
 // ── Chat item model ────────────────────────────────────────────────────────────
@@ -21,8 +22,46 @@ interface ApprovalItem  {
 }
 type ChatItem = UserItem | AssistantItem | StatusItem | ErrorItem | ApprovalItem;
 
+// ── Saved conversation ─────────────────────────────────────────────────────────
+interface SavedConvo { id: string; title: string; items: ChatItem[]; startedAt: number; }
+
+const HISTORY_KEY = "tirpan_chat_sessions";
+const CURRENT_KEY = "tirpan_chat_current";
+const MAX_STORED  = 30;
+
+function loadHistory(): SavedConvo[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; }
+}
+function saveHistory(list: SavedConvo[]) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, MAX_STORED))); } catch {}
+}
+function loadCurrent(): SavedConvo | null {
+  try { return JSON.parse(localStorage.getItem(CURRENT_KEY) || "null"); } catch { return null; }
+}
+function saveCurrent(c: SavedConvo | null) {
+  try { localStorage.setItem(CURRENT_KEY, JSON.stringify(c)); } catch {}
+}
+
 let _seq = 0;
 const uid = () => `c${Date.now().toString(36)}_${(_seq++).toString(36)}`;
+const newConvoId = () => `cv${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+
+function deriveTitleFromItems(items: ChatItem[]): string {
+  const first = items.find((it) => it.kind === "user");
+  if (!first) return "Untitled";
+  const text = (first as UserItem).text;
+  return text.length > 40 ? text.slice(0, 38) + "…" : text;
+}
+
+function fmtClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+function fmtDate(ts: number): string {
+  const d = new Date(ts);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return `Today ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
 
 function classifyStatus(text: string): StatusKind {
   const t = text.trimStart();
@@ -45,8 +84,55 @@ const STATUS_META: Record<StatusKind, { Icon: typeof Bot; cls: string; chip: str
   info:      { Icon: Cpu,           cls: "bg-muted/30 border-border/30",            chip: "text-muted-foreground", label: "Info" },
 };
 
-function fmtClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+// ── Lightweight markdown renderer ──────────────────────────────────────────────
+function renderInline(text: string): React.ReactNode[] {
+  const parts = text.split(/(`[^`\n]+`|\*\*[^*]+\*\*|\*[^*\n]+\*)/);
+  return parts.map((p, i) => {
+    if (p.startsWith("`") && p.endsWith("`") && p.length > 2)
+      return <code key={i} className="bg-black/40 px-1 py-0.5 rounded text-[10px] font-mono text-primary/90 break-all">{p.slice(1, -1)}</code>;
+    if (p.startsWith("**") && p.endsWith("**") && p.length > 4)
+      return <strong key={i} className="font-bold text-foreground">{p.slice(2, -2)}</strong>;
+    if (p.startsWith("*") && p.endsWith("*") && p.length > 2)
+      return <em key={i} className="italic">{p.slice(1, -1)}</em>;
+    return <span key={i}>{p}</span>;
+  });
+}
+
+function MarkdownMsg({ text }: { text: string }) {
+  const segments = text.split(/(```[\w]*\n[\s\S]*?```|```[\w]*\n?[\s\S]*?```)/);
+  return (
+    <div className="space-y-1 text-[12px] leading-relaxed text-foreground/90 break-words">
+      {segments.map((seg, si) => {
+        const cbMatch = seg.match(/^```([\w]*)\n?([\s\S]*)```$/);
+        if (cbMatch) {
+          return (
+            <pre key={si} className="bg-black/50 rounded-lg p-3 overflow-x-auto text-[11px] font-mono text-green-400/90 my-2 border border-white/5 whitespace-pre-wrap">
+              <code>{cbMatch[2].replace(/\n$/, "")}</code>
+            </pre>
+          );
+        }
+        const lines = seg.split("\n");
+        return (
+          <div key={si}>
+            {lines.map((line, li) => {
+              const h3 = line.match(/^###\s(.+)/);
+              if (h3) return <p key={li} className="text-xs font-bold text-foreground mt-2 mb-0.5">{h3[1]}</p>;
+              const h2 = line.match(/^##\s(.+)/);
+              if (h2) return <p key={li} className="text-sm font-bold text-foreground mt-2 mb-1">{h2[1]}</p>;
+              const h1 = line.match(/^#\s(.+)/);
+              if (h1) return <p key={li} className="text-base font-bold text-foreground mt-2 mb-1">{h1[1]}</p>;
+              const ul = line.match(/^[-*]\s(.+)/);
+              if (ul) return <div key={li} className="flex gap-1.5 items-start ml-1"><span className="text-primary shrink-0 mt-0.5 text-[10px]">•</span><span>{renderInline(ul[1])}</span></div>;
+              const ol = line.match(/^(\d+)\.\s(.+)/);
+              if (ol) return <div key={li} className="flex gap-1.5 items-start ml-1"><span className="text-primary font-mono text-[10px] shrink-0 mt-0.5">{ol[1]}.</span><span>{renderInline(ol[2])}</span></div>;
+              if (line === "") return <div key={li} className="h-1.5" />;
+              return <div key={li}>{renderInline(line)}</div>;
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── Copy button ─────────────────────────────────────────────────────────────────
@@ -69,11 +155,10 @@ function CopyBtn({ text, title = "Copy" }: { text: string; title?: string }) {
   );
 }
 
-// ── Status / tool bubble (separate bubble per tool call) ─────────────────────────
+// ── Status bubble ────────────────────────────────────────────────────────────────
 function StatusBubble({ item }: { item: StatusItem }) {
   const meta = STATUS_META[item.status];
   const [open, setOpen] = useState(false);
-  // Strip the leading emoji marker for cleaner text (icon conveys the type).
   const clean = item.text.replace(/^[💭⚙✓✗⛔⏱]️?\s*/u, "");
   const long = clean.length > 160;
   return (
@@ -100,7 +185,7 @@ function StatusBubble({ item }: { item: StatusItem }) {
   );
 }
 
-// ── Approval bubble (interactive) ────────────────────────────────────────────────
+// ── Approval bubble ──────────────────────────────────────────────────────────────
 function ApprovalBubble({ item, onRespond }: { item: ApprovalItem; onRespond: (id: string, approved: boolean) => void }) {
   const paramStr = (() => {
     try { return JSON.stringify(item.params, null, 2); } catch { return String(item.params); }
@@ -149,6 +234,61 @@ function ApprovalBubble({ item, onRespond }: { item: ApprovalItem; onRespond: (i
   );
 }
 
+// ── History panel ────────────────────────────────────────────────────────────────
+function HistoryPanel({
+  history,
+  currentId,
+  onSelect,
+  onClose,
+}: {
+  history: SavedConvo[];
+  currentId: string;
+  onSelect: (c: SavedConvo) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-10 flex flex-col bg-card rounded-2xl border border-border/50 shadow-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/50 shrink-0">
+        <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground transition-colors">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Chat history</span>
+        <span className="ml-auto text-[9px] text-muted-foreground">{history.length} conversations</span>
+      </div>
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {history.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full py-8 gap-2 text-muted-foreground">
+            <History className="w-8 h-8 opacity-20" />
+            <div className="text-xs">No history yet</div>
+          </div>
+        ) : (
+          history.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onSelect(c)}
+              className={`w-full text-left px-3 py-2.5 border-b border-border/30 last:border-0 hover:bg-muted/50 transition-colors ${c.id === currentId ? "bg-primary/8" : ""}`}
+            >
+              <div className="flex items-start gap-2">
+                <MessageSquare className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${c.id === currentId ? "text-primary" : "text-muted-foreground"}`} />
+                <div className="min-w-0 flex-1">
+                  <div className={`text-[11px] font-medium truncate ${c.id === currentId ? "text-primary" : "text-foreground"}`}>{c.title}</div>
+                  <div className="text-[9px] text-muted-foreground font-mono mt-0.5 flex items-center gap-2">
+                    <span>{fmtDate(c.startedAt)}</span>
+                    <span>·</span>
+                    <span>{c.items.length} msgs</span>
+                  </div>
+                </div>
+                {c.id === currentId && <span className="text-[8px] text-primary font-bold uppercase shrink-0 mt-0.5">active</span>}
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────────
 interface Props {
   className?: string;
   onClose?: () => void;
@@ -156,7 +296,20 @@ interface Props {
 
 export const TirpanChat = ({ className = "", onClose }: Props) => {
   const demo = isDemoMode();
-  const [items, setItems] = useState<ChatItem[]>([]);
+
+  // ── Conversation state ─────────────────────────────────────
+  const [convoId, setConvoId] = useState<string>(() => {
+    const cur = loadCurrent();
+    return cur?.id ?? newConvoId();
+  });
+  const [items, setItems] = useState<ChatItem[]>(() => {
+    const cur = loadCurrent();
+    return cur?.items ?? [];
+  });
+  const [historyPanel, setHistoryPanel] = useState(false);
+  const [viewingConvo, setViewingConvo] = useState<SavedConvo | null>(null); // null = current live
+
+  // ── Stream state ────────────────────────────────────────────
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -168,8 +321,32 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
   const isStreamingRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const convoIdRef = useRef(convoId);
+  convoIdRef.current = convoId;
 
-  const push = useCallback((item: ChatItem) => setItems((prev) => [...prev, item]), []);
+  // ── Persist current conversation to localStorage ─────────────
+  useEffect(() => {
+    const cur: SavedConvo = {
+      id: convoId,
+      title: deriveTitleFromItems(items),
+      items,
+      startedAt: items.length > 0 ? items[0].ts : Date.now(),
+    };
+    saveCurrent(cur);
+
+    if (items.length > 0) {
+      const history = loadHistory();
+      const idx = history.findIndex((c) => c.id === convoId);
+      if (idx >= 0) history[idx] = cur;
+      else history.unshift(cur);
+      saveHistory(history);
+    }
+  }, [items, convoId]);
+
+  const push = useCallback((item: ChatItem) => {
+    if (viewingConvo) return; // read-only view — don't push
+    setItems((prev) => [...prev, item]);
+  }, [viewingConvo]);
 
   const handleMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {
@@ -215,13 +392,12 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
         setItems([]);
         break;
       default:
-        break; // user_echo, conversation_created, ping, pong, etc. — ignored
+        break;
     }
   }, [push]);
 
   const { ready, send } = useWebSocket(undefined, { onMessage: handleMessage });
 
-  // Auto-scroll to newest unless the user scrolled up.
   useEffect(() => {
     if (autoScroll) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [items, streaming, autoScroll]);
@@ -246,6 +422,7 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
     e.preventDefault();
     const text = input.trim();
     if (!text || !ready || isStreamingRef.current) return;
+    if (viewingConvo) { setViewingConvo(null); return; } // exit read-only
     push({ kind: "user", id: uid(), text, ts: Date.now() });
     isStreamingRef.current = true;
     setIsStreaming(true);
@@ -264,15 +441,37 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
     setIsStreaming(false);
   };
 
-  const handleNewChat = () => {
+  const startNewConvo = () => {
     if (isStreamingRef.current) handleAbort();
     send({ type: "new_conversation" });
+    const id = newConvoId();
+    setConvoId(id);
     setItems([]);
+    setViewingConvo(null);
+    setHistoryPanel(false);
     toast.success("New conversation started");
   };
 
+  const selectHistoryConvo = (c: SavedConvo) => {
+    setViewingConvo(c.id === convoId ? null : c);
+    setHistoryPanel(false);
+  };
+
+  const displayItems = viewingConvo ? viewingConvo.items : items;
+  const isReadOnly = !!viewingConvo;
+
   return (
-    <div className={`flex flex-col h-full min-h-0 gap-2 ${className}`}>
+    <div className={`relative flex flex-col h-full min-h-0 gap-2 ${className}`}>
+      {/* History overlay */}
+      {historyPanel && (
+        <HistoryPanel
+          history={loadHistory()}
+          currentId={convoId}
+          onSelect={selectHistoryConvo}
+          onClose={() => setHistoryPanel(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="node-card !p-3 flex items-center gap-2 shrink-0">
         <div className="w-7 h-7 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -280,13 +479,22 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-xs font-display font-bold tracking-tight flex items-center gap-1.5">
-            TIRPAN Chat
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ready ? "bg-success animate-pulse" : "bg-destructive"}`} title={ready ? "Connected" : "Disconnected"} />
+            {viewingConvo ? "Chat history" : "TIRPAN Chat"}
+            {!viewingConvo && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ready ? "bg-success animate-pulse" : "bg-destructive"}`} title={ready ? "Connected" : "Disconnected"} />}
           </div>
-          <div className="text-[9px] text-muted-foreground truncate">Direct ops chat · runs tools on approval</div>
+          <div className="text-[9px] text-muted-foreground truncate">
+            {viewingConvo ? viewingConvo.title : "Direct ops chat · runs tools on approval"}
+          </div>
         </div>
-        <ModelSelector onModelChange={(p, m) => { setProvider(p); setModel(m); }} />
-        <button onClick={handleNewChat} title="New conversation" className="w-7 h-7 rounded-xl flex items-center justify-center hover:bg-muted text-muted-foreground transition-colors shrink-0">
+        {!viewingConvo && <ModelSelector onModelChange={(p, m) => { setProvider(p); setModel(m); }} />}
+        <button
+          onClick={() => { setHistoryPanel((v) => !v); setViewingConvo(null); }}
+          title="Chat history"
+          className="w-7 h-7 rounded-xl flex items-center justify-center hover:bg-muted text-muted-foreground transition-colors shrink-0"
+        >
+          <History className="w-4 h-4" />
+        </button>
+        <button onClick={startNewConvo} title="New conversation" className="w-7 h-7 rounded-xl flex items-center justify-center hover:bg-muted text-muted-foreground transition-colors shrink-0">
           <Plus className="w-4 h-4" />
         </button>
         {onClose && (
@@ -296,9 +504,20 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
         )}
       </div>
 
+      {/* Read-only banner */}
+      {viewingConvo && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-accent/8 border border-accent/20 text-[10px] text-accent font-mono">
+          <History className="w-3 h-3 shrink-0" />
+          <span className="flex-1 truncate">Viewing: {viewingConvo.title}</span>
+          <button onClick={() => setViewingConvo(null)} className="hover:text-foreground transition-colors shrink-0">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
       {/* Messages */}
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-0.5">
-        {items.length === 0 && !isStreaming && (
+        {displayItems.length === 0 && !isStreaming && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground py-10 px-4 text-center">
             <Bot className="w-9 h-9 opacity-20" />
             <div className="text-sm font-mono">{demo ? "Chat needs a live backend" : "Talk to TIRPAN"}</div>
@@ -310,7 +529,7 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
           </div>
         )}
 
-        {items.map((it) => {
+        {displayItems.map((it) => {
           if (it.kind === "user") {
             return (
               <div key={it.id} className="flex gap-2 justify-end">
@@ -331,19 +550,18 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
                   <Bot className="w-3 h-3" />
                 </div>
                 <div className="flex-1 min-w-0 rounded-xl rounded-tl-sm bg-muted/50 border border-border/40 px-3 py-2 group">
-                  <div className="flex items-center gap-2 mb-0.5">
+                  <div className="flex items-center gap-2 mb-1">
                     <span className="text-[9px] font-bold uppercase tracking-wide text-primary">TIRPAN</span>
                     <span className="text-[9px] text-muted-foreground font-mono ml-auto">{fmtClock(it.ts)}</span>
                     <span className="opacity-0 group-hover:opacity-100 transition-opacity"><CopyBtn text={it.text} /></span>
                   </div>
-                  <p className="text-[12px] text-foreground/90 whitespace-pre-wrap break-words leading-relaxed">{it.text}</p>
+                  <MarkdownMsg text={it.text} />
                 </div>
               </div>
             );
           }
           if (it.kind === "status") return <StatusBubble key={it.id} item={it} />;
           if (it.kind === "approval") return <ApprovalBubble key={it.id} item={it} onRespond={respondApproval} />;
-          // error
           return (
             <div key={it.id} className="flex gap-2">
               <div className="w-6 h-6 rounded-lg bg-destructive/10 text-destructive flex items-center justify-center shrink-0 mt-0.5">
@@ -357,14 +575,14 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
           );
         })}
 
-        {isStreaming && (
+        {!isReadOnly && isStreaming && (
           <div className="flex gap-2">
             <div className="w-6 h-6 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0 mt-0.5">
               <Bot className="w-3 h-3" />
             </div>
             <div className="flex-1 min-w-0 rounded-xl rounded-tl-sm bg-muted/50 border border-border/40 px-3 py-2">
               {streaming
-                ? <p className="text-[12px] text-foreground/90 whitespace-pre-wrap break-words leading-relaxed">{streaming}<span className="inline-block w-1.5 h-3.5 ml-0.5 bg-primary/70 animate-pulse align-middle" /></p>
+                ? <MarkdownMsg text={streaming + "▋"} />
                 : <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" /> working…</span>}
             </div>
           </div>
@@ -386,16 +604,20 @@ export const TirpanChat = ({ className = "", onClose }: Props) => {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={demo ? "Unavailable in demo" : ready ? (isStreaming ? "Responding…" : "Ask TIRPAN to run something…") : "Connecting…"}
+          placeholder={
+            isReadOnly ? "Press ↵ to return to live chat…" :
+            demo ? "Unavailable in demo" :
+            ready ? (isStreaming ? "Responding…" : "Ask TIRPAN to run something…") : "Connecting…"
+          }
           className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none px-2 py-1.5"
-          disabled={!ready || isStreaming || demo}
+          disabled={!isReadOnly && (!ready || isStreaming || demo)}
         />
-        {isStreaming ? (
+        {!isReadOnly && isStreaming ? (
           <button type="button" onClick={handleAbort} title="Stop" className="w-8 h-8 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:opacity-90 animate-pulse shrink-0">
             <Square className="w-3.5 h-3.5 fill-current" />
           </button>
         ) : (
-          <button type="submit" disabled={!ready || !input.trim() || demo} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-30 hover:opacity-90 shrink-0">
+          <button type="submit" disabled={!isReadOnly && (!ready || !input.trim() || demo)} className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-30 hover:opacity-90 shrink-0">
             <Send className="w-3.5 h-3.5" />
           </button>
         )}

@@ -51,14 +51,14 @@ export const PageShell = ({ title, subtitle, children, rightPanel, leftPanel, ti
       </div>
     )}
     <div className="flex flex-col h-full w-full max-w-[1920px] mx-auto p-3 gap-3">
-      <header className="flex items-center justify-between gap-4 shrink-0">
-        <div className="flex items-center gap-4">
+      <header className="flex items-center justify-between gap-2 md:gap-4 shrink-0 min-h-0">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0 shrink-0">
           <a href="/normal/" className="shrink-0" title="TIRPAN">
-            <img src="/normal/scythe.png" alt="TIRPAN" className="w-10 h-10 rounded-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            <img src="/normal/scythe.png" alt="TIRPAN" className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
           </a>
-          <div>
-            <h1 className="font-display font-bold text-2xl tracking-tight leading-none">{title}</h1>
-            <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+          <div className="min-w-0 hidden sm:block">
+            <h1 className="font-display font-bold text-lg md:text-2xl tracking-tight leading-none truncate">{title}</h1>
+            <p className="text-xs text-muted-foreground mt-0.5 hidden md:block">{subtitle}</p>
           </div>
         </div>
         <TopTabs />

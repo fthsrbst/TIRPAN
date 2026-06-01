@@ -32,6 +32,8 @@ import {
   Lock,
   Sliders,
   Brain,
+  Upload,
+  FolderOpen,
 } from "lucide-react";
 // Eye kept for password toggle buttons
 import { useState, useEffect, useCallback } from "react";
@@ -172,6 +174,7 @@ const SettingsPage = () => {
   const [spawnMaxParallel, setSpawnMaxParallel] = useState(3);
   const [defaultPasswordWordlist, setDefaultPasswordWordlist] = useState("");
   const [allowAskOperatorInAuto, setAllowAskOperatorInAuto] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   // ── Safety state ────────────────────────────────────
   const [safety, setSafety] = useState({
@@ -197,6 +200,9 @@ const SettingsPage = () => {
   const [nmapSudo, setNmapSudo] = useState(false);
   const [nmapPlatform, setNmapPlatform] = useState("");
   const [nmapElevated, setNmapElevated] = useState(false);
+  const [sudoPassword, setSudoPassword] = useState("");
+  const [sudoHasPassword, setSudoHasPassword] = useState(false);
+  const [showSudoPw, setShowSudoPw] = useState(false);
 
   // ── Branding state ─────────────────────────────────
   const [brandingName, setBrandingName] = useState("");
@@ -271,6 +277,8 @@ const SettingsPage = () => {
       setNmapSudo(n.nmap_sudo);
       setNmapPlatform(n.platform);
       setNmapElevated(n.is_elevated);
+      const s = await api.get<{ has_password: boolean }>("/config/sudo").catch(() => null);
+      if (s) setSudoHasPassword(s.has_password);
     } catch {}
   }, []);
 
@@ -459,6 +467,11 @@ const SettingsPage = () => {
     setSaving(true);
     try {
       await api.post("/config/nmap", { nmap_sudo: nmapSudo });
+      if (sudoPassword) {
+        await api.post("/config/sudo", { password: sudoPassword });
+        setSudoHasPassword(true);
+        setSudoPassword("");
+      }
       flash("ok", "Nmap settings saved");
     } catch (e: unknown) { flash("err", String(e)); }
     setSaving(false);
@@ -939,6 +952,34 @@ const SettingsPage = () => {
                 <FieldRow label="Run with sudo" desc="Recommended for OS detection and SYN scans">
                   <Switch checked={nmapSudo} onCheckedChange={setNmapSudo} />
                 </FieldRow>
+                <FieldRow
+                  label="Sudo password"
+                  desc={sudoHasPassword ? "Password stored (enter a new one to update)" : "Required for nmap, masscan and other root-only tools"}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        type={showSudoPw ? "text" : "password"}
+                        placeholder={sudoHasPassword ? "••••••••" : "Enter sudo password…"}
+                        value={sudoPassword}
+                        onChange={(e) => setSudoPassword(e.target.value)}
+                        autoComplete="new-password"
+                        className="pr-9 font-mono text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSudoPw((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showSudoPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    {sudoHasPassword && (
+                      <span className="text-[10px] text-success font-mono shrink-0">✓ saved</span>
+                    )}
+                  </div>
+                </FieldRow>
               </Section>
               <Button onClick={saveNmap} disabled={saving} className="gap-2">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -961,6 +1002,80 @@ const SettingsPage = () => {
                   <a href="/" className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
                     Expert Mode →
                   </a>
+                </div>
+              </Section>
+
+              <Separator />
+
+              {/* ── Default password wordlist ── */}
+              <Section title="Default password wordlist">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Wordlist used by hydra / medusa / crackmapexec when no per-call wordlist is
+                  specified. Drop a file, pick one from disk, or type an absolute path manually.
+                  Leave empty for auto-detection (rockyou.txt → SecLists → metasploit defaults →
+                  embedded 50-password fallback).
+                </p>
+
+                {/* Drag-and-drop zone */}
+                <div
+                  className={`relative border-2 border-dashed rounded-xl p-6 mb-3 text-center transition-colors cursor-pointer ${
+                    dragOver
+                      ? "border-primary bg-primary/10"
+                      : "border-border/50 hover:border-primary/50 hover:bg-muted/20"
+                  }`}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const file = e.dataTransfer.files[0];
+                    if (file) {
+                      setDefaultPasswordWordlist(file.path ?? file.name);
+                    }
+                  }}
+                  onClick={() => document.getElementById("wordlist-file-input")?.click()}
+                >
+                  <input
+                    id="wordlist-file-input"
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setDefaultPasswordWordlist((file as File & { path?: string }).path ?? file.name);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Drag & drop a wordlist file here, or{" "}
+                    <span className="text-primary underline underline-offset-2">click to browse</span>
+                  </p>
+                  {defaultPasswordWordlist && (
+                    <p className="mt-2 text-xs font-mono text-foreground/80 truncate max-w-full">
+                      {defaultPasswordWordlist}
+                    </p>
+                  )}
+                </div>
+
+                {/* Manual path input */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={defaultPasswordWordlist}
+                    onChange={(e) => setDefaultPasswordWordlist(e.target.value)}
+                    placeholder="/usr/share/wordlists/rockyou.txt"
+                    className="flex-1 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono"
+                  />
+                  <Button
+                    onClick={() => saveBrainSetting("default_password_wordlist", defaultPasswordWordlist.trim())}
+                    size="sm"
+                    className="gap-1.5"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    Save
+                  </Button>
                 </div>
               </Section>
             </div>
@@ -1237,36 +1352,6 @@ const SettingsPage = () => {
                       className="w-4 h-4 accent-primary"
                     />
                   </label>
-                </div>
-              </Section>
-
-              <Separator />
-
-              {/* ── Default wordlist (moved out of ML Engine page) ────── */}
-              {/* Lives next to Brain Injection because this is the path hydra/
-                  medusa/etc. fall back to when no per-call wordlist is set.
-                  test6 regression: rockyou.txt missing → hydra silently failed. */}
-              <Section title="Default password wordlist">
-                <p className="text-sm text-muted-foreground mb-4">
-                  Absolute path used by hydra / medusa / crackmapexec when no wordlist is specified
-                  per-call. Leave empty for auto-detection (rockyou.txt → SecLists → metasploit
-                  defaults → embedded 50-password fallback).
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={defaultPasswordWordlist}
-                    onChange={(e) => setDefaultPasswordWordlist(e.target.value)}
-                    placeholder="/usr/share/wordlists/rockyou.txt"
-                    className="flex-1 bg-background border border-border rounded-md px-3 py-2 text-sm font-mono"
-                  />
-                  <Button
-                    onClick={() => saveBrainSetting("default_password_wordlist", defaultPasswordWordlist.trim())}
-                    size="sm"
-                    className="gap-1.5"
-                  >
-                    Save
-                  </Button>
                 </div>
               </Section>
 

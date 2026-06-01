@@ -135,6 +135,40 @@ export const InsightsPanel = ({ data, details, sessionId }: InsightsPanelProps) 
 
   return (
     <div className="flex flex-col gap-3 w-[280px] shrink-0 overflow-y-auto max-h-full pr-0.5">
+      {/* Stat chips row */}
+      <div className="grid grid-cols-2 gap-2 shrink-0">
+        <div className="node-card !p-3 flex flex-col gap-0.5">
+          <span className="text-[9px] font-bold tracking-widest text-muted-foreground">VULNERABILITIES</span>
+          <div className="flex items-baseline gap-1">
+            <span className={`font-display font-bold text-2xl leading-none ${data.totalVulns > 0 ? "text-destructive" : "text-foreground"}`}>{data.totalVulns}</span>
+            {data.criticalFindings > 0 && (
+              <span className="text-[9px] font-mono text-destructive/70">{data.criticalFindings} critical</span>
+            )}
+          </div>
+        </div>
+        <div className="node-card !p-3 flex flex-col gap-0.5">
+          <span className="text-[9px] font-bold tracking-widests text-muted-foreground">OPEN PORTS</span>
+          <div className="flex items-baseline gap-1">
+            <span className={`font-display font-bold text-2xl leading-none ${details.openPorts.length > 0 ? "text-warning" : "text-foreground"}`}>{details.openPorts.length}</span>
+            <span className="text-[9px] font-mono text-muted-foreground">{details.hosts.length} hosts</span>
+          </div>
+        </div>
+        <div className="node-card !p-3 flex flex-col gap-0.5">
+          <span className="text-[9px] font-bold tracking-widest text-muted-foreground">COMPROMISED</span>
+          <div className="flex items-baseline gap-1">
+            <span className={`font-display font-bold text-2xl leading-none ${data.compromisedHosts > 0 ? "text-accent" : "text-foreground"}`}>{data.compromisedHosts}</span>
+            <span className="text-[9px] font-mono text-muted-foreground">/ {data.totalHosts}</span>
+          </div>
+        </div>
+        <div className="node-card !p-3 flex flex-col gap-0.5">
+          <span className="text-[9px] font-bold tracking-widest text-muted-foreground">ATTACK PATHS</span>
+          <div className="flex items-baseline gap-1">
+            <span className={`font-display font-bold text-2xl leading-none ${data.openAttackPaths > 0 ? "text-violet-400" : "text-foreground"}`}>{data.openAttackPaths}</span>
+            <span className="text-[9px] font-mono text-muted-foreground">active</span>
+          </div>
+        </div>
+      </div>
+
       {/* Timer card */}
       <div className="node-card !p-4 shrink-0">
         <div className="flex items-center gap-2 mb-1">

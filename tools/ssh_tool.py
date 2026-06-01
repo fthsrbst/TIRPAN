@@ -193,7 +193,7 @@ class SSHTool(BaseTool):
 
         except paramiko.AuthenticationException:
             return {"success": False, "output": None, "error": "SSH authentication failed — check credentials"}
-        except paramiko.NoValidConnectionsError as e:
+        except paramiko.ssh_exception.NoValidConnectionsError as e:
             return {"success": False, "output": None, "error": f"Cannot connect to {host}:{port} — {e}"}
         except Exception as exc:
             return {"success": False, "output": None, "error": str(exc)}

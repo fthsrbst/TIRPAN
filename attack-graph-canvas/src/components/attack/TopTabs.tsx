@@ -264,7 +264,7 @@ export const TopTabs = () => {
 
   return (
     <div className="flex items-center gap-2">
-      <nav ref={(el) => { navRef.current = el; }} className="relative flex items-center gap-1 bg-card/60 backdrop-blur rounded-full p-1.5 border border-border/50">
+      <nav ref={(el) => { navRef.current = el; }} className="relative flex items-center gap-0.5 bg-card/60 backdrop-blur rounded-full p-1 border border-border/50">
         {/* Sliding active pill */}
         {pillStyle && (
           <span
