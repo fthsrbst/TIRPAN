@@ -70,7 +70,7 @@ export function usePermissions(): Permissions {
 
     canViewReports:    true,
 
-    canViewTeam:       isAdmin,
+    canViewTeam:       true,
     canInviteMembers:  isAdmin,
     canChangeRoles:    isAdmin,
     canManageOrg:      isOwner,

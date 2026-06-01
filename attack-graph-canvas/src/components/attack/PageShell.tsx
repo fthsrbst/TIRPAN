@@ -58,7 +58,6 @@ export const PageShell = ({ title, subtitle, children, rightPanel, leftPanel, ti
           </a>
           <div className="min-w-0 hidden sm:block">
             <h1 className="font-display font-bold text-lg md:text-2xl tracking-tight leading-none truncate">{title}</h1>
-            <p className="text-xs text-muted-foreground mt-0.5 hidden md:block">{subtitle}</p>
           </div>
         </div>
         <TopTabs />

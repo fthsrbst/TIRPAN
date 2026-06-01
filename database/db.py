@@ -750,6 +750,59 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v24 applied: user avatar column")
 
+        if version < 25:
+            # Coverage ledger — records every operation the brain dispatches,
+            # keyed by a stable operation signature, so it never re-runs the
+            # same idempotent characterization (session test1: 192.168.1.4 was
+            # scanned by ~10 scanner agents). See operation_signature.py and
+            # docs/13_ORCHESTRATION_EFFICIENCY_REDESIGN.md.
+            try:
+                await db.executescript("""
+                    CREATE TABLE IF NOT EXISTS scan_coverage (
+                        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id     TEXT    NOT NULL,
+                        signature      TEXT    NOT NULL,
+                        op_class       TEXT    NOT NULL,
+                        agent_type     TEXT    NOT NULL DEFAULT '',
+                        host           TEXT    NOT NULL DEFAULT '',
+                        port           INTEGER,
+                        kind           TEXT    NOT NULL DEFAULT '',
+                        scripts        TEXT    NOT NULL DEFAULT '',
+                        status         TEXT    NOT NULL DEFAULT 'running',
+                        attempts       INTEGER NOT NULL DEFAULT 0,
+                        findings_count INTEGER NOT NULL DEFAULT 0,
+                        agent_id       TEXT    NOT NULL DEFAULT '',
+                        first_seen     REAL    NOT NULL,
+                        last_update    REAL    NOT NULL,
+                        UNIQUE(session_id, signature)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_scan_coverage_sid
+                        ON scan_coverage(session_id);
+                """)
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (25, time.time(), "scan_coverage ledger for anti-repetition"),
+            )
+            await db.commit()
+            logger.info("DB migration v25 applied: scan_coverage ledger")
+
+        if version < 26:
+            # Access scope for assigned sessions — JSON array of visible data categories
+            try:
+                await db.execute(
+                    "ALTER TABLE pentest_sessions ADD COLUMN access_scope_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (26, time.time(), "access_scope_json for session assignments"),
+            )
+            await db.commit()
+            logger.info("DB migration v26 applied: access_scope_json")
+
     logger.info("Database ready: %s", path)
 
 

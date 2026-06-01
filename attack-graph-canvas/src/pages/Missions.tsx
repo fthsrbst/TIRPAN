@@ -616,10 +616,20 @@ function MissionPhaseStepper({ sessionId }: { sessionId: string }) {
 
 // ── Atama butonu (admin/owner) ─────────────────────────────────────────────────
 
+const ACCESS_SCOPE_OPTIONS = [
+  { key: "scan_results",    label: "Hosts & Ports",       desc: "Nmap scan results and discovered hosts" },
+  { key: "vulnerabilities", label: "Findings",            desc: "Vulnerability and CVE findings" },
+  { key: "credentials",     label: "Credentials",         desc: "Captured usernames and passwords" },
+  { key: "exploit_results", label: "Exploit Results",     desc: "Metasploit and exploit run history" },
+  { key: "events",          label: "Agent Event Log",     desc: "Real-time agent action stream" },
+];
+
 function AssignButton({ sessionId, currentAssignee }: { sessionId: string; currentAssignee?: string }) {
   const [open, setOpen] = useState(false);
   const [members, setMembers] = useState<{ id: string; full_name: string; email: string; role: string }[]>([]);
   const [selected, setSelected] = useState(currentAssignee || "");
+  const [scopeAll, setScopeAll] = useState(true);
+  const [scopeKeys, setScopeKeys] = useState<Set<string>>(new Set(ACCESS_SCOPE_OPTIONS.map(o => o.key)));
   const [saving, setSaving] = useState(false);
   const qc = useQueryClient();
 
@@ -633,16 +643,34 @@ function AssignButton({ sessionId, currentAssignee }: { sessionId: string; curre
     setOpen(true);
   };
 
+  const toggleScope = (key: string) => {
+    const next = new Set(scopeKeys);
+    next.has(key) ? next.delete(key) : next.add(key);
+    setScopeKeys(next);
+    setScopeAll(next.size === ACCESS_SCOPE_OPTIONS.length);
+  };
+
+  const toggleAll = () => {
+    if (scopeAll) {
+      setScopeKeys(new Set());
+      setScopeAll(false);
+    } else {
+      setScopeKeys(new Set(ACCESS_SCOPE_OPTIONS.map(o => o.key)));
+      setScopeAll(true);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
+      const access_scope = scopeAll ? null : Array.from(scopeKeys);
       await fetch(`/api/v1/sessions/${sessionId}/assign`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${localStorage.getItem("tirpan_token") || sessionStorage.getItem("tirpan_token")}`,
         },
-        body: JSON.stringify({ assigned_to: selected || null }),
+        body: JSON.stringify({ assigned_to: selected || null, access_scope }),
       });
       qc.invalidateQueries({ queryKey: ["sessions"] });
       setOpen(false);
@@ -663,19 +691,57 @@ function AssignButton({ sessionId, currentAssignee }: { sessionId: string; curre
 
       {open && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setOpen(false)}>
-          <div className="bg-card rounded-xl border border-border p-5 w-80 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-display font-semibold">Assign Mission</h3>
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              className="w-full h-9 px-3 rounded-lg bg-muted border border-border text-sm text-foreground focus:outline-none"
-            >
-              <option value="">— Unassigned —</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>{m.full_name} ({m.role})</option>
-              ))}
-            </select>
-            <div className="flex gap-2">
+          <div className="bg-card rounded-xl border border-border p-5 w-96 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-display font-semibold text-base">Assign Mission</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Select a team member and the data they can access.</p>
+            </div>
+
+            {/* Assignee picker */}
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 block">Assign to</label>
+              <select
+                value={selected}
+                onChange={(e) => setSelected(e.target.value)}
+                className="w-full h-9 px-3 rounded-lg bg-muted border border-border text-sm text-foreground focus:outline-none"
+              >
+                <option value="">— Unassigned —</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>{m.full_name} ({m.role})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Data access scope */}
+            <div>
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 block">Data Access</label>
+              <div className="space-y-1.5">
+                {/* Full access toggle */}
+                <label className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-muted/60 border border-border/40 cursor-pointer hover:bg-muted transition-colors">
+                  <Checkbox checked={scopeAll} onCheckedChange={toggleAll} id="scope-all" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold">Full access</div>
+                    <div className="text-[10px] text-muted-foreground">Assignee sees all mission data</div>
+                  </div>
+                </label>
+                {/* Per-category toggles (only when not full access) */}
+                {!scopeAll && ACCESS_SCOPE_OPTIONS.map(opt => (
+                  <label key={opt.key} className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/30 cursor-pointer hover:bg-muted/40 transition-colors">
+                    <Checkbox
+                      checked={scopeKeys.has(opt.key)}
+                      onCheckedChange={() => toggleScope(opt.key)}
+                      id={`scope-${opt.key}`}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium">{opt.label}</div>
+                      <div className="text-[10px] text-muted-foreground">{opt.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
               <button onClick={() => setOpen(false)} className="flex-1 h-9 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground">Cancel</button>
               <button onClick={save} disabled={saving} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
                 {saving ? "Saving..." : "Save"}

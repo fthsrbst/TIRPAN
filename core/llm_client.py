@@ -12,6 +12,7 @@ Router:
 import asyncio
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
@@ -21,6 +22,33 @@ from config import settings
 from core.llm_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
+
+
+# ── Shared LLM concurrency gate (Faz 3 / §8) ────────────────────────────────────
+# Decouples *agent count* from *LLM throughput*: many agents can be alive
+# (mostly waiting on nmap/network) while only N make LLM calls at once. This is
+# what lets spawn_max_parallel rise (3→6) WITHOUT the LLM-queue starvation that
+# caused 9 wall-clock timeouts in test3. Bound lazily to the running loop so it
+# is shared across every LLMRouter instance (per-agent routers included).
+_LLM_CONCURRENCY_DEFAULT = 4
+_llm_gate: asyncio.Semaphore | None = None
+_llm_gate_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_llm_gate() -> asyncio.Semaphore | None:
+    global _llm_gate, _llm_gate_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+    if _llm_gate is None or _llm_gate_loop is not loop:
+        try:
+            n = int(os.environ.get("TIRPAN_LLM_CONCURRENCY", "") or _LLM_CONCURRENCY_DEFAULT)
+        except ValueError:
+            n = _LLM_CONCURRENCY_DEFAULT
+        _llm_gate = asyncio.Semaphore(max(1, n))
+        _llm_gate_loop = loop
+    return _llm_gate
 
 
 # ── Base ──────────────────────────────────────────────────────────────────────
@@ -682,6 +710,15 @@ class LLMRouter:
         return self._ollama
 
     async def chat(self, messages: list[dict], stream: bool = False) -> str:
+        # Gate concurrent LLM calls across all agents (Faz 3). Non-streaming
+        # autonomous-loop calls only; the interactive stream path is unchanged.
+        gate = _get_llm_gate()
+        if gate is None:
+            return await self._chat_routed(messages, stream=stream)
+        async with gate:
+            return await self._chat_routed(messages, stream=stream)
+
+    async def _chat_routed(self, messages: list[dict], stream: bool = False) -> str:
         primary = self._primary()
         try:
             return await primary.chat(messages, stream=stream)

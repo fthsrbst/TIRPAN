@@ -57,6 +57,14 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MAX_ITERATIONS = 150
 _MAX_SAME_FAIL = 3           # failures before hard-blocking a tool/module
 _CONNECT_LOOP_THRESHOLD = 2  # shell_exec(connect) already_open hits before nudge
+
+# Wall-clock cap on a single reason() (LLM) call. The brain's run() has no
+# overall timeout (only max_iterations), so a stalled provider could hang the
+# whole mission silently (observed in session test1: 21 min of dead air before
+# the operator killed it). Each reason() call is now bounded; after
+# _MAX_CONSECUTIVE_REASON_TIMEOUTS hangs in a row the agent aborts gracefully.
+_DEFAULT_REASON_TIMEOUT_S = 90
+_MAX_CONSECUTIVE_REASON_TIMEOUTS = 3
 _UNAVAILABLE_TOOL_LIMIT = 3  # consecutive unavailable-tool calls before warning
 _UNAVAILABLE_TOOL_FORCE_DONE = 5  # consecutive unavailable-tool calls → force agent done
 
@@ -188,6 +196,11 @@ class BaseAgent(ABC):
         self._audit_repo = audit_repo
 
         self._iteration: int = 0
+
+        # Wall-clock cap on a single reason() call (see constants above).
+        # Subclasses may override _reason_timeout_s after super().__init__().
+        self._reason_timeout_s: float = _DEFAULT_REASON_TIMEOUT_S
+        self._consecutive_reason_timeouts: int = 0
 
         # Pause / resume
         self._pause_event = asyncio.Event()
@@ -487,7 +500,34 @@ class BaseAgent(ABC):
 
                 # ── REASONING ─────────────────────────────────────────────
                 self._state = AgentState.REASONING
-                action_dict = await self.reason()
+                try:
+                    action_dict = await asyncio.wait_for(
+                        self.reason(), timeout=self._reason_timeout_s
+                    )
+                except asyncio.TimeoutError:
+                    # reason() (LLM call) blew its wall-clock budget. Don't hang
+                    # the mission — count it, and bail after a few in a row.
+                    self._consecutive_reason_timeouts += 1
+                    self._log.warning(
+                        "Agent %s reason() exceeded %.0fs wall-clock (%d consecutive)",
+                        self.agent_id, self._reason_timeout_s,
+                        self._consecutive_reason_timeouts,
+                    )
+                    self.emit_event("reason_timeout", {
+                        "timeout_seconds": self._reason_timeout_s,
+                        "consecutive": self._consecutive_reason_timeouts,
+                    })
+                    if self._consecutive_reason_timeouts >= _MAX_CONSECUTIVE_REASON_TIMEOUTS:
+                        self._log.error(
+                            "Agent %s: %d consecutive reason() timeouts — aborting to avoid hang",
+                            self.agent_id, self._consecutive_reason_timeouts,
+                        )
+                        self._state = AgentState.ERROR
+                        break
+                    await asyncio.sleep(1.0)
+                    continue
+                # Successful reason() — reset the hang counter.
+                self._consecutive_reason_timeouts = 0
 
                 if action_dict is None:
                     if self._stream_abort.is_set():

@@ -4,6 +4,8 @@ import { Play, Pause, Square, Terminal, Lightbulb, Bell, SlidersHorizontal, X, L
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { killSession, pauseSession, resumeSession } from "@/lib/api";
 import type { TimelineData, TimelineEvent } from "@/hooks/useAttackGraphData";
+import { useSessionBundle } from "@/hooks/useAttackGraphData";
+import { useSessionContext } from "@/lib/SessionContext";
 import { LiveTerminalPanel } from "@/components/attack/LiveTerminalPanel";
 import { usePermissions } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
@@ -64,6 +66,16 @@ export const Timeline = ({
   const perms = usePermissions();
   const [popup, setPopup] = useState<string | null>(defaultOpenPopup);
   const shellDisabled = !!isDemoMode || !perms.canUseTerminal;
+
+  // When no explicit data/session is provided (e.g. PageShell default), auto-connect
+  // to the globally selected or best-running session via context.
+  const { selectedSessionId: ctxSid } = useSessionContext();
+  const ctxBundle = useSessionBundle(null, sessionId ?? ctxSid);
+  // Use passed data when provided (attack-graph page), otherwise fall back to context bundle
+  const resolvedData: TimelineData | undefined = data ?? ctxBundle.timeline;
+  const resolvedSessionId = sessionId ?? ctxBundle.sessionId ?? ctxSid;
+  const resolvedIsRunning = isRunningProp ?? ctxBundle.dynamicGraph?.isRunning;
+  const resolvedTarget = target ?? ctxBundle.dynamicGraph?.target;
 
   // ── Terminal popup resize ────────────────────────
   const [termSize, setTermSize] = useState({ w: 560, h: 440 });
@@ -136,7 +148,7 @@ export const Timeline = ({
     }
   }, []);
 
-  const steps = data?.steps?.length ? data.steps : [
+  const steps = resolvedData?.steps?.length ? resolvedData.steps : [
     { label: "Recon", time: "—", done: false, active: false },
     { label: "Port Scan", time: "—", done: false, active: false },
     { label: "Web Foothold", time: "—", done: false, active: false },
@@ -146,13 +158,13 @@ export const Timeline = ({
     { label: "Domain Admin", time: "—", done: false, active: false },
   ];
 
-  const currentTime = data?.currentTime || "—";
-  const sessionDate = data?.sessionDate || "—";
-  const events = data?.events || [];
+  const currentTime = resolvedData?.currentTime || "—";
+  const sessionDate = resolvedData?.sessionDate || "—";
+  const events = resolvedData?.events || [];
 
-  // Use the prop if provided (from parent with accurate session data), otherwise derive from steps
-  const isRunning = isRunningProp !== undefined ? isRunningProp : steps.some((s) => s.active);
-  const hasSession = !!sessionId;
+  // Use resolved values (from props or context-derived bundle)
+  const isRunning = resolvedIsRunning !== undefined ? resolvedIsRunning : steps.some((s) => s.active);
+  const hasSession = !!resolvedSessionId;
 
   const onMutationSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["sessions"] });
@@ -161,24 +173,24 @@ export const Timeline = ({
 
   const killMut = useMutation({
     mutationFn: async () => {
-      if (!sessionId) throw new Error("No session");
-      return killSession(sessionId);
+      if (!resolvedSessionId) throw new Error("No session");
+      return killSession(resolvedSessionId);
     },
     onSuccess: onMutationSuccess,
   });
 
   const pauseMut = useMutation({
     mutationFn: async () => {
-      if (!sessionId) throw new Error("No session");
-      return pauseSession(sessionId);
+      if (!resolvedSessionId) throw new Error("No session");
+      return pauseSession(resolvedSessionId);
     },
     onSuccess: onMutationSuccess,
   });
 
   const resumeMut = useMutation({
     mutationFn: async () => {
-      if (!sessionId) throw new Error("No session");
-      return resumeSession(sessionId);
+      if (!resolvedSessionId) throw new Error("No session");
+      return resumeSession(resolvedSessionId);
     },
     onSuccess: onMutationSuccess,
   });
@@ -253,9 +265,9 @@ export const Timeline = ({
               <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground/60 border border-border/20 shrink-0">demo</span>
             )}
           </div>
-          {target ? (
+          {resolvedTarget ? (
             <div className="font-display font-bold text-sm truncate max-w-[140px] flex items-center gap-1.5 mt-0.5">
-              {target}
+              {resolvedTarget}
               {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
             </div>
           ) : (
@@ -394,7 +406,7 @@ export const Timeline = ({
             {/* ── Body ───────────────────────────────── */}
             <div className="flex-1 min-h-0 overflow-hidden p-2 flex flex-col">
               <LiveTerminalPanel
-                missionSessionId={sessionId}
+                missionSessionId={resolvedSessionId}
                 autoOpen={!shellDisabled}
                 disabled={shellDisabled}
                 compact

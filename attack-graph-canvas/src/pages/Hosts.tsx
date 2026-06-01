@@ -63,9 +63,20 @@ const Hosts = () => {
   };
 
   const hosts = useMemo(() => {
-    if (isAggregate) return (aggregateSessions as any[]).flatMap(buildHosts);
-    const sess = selectedSessionId ? selectedSession : sessionDetails;
-    return sess ? buildHosts(sess) : [];
+    const raw = isAggregate
+      ? (aggregateSessions as any[]).flatMap(buildHosts)
+      : (() => { const sess = selectedSessionId ? selectedSession : sessionDetails; return sess ? buildHosts(sess) : []; })();
+    // Deduplicate by IP — keep the entry with the most open ports (richest scan data)
+    const byIp = new Map<string, any>();
+    for (const h of raw) {
+      const ip = h.ip || "";
+      if (!ip) continue;
+      const existing = byIp.get(ip);
+      if (!existing || (h.ports?.length ?? 0) >= (existing.ports?.length ?? 0)) {
+        byIp.set(ip, h);
+      }
+    }
+    return Array.from(byIp.values());
   }, [isAggregate, aggregateSessions, selectedSession, sessionDetails, selectedSessionId]);
 
   const scopeLabel = selectedSessionId

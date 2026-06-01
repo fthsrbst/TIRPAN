@@ -17,8 +17,15 @@ from models.mission import MissionBrief
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# Persistent event loop reused across run() calls. Python 3.14 removed the
+# implicit-loop behaviour of asyncio.get_event_loop(); a single shared loop
+# keeps asyncio primitives (Events/Locks created in fixtures) bound to one loop.
+_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(_loop)
+
+
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return _loop.run_until_complete(coro)
 
 
 def make_ctx() -> MissionContext:
@@ -311,7 +318,7 @@ class TestKillAgent:
         async def long_task():
             await asyncio.sleep(9999)
 
-        loop = asyncio.get_event_loop()
+        loop = _loop
         task = loop.create_task(long_task())
         brain._child_tasks["scanner-x"] = task
 
@@ -492,7 +499,7 @@ class TestOnRunEnd:
         async def long_task():
             await asyncio.sleep(9999)
 
-        loop = asyncio.get_event_loop()
+        loop = _loop
         t1 = loop.create_task(long_task())
         t2 = loop.create_task(long_task())
         brain._child_tasks["a1"] = t1
@@ -520,3 +527,196 @@ class TestRegisterAgentType:
         assert "test_type_x" in _AGENT_REGISTRY
         assert _AGENT_REGISTRY["test_type_x"] == ("some.module", "SomeClass")
         del _AGENT_REGISTRY["test_type_x"]
+
+
+# ── Coverage ledger (anti-repetition, Faz 1) ────────────────────────────────────
+
+class TestCoverageLedger:
+    """Replays the session test1 repetition at the brain level. We pre-seed the
+    ledger (instead of running a full first spawn) so the test exercises only the
+    block DECISION in _spawn_agent — which returns before any spawn machinery —
+    keeping it deterministic and free of child-agent / DB side effects."""
+
+    def _make(self, tmp_path):
+        from database.db import init_db
+        from database.repositories import CoverageRepository
+        db = str(tmp_path / "cov.db")
+        run(init_db(db))
+        brain = make_brain()
+        repo = CoverageRepository(db)
+        brain._coverage_repo = repo
+        return brain, repo
+
+    def _seed(self, repo, sig, *, status="done", attempts=1, findings=2):
+        run(repo.record_running("sess-001", signature=sig.signature,
+            op_class=sig.op_class, agent_type=sig.lane, host=sig.host,
+            port=sig.port, kind=sig.kind, scripts="+".join(sig.scripts), agent_id="seed"))
+        for _ in range(attempts - 1):
+            run(repo.record_running("sess-001", signature=sig.signature,
+                op_class=sig.op_class, agent_id="seed"))
+        run(repo.mark_finished("sess-001", sig.signature, status=status, findings_count=findings))
+
+    def test_repeat_characterization_blocked(self, tmp_path):
+        from core.operation_signature import derive_signature
+        brain, repo = self._make(tmp_path)
+        opts = {"ports": "445", "nse_scripts": "smb-enum-shares,smb-enum-users"}
+        self._seed(repo, derive_signature(agent_type="scanner", target="192.168.1.4",
+                                          task_type="smb_enum_445", options=opts))
+        # Renamed task, identical coverage → blocked.
+        r = run(brain._spawn_agent({"agent_type": "scanner", "target": "192.168.1.4",
+                                    "task_type": "smb_shares_445_v2", "options": opts}))
+        assert r["status"] == "blocked", r
+        assert r["reason"] == "already_covered"
+
+    def test_action_attempts_exhausted_blocked(self, tmp_path):
+        from core.operation_signature import derive_signature
+        brain, repo = self._make(tmp_path)
+        opts = {"ports": "5900", "nse_scripts": "vnc-brute"}
+        # Brute spawned as "scanner" is rerouted to the cred_attack lane (Faz 2),
+        # so coverage is tracked there — seed the cred_attack-lane signature.
+        sig = derive_signature(agent_type="cred_attack", target="192.168.1.4",
+                               task_type="vnc_brute_5900", options=opts)
+        assert sig.op_class == "action"
+        # Seed attempts up to the budget (2) → next spawn must be blocked.
+        self._seed(repo, sig, status="failed", attempts=brain._coverage_action_budget, findings=0)
+        r = run(brain._spawn_agent({"agent_type": "scanner", "target": "192.168.1.4",
+                                    "task_type": "vnc_brute_retry", "options": opts}))
+        assert r["status"] == "blocked", r
+        assert r["reason"] == "attempts_exhausted"
+
+
+# ── cred_attack lane (Faz 2: brute off the scanner pool, background) ─────────────
+
+class TestCredAttackLane:
+    """Brute is rerouted out of the scanner lane into a background cred_attack
+    agent that the brain does not block on. Verified via the operation signature
+    (reroute → cred_attack lane) and the wait/timeout wiring — no spawn machinery
+    or real-DB writes, so it stays deterministic."""
+
+    def _brain(self, tmp_path):
+        from database.db import init_db
+        from database.repositories import CoverageRepository
+        db = str(tmp_path / "c.db")
+        run(init_db(db))
+        brain = make_brain()
+        brain._coverage_repo = CoverageRepository(db)
+        return brain
+
+    def _exhaust(self, brain, sig, status="failed"):
+        repo = brain._coverage_repo
+        for _ in range(brain._coverage_action_budget):
+            run(repo.record_running("sess-001", signature=sig.signature,
+                                    op_class=sig.op_class, agent_id="seed"))
+        run(repo.mark_finished("sess-001", sig.signature, status=status, findings_count=0))
+
+    def test_brute_rerouted_to_cred_attack(self, tmp_path):
+        from core.operation_signature import derive_signature
+        brain = self._brain(tmp_path)
+        # After reroute the op lives in the cred_attack lane — pre-exhaust THAT
+        # signature so the spawn is blocked at the coverage guard (before any
+        # spawn machinery) and we can read the resolved signature.
+        sig = derive_signature(agent_type="cred_attack", target="192.168.1.4",
+                               task_type="vnc_brute_5900",
+                               options={"ports": "5900", "nse_scripts": "vnc-brute"})
+        self._exhaust(brain, sig)
+        # Submit it as a SCANNER brute (how the brain historically did it).
+        r = run(brain._spawn_agent({"agent_type": "scanner", "target": "192.168.1.4",
+            "task_type": "vnc_brute_5900", "options": {"ports": "5900", "nse_scripts": "vnc-brute"}}))
+        assert r["status"] == "blocked", r
+        assert r["signature"].startswith("cred_attack:cred_bruteforce"), r  # proves reroute
+
+    def test_normal_scan_not_rerouted(self, tmp_path):
+        from core.operation_signature import derive_signature
+        brain = self._brain(tmp_path)
+        sig = derive_signature(agent_type="scanner", target="192.168.1.4",
+                               task_type="smb_enum_445", options={"ports": "445"})
+        # done characterization → blocked, signature stays in the scanner lane.
+        run(brain._coverage_repo.record_running("sess-001", signature=sig.signature,
+            op_class=sig.op_class, agent_id="seed"))
+        run(brain._coverage_repo.mark_finished("sess-001", sig.signature, status="done", findings_count=1))
+        r = run(brain._spawn_agent({"agent_type": "scanner", "target": "192.168.1.4",
+            "task_type": "smb_enum_445", "options": {"ports": "445"}}))
+        assert r["status"] == "blocked", r
+        assert r["signature"].startswith("scanner:service_enum"), r  # NOT rerouted
+
+    def test_cred_attack_excluded_from_wait_all(self):
+        brain = make_brain()
+        brain._active_agents = {"cred_attack-bg": "cred_attack"}
+
+        async def never():
+            await asyncio.sleep(9999)
+
+        t = _loop.create_task(never())
+        brain._child_tasks = {"cred_attack-bg": t}
+        try:
+            # "all" must exclude the background cred_attack → nothing to wait for,
+            # returns immediately (NOT a 1s timeout on the never-ending task).
+            res = run(brain._wait_for_agents({"agent_ids": "all", "timeout": 1.0}))
+            assert "No agents to wait for" in res.get("hint", ""), res
+        finally:
+            t.cancel()
+
+    def test_cred_attack_has_long_background_timeout(self):
+        brain = make_brain()
+        assert run(brain._resolve_agent_timeout("cred_attack-x", "cred_attack")) == 900
+        assert brain._cred_attack_max_parallel >= 1
+
+
+# ── Mission progress / idle completion (Faz 3) ──────────────────────────────────
+
+class TestMissionProgress:
+    def test_idle_tracking_resets_on_new_finding(self):
+        brain = make_brain()
+        brain._findings = [{"a": 1}]
+        brain._update_progress_tracking()      # grew → idle reset
+        assert brain._idle_iterations == 0
+        for _ in range(3):
+            brain._update_progress_tracking()  # no growth → idle climbs
+        assert brain._idle_iterations == 3
+
+    def test_progress_nudge_when_idle_and_no_agents(self):
+        brain = make_brain()
+        brain._findings = [{"a": 1}]
+        for _ in range(4):
+            brain._update_progress_tracking()
+        sec = brain._build_progress_section()
+        assert "MISSION PROGRESS" in sec
+        assert "mission_done" in sec.lower() or "NEW lead" in sec
+
+    def test_hard_backstop_off_by_default(self):
+        import time
+        brain = make_brain()
+        brain._idle_since_ts = time.time() - 9999 * 60   # ancient idle
+        for _ in range(5):
+            brain._update_progress_tracking()
+        assert brain._mission_done is False  # _hard_stop_minutes == 0 → never fires
+
+    def test_hard_backstop_fires_when_enabled(self):
+        import time
+        brain = make_brain()
+        brain._hard_stop_minutes = 30
+        brain._idle_since_ts = time.time() - 60 * 60      # 60 min idle, no agents
+        brain._update_progress_tracking()
+        assert brain._mission_done is True
+
+    def test_background_cred_attack_does_not_count_as_active(self):
+        brain = make_brain()
+
+        async def never():
+            await asyncio.sleep(9999)
+
+        t = _loop.create_task(never())
+        brain._child_tasks = {"cred_attack-bg": t}
+        brain._active_agents = {"cred_attack-bg": "cred_attack"}
+        try:
+            # cred_attack is background → foreground count is 0 → brain may finish.
+            assert brain._foreground_active_count() == 0
+        finally:
+            t.cancel()
+
+    def test_progress_section_reaches_prompt(self):
+        brain = make_brain()
+        brain._findings = [{"a": 1}]
+        for _ in range(4):
+            brain._update_progress_tracking()
+        assert "MISSION PROGRESS" in brain._build_system_prompt()
