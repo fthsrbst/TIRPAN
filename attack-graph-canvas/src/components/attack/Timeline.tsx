@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, Pause, Square, Terminal, Lightbulb, Bell, SlidersHorizontal, X, Loader2, OctagonMinus, Maximize2 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { killSession, pauseSession, resumeSession } from "@/lib/api";
+import { Play, Pause, Square, Terminal, Lightbulb, Bell, SlidersHorizontal, X, Loader2, OctagonMinus, Maximize2, Plus, Target, Bug, Server, Zap, Command, Sparkles } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { killSession, pauseSession, resumeSession, getSessions } from "@/lib/api";
 import type { TimelineData, TimelineEvent } from "@/hooks/useAttackGraphData";
 import { useSessionBundle } from "@/hooks/useAttackGraphData";
 import { useSessionContext } from "@/lib/SessionContext";
@@ -53,6 +53,51 @@ const PopupPanel = ({
   </div>
 );
 
+interface InfoItem {
+  icon: any;
+  label: string;
+  value: string;
+}
+
+/** Aktif görev yokken pipeline'ın yerinde dönen bilgi şeridi. */
+const RotatingInfo = ({ items }: { items: InfoItem[] }) => {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    if (items.length <= 1) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % items.length), 3500);
+    return () => clearInterval(t);
+  }, [items.length]);
+
+  if (!items.length) return null;
+  const safeIdx = idx % items.length;
+  const item = items[safeIdx];
+  const Icon = item.icon;
+
+  return (
+    <div className="flex-1 min-w-0 flex items-center gap-2">
+      <div
+        key={safeIdx}
+        className="flex items-center gap-2.5 min-w-0 animate-in fade-in slide-in-from-bottom-1 duration-500"
+      >
+        <div className="w-7 h-7 rounded-full bg-muted/60 border border-border/40 flex items-center justify-center shrink-0">
+          <Icon className="w-3.5 h-3.5 text-accent" />
+        </div>
+        <div className="leading-tight min-w-0">
+          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60 whitespace-nowrap">{item.label}</div>
+          <div className="text-sm font-display font-bold text-foreground truncate">{item.value}</div>
+        </div>
+      </div>
+      {items.length > 1 && (
+        <div className="flex items-center gap-1 ml-auto shrink-0 pr-1">
+          {items.map((_, i) => (
+            <span key={i} className={cn("h-1 rounded-full transition-all", i === safeIdx ? "w-3 bg-accent" : "w-1 bg-border/50")} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const Timeline = ({
   data,
   sessionId,
@@ -76,6 +121,13 @@ export const Timeline = ({
   const resolvedSessionId = sessionId ?? ctxBundle.sessionId ?? ctxSid;
   const resolvedIsRunning = isRunningProp ?? ctxBundle.dynamicGraph?.isRunning;
   const resolvedTarget = target ?? ctxBundle.dynamicGraph?.target;
+
+  // Aggregate session stats for the "no active mission" rotating info strip.
+  const { data: allSessions = [] } = useQuery<any[]>({
+    queryKey: ["sessions"],
+    queryFn: getSessions,
+    refetchInterval: 5000,
+  });
 
   // ── Terminal popup resize ────────────────────────
   const [termSize, setTermSize] = useState({ w: 560, h: 440 });
@@ -197,9 +249,45 @@ export const Timeline = ({
 
   const isMutating = killMut.isPending || pauseMut.isPending || resumeMut.isPending;
 
+  // ── Empty state: no running mission AND nothing explicitly selected ──
+  const hasExplicitSelection = !!(sessionId ?? ctxSid);
+  const showEmpty = !data && !hasExplicitSelection && !resolvedIsRunning;
+
+  const sum = (key: string) => (allSessions as any[]).reduce((acc, s) => acc + (Number(s?.[key]) || 0), 0);
+  const fmtNum = (n: number) => (n > 999 ? `${(n / 1000).toFixed(1)}k` : String(n));
+  const totalMissions = (allSessions as any[]).length;
+  const infoItems: InfoItem[] = [
+    totalMissions > 0 && { icon: Target, label: "Toplam görev", value: fmtNum(totalMissions) },
+    sum("vulns_found") > 0 && { icon: Bug, label: "Toplam bulgu", value: fmtNum(sum("vulns_found")) },
+    sum("hosts_found") > 0 && { icon: Server, label: "Keşfedilen host", value: fmtNum(sum("hosts_found")) },
+    sum("exploits_run") > 0 && { icon: Zap, label: "Çalıştırılan exploit", value: fmtNum(sum("exploits_run")) },
+    { icon: Command, label: "İpucu", value: "⌘K ile hızlı ara" },
+    { icon: Sparkles, label: "Başla", value: "Yeni görev oluştur" },
+  ].filter(Boolean) as InfoItem[];
+
   return (
     <div className="relative">
       <div className="flex items-center gap-3 bg-card rounded-full p-2 pl-3 border border-border/50 shadow-[var(--shadow-card)] w-full min-w-0">
+        {showEmpty ? (
+          /* No active/selected mission → New Mission CTA + rotating info strip */
+          <div className="flex-1 min-w-0 flex items-center gap-3 pl-1">
+            {perms.canCreateMission ? (
+              <button
+                onClick={() => navigate("/missions/new")}
+                className="flex items-center gap-2 shrink-0 h-9 pl-2.5 pr-4 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                title="Yeni görev başlat"
+              >
+                <span className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center"><Plus className="w-4 h-4" /></span>
+                <span className="text-xs font-semibold whitespace-nowrap">New Mission</span>
+              </button>
+            ) : (
+              <span className="shrink-0 text-[9px] font-mono px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/30">aktif görev yok</span>
+            )}
+            <div className="w-px h-6 bg-border/40 shrink-0" />
+            <RotatingInfo items={infoItems} />
+          </div>
+        ) : (
+        <>
         {/* Session controls */}
         <div className="flex items-center gap-1 shrink-0">
           {isMutating ? (
@@ -314,6 +402,9 @@ export const Timeline = ({
             </div>
           ))}
         </div>
+
+        </>
+        )}
 
         {/* Right toolbar */}
         <div className="relative flex items-center gap-0.5 bg-primary rounded-full p-1 shrink-0">
