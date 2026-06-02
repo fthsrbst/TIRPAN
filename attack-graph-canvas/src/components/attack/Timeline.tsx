@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, Pause, Square, Terminal, Lightbulb, Bell, SlidersHorizontal, X, Loader2, OctagonMinus, Maximize2, Plus, Target, Bug, Server, Zap, Command, Sparkles } from "lucide-react";
+import { Play, Pause, Square, Terminal, Lightbulb, Bell, SlidersHorizontal, X, Loader2, OctagonMinus, Maximize2, Plus, Target, Bug, Server, Zap, Search, ListTodo, GitBranch, FileText, CalendarClock, AlertCircle, Radio, CheckCircle2, Grid3x3, Activity, Key } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { killSession, pauseSession, resumeSession, getSessions } from "@/lib/api";
+import { openCommandPalette } from "@/lib/commandPalette";
 import type { TimelineData, TimelineEvent } from "@/hooks/useAttackGraphData";
 import { useSessionBundle } from "@/hooks/useAttackGraphData";
 import { useSessionContext } from "@/lib/SessionContext";
@@ -53,44 +54,62 @@ const PopupPanel = ({
   </div>
 );
 
-interface InfoItem {
-  icon: any;
-  label: string;
-  value: string;
-}
+const DockStat = ({ icon: Icon, value, label }: { icon: any; value: string; label: string }) => (
+  <div className="flex items-center gap-1.5 shrink-0">
+    <div className="w-6 h-6 rounded-full bg-muted/50 border border-border/40 flex items-center justify-center shrink-0">
+      <Icon className="w-3 h-3 text-accent" />
+    </div>
+    <span className="text-sm font-display font-bold text-foreground tabular-nums leading-none">{value}</span>
+    <span className="text-[10px] text-muted-foreground/70 whitespace-nowrap">{label}</span>
+  </div>
+);
 
-/** Aktif görev yokken pipeline'ın yerinde dönen bilgi şeridi. */
-const RotatingInfo = ({ items }: { items: InfoItem[] }) => {
+const DockBtn = ({ icon: Icon, label, hint, accent, onClick }: { icon: any; label: string; hint?: string; accent?: boolean; onClick: () => void }) => (
+  <button
+    onClick={onClick}
+    className={cn(
+      "flex items-center gap-1.5 shrink-0 h-7 px-2.5 rounded-full text-[11px] font-medium transition-colors",
+      accent ? "bg-accent/15 text-accent hover:bg-accent/25" : "bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted",
+    )}
+    title={hint ? `${label} (${hint})` : label}
+  >
+    <Icon className="w-3.5 h-3.5 shrink-0" />
+    <span className="whitespace-nowrap">{label}</span>
+    {hint && <kbd className="ml-0.5 text-[9px] font-mono px-1 py-0.5 rounded bg-background/40 border border-border/40 leading-none">{hint}</kbd>}
+  </button>
+);
+
+/** Aktif görev yokken pipeline'ın yerinde dönen, çok-bilgili/aksiyonlu şerit. */
+const RotatingDock = ({ slides }: { slides: React.ReactNode[] }) => {
   const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
   useEffect(() => {
-    if (items.length <= 1) return;
-    const t = setInterval(() => setIdx((i) => (i + 1) % items.length), 3500);
+    if (paused || slides.length <= 1) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % slides.length), 5000);
     return () => clearInterval(t);
-  }, [items.length]);
+  }, [paused, slides.length]);
 
-  if (!items.length) return null;
-  const safeIdx = idx % items.length;
-  const item = items[safeIdx];
-  const Icon = item.icon;
+  if (!slides.length) return null;
+  const safeIdx = idx % slides.length;
 
   return (
-    <div className="flex-1 min-w-0 flex items-center gap-2">
-      <div
-        key={safeIdx}
-        className="flex items-center gap-2.5 min-w-0 animate-in fade-in slide-in-from-bottom-1 duration-500"
-      >
-        <div className="w-7 h-7 rounded-full bg-muted/60 border border-border/40 flex items-center justify-center shrink-0">
-          <Icon className="w-3.5 h-3.5 text-accent" />
-        </div>
-        <div className="leading-tight min-w-0">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60 whitespace-nowrap">{item.label}</div>
-          <div className="text-sm font-display font-bold text-foreground truncate">{item.value}</div>
-        </div>
+    <div
+      className="flex-1 min-w-0 flex items-center gap-2"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      <div key={safeIdx} className="flex-1 min-w-0 flex items-center gap-3.5 overflow-hidden animate-in fade-in slide-in-from-bottom-1 duration-500">
+        {slides[safeIdx]}
       </div>
-      {items.length > 1 && (
-        <div className="flex items-center gap-1 ml-auto shrink-0 pr-1">
-          {items.map((_, i) => (
-            <span key={i} className={cn("h-1 rounded-full transition-all", i === safeIdx ? "w-3 bg-accent" : "w-1 bg-border/50")} />
+      {slides.length > 1 && (
+        <div className="flex items-center gap-1 shrink-0 pr-1">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setIdx(i)}
+              aria-label={`View ${i + 1}`}
+              className={cn("h-1.5 rounded-full transition-all", i === safeIdx ? "w-4 bg-accent" : "w-1.5 bg-border/50 hover:bg-border")}
+            />
           ))}
         </div>
       )}
@@ -253,38 +272,64 @@ export const Timeline = ({
   const hasExplicitSelection = !!(sessionId ?? ctxSid);
   const showEmpty = !data && !hasExplicitSelection && !resolvedIsRunning;
 
-  const sum = (key: string) => (allSessions as any[]).reduce((acc, s) => acc + (Number(s?.[key]) || 0), 0);
+  const sessionsArr = allSessions as any[];
+  const sum = (key: string) => sessionsArr.reduce((acc, s) => acc + (Number(s?.[key]) || 0), 0);
   const fmtNum = (n: number) => (n > 999 ? `${(n / 1000).toFixed(1)}k` : String(n));
-  const totalMissions = (allSessions as any[]).length;
-  const infoItems: InfoItem[] = [
-    totalMissions > 0 && { icon: Target, label: "Toplam görev", value: fmtNum(totalMissions) },
-    sum("vulns_found") > 0 && { icon: Bug, label: "Toplam bulgu", value: fmtNum(sum("vulns_found")) },
-    sum("hosts_found") > 0 && { icon: Server, label: "Keşfedilen host", value: fmtNum(sum("hosts_found")) },
-    sum("exploits_run") > 0 && { icon: Zap, label: "Çalıştırılan exploit", value: fmtNum(sum("exploits_run")) },
-    { icon: Command, label: "İpucu", value: "⌘K ile hızlı ara" },
-    { icon: Sparkles, label: "Başla", value: "Yeni görev oluştur" },
-  ].filter(Boolean) as InfoItem[];
+  const runningCount = sessionsArr.filter((s) => s?.is_running || s?.status === "running").length;
+  const stats = {
+    missions: fmtNum(sessionsArr.length),
+    running: fmtNum(runningCount),
+    findings: fmtNum(sum("vulns_found")),
+    hosts: fmtNum(sum("hosts_found")),
+    exploits: fmtNum(sum("exploits_run")),
+    done: fmtNum(Math.max(0, sessionsArr.length - runningCount)),
+  };
+  const dockSlides: React.ReactNode[] = [
+    <div key="stats" className="w-full flex items-center justify-between gap-2">
+      <DockStat icon={Target} value={stats.missions} label="missions" />
+      <DockStat icon={Radio} value={stats.running} label="active" />
+      <DockStat icon={Bug} value={stats.findings} label="findings" />
+      <DockStat icon={Server} value={stats.hosts} label="hosts" />
+      <DockStat icon={Zap} value={stats.exploits} label="exploits" />
+      <DockStat icon={CheckCircle2} value={stats.done} label="done" />
+    </div>,
+    <div key="nav" className="w-full flex items-center justify-between gap-2">
+      <DockBtn icon={ListTodo} label="Missions" onClick={() => navigate("/missions")} />
+      <DockBtn icon={GitBranch} label="Attack Graph" onClick={() => navigate("/attack-graph")} />
+      <DockBtn icon={Server} label="Hosts" onClick={() => navigate("/hosts")} />
+      <DockBtn icon={AlertCircle} label="Findings" onClick={() => navigate("/findings")} />
+      <DockBtn icon={FileText} label="Reports" onClick={() => navigate("/reports")} />
+      <DockBtn icon={Grid3x3} label="ATT&CK" onClick={() => navigate("/attack-matrix")} />
+    </div>,
+    <div key="tools" className="w-full flex items-center justify-between gap-2">
+      <DockBtn icon={Search} label="Search" hint="⌘K" accent onClick={openCommandPalette} />
+      <DockBtn icon={Terminal} label="Terminal" onClick={() => navigate("/terminal")} />
+      <DockBtn icon={CalendarClock} label="Scheduled" onClick={() => navigate("/scheduled-scans")} />
+      <DockBtn icon={Key} label="Credentials" onClick={() => navigate("/credentials")} />
+      <DockBtn icon={SlidersHorizontal} label="Settings" onClick={() => navigate("/settings")} />
+    </div>,
+  ];
 
   return (
     <div className="relative">
       <div className="flex items-center gap-3 bg-card rounded-full p-2 pl-3 border border-border/50 shadow-[var(--shadow-card)] w-full min-w-0">
         {showEmpty ? (
-          /* No active/selected mission → New Mission CTA + rotating info strip */
+          /* No active/selected mission → New Mission CTA + rotating data/action dock */
           <div className="flex-1 min-w-0 flex items-center gap-3 pl-1">
             {perms.canCreateMission ? (
               <button
                 onClick={() => navigate("/missions/new")}
                 className="flex items-center gap-2 shrink-0 h-9 pl-2.5 pr-4 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                title="Yeni görev başlat"
+                title="Start a new mission"
               >
                 <span className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center"><Plus className="w-4 h-4" /></span>
                 <span className="text-xs font-semibold whitespace-nowrap">New Mission</span>
               </button>
             ) : (
-              <span className="shrink-0 text-[9px] font-mono px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/30">aktif görev yok</span>
+              <span className="shrink-0 text-[9px] font-mono px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/30">No active mission</span>
             )}
             <div className="w-px h-6 bg-border/40 shrink-0" />
-            <RotatingInfo items={infoItems} />
+            <RotatingDock slides={dockSlides} />
           </div>
         ) : (
         <>

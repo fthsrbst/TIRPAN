@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 // Eye kept for password toggle buttons
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import { api, useAuth } from "@/lib/utils";
 import { usePermissions } from "@/lib/permissions";
 import ModelPicker from "@/components/attack/ModelPicker";
@@ -115,7 +116,12 @@ function StatusDot({ online, label }: { online: boolean; label?: string }) {
 const SettingsPage = () => {
   const { user, isLoggedIn, logout } = useAuth();
   const perms = usePermissions();
-  const [tab, setTab] = useState<Tab>("llm");
+  const location = useLocation();
+  const [tab, setTab] = useState<Tab>(((location.state as any)?.tab as Tab) || "llm");
+  useEffect(() => {
+    const t = (location.state as any)?.tab as Tab | undefined;
+    if (t) setTab(t);
+  }, [location.state]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 

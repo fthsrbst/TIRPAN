@@ -1,8 +1,9 @@
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { GitBranch, Users, Server, AlertCircle, Key, Bug, Grid3x3, Plus, X, Cpu, ChevronDown, Check, RefreshCw, Radio } from "lucide-react";
+import { GitBranch, Users, Server, AlertCircle, Key, Bug, Grid3x3, Plus, X, Cpu, ChevronDown, Check, RefreshCw, Radio, Search } from "lucide-react";
 import { useSessionContext } from "@/lib/SessionContext";
 import { sessionDisplayLabel } from "@/lib/sessionDisplay";
 import { ThemeToggle } from "@/components/attack/ThemeToggle";
+import { openCommandPalette } from "@/lib/commandPalette";
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { api } from "@/lib/utils";
@@ -320,7 +321,15 @@ export const TopTabs = () => {
           </div>
         )}
 
-        <div className="pl-1 border-l border-border/30">
+        <div className="pl-1 border-l border-border/30 flex items-center gap-0.5">
+          <button
+            onClick={openCommandPalette}
+            className="pill-tab text-muted-foreground hover:text-foreground"
+            title="Search (⌘K)"
+            aria-label="Search"
+          >
+            <Search className="w-4 h-4" />
+          </button>
           <ThemeToggle />
         </div>
 
