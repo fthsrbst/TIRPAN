@@ -17,7 +17,7 @@ import psutil
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field, field_validator
-from web.auth.dependencies import get_current_user, require_min_role, require_role
+from web.auth.dependencies import get_current_user, get_current_user_optional, require_min_role, require_permission, require_role
 
 from config import SafetyConfig, settings
 from core.agent_model_config import normalize_agent_models
@@ -40,6 +40,8 @@ from database.repositories import (
     ScanResultRepository,
     SessionEventRepository,
     SessionRepository,
+    UsageRepository,
+    UserRepository,
     VulnerabilityRepository,
 )
 from web.stats_state import token_counter
@@ -60,6 +62,15 @@ _harvested_cred_repo = HarvestedCredentialRepository()
 _loot_repo = LootRepository()
 _network_graph_repo = NetworkGraphRepository()
 _mission_ctx_repo = MissionContextRepository()
+_usage_repo = UsageRepository()
+_user_repo = UserRepository()
+
+
+def _month_start() -> float:
+    """Epoch seconds for the start of the current calendar month (UTC)."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    return _dt.datetime(now.year, now.month, 1, tzinfo=_dt.timezone.utc).timestamp()
 
 _REPORT_CACHE_TTL_SECONDS = 900.0
 _REPORT_CACHE_MAX_ITEMS = 48
@@ -306,6 +317,126 @@ async def system_stats():
         "tokens_in": token_counter.total_input,
         "tokens_out": token_counter.total_output,
     }
+
+
+# ── LLM usage & cost ───────────────────────────────────────────────────────────
+
+@router.get("/usage/summary")
+async def usage_summary(
+    period: str = "month",
+    current_user: dict = Depends(get_current_user),
+):
+    """Org-wide token + cost rollup (current month by default).
+
+    Powers the dashboard: total $/tokens, average per mission, by-model and
+    by-user breakdowns. Real-time — the frontend polls this.
+    """
+    org_id = current_user.get("org_id") or ""
+    since = _month_start() if period == "month" else 0.0
+    summary = await _usage_repo.summary_for_org(org_id, since=since)
+    summary["period"] = period
+
+    # Enrich the per-user rows with display names + budgets.
+    if summary.get("by_user") and org_id:
+        users = {u["id"]: u for u in await _user_repo.list_by_org(org_id)}
+        for row in summary["by_user"]:
+            u = users.get(row.get("user_id")) or {}
+            row["full_name"] = u.get("full_name") or "—"
+            row["email"] = u.get("email") or ""
+            row["monthly_budget_usd"] = float(u.get("monthly_budget_usd") or 0)
+    return summary
+
+
+@router.get("/sessions/{sid}/usage")
+async def session_usage(sid: str, current_user: dict = Depends(get_current_user)):
+    """Per-mission token + cost detail: totals + by-model + by-agent."""
+    session = await _session_repo.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return await _usage_repo.for_session(sid)
+
+
+@router.get("/usage/users")
+async def usage_by_user(current_user: dict = Depends(require_role("owner", "admin"))):
+    """Per-user spend vs budget for the org (owner/admin only)."""
+    org_id = current_user.get("org_id") or ""
+    if not org_id:
+        raise HTTPException(400, "This account is not linked to an organization.")
+    since = _month_start()
+    members = await _user_repo.list_by_org(org_id)
+    rows = []
+    for m in members:
+        spend = await _usage_repo.user_spend(m["id"], since=since)
+        budget = float(m.get("monthly_budget_usd") or 0)
+        rows.append({
+            "user_id": m["id"],
+            "full_name": m.get("full_name") or m.get("email") or "—",
+            "email": m.get("email") or "",
+            "role": m.get("role") or "viewer",
+            "spend_this_month": spend,
+            "monthly_budget_usd": budget,
+            "remaining_usd": round(budget - spend, 6) if budget > 0 else None,
+            "over_budget": budget > 0 and spend >= budget,
+        })
+    rows.sort(key=lambda r: r["spend_this_month"], reverse=True)
+    return {"users": rows, "period": "month"}
+
+
+@router.get("/config/pricing")
+async def get_pricing_config(current_user: dict = Depends(get_current_user)):
+    """Effective model price table (defaults merged with operator overrides)."""
+    from core import pricing
+    return {"pricing": await pricing.get_pricing()}
+
+
+class PricingUpdate(BaseModel):
+    pricing: dict
+
+
+@router.post("/config/pricing")
+async def set_pricing_config(
+    body: PricingUpdate,
+    current_user: dict = Depends(require_role("owner", "admin")),
+):
+    """Persist per-model price overrides ($/1M tokens). owner/admin only."""
+    clean: dict[str, dict] = {}
+    for model, val in (body.pricing or {}).items():
+        if not isinstance(val, dict):
+            continue
+        clean[str(model)] = {
+            "in": max(0.0, float(val.get("in", 0) or 0)),
+            "out": max(0.0, float(val.get("out", 0) or 0)),
+        }
+    await database.set_setting("model_pricing", clean)
+    return {"ok": True, "count": len(clean)}
+
+
+@router.get("/config/pricing/openrouter")
+async def fetch_openrouter_pricing(current_user: dict = Depends(get_current_user)):
+    """Live per-model prices from OpenRouter's public catalog → USD per 1M tokens.
+
+    No API key required (the /models catalog is public). The frontend uses this to
+    auto-populate the editable price table instead of typing prices by hand.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.get("https://openrouter.ai/api/v1/models")
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        raise HTTPException(502, f"Could not reach OpenRouter: {e}")
+    out: dict[str, dict] = {}
+    for m in data.get("data", []):
+        mid = m.get("id")
+        pr = m.get("pricing") or {}
+        try:
+            pin = float(pr.get("prompt") or 0) * 1_000_000
+            pout = float(pr.get("completion") or 0) * 1_000_000
+        except (TypeError, ValueError):
+            continue
+        if mid and (pin > 0 or pout > 0):
+            out[mid] = {"in": round(pin, 4), "out": round(pout, 4)}
+    return {"pricing": out, "count": len(out)}
 
 
 # ── Conversations ─────────────────────────────────────────────────────────────
@@ -1316,6 +1447,26 @@ async def start_session(
     if body.mode not in _VALID_MODES:
         raise HTTPException(400, f"Invalid mode: {body.mode}")
 
+    # Budget enforcement — block starting a new mission once the operator is over
+    # their monthly LLM spend cap (running missions are allowed to finish). A
+    # soft warning is surfaced when spend crosses 80% of the cap.
+    _budget_warning: str | None = None
+    _user_budget = float(current_user.get("monthly_budget_usd") or 0)
+    if _user_budget > 0:
+        _spend = await _usage_repo.user_spend(current_user["id"], since=_month_start())
+        if _spend >= _user_budget:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Monthly LLM budget exceeded (${_spend:.2f} / ${_user_budget:.2f}). "
+                    "Ask an admin to raise your limit before starting a new mission."
+                ),
+            )
+        if _spend >= 0.8 * _user_budget:
+            _budget_warning = (
+                f"Heads up: you have used ${_spend:.2f} of your ${_user_budget:.2f} monthly budget."
+            )
+
     # Resume from saved mission: load target + findings from that session
     resume_scan_results: list[dict] = []
     resume_vulnerabilities: list[dict] = []
@@ -1725,6 +1876,7 @@ async def start_session(
         "speed_profile": body.speed_profile,
         "status": "running",
         "v2": body.mode == "v2_auto",
+        "budget_warning": _budget_warning,
     }
 
 
@@ -1754,11 +1906,17 @@ async def list_sessions(current_user: dict = Depends(get_current_user)):
         for s in sessions:
             s["is_running"] = session_manager.is_running(s["id"])
             s["assigned_to_name"] = None
+    # Attach per-mission token + cost totals in one batched query.
+    totals = await _usage_repo.session_totals([s["id"] for s in sessions])
+    for s in sessions:
+        t = totals.get(s["id"]) or {}
+        s["cost_usd"] = t.get("cost_usd", 0.0)
+        s["total_tokens"] = t.get("total_tokens", 0)
     return sessions
 
 
 @router.get("/sessions/{sid}")
-async def get_session(sid: str):
+async def get_session(sid: str, current_user: dict | None = Depends(get_current_user_optional)):
     session = await _session_repo.get(sid)
     if not session:
         raise HTTPException(404, "Session not found")
@@ -1850,6 +2008,23 @@ async def get_session(sid: str):
         agent = session_manager.get_agent(sid)
         if agent and hasattr(agent, "_mission_ctx") and agent._mission_ctx is not None:
             session["mission_context"] = agent._mission_ctx.to_dict()
+
+    # Per-assignment field visibility: a restricted assignee (not owner/admin and
+    # not the creator) only sees the data categories granted in their access_scope.
+    role = current_user.get("role") if current_user else None
+    uid = current_user.get("id") if current_user else None
+    if current_user and role not in ("owner", "admin") and session.get("created_by") != uid and session.get("assigned_to") == uid:
+        import json as _json
+        try:
+            scope = _json.loads(session.get("access_scope_json") or "[]")
+        except Exception:
+            scope = []
+        if isinstance(scope, list) and scope:
+            for cat in ("scan_results", "vulnerabilities", "exploit_results"):
+                if cat not in scope:
+                    session[cat] = []
+            session["access_scope"] = scope
+            session["access_restricted"] = True
 
     return session
 
@@ -1952,7 +2127,11 @@ class InjectMessageRequest(BaseModel):
 
 
 @router.post("/sessions/{sid}/inject")
-async def inject_session_message(sid: str, body: InjectMessageRequest):
+async def inject_session_message(
+    sid: str,
+    body: InjectMessageRequest,
+    current_user: dict = Depends(require_permission("canInjectMessage")),
+):
     """Inject an operator message into the running agent's memory."""
     from web import session_manager
 
@@ -2622,7 +2801,11 @@ class ShellSendRequest(BaseModel):
 
 
 @router.post("/shells/{shell_key}/send")
-async def send_shell_command(shell_key: str, body: ShellSendRequest):
+async def send_shell_command(
+    shell_key: str,
+    body: ShellSendRequest,
+    current_user: dict = Depends(require_permission("canUseTerminal")),
+):
     """Execute a command on an active shell session (operator-initiated)."""
     from web import session_manager as _sm
 

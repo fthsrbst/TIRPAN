@@ -1338,6 +1338,187 @@ class UserRepository:
             await db.commit()
             return db.total_changes > 0
 
+    async def update_budget(self, user_id: str, monthly_budget_usd: float) -> bool:
+        """Set a user's monthly spend cap in USD (0 = unlimited)."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET monthly_budget_usd=? WHERE id=?",
+                (max(0.0, float(monthly_budget_usd or 0)), user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def set_onboarding_done(self, user_id: str, done: bool = True) -> bool:
+        """Mark (or reset) the guided onboarding tour as completed for a user."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE users SET onboarding_done=? WHERE id=?",
+                (1 if done else 0, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+
+# ── UsageRepository ────────────────────────────────────────────────────────────
+
+class UsageRepository:
+    """LLM token + cost ledger (llm_usage). One row per LLM call."""
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def insert(
+        self,
+        *,
+        session_id: str = "",
+        user_id: str = "",
+        org_id: str = "",
+        provider: str = "",
+        model: str = "",
+        agent_type: str = "",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        cost_usd: float = 0.0,
+        is_estimated: bool = False,
+    ) -> None:
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO llm_usage
+                   (id, session_id, user_id, org_id, provider, model, agent_type,
+                    prompt_tokens, completion_tokens, cost_usd, is_estimated, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    _uid(), session_id, user_id, org_id, provider, model, agent_type,
+                    int(prompt_tokens), int(completion_tokens), float(cost_usd),
+                    1 if is_estimated else 0, _now(),
+                ),
+            )
+            await db.commit()
+
+    async def for_session(self, session_id: str) -> dict:
+        """Per-mission breakdown: totals + by-model + by-agent rows."""
+        async with _connect(self._path) as db:
+            async with db.execute(
+                """SELECT model, provider,
+                          SUM(prompt_tokens)     AS prompt_tokens,
+                          SUM(completion_tokens) AS completion_tokens,
+                          SUM(cost_usd)          AS cost_usd,
+                          MAX(is_estimated)      AS is_estimated,
+                          COUNT(*)               AS calls
+                   FROM llm_usage WHERE session_id=?
+                   GROUP BY model, provider ORDER BY cost_usd DESC""",
+                (session_id,),
+            ) as cur:
+                by_model = [dict(r) for r in await cur.fetchall()]
+            async with db.execute(
+                """SELECT agent_type,
+                          SUM(prompt_tokens)     AS prompt_tokens,
+                          SUM(completion_tokens) AS completion_tokens,
+                          SUM(cost_usd)          AS cost_usd,
+                          COUNT(*)               AS calls
+                   FROM llm_usage WHERE session_id=?
+                   GROUP BY agent_type ORDER BY cost_usd DESC""",
+                (session_id,),
+            ) as cur:
+                by_agent = [dict(r) for r in await cur.fetchall()]
+        total_in = sum(int(r["prompt_tokens"] or 0) for r in by_model)
+        total_out = sum(int(r["completion_tokens"] or 0) for r in by_model)
+        total_cost = sum(float(r["cost_usd"] or 0) for r in by_model)
+        estimated = any(int(r.get("is_estimated") or 0) for r in by_model)
+        return {
+            "session_id": session_id,
+            "prompt_tokens": total_in,
+            "completion_tokens": total_out,
+            "total_tokens": total_in + total_out,
+            "cost_usd": round(total_cost, 6),
+            "is_estimated": estimated,
+            "by_model": by_model,
+            "by_agent": by_agent,
+        }
+
+    async def session_totals(self, session_ids: list[str]) -> dict[str, dict]:
+        """Map session_id → {cost_usd, total_tokens} for a batch of sessions."""
+        if not session_ids:
+            return {}
+        placeholders = ",".join("?" for _ in session_ids)
+        async with _connect(self._path) as db, db.execute(
+            f"""SELECT session_id,
+                       SUM(prompt_tokens + completion_tokens) AS total_tokens,
+                       SUM(cost_usd)                          AS cost_usd
+                FROM llm_usage WHERE session_id IN ({placeholders})
+                GROUP BY session_id""",
+            tuple(session_ids),
+        ) as cur:
+            rows = await cur.fetchall()
+        return {
+            r["session_id"]: {
+                "total_tokens": int(r["total_tokens"] or 0),
+                "cost_usd": round(float(r["cost_usd"] or 0), 6),
+            }
+            for r in rows
+        }
+
+    async def user_spend(self, user_id: str, since: float = 0.0) -> float:
+        """Total USD a user has spent since `since` (epoch seconds)."""
+        async with _connect(self._path) as db, db.execute(
+            "SELECT SUM(cost_usd) AS c FROM llm_usage WHERE user_id=? AND created_at>=?",
+            (user_id, since),
+        ) as cur:
+            row = await cur.fetchone()
+        return round(float(row["c"] or 0), 6) if row else 0.0
+
+    async def summary_for_org(self, org_id: str, since: float = 0.0) -> dict:
+        """Org-wide rollup: totals, by-model, by-user, by-agent, mission count."""
+        async with _connect(self._path) as db:
+            async with db.execute(
+                """SELECT SUM(prompt_tokens)                 AS prompt_tokens,
+                          SUM(completion_tokens)             AS completion_tokens,
+                          SUM(cost_usd)                      AS cost_usd,
+                          COUNT(*)                           AS calls,
+                          COUNT(DISTINCT session_id)         AS missions,
+                          MAX(is_estimated)                  AS is_estimated
+                   FROM llm_usage WHERE org_id=? AND created_at>=?""",
+                (org_id, since),
+            ) as cur:
+                tot = dict(await cur.fetchone() or {})
+            async with db.execute(
+                """SELECT model, provider,
+                          SUM(prompt_tokens)     AS prompt_tokens,
+                          SUM(completion_tokens) AS completion_tokens,
+                          SUM(cost_usd)          AS cost_usd,
+                          COUNT(*)               AS calls
+                   FROM llm_usage WHERE org_id=? AND created_at>=?
+                   GROUP BY model, provider ORDER BY cost_usd DESC""",
+                (org_id, since),
+            ) as cur:
+                by_model = [dict(r) for r in await cur.fetchall()]
+            async with db.execute(
+                """SELECT user_id,
+                          SUM(prompt_tokens + completion_tokens) AS total_tokens,
+                          SUM(cost_usd)                          AS cost_usd,
+                          COUNT(DISTINCT session_id)             AS missions
+                   FROM llm_usage WHERE org_id=? AND created_at>=?
+                   GROUP BY user_id ORDER BY cost_usd DESC""",
+                (org_id, since),
+            ) as cur:
+                by_user = [dict(r) for r in await cur.fetchall()]
+        prompt = int(tot.get("prompt_tokens") or 0)
+        completion = int(tot.get("completion_tokens") or 0)
+        cost = round(float(tot.get("cost_usd") or 0), 6)
+        missions = int(tot.get("missions") or 0)
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": prompt + completion,
+            "cost_usd": cost,
+            "calls": int(tot.get("calls") or 0),
+            "missions": missions,
+            "avg_cost_per_mission": round(cost / missions, 6) if missions else 0.0,
+            "is_estimated": bool(tot.get("is_estimated") or 0),
+            "by_model": by_model,
+            "by_user": by_user,
+        }
+
 
 # ── OrganizationRepository ─────────────────────────────────────────────────────
 
@@ -1424,6 +1605,27 @@ class OrganizationRepository:
         async with _connect(self._path) as db:
             await db.execute(
                 f"UPDATE organizations SET {', '.join(fields)} WHERE id=?", params
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def get_permissions(self, org_id: str) -> dict:
+        """Return the org's role→permission override matrix (empty if unset)."""
+        row = await self.get(org_id)
+        raw = (row or {}).get("role_permissions_json") or ""
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    async def set_permissions(self, org_id: str, matrix: dict) -> bool:
+        """Persist the org's role→permission override matrix."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE organizations SET role_permissions_json=? WHERE id=?",
+                (json.dumps(matrix or {}), org_id),
             )
             await db.commit()
             return db.total_changes > 0

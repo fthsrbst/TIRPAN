@@ -9,8 +9,29 @@
  *   if (!perms.canCreateMission) return null;
  */
 
-import { useAuth, ROLE_HIERARCHY } from "./utils";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth, ROLE_HIERARCHY, api } from "./utils";
 import type { AuthUser } from "./utils";
+
+/** Org-scoped permission matrix: { role: { permKey: bool } }. */
+type PermissionMatrix = Record<string, Record<string, boolean>>;
+
+/**
+ * Fetch the org's effective permission matrix (defaults merged with the admin's
+ * overrides). Deduped across every usePermissions() caller by react-query, so
+ * only one request is made app-wide. Returns null until loaded — callers fall
+ * back to the built-in role defaults.
+ */
+function useOrgPermissionMatrix(enabled: boolean): PermissionMatrix | null {
+  const { data } = useQuery({
+    queryKey: ["org-permissions"],
+    queryFn: () => api.get<{ permissions: PermissionMatrix }>("/auth/org/permissions"),
+    enabled,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  return data?.permissions ?? null;
+}
 
 export interface Permissions {
   // Mission / Session
@@ -50,32 +71,43 @@ function level(user: AuthUser | null): number {
 
 export function usePermissions(): Permissions {
   const { user } = useAuth();
+  const matrix = useOrgPermissionMatrix(!!user);
   const lv = level(user);
 
-  const isOwner   = user?.role === "owner";
-  const isAdmin   = user?.role === "admin" || isOwner;
+  const role      = user?.role ?? "viewer";
+  const isOwner   = role === "owner";
+  const isAdmin   = role === "admin" || isOwner;
   const isAnalyst = lv >= (ROLE_HIERARCHY["analyst"] ?? 20);
-  const isViewer  = user?.role === "viewer";
+  const isViewer  = role === "viewer";
+
+  // Resolve a capability: owner always allowed; otherwise the org matrix wins
+  // when it specifies the key, falling back to the built-in role default.
+  const can = (key: string, def: boolean): boolean => {
+    if (isOwner) return true;
+    const roleMatrix = matrix?.[role];
+    if (roleMatrix && key in roleMatrix) return !!roleMatrix[key];
+    return def;
+  };
 
   return {
-    canCreateMission:  isAnalyst,
-    canDeleteMission:  isAnalyst,
-    canKillMission:    isAnalyst,
-    canPauseMission:   isAnalyst,
-    canAssignMission:  isAdmin,
+    canCreateMission:  can("canCreateMission", isAnalyst),
+    canDeleteMission:  can("canDeleteMission", isAnalyst),
+    canKillMission:    can("canKillMission", isAnalyst),
+    canPauseMission:   can("canPauseMission", isAnalyst),
+    canAssignMission:  can("canAssignMission", isAdmin),
 
-    canUseTerminal:    isAnalyst,
-    canViewCredentials: isAnalyst,
-    canInjectMessage:  isAnalyst,
+    canUseTerminal:    can("canUseTerminal", isAnalyst),
+    canViewCredentials: can("canViewCredentials", isAnalyst),
+    canInjectMessage:  can("canInjectMessage", isAnalyst),
 
-    canViewReports:    true,
+    canViewReports:    can("canViewReports", true),
 
     canViewTeam:       true,
-    canInviteMembers:  isAdmin,
-    canChangeRoles:    isAdmin,
+    canInviteMembers:  can("canInviteMembers", isAdmin),
+    canChangeRoles:    can("canChangeRoles", isAdmin),
     canManageOrg:      isOwner,
 
-    role:      user?.role ?? "viewer",
+    role,
     isOwner,
     isAdmin,
     isAnalyst,

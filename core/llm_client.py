@@ -208,6 +208,9 @@ class OpenRouterClient(LLMClient):
         self.model = settings.llm.cloud_model
         self.timeout = 30.0
         self._http_client: httpx.AsyncClient | None = None
+        # Last real token usage reported by the provider (set in chat/stream_chat).
+        # Read by LLMRouter.pop_last_usage() for accurate cost accounting.
+        self._last_usage: dict | None = None
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
@@ -264,6 +267,7 @@ class OpenRouterClient(LLMClient):
                 )
                 resp.raise_for_status()
                 data = resp.json()
+                self._last_usage = data.get("usage")
                 choices = data.get("choices") or []
                 if not choices:
                     raise ValueError(f"OpenRouter returned empty choices: {data}")
@@ -315,8 +319,12 @@ class OpenRouterClient(LLMClient):
                         "messages": messages,
                         "stream": True,
                         "max_tokens": 8192,
+                        # Ask OpenRouter to emit a final usage chunk so we can bill
+                        # real token counts instead of estimating (core/pricing.py).
+                        "stream_options": {"include_usage": True},
                     },
                 ) as resp:
+                    self._last_usage = None
                     if resp.status_code >= 400:
                         await resp.aread()
                         body = resp.text
@@ -335,6 +343,9 @@ class OpenRouterClient(LLMClient):
                             return
                         try:
                             data = json.loads(raw)
+                            # Final usage chunk arrives with choices == [].
+                            if data.get("usage"):
+                                self._last_usage = data["usage"]
                             choices = data.get("choices")
                             if not choices:
                                 continue
@@ -767,6 +778,31 @@ class LLMRouter:
         if await self._fallback().is_available():
             return type(self._fallback()).__name__
         return "none"
+
+    def current_model_provider(self) -> tuple[str, str]:
+        """Return (provider, model) for the currently-selected primary client.
+
+        Used by the usage/cost accounting layer (core/pricing.py) so each LLM
+        call is attributed to the right model and priced correctly.
+        """
+        client = self._primary()
+        if client is self._openrouter:
+            return "openrouter", self._openrouter._current_model
+        if client is self._opencode_go:
+            return "opencode_go", self._opencode_go._model
+        if client is self._lmstudio:
+            return "lmstudio", self._lmstudio._model
+        return "ollama", self._ollama.model
+
+    def pop_last_usage(self) -> dict | None:
+        """Return and clear the most recent provider-reported usage block.
+
+        Only the cloud OpenRouter client reports real usage; for everyone else
+        this returns None and the caller falls back to estimation.
+        """
+        usage = getattr(self._openrouter, "_last_usage", None)
+        self._openrouter._last_usage = None
+        return usage
 
     @staticmethod
     def parse_json(response: str) -> dict:

@@ -21,6 +21,7 @@ import re
 from config import settings
 from core.secure_store import async_get_secret, get_secret
 from web.stats_state import token_counter
+from core import pricing
 from database import db as database
 
 logger = logging.getLogger(__name__)
@@ -94,10 +95,13 @@ async def stream_ollama(
                     if chunk.get("done"):
                         tokens_in = chunk.get("prompt_eval_count", 0)
                         tokens_out = chunk.get("eval_count", 0)
-                        # Track token usage from Ollama's final chunk
-                        token_counter.add(
-                            prompt_tokens=tokens_in,
-                            eval_tokens=tokens_out,
+                        # Persist token usage from Ollama's final chunk (also
+                        # bumps the live global counter inside record_usage).
+                        await pricing.record_usage(
+                            provider="ollama", model=settings.ollama.model,
+                            agent_type="chat",
+                            prompt_tokens=tokens_in, completion_tokens=tokens_out,
+                            is_estimated=False,
                         )
                         # Persist messages to DB
                         if conversation_id:
@@ -273,7 +277,12 @@ async def stream_openrouter(
                         usage = chunk.get("usage", {})
                         tokens_in = usage.get("prompt_tokens", 0)
                         tokens_out = usage.get("completion_tokens", 0)
-                        token_counter.add(prompt_tokens=tokens_in, eval_tokens=tokens_out)
+                        await pricing.record_usage(
+                            provider="openrouter", model=settings.llm.cloud_model,
+                            agent_type="chat",
+                            prompt_tokens=tokens_in, completion_tokens=tokens_out,
+                            is_estimated=False,
+                        )
                         if conversation_id:
                             await database.add_message(conversation_id, "user", user_message)
                             await database.add_message(

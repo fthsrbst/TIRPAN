@@ -195,6 +195,13 @@ class BaseAgent(ABC):
         self._approval_cb: ApprovalCallback | None = approval_callback
         self._audit_repo = audit_repo
 
+        # Billing identity (resolved lazily from the session's created_by, then
+        # cached) so every LLM call can be attributed to a user + org for cost
+        # accounting and budget enforcement. See _record_llm_usage().
+        self._billing_resolved: bool = False
+        self._billing_user_id: str = ""
+        self._billing_org_id: str = ""
+
         self._iteration: int = 0
 
         # Wall-clock cap on a single reason() call (see constants above).
@@ -757,6 +764,60 @@ class BaseAgent(ABC):
 
     # ── ReAct steps ───────────────────────────────────────────────────────────
 
+    async def _resolve_billing_identity(self) -> None:
+        """Resolve + cache (user_id, org_id) from the session's created_by once."""
+        if self._billing_resolved:
+            return
+        self._billing_resolved = True
+        if not self.session_id:
+            return
+        try:
+            from database.repositories import SessionRepository, UserRepository
+            sess = await SessionRepository().get(self.session_id)
+            uid = (sess or {}).get("created_by") or ""
+            self._billing_user_id = uid
+            if uid:
+                user = await UserRepository().get_by_id(uid)
+                self._billing_org_id = (user or {}).get("org_id") or ""
+        except Exception as e:
+            self._log.debug("billing identity resolve failed: %s", e)
+
+    async def _record_llm_usage(self, messages: list[dict], response: str) -> None:
+        """Persist token + cost usage for one reason() LLM call. Never fatal."""
+        try:
+            from core import pricing
+
+            await self._resolve_billing_identity()
+            provider, model = self._llm.current_model_provider()
+
+            usage = self._llm.pop_last_usage()
+            if usage and (usage.get("prompt_tokens") or usage.get("completion_tokens")):
+                prompt_tokens = int(usage.get("prompt_tokens") or 0)
+                completion_tokens = int(usage.get("completion_tokens") or 0)
+                is_estimated = False
+                cost = usage.get("cost")  # OpenRouter may report real USD cost
+                cost_usd = float(cost) if isinstance(cost, (int, float)) else None
+            else:
+                prompt_tokens = pricing.estimate_message_tokens(messages)
+                completion_tokens = pricing.estimate_tokens(response)
+                is_estimated = True
+                cost_usd = None
+
+            await pricing.record_usage(
+                session_id=self.session_id or "",
+                user_id=self._billing_user_id,
+                org_id=self._billing_org_id,
+                provider=provider,
+                model=model,
+                agent_type=self.agent_type,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                is_estimated=is_estimated,
+                cost_usd=cost_usd,
+            )
+        except Exception as e:  # pragma: no cover
+            self._log.debug("record_llm_usage failed (non-fatal): %s", e)
+
     async def reason(self) -> dict | None:
         """
         REASON: stream LLM response, parse JSON action.
@@ -788,6 +849,9 @@ class BaseAgent(ABC):
                     return None
                 response += token
                 self.emit_event("llm_token", {"token": token})
+
+            # Token + cost accounting for this LLM call (never fatal).
+            await self._record_llm_usage(messages, response)
 
             _tracer.log_llm_response(self.agent_id, self.agent_type, self._iteration, response)
 

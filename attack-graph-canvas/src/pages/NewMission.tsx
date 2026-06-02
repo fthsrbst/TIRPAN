@@ -625,10 +625,13 @@ const NewMission = () => {
   // ── Submit ──────────────────────────────────────
   const launchMut = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post("/sessions", body),
-    onSuccess: async () => {
+    onSuccess: async (data: any) => {
       try {
         await api.post("/settings/last_mission_config", buildPayload());
       } catch {}
+      if (data?.budget_warning) {
+        try { localStorage.setItem("tirpan_budget_warning", String(data.budget_warning)); } catch {}
+      }
       qc.invalidateQueries({ queryKey: ["sessions"] });
       navigate("/missions");
     },

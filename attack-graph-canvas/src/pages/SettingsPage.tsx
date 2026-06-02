@@ -34,6 +34,12 @@ import {
   Brain,
   Upload,
   FolderOpen,
+  DollarSign,
+  Check,
+  X,
+  Sparkles,
+  Search,
+  Plus,
 } from "lucide-react";
 // Eye kept for password toggle buttons
 import { useState, useEffect, useCallback } from "react";
@@ -51,9 +57,11 @@ type Tab =
   | "credentials"
   | "scan-profiles"
   | "agent-models"
-  | "ml-models";
+  | "ml-models"
+  | "billing"
+  | "permissions";
 
-const tabs: { id: Tab; label: string; icon: typeof Cpu }[] = [
+const tabs: { id: Tab; label: string; icon: typeof Cpu; adminOnly?: boolean }[] = [
   { id: "llm", label: "LLM Provider", icon: Cpu },
   { id: "safety", label: "Safety", icon: Shield },
   { id: "msf", label: "Metasploit", icon: Bug },
@@ -62,6 +70,8 @@ const tabs: { id: Tab; label: string; icon: typeof Cpu }[] = [
   { id: "scan-profiles", label: "Scan Profiles", icon: Zap },
   { id: "agent-models", label: "Agent Models", icon: Brain },
   { id: "ml-models", label: "ML Models", icon: Cpu },
+  { id: "billing", label: "Billing & Pricing", icon: DollarSign, adminOnly: true },
+  { id: "permissions", label: "Roles & Permissions", icon: Lock, adminOnly: true },
 ];
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -124,6 +134,18 @@ const SettingsPage = () => {
   }, [location.state]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  // ── Billing / pricing state ─────────────────────────
+  const [pricing, setPricing] = useState<Record<string, { in: number; out: number }>>({});
+  const [pricingSaving, setPricingSaving] = useState(false);
+  const [pricingFetching, setPricingFetching] = useState(false);
+  const [newModelName, setNewModelName] = useState("");
+  const [pricingSearch, setPricingSearch] = useState("");
+
+  // ── Roles & permissions state ───────────────────────
+  const [permMatrix, setPermMatrix] = useState<Record<string, Record<string, boolean>>>({});
+  const [permKeys, setPermKeys] = useState<string[]>([]);
+  const [permSaving, setPermSaving] = useState(false);
 
   const flash = (type: "ok" | "err", text: string) => {
     setMsg({ type, text });
@@ -387,6 +409,34 @@ const SettingsPage = () => {
     } catch {}
   };
 
+  const loadPricing = useCallback(async () => {
+    try {
+      const r = await api.get<{ pricing: Record<string, { in: number; out: number }> }>("/config/pricing");
+      setPricing(r.pricing || {});
+    } catch { /* ignore */ }
+  }, []);
+
+  const fetchLivePrices = useCallback(async () => {
+    setPricingFetching(true);
+    try {
+      const r = await api.get<{ pricing: Record<string, { in: number; out: number }>; count: number }>("/config/pricing/openrouter");
+      // Merge live prices over the current table (live values win).
+      setPricing((prev) => ({ ...prev, ...(r.pricing || {}) }));
+      flash("ok", `Fetched ${r.count} live prices from OpenRouter`);
+    } catch (e) {
+      flash("err", `Could not fetch prices: ${e}`);
+    }
+    setPricingFetching(false);
+  }, []);
+
+  const loadPermissions = useCallback(async () => {
+    try {
+      const r = await api.get<{ permissions: Record<string, Record<string, boolean>>; keys: string[] }>("/auth/org/permissions");
+      setPermMatrix(r.permissions || {});
+      setPermKeys(r.keys || []);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     if (tab === "llm") loadLLM();
     if (tab === "safety") loadSafety();
@@ -394,7 +444,9 @@ const SettingsPage = () => {
     if (tab === "nmap") loadNmap();
     if (tab === "agent-models") loadAgentModels();
     if (tab === "ml-models") loadMlStatus();
-  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus]);
+    if (tab === "billing") loadPricing();
+    if (tab === "permissions") loadPermissions();
+  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus, loadPricing, loadPermissions]);
 
   // ── Save handlers ───────────────────────────────────
 
@@ -550,7 +602,7 @@ const SettingsPage = () => {
       <div className="grid grid-cols-12 gap-4 h-full min-h-0 flex-1">
         {/* Sidebar */}
         <nav className="col-span-3 node-card !p-3 flex flex-col gap-1 overflow-y-auto">
-          {tabs.filter((t) => t.id !== "agent-models" || perms.isAdmin).map((t) => (
+          {tabs.filter((t) => (t.id !== "agent-models" || perms.isAdmin) && (!t.adminOnly || perms.isAdmin)).map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -567,6 +619,14 @@ const SettingsPage = () => {
               )}
             </button>
           ))}
+          <Separator className="my-2" />
+          <button
+            onClick={() => window.dispatchEvent(new Event("tirpan-start-tour"))}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted transition-colors"
+          >
+            <Sparkles className="w-4 h-4" />
+            Replay onboarding tour
+          </button>
           {isLoggedIn && (
             <>
               <Separator className="my-2" />
@@ -1415,6 +1475,117 @@ const SettingsPage = () => {
                   </Button>
                 </div>
               </Section>
+            </div>
+          )}
+
+          {tab === "billing" && (() => {
+            const spin = "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+            const q = pricingSearch.trim().toLowerCase();
+            const rows = Object.entries(pricing)
+              .filter(([m]) => !q || m.toLowerCase().includes(q))
+              .sort((a, b) => a[0].localeCompare(b[0]));
+            const total = Object.keys(pricing).length;
+            const setPrice = (model: string, field: "in" | "out", v: string) =>
+              setPricing((prev) => ({ ...prev, [model]: { ...prev[model], [field]: Math.max(0, parseFloat(v) || 0) } }));
+            return (
+            <div className="space-y-5 max-w-3xl">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <h3 className="font-display font-bold text-lg flex items-center gap-2"><DollarSign className="w-5 h-5" /> Model Pricing</h3>
+                  <p className="text-sm text-muted-foreground mt-1">USD per 1M tokens — drives mission & per-user cost. Local models (Ollama / LM Studio) are always free.</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button variant="outline" size="sm" onClick={fetchLivePrices} disabled={pricingFetching} className="gap-2">
+                    {pricingFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    Fetch live prices
+                  </Button>
+                  <Button size="sm" onClick={async () => { setPricingSaving(true); try { await api.post("/config/pricing", { pricing }); flash("ok", "Pricing saved"); } catch (e) { flash("err", String(e)); } setPricingSaving(false); }} disabled={pricingSaving} className="gap-2">
+                    {pricingSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input value={pricingSearch} onChange={(e) => setPricingSearch(e.target.value)} placeholder="Search models…" className="w-full h-9 pl-9 pr-3 rounded-lg bg-muted border border-border text-sm" />
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">{rows.length} of {total} model{total === 1 ? "" : "s"}</span>
+              </div>
+
+              <div className="rounded-xl border border-border overflow-hidden">
+                <div className="grid grid-cols-12 gap-3 px-4 py-2 bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="col-span-6">Model</span>
+                  <span className="col-span-3">Input / 1M</span>
+                  <span className="col-span-3">Output / 1M</span>
+                </div>
+                <div className="divide-y divide-border/50 max-h-[420px] overflow-y-auto">
+                  {rows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic px-4 py-6 text-center">
+                      {total === 0 ? "No custom prices yet — defaults apply. Click “Fetch live prices” or add a model below." : "No models match your search."}
+                    </p>
+                  ) : rows.map(([model, p]) => (
+                    <div key={model} className="grid grid-cols-12 gap-3 items-center px-4 py-2 hover:bg-muted/20 group">
+                      <span className="col-span-6 font-mono text-xs truncate" title={model}>{model}</span>
+                      <div className="col-span-3 relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                        <input type="number" min="0" step="0.01" value={p.in} onChange={(e) => setPrice(model, "in", e.target.value)} className={`w-full h-8 pl-5 pr-2 rounded-lg bg-muted border border-border text-xs ${spin}`} />
+                      </div>
+                      <div className="col-span-3 relative flex items-center gap-1">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                        <input type="number" min="0" step="0.01" value={p.out} onChange={(e) => setPrice(model, "out", e.target.value)} className={`w-full h-8 pl-5 pr-2 rounded-lg bg-muted border border-border text-xs ${spin}`} />
+                        <button onClick={() => setPricing((prev) => { const n = { ...prev }; delete n[model]; return n; })} className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" title="Remove"><X className="w-4 h-4" /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input value={newModelName} onChange={(e) => setNewModelName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { const m = newModelName.trim(); if (m && !pricing[m]) { setPricing((prev) => ({ ...prev, [m]: { in: 0, out: 0 } })); setNewModelName(""); } } }} placeholder="Add a model id, e.g. vendor/model-name" className="flex-1 h-9 px-3 rounded-lg bg-muted border border-border text-sm" />
+                <Button variant="outline" size="sm" onClick={() => { const m = newModelName.trim(); if (m && !pricing[m]) { setPricing((prev) => ({ ...prev, [m]: { in: 0, out: 0 } })); setNewModelName(""); } }} className="gap-1.5"><Plus className="w-3.5 h-3.5" /> Add</Button>
+              </div>
+            </div>
+            );
+          })()}
+
+          {tab === "permissions" && (
+            <div className="space-y-5">
+              <div>
+                <h3 className="font-display font-bold text-lg flex items-center gap-2"><Lock className="w-5 h-5" /> Roles &amp; Permissions</h3>
+                <p className="text-sm text-muted-foreground mt-1">Toggle what each role can see and do. Owner always has full access. Changes apply org-wide and are enforced on the server.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                      <th className="text-left py-2 pr-4">Permission</th>
+                      {["owner", "admin", "analyst", "viewer"].map((r) => <th key={r} className="px-3 py-2 capitalize">{r}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {permKeys.map((key) => (
+                      <tr key={key} className="border-b border-border/40">
+                        <td className="py-2 pr-4 font-mono text-xs">{key.replace(/^can/, "")}</td>
+                        {["owner", "admin", "analyst", "viewer"].map((role) => {
+                          const locked = role === "owner";
+                          const checked = locked ? true : !!permMatrix[role]?.[key];
+                          return (
+                            <td key={role} className="text-center px-3 py-2">
+                              <input type="checkbox" checked={checked} disabled={locked}
+                                onChange={(e) => setPermMatrix((prev) => ({ ...prev, [role]: { ...(prev[role] || {}), [key]: e.target.checked } }))}
+                                className="w-4 h-4 accent-primary disabled:opacity-40" />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Button onClick={async () => { setPermSaving(true); try { const { owner: _owner, ...rest } = permMatrix as Record<string, Record<string, boolean>>; await api.put("/auth/org/permissions", { permissions: rest }); flash("ok", "Permissions saved"); } catch (e) { flash("err", String(e)); } setPermSaving(false); }} disabled={permSaving} className="gap-2">
+                {permSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save permissions
+              </Button>
             </div>
           )}
         </div>

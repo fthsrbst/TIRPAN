@@ -136,6 +136,7 @@ export const Sidebar = () => {
                   <NavLink
                     to={Item.to}
                     end={Item.to === "/"}
+                    data-tour={Item.to === "/" ? "dashboard" : Item.to.slice(1)}
                     className={`relative z-10 w-11 h-11 rounded-full flex items-center justify-center transition-colors ${
                       active
                         ? "text-primary-foreground"

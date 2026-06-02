@@ -3,9 +3,11 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 from database.repositories import InvitationRepository, OrganizationRepository, UserRepository
 from web.auth.models import (
+    BudgetUpdate,
     InviteCreate,
     InviteJoin,
     InvitePreview,
@@ -199,6 +201,13 @@ async def change_password(
     return {"ok": True}
 
 
+@router.post("/me/onboarding-done")
+async def mark_onboarding_done(current_user: dict = Depends(get_current_user)):
+    """Mark the guided onboarding tour as completed for the signed-in user."""
+    await _repo.set_onboarding_done(current_user["id"], True)
+    return {"ok": True}
+
+
 # ── Kullanıcı yönetimi (owner / admin) ───────────────────────────────────────
 
 @router.get("/users", response_model=list[UserResponse])
@@ -270,6 +279,26 @@ async def update_user_active(
     return UserResponse.from_row(row)
 
 
+@router.patch("/users/{user_id}/budget", response_model=UserResponse)
+async def update_user_budget(
+    user_id: str,
+    body: BudgetUpdate,
+    current_user: dict = Depends(require_role("owner", "admin")),
+):
+    """Set a member's monthly LLM spend cap in USD (0 = unlimited). owner/admin."""
+    target = await _repo.get_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+    if target.get("org_id") != current_user.get("org_id"):
+        raise HTTPException(status_code=403, detail="This user belongs to a different organization.")
+    # Admins may not alter an owner's budget; only another owner can.
+    if target["role"] == "owner" and current_user["role"] != "owner":
+        raise HTTPException(status_code=403, detail="Only an owner may change an owner's budget.")
+    await _repo.update_budget(user_id, body.monthly_budget_usd)
+    row = await _repo.get_by_id(user_id)
+    return UserResponse.from_row(row)
+
+
 # ── Organizasyon ──────────────────────────────────────────────────────────────
 
 @router.get("/org", response_model=OrgResponse)
@@ -300,6 +329,46 @@ async def update_org(
     )
     org = await _org_repo.get(org_id)
     return OrgResponse.from_row(org)
+
+
+# ── Rol izin matrisi ──────────────────────────────────────────────────────────
+
+class PermissionsUpdate(BaseModel):
+    permissions: dict  # {role: {permKey: bool}}
+
+
+@router.get("/org/permissions")
+async def get_org_permissions(current_user: dict = Depends(get_current_user)):
+    """Effective role→permission matrix for the org (defaults merged with overrides)."""
+    from web.auth.permissions import DEFAULT_PERMISSIONS, PERMISSION_KEYS, effective_permissions
+    org_id = current_user.get("org_id")
+    override = await _org_repo.get_permissions(org_id) if org_id else {}
+    matrix = {role: effective_permissions(role, override) for role in DEFAULT_PERMISSIONS}
+    return {"permissions": matrix, "overrides": override, "keys": PERMISSION_KEYS}
+
+
+@router.put("/org/permissions")
+async def set_org_permissions(
+    body: PermissionsUpdate,
+    current_user: dict = Depends(require_role("owner", "admin")),
+):
+    """Save the org's role→permission overrides. owner/admin only.
+
+    owner is never stored as an override (always full access); unknown roles and
+    keys are dropped and values are coerced to booleans.
+    """
+    from web.auth.permissions import PERMISSION_KEYS
+    org_id = current_user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="This account is not linked to an organization.")
+    clean: dict[str, dict] = {}
+    for role in ("admin", "analyst", "viewer"):
+        incoming = (body.permissions or {}).get(role)
+        if not isinstance(incoming, dict):
+            continue
+        clean[role] = {k: bool(incoming[k]) for k in PERMISSION_KEYS if k in incoming}
+    await _org_repo.set_permissions(org_id, clean)
+    return {"ok": True}
 
 
 @router.post("/org", response_model=Token, status_code=201)
