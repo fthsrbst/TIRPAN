@@ -17,14 +17,12 @@ import Hosts from "./pages/Hosts";
 import Findings from "./pages/Findings";
 import Credentials from "./pages/Credentials";
 import Reports from "./pages/Reports";
-import Pipelines from "./pages/Pipelines";
 import TerminalPage from "./pages/TerminalPage";
 import Exploits from "./pages/Exploits";
 import AttackMatrix from "./pages/AttackMatrix";
 import SettingsPage from "./pages/SettingsPage";
 import NewMission from "./pages/NewMission";
 import ScheduledScans from "./pages/ScheduledScans";
-import V3IntelPage from "./pages/V3Intel";
 import NotFound from "./pages/NotFound.tsx";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
@@ -207,11 +205,9 @@ const App = () => (
             <Route path="/findings" element={<ProtectedRoute><Findings /></ProtectedRoute>} />
             <Route path="/credentials" element={<ProtectedRoute><Credentials /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-            <Route path="/pipelines" element={<ProtectedRoute><Pipelines /></ProtectedRoute>} />
             <Route path="/terminal" element={<ProtectedRoute minRole="analyst"><TerminalPage /></ProtectedRoute>} />
             <Route path="/exploits" element={<ProtectedRoute><Exploits /></ProtectedRoute>} />
             <Route path="/attack-matrix" element={<ProtectedRoute><AttackMatrix /></ProtectedRoute>} />
-            <Route path="/v3-intel" element={<ProtectedRoute><V3IntelPage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/missions/new" element={<ProtectedRoute minRole="analyst"><NewMission /></ProtectedRoute>} />
