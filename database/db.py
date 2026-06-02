@@ -803,6 +803,52 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v26 applied: access_scope_json")
 
+        if version < 27:
+            # LLM usage ledger — per-call token + cost accounting, attributable to
+            # a mission (session_id), a user (created_by) and a model. Until now
+            # token counting was a single in-memory global (web/stats_state.py),
+            # never persisted and never attributed. This table is the foundation
+            # for per-mission and per-user cost dashboards + budget enforcement.
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS llm_usage (
+                    id                TEXT    PRIMARY KEY,
+                    session_id        TEXT    NOT NULL DEFAULT '',
+                    user_id           TEXT    NOT NULL DEFAULT '',
+                    org_id            TEXT    NOT NULL DEFAULT '',
+                    provider          TEXT    NOT NULL DEFAULT '',
+                    model             TEXT    NOT NULL DEFAULT '',
+                    agent_type        TEXT    NOT NULL DEFAULT '',
+                    prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd          REAL    NOT NULL DEFAULT 0.0,
+                    is_estimated      INTEGER NOT NULL DEFAULT 0,
+                    created_at        REAL    NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_usage_session   ON llm_usage(session_id);
+                CREATE INDEX IF NOT EXISTS idx_usage_user_time ON llm_usage(user_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_usage_org_time  ON llm_usage(org_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_usage_model     ON llm_usage(model);
+            """)
+            # Per-user + per-org monthly budget (USD, 0 = unlimited), onboarding
+            # flag, and org-scoped role permission matrix. Each ALTER is wrapped
+            # so re-running on a DB that already has the column is a no-op.
+            for table, col, typedef in [
+                ("users",         "monthly_budget_usd",    "REAL NOT NULL DEFAULT 0"),
+                ("users",         "onboarding_done",       "INTEGER NOT NULL DEFAULT 0"),
+                ("organizations", "monthly_budget_usd",    "REAL NOT NULL DEFAULT 0"),
+                ("organizations", "role_permissions_json", "TEXT NOT NULL DEFAULT ''"),
+            ]:
+                try:
+                    await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
+                except Exception:
+                    pass
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (27, time.time(), "llm_usage ledger + per-user/org budgets + onboarding + role permissions"),
+            )
+            await db.commit()
+            logger.info("DB migration v27 applied: llm_usage + budgets + onboarding + role permissions")
+
     logger.info("Database ready: %s", path)
 
 

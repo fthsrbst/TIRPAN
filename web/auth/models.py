@@ -77,6 +77,9 @@ class UserResponse(BaseModel):
     org_id: str | None = None
     avatar: str = ""
     last_login: float | None = None
+    monthly_budget_usd: float = 0.0      # 0 = unlimited
+    onboarding_done: bool = False
+    spend_this_month: float = 0.0        # filled in by usage-aware endpoints only
 
     @classmethod
     def from_row(cls, row: dict) -> "UserResponse":
@@ -92,6 +95,8 @@ class UserResponse(BaseModel):
             org_id=row.get("org_id"),
             avatar=row.get("avatar") or "",
             last_login=row.get("last_login"),
+            monthly_budget_usd=float(row.get("monthly_budget_usd") or 0),
+            onboarding_done=bool(row.get("onboarding_done") or 0),
         )
 
 
@@ -126,6 +131,11 @@ class Token(BaseModel):
 
 class RoleUpdate(BaseModel):
     role: Literal["owner", "admin", "analyst", "viewer"]
+
+
+class BudgetUpdate(BaseModel):
+    """Monthly LLM spend cap in USD for a user (0 = unlimited)."""
+    monthly_budget_usd: float = Field(ge=0, le=1_000_000)
 
 
 # ── Organizasyon ───────────────────────────────────────────────────────────────

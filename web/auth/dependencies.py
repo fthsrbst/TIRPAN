@@ -9,7 +9,31 @@ from web.auth.service import decode_access_token
 from web.auth.models import ROLE_HIERARCHY
 
 _bearer = HTTPBearer(auto_error=True)
+_bearer_optional = HTTPBearer(auto_error=False)
 _user_repo = UserRepository()
+
+
+async def get_current_user_optional(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer_optional),
+) -> dict | None:
+    """Like get_current_user but never raises — returns None when no/invalid token.
+
+    For endpoints that stay readable without auth but tailor their response when
+    a valid user is present (e.g. per-assignment field visibility on get_session).
+    """
+    if not creds:
+        return None
+    try:
+        payload = decode_access_token(creds.credentials)
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+    except (JWTError, ValueError):
+        return None
+    user = await _user_repo.get_by_id(user_id)
+    if not user or not user["is_active"]:
+        return None
+    return user
 
 
 # ── Temel bağımlılık: mevcut kullanıcıyı JWT'den çöz ─────────────────────────
@@ -73,6 +97,40 @@ def require_min_role(min_role: str):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Bu işlem için en az '{min_role}' rolü gereklidir.",
+            )
+        return current_user
+    return _check
+
+
+def require_permission(perm: str):
+    """
+    Require a specific capability from the org's RBAC permission matrix.
+
+    The matrix is the role defaults (web.auth.permissions.DEFAULT_PERMISSIONS)
+    merged with the org's `role_permissions_json` overrides. owner always passes.
+
+    Usage:
+        @router.post("/sessions/{sid}/terminal")
+        async def handler(user = Depends(require_permission("canUseTerminal"))):
+            ...
+    """
+    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
+        role = current_user.get("role", "viewer")
+        if role == "owner":
+            return current_user
+        from database.repositories import OrganizationRepository
+        from web.auth.permissions import has_permission
+        override: dict = {}
+        org_id = current_user.get("org_id")
+        if org_id:
+            try:
+                override = await OrganizationRepository().get_permissions(org_id)
+            except Exception:
+                override = {}
+        if not has_permission(role, perm, override):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Your role ('{role}') does not have the '{perm}' permission.",
             )
         return current_user
     return _check

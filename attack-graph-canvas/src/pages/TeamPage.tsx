@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PageShell } from "@/components/attack/PageShell";
 import { UserAvatar } from "@/components/attack/UserAvatar";
-import { getSessions } from "@/lib/api";
+import { getSessions, getUsersUsage, setUserBudget } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,6 +55,7 @@ import {
   Activity,
   Target,
   Radio,
+  DollarSign,
 } from "lucide-react";
 import { api, useAuth, hasRole } from "@/lib/utils";
 
@@ -268,6 +269,41 @@ export default function TeamPage() {
   // Role change
   const [roleChangeId, setRoleChangeId] = useState<string | null>(null);
   const [roleChanging, setRoleChanging] = useState(false);
+
+  // Per-user spend vs budget (owner/admin only)
+  const [spendByUser, setSpendByUser] = useState<Record<string, { spend: number; budget: number; over: boolean }>>({});
+  const [budgetEditId, setBudgetEditId] = useState<string | null>(null);
+  const [budgetValue, setBudgetValue] = useState("");
+  const [budgetSaving, setBudgetSaving] = useState(false);
+
+  const loadUsage = useCallback(() => {
+    if (!isAdmin) return;
+    getUsersUsage()
+      .then((r: any) => {
+        const map: Record<string, { spend: number; budget: number; over: boolean }> = {};
+        (r.users || []).forEach((u: any) => {
+          map[u.user_id] = { spend: u.spend_this_month || 0, budget: u.monthly_budget_usd || 0, over: !!u.over_budget };
+        });
+        setSpendByUser(map);
+      })
+      .catch(() => {});
+  }, [isAdmin]);
+
+  useEffect(() => { loadUsage(); }, [loadUsage, members.length]);
+
+  const saveBudget = async (uid: string) => {
+    setBudgetSaving(true);
+    try {
+      const val = Math.max(0, parseFloat(budgetValue) || 0);
+      await setUserBudget(uid, val);
+      setSpendByUser((prev) => ({ ...prev, [uid]: { spend: prev[uid]?.spend ?? 0, budget: val, over: val > 0 && (prev[uid]?.spend ?? 0) >= val } }));
+      setBudgetEditId(null);
+    } catch {
+      /* ignore — surfaced inline */
+    } finally {
+      setBudgetSaving(false);
+    }
+  };
 
   const activeCount = members.filter((m) => m.is_active).length;
   const pendingInvites = invitations.filter((i) => i.is_valid && !i.used_at).length;
@@ -680,6 +716,41 @@ export default function TeamPage() {
                       <div className="text-[10px] text-muted-foreground hidden lg:block shrink-0 w-20 text-right" title="Joined">
                         {formatDate(m.created_at)}
                       </div>
+
+                      {/* Spend / monthly budget */}
+                      {isAdmin && (
+                        <div className="hidden lg:flex flex-col items-end shrink-0 w-28 leading-tight">
+                          {budgetEditId === m.id ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground">$</span>
+                              <input
+                                autoFocus type="number" min="0" step="1" value={budgetValue}
+                                onChange={(e) => setBudgetValue(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") saveBudget(m.id); if (e.key === "Escape") setBudgetEditId(null); }}
+                                className="w-16 h-6 px-1 rounded bg-muted border border-border text-xs"
+                                placeholder="0"
+                              />
+                              <button onClick={() => saveBudget(m.id)} className="text-success text-xs" title="Save">
+                                {budgetSaving ? "…" : "✓"}
+                              </button>
+                              <button onClick={() => setBudgetEditId(null)} className="text-muted-foreground text-xs" title="Cancel">✕</button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className={`flex items-center gap-1 text-[10px] ${spendByUser[m.id]?.over ? "text-destructive font-semibold" : "text-muted-foreground"}`} title="Spent this month / monthly budget">
+                                <DollarSign className="w-3 h-3" />{(spendByUser[m.id]?.spend ?? 0).toFixed(2)}
+                                {(spendByUser[m.id]?.budget ?? 0) > 0 && <span className="opacity-60">/ {(spendByUser[m.id]?.budget ?? 0).toFixed(0)}</span>}
+                              </span>
+                              <button
+                                onClick={() => { setBudgetEditId(m.id); setBudgetValue(String(spendByUser[m.id]?.budget ?? 0)); }}
+                                className="text-[9px] text-primary hover:underline"
+                              >
+                                {(spendByUser[m.id]?.budget ?? 0) > 0 ? "edit limit" : "set limit"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       {isAdmin && m.id !== user?.id && m.role !== "owner" ? (
                         roleChangeId === m.id ? (

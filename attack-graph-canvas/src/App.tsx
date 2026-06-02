@@ -31,6 +31,7 @@ import TeamPage from "./pages/TeamPage";
 import ProfilePage from "./pages/ProfilePage";
 import DemoEntry from "./pages/DemoEntry";
 import ProtectedRoute from "./components/ProtectedRoute";
+import OnboardingTour from "./components/onboarding/OnboardingTour";
 import { CommandPalette } from "./components/attack/CommandPalette";
 import { nextOccurrence, type Recurrence, type ScheduledMission } from "./pages/ScheduledScans";
 
@@ -189,6 +190,7 @@ const App = () => (
         <BrowserRouter basename="/normal">
           <ScheduleTicker />
           <CommandPalette />
+          <OnboardingTour />
           <Routes>
             <Route path="/demo" element={<DemoEntry />} />
             <Route path="/login" element={<LoginPage />} />

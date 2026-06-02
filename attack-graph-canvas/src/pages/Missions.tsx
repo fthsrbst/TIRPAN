@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageShell } from "@/components/attack/PageShell";
 import { ListFilterToolbar, type FilterChipModel } from "@/components/attack/ListFilterToolbar";
 import { toggleInSet } from "@/lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSessions, killSession, pauseSession, resumeSession, deleteSession, renameSession } from "@/lib/api";
+import { getSessions, killSession, pauseSession, resumeSession, deleteSession, renameSession, getSessionUsage } from "@/lib/api";
 import { api } from "@/lib/utils";
 import { useSessionContext } from "@/lib/SessionContext";
 import { sessionDisplayLabel } from "@/lib/sessionDisplay";
@@ -14,7 +14,7 @@ import { usePermissions, canActOnSession } from "@/lib/permissions";
 import {
   Play, Pause, Square, Trash2, Target, Activity, Bug,
   Server, AlertTriangle, Globe, RefreshCw, FileText, Pencil, ScrollText, Shield,
-  Plus, UserCheck,
+  Plus, UserCheck, DollarSign,
 } from "lucide-react";
 import { StatCard } from "@/components/attack/StatCard";
 
@@ -39,6 +39,22 @@ const Missions = () => {
     queryFn: getSessions,
     refetchInterval: 5000,
   });
+
+  const { data: missionUsage } = useQuery({
+    queryKey: ["session-usage", selectedSessionId],
+    queryFn: () => getSessionUsage(selectedSessionId!),
+    enabled: !!selectedSessionId,
+    refetchInterval: 8000,
+  });
+
+  // Surface the 80%-of-budget soft warning set by NewMission on a successful launch.
+  const [budgetWarn, setBudgetWarn] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const w = localStorage.getItem("tirpan_budget_warning");
+      if (w) { setBudgetWarn(w); localStorage.removeItem("tirpan_budget_warning"); }
+    } catch { /* ignore */ }
+  }, []);
 
   const killMut = useMutation({ mutationFn: killSession, onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions"] }) });
   const pauseMut = useMutation({ mutationFn: pauseSession, onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions"] }) });
@@ -170,6 +186,13 @@ const Missions = () => {
   return (
     <PageShell title="Missions" subtitle="Pentest mission management &amp; details">
       <div className="flex flex-col h-full gap-4 min-h-0">
+        {budgetWarn && (
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-warning/10 border border-warning/30 text-warning text-xs shrink-0">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{budgetWarn}</span>
+            <button onClick={() => setBudgetWarn(null)} className="text-warning/70 hover:text-warning">✕</button>
+          </div>
+        )}
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
           <StatCard icon={Target} label="Missions" value={stats.total} accent="primary" />
@@ -310,6 +333,9 @@ const Missions = () => {
                     <span className="flex items-center gap-1"><Globe className="w-3 h-3" /> {s.hosts_found || 0}</span>
                     <span className="flex items-center gap-1"><Bug className="w-3 h-3" /> {s.vulns_found || 0}</span>
                     <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> {s.exploits_run || 0}</span>
+                    {(s.cost_usd ?? 0) > 0 && (
+                      <span className="flex items-center gap-1 text-success" title={`${(s.total_tokens || 0).toLocaleString()} tokens`}><DollarSign className="w-3 h-3" />{Number(s.cost_usd).toFixed(2)}</span>
+                    )}
                     <span className="ml-auto text-muted-foreground">{dateStr}</span>
                   </div>
                 </button>
@@ -448,6 +474,35 @@ const Missions = () => {
                   </div>
                 ))}
               </div>
+
+              {/* LLM Cost & Tokens */}
+              {missionUsage && ((missionUsage.cost_usd || 0) > 0 || (missionUsage.total_tokens || 0) > 0) && (
+                <div className="px-4 pb-2 shrink-0">
+                  <div className="node-card !p-3 !bg-muted/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                        <DollarSign className="w-3.5 h-3.5 text-success" /> LLM Cost
+                        {missionUsage.is_estimated && <span className="normal-case opacity-70">(~estimated)</span>}
+                      </span>
+                      <span className="font-display font-bold text-success">${(missionUsage.cost_usd || 0).toFixed(4)} · {(missionUsage.total_tokens || 0).toLocaleString()} tok</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-[9px] uppercase text-muted-foreground mb-1">By Model</div>
+                        {(missionUsage.by_model || []).map((m: any) => (
+                          <div key={`${m.model}-${m.provider}`} className="flex justify-between text-[11px] gap-2"><span className="truncate font-mono">{m.model}</span><span className="text-muted-foreground shrink-0">${(m.cost_usd || 0).toFixed(4)}</span></div>
+                        ))}
+                      </div>
+                      <div>
+                        <div className="text-[9px] uppercase text-muted-foreground mb-1">By Agent</div>
+                        {(missionUsage.by_agent || []).map((a: any) => (
+                          <div key={a.agent_type} className="flex justify-between text-[11px] gap-2"><span className="truncate">{a.agent_type || "—"}</span><span className="text-muted-foreground shrink-0">${(a.cost_usd || 0).toFixed(4)}</span></div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Details */}
               <div className="flex-1 px-4 pb-4 space-y-4">

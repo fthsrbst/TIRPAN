@@ -103,6 +103,57 @@ export const getReportHtml = (sid: string) =>
 export const getSystemStats = () =>
   isDemoMode() ? mockDelay(MOCK_SYSTEM_STATS) : apiFetch<any>("/api/v1/system/stats");
 
+// ── LLM usage & cost ─────────────────────────────────────────────────────────
+
+const MOCK_USAGE_SUMMARY = {
+  period: "month",
+  prompt_tokens: 1_842_300,
+  completion_tokens: 612_400,
+  total_tokens: 2_454_700,
+  cost_usd: 9.8412,
+  calls: 1284,
+  missions: 6,
+  avg_cost_per_mission: 1.6402,
+  is_estimated: false,
+  by_model: [
+    { model: "anthropic/claude-sonnet-4-6", provider: "openrouter", prompt_tokens: 1_500_000, completion_tokens: 480_000, cost_usd: 11.7, calls: 980 },
+    { model: "deepseek-r1", provider: "opencode_go", prompt_tokens: 342_300, completion_tokens: 132_400, cost_usd: 0.48, calls: 304 },
+  ],
+  by_user: [
+    { user_id: "u1", full_name: "Demo Owner", email: "owner@demo", cost_usd: 7.2, total_tokens: 1_800_000, missions: 4, monthly_budget_usd: 50 },
+    { user_id: "u2", full_name: "Demo Analyst", email: "analyst@demo", cost_usd: 2.64, total_tokens: 654_700, missions: 2, monthly_budget_usd: 10 },
+  ],
+};
+
+export const getUsageSummary = (period = "month") =>
+  isDemoMode() ? mockDelay(MOCK_USAGE_SUMMARY) : apiFetch<any>(`/api/v1/usage/summary?period=${period}`);
+
+export const getSessionUsage = (sid: string) =>
+  isDemoMode()
+    ? mockDelay({ session_id: sid, prompt_tokens: 320_000, completion_tokens: 96_000, total_tokens: 416_000, cost_usd: 1.86, is_estimated: false,
+        by_model: [{ model: "anthropic/claude-sonnet-4-6", provider: "openrouter", prompt_tokens: 320_000, completion_tokens: 96_000, cost_usd: 1.86, calls: 210 }],
+        by_agent: [{ agent_type: "brain", prompt_tokens: 180_000, completion_tokens: 60_000, cost_usd: 1.16, calls: 90 }, { agent_type: "exploit", prompt_tokens: 140_000, completion_tokens: 36_000, cost_usd: 0.7, calls: 120 }] })
+    : apiFetch<any>(`/api/v1/sessions/${sid}/usage`);
+
+export const getUsersUsage = () =>
+  isDemoMode()
+    ? mockDelay({ period: "month", users: MOCK_USAGE_SUMMARY.by_user.map((u) => ({ user_id: u.user_id, full_name: u.full_name, email: u.email, role: "analyst", spend_this_month: u.cost_usd, monthly_budget_usd: u.monthly_budget_usd, remaining_usd: u.monthly_budget_usd - u.cost_usd, over_budget: false })) })
+    : apiFetch<any>("/api/v1/usage/users");
+
+export const getPricing = () =>
+  isDemoMode() ? mockDelay({ pricing: {} }) : apiFetch<any>("/api/v1/config/pricing");
+
+export const savePricing = (pricing: Record<string, { in: number; out: number }>) =>
+  isDemoMode() ? mockDelay({ ok: true }) : apiFetch<any>("/api/v1/config/pricing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pricing }) });
+
+export const fetchOpenRouterPrices = () =>
+  isDemoMode()
+    ? mockDelay({ pricing: { "anthropic/claude-sonnet-4-6": { in: 3, out: 15 }, "openai/gpt-4o": { in: 2.5, out: 10 } }, count: 2 })
+    : apiFetch<{ pricing: Record<string, { in: number; out: number }>; count: number }>("/api/v1/config/pricing/openrouter");
+
+export const setUserBudget = (userId: string, monthly_budget_usd: number) =>
+  isDemoMode() ? mockDelay({ ok: true }) : apiFetch<any>(`/api/v1/auth/users/${userId}/budget`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monthly_budget_usd }) });
+
 export const getAudit = () =>
   isDemoMode() ? mockDelay({ logs: [] }) : apiFetch<any>("/api/v1/audit");
 

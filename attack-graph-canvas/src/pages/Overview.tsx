@@ -5,7 +5,7 @@ import { Sparkline } from "@/components/attack/Sparkline";
 import { StatCard } from "@/components/attack/StatCard";
 import { EmptyState } from "@/components/attack/EmptyState";
 import { useQuery } from "@tanstack/react-query";
-import { getSessions, getSession, getSystemStats } from "@/lib/api";
+import { getSessions, getSession, getSystemStats, getUsageSummary } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { AttackGraph } from "@/components/attack/AttackGraph";
 import { Donut } from "@/components/attack/Donut";
@@ -20,7 +20,16 @@ import {
   Activity, Target, Shield, AlertTriangle, Zap, Clock, Cpu, HardDrive, Radio, Play, Server, Bug, Globe, Wifi, ClipboardList,
   ChevronDown, ChevronRight, TrendingUp, BarChart3, PieChart, Layers, Timer, Flame, Skull, Network, LockOpen,
   MessageSquare, Settings, Eye, EyeOff, GripVertical, ArrowUp, ArrowDown, RotateCcw, X,
+  DollarSign, Coins, Wallet,
 } from "lucide-react";
+
+/** Compact token formatter: 2454700 → "2.45M", 1820 → "1.8k". */
+function fmtTokens(n: number): string {
+  if (!n) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
 
 type SectionKey =
   | "analytics"
@@ -241,6 +250,11 @@ const Overview = () => {
     queryFn: getSystemStats,
     refetchInterval: 10000,
   });
+  const { data: usage } = useQuery({
+    queryKey: ["usage-summary"],
+    queryFn: () => getUsageSummary("month"),
+    refetchInterval: 5000,
+  });
   const { lastMessage, send, ready } = useWebSocket();
 
   useEffect(() => {
@@ -426,6 +440,9 @@ const Overview = () => {
             <StatCard icon={Shield} label="Success Rate" value={`${stats.successRate}%`} accent="success" progress={stats.successRate} spark={sparks?.success} hint="Completed / total" />
             <StatCard icon={BarChart3} label="Avg Findings" value={stats.avgVulns} accent="primary" spark={sparks?.findings} hint="Per mission" />
             <StatCard icon={Timer} label="Avg Duration" value={`${stats.avgDuration}m`} accent="muted" spark={sparks?.durations} hint="Mean runtime" />
+            <StatCard icon={DollarSign} label="Total Cost" value={`$${(usage?.cost_usd ?? 0).toFixed(2)}`} accent="success" sublabel={usage?.is_estimated ? "~estimated" : "this month"} hint="LLM spend this month" />
+            <StatCard icon={Coins} label="Total Tokens" value={fmtTokens(usage?.total_tokens ?? 0)} accent="primary" sublabel="this month" hint="Prompt + completion tokens" />
+            <StatCard icon={Wallet} label="Avg $ / Mission" value={`$${(usage?.avg_cost_per_mission ?? 0).toFixed(2)}`} accent="accent" sublabel={`${usage?.missions ?? 0} missions`} hint="Mean cost per mission" />
           </div>
         </div>
         <div className="col-span-12 lg:col-span-6 node-card !p-4">
@@ -447,6 +464,34 @@ const Overview = () => {
               {topTargets.map((t: any, i: number) => (
                 <button key={t.id || i} onClick={() => { if (t.id) setSelectedSessionId(t.id); navigate("/hosts"); }} className="w-full flex items-center justify-between p-2 rounded-lg bg-muted/20 hover:bg-muted/40 transition-colors text-xs text-left"><div className="flex items-center gap-3 min-w-0"><span className="w-5 h-5 shrink-0 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[10px] font-bold">{i + 1}</span><span className="truncate">{t.name}</span></div><div className="flex items-center gap-4 text-muted-foreground shrink-0"><span className="flex items-center gap-1"><Globe className="w-3 h-3" /> {t.hosts}</span><span className="flex items-center gap-1"><Bug className="w-3 h-3" /> {t.vulns}</span></div></button>
               ))}
+            </div>
+          )}
+        </div>
+        <div className="col-span-12 node-card !p-4">
+          <h4 className="font-display font-bold text-sm mb-3 flex items-center gap-2">
+            <DollarSign className="w-4 h-4" /> Spend by Model
+            {usage?.is_estimated && <span className="text-[10px] font-normal text-muted-foreground">(~estimated)</span>}
+          </h4>
+          {(!usage?.by_model || usage.by_model.length === 0) ? (
+            <EmptyState icon={DollarSign} title="No LLM usage yet" hint="Run a mission to see per-model token spend here." compact />
+          ) : (
+            <div className="space-y-2">
+              {(() => {
+                const maxCost = Math.max(...usage.by_model.map((x: any) => x.cost_usd || 0), 0.0001);
+                return usage.by_model.map((m: any) => {
+                  const tokens = (m.prompt_tokens || 0) + (m.completion_tokens || 0);
+                  const pct = ((m.cost_usd || 0) / maxCost) * 100;
+                  return (
+                    <div key={`${m.model}-${m.provider}`}>
+                      <div className="flex justify-between text-xs mb-1 gap-2">
+                        <span className="truncate font-mono">{m.model}<span className="text-muted-foreground"> · {m.provider}</span></span>
+                        <span className="text-muted-foreground shrink-0">${(m.cost_usd || 0).toFixed(4)} · {fmtTokens(tokens)} tok</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-success" style={{ width: `${pct}%` }} /></div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
         </div>
