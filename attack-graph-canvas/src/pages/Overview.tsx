@@ -5,7 +5,7 @@ import { Sparkline } from "@/components/attack/Sparkline";
 import { StatCard } from "@/components/attack/StatCard";
 import { EmptyState } from "@/components/attack/EmptyState";
 import { useQuery } from "@tanstack/react-query";
-import { getSessions, getSession, getSystemStats, getUsageSummary } from "@/lib/api";
+import { getSessions, getSession, getSystemStats, getUsageSummary, getMyUsage } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { AttackGraph } from "@/components/attack/AttackGraph";
 import { Donut } from "@/components/attack/Donut";
@@ -14,7 +14,6 @@ import { useSessionBundle } from "@/hooks/useAttackGraphData";
 import { useSessionContext } from "@/lib/SessionContext";
 import { usePermissions } from "@/lib/permissions";
 import { useAssignmentNotifications } from "@/hooks/useAssignmentNotifications";
-import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { useAuth } from "@/lib/utils";
 import {
   Activity, Target, Shield, AlertTriangle, Zap, Clock, Cpu, HardDrive, Radio, Play, Server, Bug, Globe, Wifi, ClipboardList,
@@ -31,61 +30,128 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
-type SectionKey =
-  | "analytics"
-  | "vuln_intel"
-  | "exploit_stats"
-  | "host_discovery"
-  | "mission_perf"
-  | "live_feed"
-  | "active_missions"
-  | "recent_completions"
-  | "my_assignments";
+// ── Widget system ─────────────────────────────────────────────────────────────
+// The dashboard is a flat grid of individual widgets (each card / panel). Every
+// widget can be independently reordered and shown/hidden in Customize mode, and
+// the layout is persisted per user.
+type WidgetKey =
+  | "kpi_total" | "kpi_active" | "kpi_hosts" | "kpi_vulns" | "kpi_exploits"
+  | "kpi_success" | "kpi_avg_findings" | "kpi_avg_duration" | "kpi_my_budget"
+  | "kpi_total_cost" | "kpi_total_tokens" | "kpi_avg_cost"
+  | "severity_distribution" | "top_targets" | "spend_by_model"
+  | "vuln_critical" | "vuln_high" | "vuln_medium" | "vuln_low" | "vuln_types" | "top_cves"
+  | "exploit_total" | "exploit_success" | "exploit_ratio" | "exploit_modules"
+  | "os_distribution" | "top_services"
+  | "perf_completed" | "perf_failed" | "perf_avg_duration" | "duration_stats" | "session_status"
+  | "live_events" | "system_resources"
+  | "active_missions" | "recent_completions" | "my_assignments";
 
-interface SectionConfig {
-  key: SectionKey;
-  title: string;
-  defaultOpen: boolean;
+interface WidgetConfig {
+  key: WidgetKey;
+  title: string;       // label shown in the Customize list
+  colSpan: string;     // grid column classes used in normal mode
   visible: boolean;
+  adminOnly?: boolean; // only rendered / listed for admins & owners
 }
 
-const DEFAULT_SECTIONS: SectionConfig[] = [
-  { key: "analytics", title: "Analytics Overview", defaultOpen: true, visible: true },
-  { key: "vuln_intel", title: "Vulnerability Intelligence", defaultOpen: true, visible: true },
-  { key: "exploit_stats", title: "Exploit Statistics", defaultOpen: true, visible: true },
-  { key: "host_discovery", title: "Host Discovery & Services", defaultOpen: true, visible: true },
-  { key: "mission_perf", title: "Mission Performance", defaultOpen: false, visible: true },
-  { key: "live_feed", title: "Live Feed & System Resources", defaultOpen: true, visible: true },
-  { key: "active_missions", title: "Active Missions", defaultOpen: true, visible: true },
-  { key: "recent_completions", title: "Recent Completions", defaultOpen: false, visible: true },
-  { key: "my_assignments", title: "My Assignments", defaultOpen: true, visible: true },
+const KPI_SPAN = "col-span-6 sm:col-span-3";
+const HALF = "col-span-12 lg:col-span-6";
+const THIRD = "col-span-12 sm:col-span-4";
+
+const DEFAULT_WIDGETS: WidgetConfig[] = [
+  { key: "kpi_total",        title: "Total Missions",       colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_active",       title: "Active Missions",      colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_hosts",        title: "Hosts Found",          colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_vulns",        title: "Vulnerabilities",      colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_exploits",     title: "Exploits Run",         colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_success",      title: "Success Rate",         colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_avg_findings", title: "Avg Findings",         colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_avg_duration", title: "Avg Duration",         colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_my_budget",    title: "My Budget",            colSpan: KPI_SPAN, visible: true },
+  { key: "kpi_total_cost",   title: "Total Cost",           colSpan: KPI_SPAN, visible: true, adminOnly: true },
+  { key: "kpi_total_tokens", title: "Total Tokens",         colSpan: KPI_SPAN, visible: true, adminOnly: true },
+  { key: "kpi_avg_cost",     title: "Avg $ / Mission",      colSpan: KPI_SPAN, visible: true, adminOnly: true },
+  { key: "severity_distribution", title: "Severity Distribution", colSpan: HALF, visible: true },
+  { key: "top_targets",      title: "Top Targets",          colSpan: HALF, visible: true },
+  { key: "spend_by_model",   title: "Spend by Model",       colSpan: "col-span-12", visible: true, adminOnly: true },
+  { key: "vuln_critical",    title: "Critical Vulns (donut)", colSpan: "col-span-6 md:col-span-3", visible: true },
+  { key: "vuln_high",        title: "High Vulns (donut)",     colSpan: "col-span-6 md:col-span-3", visible: true },
+  { key: "vuln_medium",      title: "Medium Vulns (donut)",   colSpan: "col-span-6 md:col-span-3", visible: true },
+  { key: "vuln_low",         title: "Low Vulns (donut)",      colSpan: "col-span-6 md:col-span-3", visible: true },
+  { key: "vuln_types",       title: "Vulnerability Types",  colSpan: HALF, visible: true },
+  { key: "top_cves",         title: "Top CVEs",             colSpan: HALF, visible: true },
+  { key: "exploit_total",    title: "Total Exploits",       colSpan: THIRD, visible: true },
+  { key: "exploit_success",  title: "Exploit Success Rate", colSpan: THIRD, visible: true },
+  { key: "exploit_ratio",    title: "Finding→Exploit Ratio", colSpan: THIRD, visible: true },
+  { key: "exploit_modules",  title: "Exploit Modules Breakdown", colSpan: "col-span-12", visible: true },
+  { key: "os_distribution",  title: "OS Distribution",      colSpan: HALF, visible: true },
+  { key: "top_services",     title: "Top Services",         colSpan: HALF, visible: true },
+  { key: "perf_completed",   title: "Completed",            colSpan: THIRD, visible: true },
+  { key: "perf_failed",      title: "Failed",               colSpan: THIRD, visible: true },
+  { key: "perf_avg_duration", title: "Avg Duration (perf)", colSpan: THIRD, visible: true },
+  { key: "duration_stats",   title: "Duration Stats",       colSpan: HALF, visible: true },
+  { key: "session_status",   title: "Session Status Breakdown", colSpan: HALF, visible: true },
+  { key: "live_events",      title: "Live Events",          colSpan: "col-span-12 lg:col-span-7", visible: true },
+  { key: "system_resources", title: "System Resources",     colSpan: "col-span-12 lg:col-span-5", visible: true },
+  { key: "active_missions",  title: "Active Missions",      colSpan: "col-span-12", visible: true },
+  { key: "recent_completions", title: "Recent Completions", colSpan: "col-span-12", visible: false },
+  { key: "my_assignments",   title: "My Assignments",       colSpan: "col-span-12", visible: true },
 ];
 
+const WIDGET_ICONS: Record<WidgetKey, typeof Target> = {
+  kpi_total: Target, kpi_active: Play, kpi_hosts: Server, kpi_vulns: Bug, kpi_exploits: Flame,
+  kpi_success: Shield, kpi_avg_findings: BarChart3, kpi_avg_duration: Timer, kpi_my_budget: Wallet,
+  kpi_total_cost: DollarSign, kpi_total_tokens: Coins, kpi_avg_cost: TrendingUp,
+  severity_distribution: Shield, top_targets: Target, spend_by_model: DollarSign,
+  vuln_critical: AlertTriangle, vuln_high: AlertTriangle, vuln_medium: AlertTriangle, vuln_low: AlertTriangle,
+  vuln_types: Layers, top_cves: Skull,
+  exploit_total: Flame, exploit_success: LockOpen, exploit_ratio: TrendingUp, exploit_modules: LockOpen,
+  os_distribution: PieChart, top_services: Server,
+  perf_completed: Shield, perf_failed: X, perf_avg_duration: Timer, duration_stats: Clock, session_status: BarChart3,
+  live_events: Zap, system_resources: Cpu,
+  active_missions: Play, recent_completions: ClipboardList, my_assignments: ClipboardList,
+};
+
 function getStorageKey(userId: string | undefined) {
-  return `tirpan_dashboard_layout_${userId || "anon"}`;
+  return `tirpan_dashboard_widgets_${userId || "anon"}`;
 }
 
-function loadLayout(userId: string | undefined): SectionConfig[] {
+function loadWidgets(userId: string | undefined): WidgetConfig[] {
   try {
     const raw = localStorage.getItem(getStorageKey(userId));
     if (raw) {
-      const saved: SectionConfig[] = JSON.parse(raw);
-      const savedKeys = new Set(saved.map((s) => s.key));
-      const merged = DEFAULT_SECTIONS.map((d) => {
-        const s = saved.find((x) => x.key === d.key);
-        return s ? { ...d, ...s } : { ...d };
-      });
-      const extra = saved.filter((s) => !savedKeys.has(s.key) && DEFAULT_SECTIONS.every((d) => d.key !== s.key));
-      return [...merged, ...extra];
+      const saved: WidgetConfig[] = JSON.parse(raw);
+      const defaultsByKey = new Map(DEFAULT_WIDGETS.map((d) => [d.key, d]));
+      // Preserve the saved ORDER + visible flag; refresh static metadata
+      // (title / colSpan) from the current defaults.
+      const ordered = saved
+        .filter((s) => defaultsByKey.has(s.key))
+        .map((s) => ({ ...(defaultsByKey.get(s.key) as WidgetConfig), ...s }));
+      // Append any widgets introduced in a newer build the user hasn't seen.
+      const seen = new Set(ordered.map((s) => s.key));
+      const additions = DEFAULT_WIDGETS.filter((d) => !seen.has(d.key));
+      return [...ordered, ...additions];
     }
   } catch {}
-  return [...DEFAULT_SECTIONS];
+  return [...DEFAULT_WIDGETS];
 }
 
-function saveLayout(userId: string | undefined, sections: SectionConfig[]) {
+function saveWidgets(userId: string | undefined, widgets: WidgetConfig[]) {
   try {
-    localStorage.setItem(getStorageKey(userId), JSON.stringify(sections));
+    localStorage.setItem(getStorageKey(userId), JSON.stringify(widgets.map((w) => ({ key: w.key, visible: w.visible }))));
   } catch {}
+}
+
+// Side-panel (Agent Feed / Attack Graph) open state is persisted per user too —
+// if you leave a panel open it stays open next time.
+function panelKey(which: "agent" | "graph", userId: string | undefined) {
+  return `tirpan_panel_${which}_${userId || "anon"}`;
+}
+function loadPanelOpen(which: "agent" | "graph", userId: string | undefined): boolean {
+  try { return localStorage.getItem(panelKey(which, userId)) === "1"; } catch { return false; }
+}
+function savePanelOpen(which: "agent" | "graph", userId: string | undefined, open: boolean) {
+  try { localStorage.setItem(panelKey(which, userId), open ? "1" : "0"); } catch {}
 }
 
 const Overview = () => {
@@ -93,8 +159,14 @@ const Overview = () => {
   const { selectedSessionId, setSelectedSessionId } = useSessionContext();
   const perms = usePermissions();
   const { user } = useAuth();
-  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
-  const [graphPanelOpen, setGraphPanelOpen] = useState(false);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(() => loadPanelOpen("agent", user?.id));
+  const [graphPanelOpen, setGraphPanelOpen] = useState(() => loadPanelOpen("graph", user?.id));
+  const toggleAgentPanel = useCallback(() => {
+    setAgentPanelOpen((o) => { const n = !o; savePanelOpen("agent", user?.id, n); return n; });
+  }, [user?.id]);
+  const toggleGraphPanel = useCallback(() => {
+    setGraphPanelOpen((o) => { const n = !o; savePanelOpen("graph", user?.id, n); return n; });
+  }, [user?.id]);
   // false = agent-left graph-right | true = graph-left agent-right
   const [swapPanels, setSwapPanels] = useState(() => {
     try { return localStorage.getItem(`tirpan_panel_swap_${user?.id || "anon"}`) === "1"; } catch { return false; }
@@ -103,62 +175,63 @@ const Overview = () => {
     setSwapPanels(v);
     try { localStorage.setItem(`tirpan_panel_swap_${user?.id || "anon"}`, v ? "1" : "0"); } catch {}
   }, [user?.id]);
-  const [sections, setSections] = useState<SectionConfig[]>(() => loadLayout(user?.id));
+  const [widgets, setWidgets] = useState<WidgetConfig[]>(() => loadWidgets(user?.id));
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Pointer-based drag reorder (replaces native HTML5 drag — no ghost image, animated).
   const [drag, setDrag] = useState<{ from: number; to: number; delta: number } | null>(null);
   const dragMeta = useRef<{ startY: number; centers: number[]; unit: number } | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
-    sections.forEach((s) => { init[s.key] = s.defaultOpen; });
-    return init;
-  });
 
-  const persistSections = useCallback((next: SectionConfig[]) => {
-    setSections(next);
-    saveLayout(user?.id, next);
+  const persistWidgets = useCallback((next: WidgetConfig[]) => {
+    setWidgets(next);
+    saveWidgets(user?.id, next);
   }, [user?.id]);
 
-  const toggleVisibility = useCallback((key: SectionKey) => {
-    const next = sections.map((s) => s.key === key ? { ...s, visible: !s.visible } : s);
-    persistSections(next);
-  }, [sections, persistSections]);
+  const toggleVisibility = useCallback((key: WidgetKey) => {
+    setWidgets((prev) => {
+      const next = prev.map((s) => s.key === key ? { ...s, visible: !s.visible } : s);
+      saveWidgets(user?.id, next);
+      return next;
+    });
+  }, [user?.id]);
 
-  const moveSection = useCallback((fromIdx: number, toIdx: number) => {
+  const moveWidget = useCallback((fromIdx: number, toIdx: number) => {
     if (fromIdx === toIdx) return;
-    const next = [...sections];
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    persistSections(next);
-  }, [sections, persistSections]);
+    setWidgets((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      saveWidgets(user?.id, next);
+      return next;
+    });
+  }, [user?.id]);
 
   const resetLayout = useCallback(() => {
-    persistSections([...DEFAULT_SECTIONS]);
-    const init: Record<string, boolean> = {};
-    DEFAULT_SECTIONS.forEach((s) => { init[s.key] = s.defaultOpen; });
-    setOpenSections(init);
-  }, [persistSections]);
+    persistWidgets([...DEFAULT_WIDGETS]);
+  }, [persistWidgets]);
 
-  const toggleSection = useCallback((key: string) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
+  // The widgets shown in Customize mode (all of them) and in normal mode (visible
+  // only). adminOnly widgets are filtered out entirely for non-admins.
+  const ownedWidgets = useMemo(
+    () => widgets.filter((w) => !w.adminOnly || perms.isAdmin),
+    [widgets, perms.isAdmin],
+  );
 
-  // Start a pointer drag from a section header. We measure the live geometry of
-  // every row once, then translate the active row with the pointer and slide the
-  // others out of the way via CSS transitions — a smooth, ghost-image-free reorder.
+  // Start a pointer drag from a widget row. We measure the live geometry of every
+  // row once, then translate the active row with the pointer and slide the others
+  // out of the way via CSS transitions — a smooth, ghost-image-free reorder.
   const beginDrag = useCallback((index: number, e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
-    const rects = sections.map((_, i) => {
+    const rects = ownedWidgets.map((_, i) => {
       const r = itemRefs.current[i]?.getBoundingClientRect();
       return r ? { top: r.top, height: r.height } : { top: 0, height: 0 };
     });
     const centers = rects.map((r) => r.top + r.height / 2);
-    const gap = rects.length > 1 ? Math.max(0, rects[1].top - (rects[0].top + rects[0].height)) : 16;
+    const gap = rects.length > 1 ? Math.max(0, rects[1].top - (rects[0].top + rects[0].height)) : 12;
     dragMeta.current = { startY: e.clientY, centers, unit: rects[index].height + gap };
     setDrag({ from: index, to: index, delta: 0 });
-  }, [sections]);
+  }, [ownedWidgets]);
 
   useEffect(() => {
     if (!drag) return;
@@ -174,7 +247,16 @@ const Overview = () => {
     };
     const onUp = () => {
       setDrag((d) => {
-        if (d && d.from !== d.to) moveSection(d.from, d.to);
+        if (d && d.from !== d.to) {
+          // Translate the position within ownedWidgets back to the full list.
+          const fromKey = ownedWidgets[d.from]?.key;
+          const toKey = ownedWidgets[d.to]?.key;
+          if (fromKey && toKey) {
+            const realFrom = widgets.findIndex((w) => w.key === fromKey);
+            const realTo = widgets.findIndex((w) => w.key === toKey);
+            if (realFrom >= 0 && realTo >= 0) moveWidget(realFrom, realTo);
+          }
+        }
         return null;
       });
       dragMeta.current = null;
@@ -185,13 +267,13 @@ const Overview = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [drag?.from, moveSection]);
+  }, [drag?.from, moveWidget, ownedWidgets, widgets]);
 
   const itemStyle = useCallback((i: number): React.CSSProperties => {
     if (!drag) return {};
     if (i === drag.from) {
       return {
-        transform: `translateY(${drag.delta}px) scale(1.015)`,
+        transform: `translateY(${drag.delta}px) scale(1.01)`,
         transition: "none",
         position: "relative",
         zIndex: 50,
@@ -250,9 +332,16 @@ const Overview = () => {
     queryFn: getSystemStats,
     refetchInterval: 10000,
   });
+  // Org-wide cost rollup is admin/owner-only; everyone sees their own budget.
   const { data: usage } = useQuery({
     queryKey: ["usage-summary"],
     queryFn: () => getUsageSummary("month"),
+    refetchInterval: 5000,
+    enabled: perms.isAdmin,
+  });
+  const { data: myUsage } = useQuery({
+    queryKey: ["usage-me"],
+    queryFn: getMyUsage,
     refetchInterval: 5000,
   });
   const { lastMessage, send, ready } = useWebSocket();
@@ -427,145 +516,137 @@ const Overview = () => {
 
   const vulnTypeColors: Record<string, string> = { rce: "text-destructive", privesc: "text-warning", auth_bypass: "text-accent", exposure: "text-muted-foreground", info_disclosure: "text-primary", relay: "text-success", other: "text-muted-foreground" };
 
-  const sectionContent: Record<SectionKey, React.ReactNode> = {
-    analytics: (
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard icon={Target} label="Total Missions" value={stats.total} accent="primary" spark={sparks?.missions} hint="All engagements" onClick={() => navigate("/missions")} />
-            <StatCard icon={Play} label="Active" value={stats.active} accent="accent" sublabel={`${stats.paused} paused`} hint="Running missions" onClick={() => navigate("/missions")} />
-            <StatCard icon={Server} label="Hosts Found" value={stats.hosts} accent="primary" spark={sparks?.hosts} hint="Discovered hosts" onClick={() => navigate("/hosts")} />
-            <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" spark={sparks?.vulns} hint="Total findings" onClick={() => navigate("/findings")} />
-            <StatCard icon={Flame} label="Exploits Run" value={stats.exploited} accent="destructive" spark={sparks?.exploits} hint="Exploit attempts" onClick={() => navigate("/exploits")} />
-            <StatCard icon={Shield} label="Success Rate" value={`${stats.successRate}%`} accent="success" progress={stats.successRate} spark={sparks?.success} hint="Completed / total" />
-            <StatCard icon={BarChart3} label="Avg Findings" value={stats.avgVulns} accent="primary" spark={sparks?.findings} hint="Per mission" />
-            <StatCard icon={Timer} label="Avg Duration" value={`${stats.avgDuration}m`} accent="muted" spark={sparks?.durations} hint="Mean runtime" />
-            <StatCard icon={DollarSign} label="Total Cost" value={`$${(usage?.cost_usd ?? 0).toFixed(2)}`} accent="success" sublabel={usage?.is_estimated ? "~estimated" : "this month"} hint="LLM spend this month" />
-            <StatCard icon={Coins} label="Total Tokens" value={fmtTokens(usage?.total_tokens ?? 0)} accent="primary" sublabel="this month" hint="Prompt + completion tokens" />
-            <StatCard icon={Wallet} label="Avg $ / Mission" value={`$${(usage?.avg_cost_per_mission ?? 0).toFixed(2)}`} accent="accent" sublabel={`${usage?.missions ?? 0} missions`} hint="Mean cost per mission" />
+  // ── Per-widget render ─────────────────────────────────────────────────────
+  const widgetContent: Record<WidgetKey, React.ReactNode> = {
+    kpi_total: <StatCard icon={Target} label="Total Missions" value={stats.total} accent="primary" spark={sparks?.missions} hint="All engagements" onClick={() => navigate("/missions")} />,
+    kpi_active: <StatCard icon={Play} label="Active" value={stats.active} accent="accent" sublabel={`${stats.paused} paused`} hint="Running missions" onClick={() => navigate("/missions")} />,
+    kpi_hosts: <StatCard icon={Server} label="Hosts Found" value={stats.hosts} accent="primary" spark={sparks?.hosts} hint="Discovered hosts" onClick={() => navigate("/hosts")} />,
+    kpi_vulns: <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" spark={sparks?.vulns} hint="Total findings" onClick={() => navigate("/findings")} />,
+    kpi_exploits: <StatCard icon={Flame} label="Exploits Run" value={stats.exploited} accent="destructive" spark={sparks?.exploits} hint="Exploit attempts" onClick={() => navigate("/exploits")} />,
+    kpi_success: <StatCard icon={Shield} label="Success Rate" value={`${stats.successRate}%`} accent="success" progress={stats.successRate} spark={sparks?.success} hint="Completed / total" />,
+    kpi_avg_findings: <StatCard icon={BarChart3} label="Avg Findings" value={stats.avgVulns} accent="primary" spark={sparks?.findings} hint="Per mission" />,
+    kpi_avg_duration: <StatCard icon={Timer} label="Avg Duration" value={`${stats.avgDuration}m`} accent="muted" spark={sparks?.durations} hint="Mean runtime" />,
+    kpi_my_budget: (
+      <StatCard
+        icon={Wallet}
+        label="My Budget"
+        value={(myUsage?.monthly_budget_usd ?? 0) > 0 ? `$${(myUsage?.spend_this_month ?? 0).toFixed(2)} / $${(myUsage?.monthly_budget_usd ?? 0).toFixed(0)}` : `$${(myUsage?.spend_this_month ?? 0).toFixed(2)}`}
+        accent={myUsage?.over_budget ? "destructive" : "success"}
+        progress={(myUsage?.monthly_budget_usd ?? 0) > 0 ? (myUsage?.pct ?? 0) : undefined}
+        sublabel={(myUsage?.monthly_budget_usd ?? 0) > 0 ? `$${Math.max(0, myUsage?.remaining_usd ?? 0).toFixed(2)} left` : "no limit set"}
+        hint="Your LLM spend this month"
+      />
+    ),
+    kpi_total_cost: <StatCard icon={DollarSign} label="Total Cost" value={`$${(usage?.cost_usd ?? 0).toFixed(2)}`} accent="success" sublabel={usage?.is_estimated ? "~estimated" : "org · this month"} hint="Org LLM spend this month" />,
+    kpi_total_tokens: <StatCard icon={Coins} label="Total Tokens" value={fmtTokens(usage?.total_tokens ?? 0)} accent="primary" sublabel="org · this month" hint="Org prompt + completion tokens" />,
+    kpi_avg_cost: <StatCard icon={TrendingUp} label="Avg $ / Mission" value={`$${(usage?.avg_cost_per_mission ?? 0).toFixed(2)}`} accent="accent" sublabel={`${usage?.missions ?? 0} missions`} hint="Mean cost per mission" />,
+    severity_distribution: (
+      <div className="node-card !p-4 h-full">
+        <h4 className="font-display font-bold text-sm mb-3 flex items-center gap-2"><Shield className="w-4 h-4" /> Severity Distribution</h4>
+        {stats.total === 0 ? (
+          <EmptyState icon={Shield} title="No missions yet" hint="Launch a scan to see severity breakdowns here." compact />
+        ) : (
+          <div className="space-y-3">
+            {severityDist.map((v) => (<div key={v.name}><div className="flex justify-between text-xs mb-1"><span className={`text-${v.color}`}>{v.name}</span><span className="text-muted-foreground">{v.count} sessions</span></div><div className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full bg-${v.color}`} style={{ width: `${v.pct}%` }} /></div></div>))}
           </div>
-        </div>
-        <div className="col-span-12 lg:col-span-6 node-card !p-4">
-          <h4 className="font-display font-bold text-sm mb-3 flex items-center gap-2"><Shield className="w-4 h-4" /> Severity Distribution</h4>
-          {stats.total === 0 ? (
-            <EmptyState icon={Shield} title="No missions yet" hint="Launch a scan to see severity breakdowns here." compact />
-          ) : (
-            <div className="space-y-3">
-              {severityDist.map((v) => (<div key={v.name}><div className="flex justify-between text-xs mb-1"><span className={`text-${v.color}`}>{v.name}</span><span className="text-muted-foreground">{v.count} sessions</span></div><div className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full bg-${v.color}`} style={{ width: `${v.pct}%` }} /></div></div>))}
-            </div>
-          )}
-        </div>
-        <div className="col-span-12 lg:col-span-6 node-card !p-4">
-          <h4 className="font-display font-bold text-sm mb-3 flex items-center gap-2"><Target className="w-4 h-4" /> Top Targets</h4>
-          {topTargets.length === 0 ? (
-            <EmptyState icon={Target} title="No targets yet" hint="Discovered targets ranked by host count will appear here." compact />
-          ) : (
-            <div className="space-y-2">
-              {topTargets.map((t: any, i: number) => (
-                <button key={t.id || i} onClick={() => { if (t.id) setSelectedSessionId(t.id); navigate("/hosts"); }} className="w-full flex items-center justify-between p-2 rounded-lg bg-muted/20 hover:bg-muted/40 transition-colors text-xs text-left"><div className="flex items-center gap-3 min-w-0"><span className="w-5 h-5 shrink-0 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[10px] font-bold">{i + 1}</span><span className="truncate">{t.name}</span></div><div className="flex items-center gap-4 text-muted-foreground shrink-0"><span className="flex items-center gap-1"><Globe className="w-3 h-3" /> {t.hosts}</span><span className="flex items-center gap-1"><Bug className="w-3 h-3" /> {t.vulns}</span></div></button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="col-span-12 node-card !p-4">
-          <h4 className="font-display font-bold text-sm mb-3 flex items-center gap-2">
-            <DollarSign className="w-4 h-4" /> Spend by Model
-            {usage?.is_estimated && <span className="text-[10px] font-normal text-muted-foreground">(~estimated)</span>}
-          </h4>
-          {(!usage?.by_model || usage.by_model.length === 0) ? (
-            <EmptyState icon={DollarSign} title="No LLM usage yet" hint="Run a mission to see per-model token spend here." compact />
-          ) : (
-            <div className="space-y-2">
-              {(() => {
-                const maxCost = Math.max(...usage.by_model.map((x: any) => x.cost_usd || 0), 0.0001);
-                return usage.by_model.map((m: any) => {
-                  const tokens = (m.prompt_tokens || 0) + (m.completion_tokens || 0);
-                  const pct = ((m.cost_usd || 0) / maxCost) * 100;
-                  return (
-                    <div key={`${m.model}-${m.provider}`}>
-                      <div className="flex justify-between text-xs mb-1 gap-2">
-                        <span className="truncate font-mono">{m.model}<span className="text-muted-foreground"> · {m.provider}</span></span>
-                        <span className="text-muted-foreground shrink-0">${(m.cost_usd || 0).toFixed(4)} · {fmtTokens(tokens)} tok</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-success" style={{ width: `${pct}%` }} /></div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
-        </div>
+        )}
       </div>
     ),
-    vuln_intel: (
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-6 md:col-span-3 node-card !p-4 flex flex-col items-center justify-center text-center"><Donut value={stats.criticalVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.criticalVulns)} sublabel="Critical" color="hsl(var(--destructive))" /><div className="text-[9px] text-destructive uppercase tracking-wider mt-2">CVSS 9.0+</div></div>
-        <div className="col-span-6 md:col-span-3 node-card !p-4 flex flex-col items-center justify-center text-center"><Donut value={stats.highVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.highVulns)} sublabel="High" color="hsl(var(--warning))" /><div className="text-[9px] text-warning uppercase tracking-wider mt-2">CVSS 7.0-8.9</div></div>
-        <div className="col-span-6 md:col-span-3 node-card !p-4 flex flex-col items-center justify-center text-center"><Donut value={stats.medVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.medVulns)} sublabel="Medium" color="hsl(var(--accent))" /><div className="text-[9px] text-accent uppercase tracking-wider mt-2">CVSS 4.0-6.9</div></div>
-        <div className="col-span-6 md:col-span-3 node-card !p-4 flex flex-col items-center justify-center text-center"><Donut value={stats.lowVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.lowVulns)} sublabel="Low" color="hsl(var(--success))" /><div className="text-[9px] text-success uppercase tracking-wider mt-2">CVSS 0.0-3.9</div></div>
-        <div className="col-span-12 lg:col-span-6 node-card !p-4">
-          <h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><Layers className="w-3 h-3" /> Vulnerability Types</h5>
-          {Object.keys(stats.vulnByType).length === 0 ? (
-            <div className="text-muted-foreground text-xs text-center py-4">{detailsLoading ? "Aggregating session details…" : "No data"}</div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {Object.entries(stats.vulnByType).sort((a, b) => b[1] - a[1]).map(([type, count]) => {
-                const pct = stats.totalFindings > 0 ? Math.min(Math.round((count / stats.totalFindings) * 100), 100) : 0;
-                const colorCls = vulnTypeColors[type] || "text-foreground";
-                const bgCls = colorCls.replace("text-", "bg-");
-                const borderCls = colorCls.replace("text-", "border-");
+    top_targets: (
+      <div className="node-card !p-4 h-full">
+        <h4 className="font-display font-bold text-sm mb-3 flex items-center gap-2"><Target className="w-4 h-4" /> Top Targets</h4>
+        {topTargets.length === 0 ? (
+          <EmptyState icon={Target} title="No targets yet" hint="Discovered targets ranked by host count will appear here." compact />
+        ) : (
+          <div className="space-y-2">
+            {topTargets.map((t: any, i: number) => (
+              <button key={t.id || i} onClick={() => { if (t.id) setSelectedSessionId(t.id); navigate("/hosts"); }} className="w-full flex items-center justify-between p-2 rounded-lg bg-muted/20 hover:bg-muted/40 transition-colors text-xs text-left"><div className="flex items-center gap-3 min-w-0"><span className="w-5 h-5 shrink-0 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[10px] font-bold">{i + 1}</span><span className="truncate">{t.name}</span></div><div className="flex items-center gap-4 text-muted-foreground shrink-0"><span className="flex items-center gap-1"><Globe className="w-3 h-3" /> {t.hosts}</span><span className="flex items-center gap-1"><Bug className="w-3 h-3" /> {t.vulns}</span></div></button>
+            ))}
+          </div>
+        )}
+      </div>
+    ),
+    spend_by_model: (
+      <div className="node-card !p-4">
+        <h4 className="font-display font-bold text-sm mb-3 flex items-center gap-2">
+          <DollarSign className="w-4 h-4" /> Spend by Model
+          {usage?.is_estimated && <span className="text-[10px] font-normal text-muted-foreground">(~estimated)</span>}
+        </h4>
+        {(!usage?.by_model || usage.by_model.length === 0) ? (
+          <EmptyState icon={DollarSign} title="No LLM usage yet" hint="Run a mission to see per-model token spend here." compact />
+        ) : (
+          <div className="space-y-2">
+            {(() => {
+              const maxCost = Math.max(...usage.by_model.map((x: any) => x.cost_usd || 0), 0.0001);
+              return usage.by_model.map((m: any) => {
+                const tokens = (m.prompt_tokens || 0) + (m.completion_tokens || 0);
+                const pct = ((m.cost_usd || 0) / maxCost) * 100;
                 return (
-                  <div key={type} className={`flex flex-col gap-2 p-3 rounded-xl border ${borderCls}/30 bg-card/50`}>
-                    <div className="flex items-start justify-between gap-1">
-                      <span className={`text-[10px] font-semibold capitalize leading-tight ${colorCls}`}>{type.replace(/_/g, " ")}</span>
-                      <span className={`text-base font-display font-bold leading-none ${colorCls}`}>{count}</span>
+                  <div key={`${m.model}-${m.provider}`}>
+                    <div className="flex justify-between text-xs mb-1 gap-2">
+                      <span className="truncate font-mono">{m.model}<span className="text-muted-foreground"> · {m.provider}</span></span>
+                      <span className="text-muted-foreground shrink-0">${(m.cost_usd || 0).toFixed(4)} · {fmtTokens(tokens)} tok</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex-1 h-1.5 rounded-full bg-muted/60 overflow-hidden">
-                        <div className={`h-full rounded-full ${bgCls}`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-[10px] text-muted-foreground tabular-nums">{pct}%</span>
-                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-success" style={{ width: `${pct}%` }} /></div>
                   </div>
                 );
-              })}
-            </div>
-          )}
-        </div>
-        <div className="col-span-12 lg:col-span-6 node-card !p-4"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5"><Skull className="w-3 h-3" /> Top CVEs by Severity</h5><div className="space-y-1.5">{stats.topCves.length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No CVEs"}</div>}{stats.topCves.map((c, i) => (<div key={i} className="flex items-center gap-2 text-xs p-1.5 rounded bg-muted/15"><span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${c.cvss >= 9 ? "bg-destructive/15 text-destructive" : c.cvss >= 7 ? "bg-warning/15 text-warning" : "bg-accent/15 text-accent"}`}>{c.cvss.toFixed(1)}</span><span className="font-mono text-[10px] text-muted-foreground w-20 shrink-0">{c.cve}</span><span className="flex-1 truncate">{c.title}</span><span className="text-muted-foreground shrink-0">{c.host}</span></div>))}</div></div>
+              });
+            })()}
+          </div>
+        )}
       </div>
     ),
-    exploit_stats: (
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 sm:col-span-4 node-card !p-4 text-center"><div className="font-display font-bold text-3xl text-destructive">{stats.allExploits}</div><div className="text-[10px] text-muted-foreground mt-1">Total Exploits Attempted</div><div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-destructive" style={{ width: "100%" }} /></div></div>
-        <div className="col-span-12 sm:col-span-4 node-card !p-4 text-center"><div className="font-display font-bold text-3xl text-success">{stats.exploitSuccessRate}%</div><div className="text-[10px] text-muted-foreground mt-1">Exploit Success Rate</div><div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-success" style={{ width: `${stats.exploitSuccessRate}%` }} /></div></div>
-        <div className="col-span-12 sm:col-span-4 node-card !p-4 text-center"><div className="font-display font-bold text-3xl">{stats.exploitRate}%</div><div className="text-[10px] text-muted-foreground mt-1">Finding to Exploit Ratio</div><div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-accent" style={{ width: `${stats.exploitRate}%` }} /></div></div>
-        <div className="col-span-12 node-card !p-4"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><LockOpen className="w-3 h-3" /> Exploit Modules Breakdown</h5><div className="space-y-2">{Object.entries(stats.exploitByType).sort((a, b) => b[1].total - a[1].total).map(([mod, data]) => { const rate = data.total > 0 ? Math.round((data.success / data.total) * 100) : 0; return (<div key={mod} className="flex items-center gap-3 text-xs p-2 rounded-lg bg-muted/15"><span className="font-mono text-[10px] w-40 truncate shrink-0">{mod}</span><div className="flex-1 flex items-center gap-2"><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-success" style={{ width: `${rate}%` }} /></div><span className="text-success w-8 text-right shrink-0">{rate}%</span></div><span className="text-muted-foreground shrink-0">{data.success}/{data.total}</span></div>); })}{Object.keys(stats.exploitByType).length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No exploit data"}</div>}</div></div>
+    vuln_critical: <div className="node-card !p-4 h-full flex flex-col items-center justify-center text-center"><Donut value={stats.criticalVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.criticalVulns)} sublabel="Critical" color="hsl(var(--destructive))" /><div className="text-[9px] text-destructive uppercase tracking-wider mt-2">CVSS 9.0+</div></div>,
+    vuln_high: <div className="node-card !p-4 h-full flex flex-col items-center justify-center text-center"><Donut value={stats.highVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.highVulns)} sublabel="High" color="hsl(var(--warning))" /><div className="text-[9px] text-warning uppercase tracking-wider mt-2">CVSS 7.0-8.9</div></div>,
+    vuln_medium: <div className="node-card !p-4 h-full flex flex-col items-center justify-center text-center"><Donut value={stats.medVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.medVulns)} sublabel="Medium" color="hsl(var(--accent))" /><div className="text-[9px] text-accent uppercase tracking-wider mt-2">CVSS 4.0-6.9</div></div>,
+    vuln_low: <div className="node-card !p-4 h-full flex flex-col items-center justify-center text-center"><Donut value={stats.lowVulns} max={Math.max(stats.totalFindings, 1)} label={String(stats.lowVulns)} sublabel="Low" color="hsl(var(--success))" /><div className="text-[9px] text-success uppercase tracking-wider mt-2">CVSS 0.0-3.9</div></div>,
+    vuln_types: (
+      <div className="node-card !p-4 h-full">
+        <h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><Layers className="w-3 h-3" /> Vulnerability Types</h5>
+        {Object.keys(stats.vulnByType).length === 0 ? (
+          <div className="text-muted-foreground text-xs text-center py-4">{detailsLoading ? "Aggregating session details…" : "No data"}</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {Object.entries(stats.vulnByType).sort((a, b) => b[1] - a[1]).map(([type, count]) => {
+              const pct = stats.totalFindings > 0 ? Math.min(Math.round((count / stats.totalFindings) * 100), 100) : 0;
+              const colorCls = vulnTypeColors[type] || "text-foreground";
+              const bgCls = colorCls.replace("text-", "bg-");
+              const borderCls = colorCls.replace("text-", "border-");
+              return (
+                <div key={type} className={`flex flex-col gap-2 p-3 rounded-xl border ${borderCls}/30 bg-card/50`}>
+                  <div className="flex items-start justify-between gap-1">
+                    <span className={`text-[10px] font-semibold capitalize leading-tight ${colorCls}`}>{type.replace(/_/g, " ")}</span>
+                    <span className={`text-base font-display font-bold leading-none ${colorCls}`}>{count}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted/60 overflow-hidden">
+                      <div className={`h-full rounded-full ${bgCls}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">{pct}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     ),
-    host_discovery: (
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 lg:col-span-6 node-card !p-4"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><PieChart className="w-3 h-3" /> OS Distribution</h5><div className="space-y-2">{stats.osEntries.length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No host data"}</div>}{stats.osEntries.map(([os, count]) => { const pct = stats.hostsScanned > 0 ? Math.round((count / stats.hostsScanned) * 100) : 0; return (<div key={os} className="flex items-center gap-3 text-xs"><span className="w-24 truncate">{os}</span><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} /></div><span className="text-muted-foreground shrink-0">{count}</span></div>); })}</div></div>
-        <div className="col-span-12 lg:col-span-6 node-card !p-4"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><Server className="w-3 h-3" /> Top Services</h5><div className="space-y-2">{stats.topServices.length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No service data"}</div>}{stats.topServices.map(([svc, count]) => (<div key={svc} className="flex items-center gap-3 text-xs"><span className="font-mono text-[10px] w-16 shrink-0">{svc}</span><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-accent rounded-full" style={{ width: `${Math.min((count / stats.totalOpenPorts) * 100, 100)}%` }} /></div><span className="text-muted-foreground shrink-0">{count}</span></div>))}</div></div>
-      </div>
-    ),
-    mission_perf: (
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 sm:col-span-4 node-card !p-4 text-center"><div className="font-display font-bold text-3xl text-success">{stats.done}</div><div className="text-[10px] text-muted-foreground mt-1">Completed</div>{sparks?.done && <Sparkline data={sparks.done} height={20} color="hsl(var(--success))" />}</div>
-        <div className="col-span-12 sm:col-span-4 node-card !p-4 text-center"><div className="font-display font-bold text-3xl text-destructive">{stats.errors}</div><div className="text-[10px] text-muted-foreground mt-1">Failed</div>{sparks?.errors && <Sparkline data={sparks.errors} height={20} color="hsl(var(--destructive))" />}</div>
-        <div className="col-span-12 sm:col-span-4 node-card !p-4 text-center"><div className="font-display font-bold text-3xl">{stats.avgDuration}m</div><div className="text-[10px] text-muted-foreground mt-1">Avg Duration</div>{sparks?.durations && <Sparkline data={sparks.durations} height={20} color="hsl(var(--muted-foreground))" />}</div>
-        <div className="col-span-12 lg:col-span-6 node-card !p-4"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Duration Stats</h5><div className="space-y-2 text-xs"><div className="flex justify-between"><span className="text-muted-foreground">Average</span><span className="font-mono">{stats.avgDuration} min</span></div><div className="flex justify-between"><span className="text-muted-foreground">Minimum</span><span className="font-mono">{stats.minDuration} min</span></div><div className="flex justify-between"><span className="text-muted-foreground">Maximum</span><span className="font-mono">{stats.maxDuration} min</span></div><div className="flex justify-between"><span className="text-muted-foreground">Avg Vulns / Session</span><span className="font-mono">{stats.avgVulns}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Avg Exploits / Session</span><span className="font-mono">{stats.avgExploits}</span></div></div></div>
-        <div className="col-span-12 lg:col-span-6 node-card !p-4"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Session Status Breakdown</h5><div className="space-y-2">{Object.entries(stats.sessionsByStatus).map(([status, count]) => { const colors: Record<string, string> = { running: "text-accent", done: "text-success", paused: "text-warning", error: "text-destructive", queued: "text-muted-foreground" }; const bgColors: Record<string, string> = { running: "bg-accent", done: "bg-success", paused: "bg-warning", error: "bg-destructive", queued: "bg-muted" }; return (<div key={status} className="flex items-center gap-3 text-xs"><span className={`capitalize ${colors[status] || "text-foreground"}`}>{status}</span><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full ${bgColors[status] || "bg-primary"}`} style={{ width: `${stats.total > 0 ? (count / stats.total) * 100 : 0}%` }} /></div><span className="text-muted-foreground shrink-0">{count}</span></div>); })}</div></div>
-      </div>
-    ),
-    live_feed: (
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 lg:col-span-7 node-card !p-4"><h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Live Events</h4><div className="space-y-2">{liveEvents.map((e: any, i: number) => (<div key={i} className="flex items-start gap-2 text-[11px]"><Clock className="w-3 h-3 text-muted-foreground mt-0.5 shrink-0" /><div className="font-mono text-muted-foreground">{e.time}</div><div className={`flex-1 border-l-2 pl-2 border-${e.sev} truncate`}>{e.text}</div></div>))}</div></div>
-        <div className="col-span-12 lg:col-span-5 node-card !p-4"><h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">System Resources</h4><div className="space-y-3"><div><div className="flex justify-between text-xs mb-1"><span className="flex items-center gap-1.5"><Cpu className="w-3 h-3" /> CPU</span><span className="text-muted-foreground">{sysStats?.cpu ?? "--"}%</span></div><div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-accent" style={{ width: `${Math.min(sysStats?.cpu ?? 0, 100)}%` }} /></div></div><div><div className="flex justify-between text-xs mb-1"><span className="flex items-center gap-1.5"><HardDrive className="w-3 h-3" /> RAM</span><span className="text-muted-foreground">{sysStats?.ram_used_gb ?? "--"} / {sysStats?.ram_total_gb ?? "--"} GB</span></div><div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-warning" style={{ width: `${sysStats ? Math.min((sysStats.ram_used_gb / sysStats.ram_total_gb) * 100, 100) : 0}%` }} /></div></div>{sysStats?.gpu != null && (<div><div className="flex justify-between text-xs mb-1"><span className="flex items-center gap-1.5"><Wifi className="w-3 h-3" /> GPU</span><span className="text-muted-foreground">{sysStats.gpu}%</span></div><div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary opacity-70" style={{ width: `${Math.min(sysStats.gpu, 100)}%` }} /></div></div>)}<div className="text-[10px] text-muted-foreground pt-1 flex justify-between"><span>Tokens: {((sysStats?.tokens ?? 0) / 1000).toFixed(1)}k</span><span>Sessions: {stats.total}</span></div></div></div>
-      </div>
-    ),
+    top_cves: <div className="node-card !p-4 h-full"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5"><Skull className="w-3 h-3" /> Top CVEs by Severity</h5><div className="space-y-1.5">{stats.topCves.length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No CVEs"}</div>}{stats.topCves.map((c, i) => (<div key={i} className="flex items-center gap-2 text-xs p-1.5 rounded bg-muted/15"><span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${c.cvss >= 9 ? "bg-destructive/15 text-destructive" : c.cvss >= 7 ? "bg-warning/15 text-warning" : "bg-accent/15 text-accent"}`}>{c.cvss.toFixed(1)}</span><span className="font-mono text-[10px] text-muted-foreground w-20 shrink-0">{c.cve}</span><span className="flex-1 truncate">{c.title}</span><span className="text-muted-foreground shrink-0">{c.host}</span></div>))}</div></div>,
+    exploit_total: <div className="node-card !p-4 text-center h-full"><div className="font-display font-bold text-3xl text-destructive">{stats.allExploits}</div><div className="text-[10px] text-muted-foreground mt-1">Total Exploits Attempted</div><div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-destructive" style={{ width: "100%" }} /></div></div>,
+    exploit_success: <div className="node-card !p-4 text-center h-full"><div className="font-display font-bold text-3xl text-success">{stats.exploitSuccessRate}%</div><div className="text-[10px] text-muted-foreground mt-1">Exploit Success Rate</div><div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-success" style={{ width: `${stats.exploitSuccessRate}%` }} /></div></div>,
+    exploit_ratio: <div className="node-card !p-4 text-center h-full"><div className="font-display font-bold text-3xl">{stats.exploitRate}%</div><div className="text-[10px] text-muted-foreground mt-1">Finding to Exploit Ratio</div><div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-accent" style={{ width: `${stats.exploitRate}%` }} /></div></div>,
+    exploit_modules: <div className="node-card !p-4"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><LockOpen className="w-3 h-3" /> Exploit Modules Breakdown</h5><div className="space-y-2">{Object.entries(stats.exploitByType).sort((a, b) => b[1].total - a[1].total).map(([mod, data]) => { const rate = data.total > 0 ? Math.round((data.success / data.total) * 100) : 0; return (<div key={mod} className="flex items-center gap-3 text-xs p-2 rounded-lg bg-muted/15"><span className="font-mono text-[10px] w-40 truncate shrink-0">{mod}</span><div className="flex-1 flex items-center gap-2"><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-success" style={{ width: `${rate}%` }} /></div><span className="text-success w-8 text-right shrink-0">{rate}%</span></div><span className="text-muted-foreground shrink-0">{data.success}/{data.total}</span></div>); })}{Object.keys(stats.exploitByType).length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No exploit data"}</div>}</div></div>,
+    os_distribution: <div className="node-card !p-4 h-full"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><PieChart className="w-3 h-3" /> OS Distribution</h5><div className="space-y-2">{stats.osEntries.length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No host data"}</div>}{stats.osEntries.map(([os, count]) => { const pct = stats.hostsScanned > 0 ? Math.round((count / stats.hostsScanned) * 100) : 0; return (<div key={os} className="flex items-center gap-3 text-xs"><span className="w-24 truncate">{os}</span><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} /></div><span className="text-muted-foreground shrink-0">{count}</span></div>); })}</div></div>,
+    top_services: <div className="node-card !p-4 h-full"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5"><Server className="w-3 h-3" /> Top Services</h5><div className="space-y-2">{stats.topServices.length === 0 && <div className="text-muted-foreground text-xs text-center py-2">{detailsLoading ? "Aggregating session details…" : "No service data"}</div>}{stats.topServices.map(([svc, count]) => (<div key={svc} className="flex items-center gap-3 text-xs"><span className="font-mono text-[10px] w-16 shrink-0">{svc}</span><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-accent rounded-full" style={{ width: `${Math.min((count / stats.totalOpenPorts) * 100, 100)}%` }} /></div><span className="text-muted-foreground shrink-0">{count}</span></div>))}</div></div>,
+    perf_completed: <div className="node-card !p-4 text-center h-full"><div className="font-display font-bold text-3xl text-success">{stats.done}</div><div className="text-[10px] text-muted-foreground mt-1">Completed</div>{sparks?.done && <Sparkline data={sparks.done} height={20} color="hsl(var(--success))" />}</div>,
+    perf_failed: <div className="node-card !p-4 text-center h-full"><div className="font-display font-bold text-3xl text-destructive">{stats.errors}</div><div className="text-[10px] text-muted-foreground mt-1">Failed</div>{sparks?.errors && <Sparkline data={sparks.errors} height={20} color="hsl(var(--destructive))" />}</div>,
+    perf_avg_duration: <div className="node-card !p-4 text-center h-full"><div className="font-display font-bold text-3xl">{stats.avgDuration}m</div><div className="text-[10px] text-muted-foreground mt-1">Avg Duration</div>{sparks?.durations && <Sparkline data={sparks.durations} height={20} color="hsl(var(--muted-foreground))" />}</div>,
+    duration_stats: <div className="node-card !p-4 h-full"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Duration Stats</h5><div className="space-y-2 text-xs"><div className="flex justify-between"><span className="text-muted-foreground">Average</span><span className="font-mono">{stats.avgDuration} min</span></div><div className="flex justify-between"><span className="text-muted-foreground">Minimum</span><span className="font-mono">{stats.minDuration} min</span></div><div className="flex justify-between"><span className="text-muted-foreground">Maximum</span><span className="font-mono">{stats.maxDuration} min</span></div><div className="flex justify-between"><span className="text-muted-foreground">Avg Vulns / Session</span><span className="font-mono">{stats.avgVulns}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Avg Exploits / Session</span><span className="font-mono">{stats.avgExploits}</span></div></div></div>,
+    session_status: <div className="node-card !p-4 h-full"><h5 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Session Status Breakdown</h5><div className="space-y-2">{Object.entries(stats.sessionsByStatus).map(([status, count]) => { const colors: Record<string, string> = { running: "text-accent", done: "text-success", paused: "text-warning", error: "text-destructive", queued: "text-muted-foreground" }; const bgColors: Record<string, string> = { running: "bg-accent", done: "bg-success", paused: "bg-warning", error: "bg-destructive", queued: "bg-muted" }; return (<div key={status} className="flex items-center gap-3 text-xs"><span className={`capitalize ${colors[status] || "text-foreground"}`}>{status}</span><div className="flex-1 h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full ${bgColors[status] || "bg-primary"}`} style={{ width: `${stats.total > 0 ? (count / stats.total) * 100 : 0}%` }} /></div><span className="text-muted-foreground shrink-0">{count}</span></div>); })}</div></div>,
+    live_events: <div className="node-card !p-4 h-full"><h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Live Events</h4><div className="space-y-2">{liveEvents.map((e: any, i: number) => (<div key={i} className="flex items-start gap-2 text-[11px]"><Clock className="w-3 h-3 text-muted-foreground mt-0.5 shrink-0" /><div className="font-mono text-muted-foreground">{e.time}</div><div className={`flex-1 border-l-2 pl-2 border-${e.sev} truncate`}>{e.text}</div></div>))}</div></div>,
+    system_resources: <div className="node-card !p-4 h-full"><h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">System Resources</h4><div className="space-y-3"><div><div className="flex justify-between text-xs mb-1"><span className="flex items-center gap-1.5"><Cpu className="w-3 h-3" /> CPU</span><span className="text-muted-foreground">{sysStats?.cpu ?? "--"}%</span></div><div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-accent" style={{ width: `${Math.min(sysStats?.cpu ?? 0, 100)}%` }} /></div></div><div><div className="flex justify-between text-xs mb-1"><span className="flex items-center gap-1.5"><HardDrive className="w-3 h-3" /> RAM</span><span className="text-muted-foreground">{sysStats?.ram_used_gb ?? "--"} / {sysStats?.ram_total_gb ?? "--"} GB</span></div><div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-warning" style={{ width: `${sysStats ? Math.min((sysStats.ram_used_gb / sysStats.ram_total_gb) * 100, 100) : 0}%` }} /></div></div>{sysStats?.gpu != null && (<div><div className="flex justify-between text-xs mb-1"><span className="flex items-center gap-1.5"><Wifi className="w-3 h-3" /> GPU</span><span className="text-muted-foreground">{sysStats.gpu}%</span></div><div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary opacity-70" style={{ width: `${Math.min(sysStats.gpu, 100)}%` }} /></div></div>)}<div className="text-[10px] text-muted-foreground pt-1 flex justify-between"><span>Tokens: {((sysStats?.tokens ?? 0) / 1000).toFixed(1)}k</span><span>Sessions: {stats.total}</span></div></div></div>,
     active_missions: (
-      <div className="col-span-12">
+      <div>
         {activeMissions.length === 0 && <div className="text-xs text-muted-foreground text-center py-4 node-card">No active missions.</div>}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {activeMissions.map((m: any) => { const sev = m.vulns_found > 5 ? "destructive" : m.exploits_run > 0 ? "warning" : "success"; return (<button key={m.id} onClick={() => setSelectedSessionId(m.id)} className={`border rounded-xl p-3 text-left transition-all ${resolvedWsSessionId === m.id ? "border-primary bg-primary/5" : "border-border/40 hover:border-border"}`}><div className="flex items-center justify-between mb-2"><div className="text-xs font-medium truncate">{m.target || m.id}</div><span className={`text-[9px] px-2 py-0.5 rounded-full bg-${sev}/15 text-${sev} uppercase`}>{m.status}</span></div><div className="flex items-center gap-3 text-[10px] text-muted-foreground mb-2"><span>{m.hosts_found || 0} hosts</span><span>{m.vulns_found || 0} vulns</span><span>{m.exploits_run || 0} exploits</span></div><div className="h-1 rounded-full bg-muted overflow-hidden"><div className={`h-full bg-${sev}`} style={{ width: `${Math.min((m.vulns_found || 0) * 8, 100)}%` }} /></div></button>); })}
@@ -573,7 +654,7 @@ const Overview = () => {
       </div>
     ),
     recent_completions: (
-      <div className="col-span-12 node-card !p-4">
+      <div className="node-card !p-4">
         {recentMissions.length === 0 && <div className="text-xs text-muted-foreground text-center py-4">No completed missions yet.</div>}
         <div className="space-y-2">
           {recentMissions.map((m: any) => { const isDone = m.status === "done"; const dateStr = m.finished_at ? new Date(m.finished_at * 1000).toLocaleDateString() : "--"; const dur = m.finished_at && m.created_at ? Math.round((m.finished_at - m.created_at) / 60) : 0; return (<div key={m.id} className="flex items-center gap-3 text-xs p-2 rounded-lg hover:bg-muted/10 transition-colors"><span className={`w-2 h-2 rounded-full shrink-0 ${isDone ? "bg-success" : "bg-destructive"}`} /><span className="flex-1 truncate font-medium">{m.target || m.id}</span><span className="text-muted-foreground shrink-0">{m.vulns_found || 0}v</span><span className="text-muted-foreground shrink-0">{m.exploits_run || 0}e</span><span className="text-muted-foreground shrink-0">{dur}m</span><span className="text-muted-foreground font-mono shrink-0">{dateStr}</span></div>); })}
@@ -581,7 +662,7 @@ const Overview = () => {
       </div>
     ),
     my_assignments: (
-      <div className="col-span-12">
+      <div>
         {assignedToMe.length === 0 ? <div className="text-xs text-muted-foreground text-center py-4 node-card">Nothing assigned to you yet.</div> : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {assignedToMe.map((m: any) => { const statusColor = m.status === "running" ? "success" : m.status === "paused" ? "warning" : m.status === "error" ? "destructive" : "muted-foreground"; return (<button key={m.id} onClick={() => { setSelectedSessionId(m.id); navigate("/missions"); }} className={`border rounded-xl p-3 text-left transition-all hover:border-primary/60 hover:bg-primary/5 ${resolvedWsSessionId === m.id ? "border-primary bg-primary/5" : "border-border/40"}`}><div className="flex items-center justify-between mb-1.5"><span className="text-xs font-medium truncate flex-1">{m.target || m.id}</span><span className={`text-[9px] px-2 py-0.5 rounded-full bg-${statusColor}/15 text-${statusColor} uppercase ml-2 shrink-0`}>{m.status}</span></div><div className="text-[10px] text-muted-foreground flex items-center gap-3"><span>{m.hosts_found || 0} hosts</span><span>{m.vulns_found || 0} findings</span></div></button>); })}
@@ -591,20 +672,6 @@ const Overview = () => {
     ),
   };
 
-  const sectionMeta: Record<SectionKey, { icon: React.ReactNode; badge?: React.ReactNode }> = {
-    analytics: { icon: <Activity className="w-4 h-4 text-accent" /> },
-    vuln_intel: { icon: <AlertTriangle className="w-4 h-4 text-warning" />, badge: <span className="text-[10px] px-2 py-0.5 rounded-full bg-warning/15 text-warning font-semibold ml-2">{stats.totalFindings} total</span> },
-    exploit_stats: { icon: <Flame className="w-4 h-4 text-destructive" />, badge: <span className="text-[10px] px-2 py-0.5 rounded-full bg-destructive/15 text-destructive font-semibold ml-2">{stats.exploitSuccessRate}% success</span> },
-    host_discovery: { icon: <Network className="w-4 h-4 text-primary" />, badge: <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold ml-2">{stats.totalOpenPorts} open ports</span> },
-    mission_perf: { icon: <TrendingUp className="w-4 h-4 text-success" />, badge: <span className="text-[10px] px-2 py-0.5 rounded-full bg-success/15 text-success font-semibold ml-2">{stats.successRate}% success</span> },
-    live_feed: { icon: <Zap className="w-4 h-4 text-accent" />, badge: <span className={`ml-2 w-1.5 h-1.5 rounded-full ${ready ? "bg-success animate-pulse" : "bg-muted"}`} /> },
-    active_missions: { icon: <Play className="w-4 h-4 text-accent" />, badge: <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent font-semibold ml-2">{activeMissions.length} running</span> },
-    recent_completions: { icon: <Shield className="w-4 h-4" /> },
-    my_assignments: { icon: <ClipboardList className="w-4 h-4 text-primary" />, badge: assignedToMe.length > 0 ? <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">{assignedToMe.length}</span> : undefined },
-  };
-
-  const visibleSections = sections.filter((s) => s.visible);
-
   const dashGraphPanel = (
     <div className="w-[440px] max-w-[42vw] h-full flex flex-col node-card !p-0 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 shrink-0">
@@ -613,7 +680,7 @@ const Overview = () => {
           <span className="font-display font-bold text-sm">Attack Graph</span>
           <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-success/15 text-success"><span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />Live</span>
         </div>
-        <button onClick={() => setGraphPanelOpen(false)} className="w-7 h-7 rounded-full border border-border flex items-center justify-center hover:bg-muted text-muted-foreground" title="Close Attack Graph"><X className="w-3.5 h-3.5" /></button>
+        <button onClick={toggleGraphPanel} className="w-7 h-7 rounded-full border border-border flex items-center justify-center hover:bg-muted text-muted-foreground" title="Close Attack Graph"><X className="w-3.5 h-3.5" /></button>
       </div>
       <div className="flex-1 min-h-0 relative">
         <AttackGraph data={bundle.dynamicGraph} activeView="topology" focusedSessionId={bundle.sessionId} onSelectHost={drillHostFromPreview} hostSelectHint="Open in Attack Graph" />
@@ -622,7 +689,7 @@ const Overview = () => {
   );
 
   const agentPanel = agentPanelOpen
-    ? <AgentChatPanel open={agentPanelOpen} onClose={() => setAgentPanelOpen(false)} />
+    ? <AgentChatPanel open={agentPanelOpen} onClose={toggleAgentPanel} />
     : undefined;
   const graphPanel = graphPanelOpen ? dashGraphPanel : undefined;
 
@@ -638,7 +705,7 @@ const Overview = () => {
       {settingsOpen && (
         <div className="mb-3 rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3 flex flex-wrap items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-150">
           <span className="text-[10px] uppercase tracking-widest text-primary font-bold shrink-0 flex items-center gap-1.5"><Settings className="w-3 h-3" /> Customize Mode</span>
-          <span className="text-[10px] text-muted-foreground hidden sm:inline">Drag section headers to reorder · toggle eye to show/hide</span>
+          <span className="text-[10px] text-muted-foreground hidden sm:inline">Drag any card to reorder · toggle the eye to show/hide</span>
           {/* Panel position controls */}
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-[10px] text-muted-foreground">Panels:</span>
@@ -672,7 +739,7 @@ const Overview = () => {
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setAgentPanelOpen((o) => !o)}
+            onClick={toggleAgentPanel}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors ${agentPanelOpen ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
             title={agentPanelOpen ? "Hide Agent Feed" : "Show Agent Feed"}
           >
@@ -681,7 +748,7 @@ const Overview = () => {
             <span className={`w-1.5 h-1.5 rounded-full ${agentPanelOpen ? "bg-success animate-pulse" : "bg-muted-foreground/40"}`} />
           </button>
           <button
-            onClick={() => setGraphPanelOpen((o) => !o)}
+            onClick={toggleGraphPanel}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors ${graphPanelOpen ? "bg-accent/15 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
             title={graphPanelOpen ? "Hide Attack Graph" : "Show Attack Graph"}
           >
@@ -699,54 +766,42 @@ const Overview = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-12 gap-4 p-1 h-full">
-        {(settingsOpen ? sections : visibleSections).map((sec, idx) => {
-          const isOpen = openSections[sec.key] !== false;
-          const meta = sectionMeta[sec.key];
-          return (
-            <Collapsible
-              key={sec.key}
-              ref={settingsOpen ? ((el: HTMLDivElement | null) => { itemRefs.current[idx] = el; }) : undefined}
-              open={settingsOpen ? false : (isOpen && sec.visible)}
-              onOpenChange={() => { if (!settingsOpen) toggleSection(sec.key); }}
-              className={`col-span-12 ${settingsOpen && !sec.visible ? "opacity-40" : ""}`}
-              style={settingsOpen ? itemStyle(idx) : undefined}
-            >
+      {settingsOpen ? (
+        /* ── Customize mode: every widget as a draggable, show/hide-able row ── */
+        <div className="flex flex-col gap-2 p-1">
+          {ownedWidgets.map((w, idx) => {
+            const Icon = WIDGET_ICONS[w.key];
+            return (
               <div
-                className={`flex items-center gap-2 mb-3 select-none group
-                  ${settingsOpen
-                    ? `rounded-xl px-3 py-2 border touch-none cursor-grab active:cursor-grabbing transition-colors ${drag?.from === idx ? "ring-2 ring-primary border-primary/60 bg-primary/10" : "border-border/50 bg-muted/20 hover:bg-muted/40 hover:border-border"}`
-                    : "cursor-pointer transition-all"}`}
-                onPointerDown={settingsOpen ? (e) => beginDrag(idx, e) : undefined}
-                onClick={() => { if (!settingsOpen) toggleSection(sec.key); }}
+                key={w.key}
+                ref={(el: HTMLDivElement | null) => { itemRefs.current[idx] = el; }}
+                style={itemStyle(idx)}
+                className={`flex items-center gap-2 select-none rounded-xl px-3 py-2.5 border touch-none cursor-grab active:cursor-grabbing transition-colors ${drag?.from === idx ? "ring-2 ring-primary border-primary/60 bg-primary/10" : "border-border/50 bg-muted/20 hover:bg-muted/40 hover:border-border"} ${!w.visible ? "opacity-40" : ""}`}
+                onPointerDown={(e) => beginDrag(idx, e)}
               >
-                {settingsOpen
-                  ? <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
-                  : isOpen
-                    ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                    : <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                }
-                {meta?.icon}
-                <h3 className="font-display font-bold text-sm group-hover:text-foreground/90 transition-colors flex-1">{sec.title}</h3>
-                {!settingsOpen && meta?.badge}
-                {settingsOpen && (
-                  <button
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); toggleVisibility(sec.key); }}
-                    className="ml-auto p-1 rounded-lg hover:bg-muted transition-colors shrink-0"
-                    title={sec.visible ? "Hide section" : "Show section"}
-                  >
-                    {sec.visible ? <Eye className="w-3.5 h-3.5 text-muted-foreground" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                  </button>
-                )}
+                <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+                {Icon && <Icon className="w-4 h-4 text-muted-foreground shrink-0" />}
+                <span className="font-display font-bold text-sm flex-1 truncate">{w.title}</span>
+                <button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); toggleVisibility(w.key); }}
+                  className="ml-auto p-1 rounded-lg hover:bg-muted transition-colors shrink-0"
+                  title={w.visible ? "Hide widget" : "Show widget"}
+                >
+                  {w.visible ? <Eye className="w-3.5 h-3.5 text-muted-foreground" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground/40" />}
+                </button>
               </div>
-              <CollapsibleContent>
-                <div>{sectionContent[sec.key]}</div>
-              </CollapsibleContent>
-            </Collapsible>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* ── Normal mode: visible widgets in the responsive grid ── */
+        <div className="grid grid-cols-12 gap-4 p-1 auto-rows-min items-stretch">
+          {ownedWidgets.filter((w) => w.visible).map((w) => (
+            <div key={w.key} className={w.colSpan}>{widgetContent[w.key]}</div>
+          ))}
+        </div>
+      )}
     </PageShell>
   );
 };

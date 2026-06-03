@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PageShell } from "@/components/attack/PageShell";
 import { UserAvatar } from "@/components/attack/UserAvatar";
-import { getSessions, getUsersUsage, setUserBudget } from "@/lib/api";
+import { getSessions, getUsersUsage, setUserBudget, setOrgBudget } from "@/lib/api";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePermissions } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +58,8 @@ import {
   Target,
   Radio,
   DollarSign,
+  Wallet,
+  Infinity as InfinityIcon,
 } from "lucide-react";
 import { api, useAuth, hasRole } from "@/lib/utils";
 
@@ -228,10 +232,11 @@ function RoleBar({ members }: { members: Member[] }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = "members" | "invitations" | "settings";
+type Tab = "members" | "invitations" | "settings" | "permissions";
 
 export default function TeamPage() {
   const { user } = useAuth();
+  const perms = usePermissions();
   const isAdmin = hasRole(user, "owner", "admin");
   const isOwner = hasRole(user, "owner");
 
@@ -270,11 +275,48 @@ export default function TeamPage() {
   const [roleChangeId, setRoleChangeId] = useState<string | null>(null);
   const [roleChanging, setRoleChanging] = useState(false);
 
-  // Per-user spend vs budget (owner/admin only)
+  // Per-user spend vs budget + org-wide allocation (admin/owner only)
   const [spendByUser, setSpendByUser] = useState<Record<string, { spend: number; budget: number; over: boolean }>>({});
+  const [orgUsage, setOrgUsage] = useState<{ org_budget_usd: number; allocated_usd: number; unallocated_usd: number | null; org_spend_usd: number }>({ org_budget_usd: 0, allocated_usd: 0, unallocated_usd: null, org_spend_usd: 0 });
   const [budgetEditId, setBudgetEditId] = useState<string | null>(null);
   const [budgetValue, setBudgetValue] = useState("");
   const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetError, setBudgetError] = useState("");
+  // Org-wide budget editor (owner)
+  const [orgBudgetEdit, setOrgBudgetEdit] = useState(false);
+  const [orgBudgetValue, setOrgBudgetValue] = useState("");
+  const [orgBudgetSaving, setOrgBudgetSaving] = useState(false);
+
+  // Roles & permissions matrix (moved here from Settings → admin/owner only)
+  const [permMatrix, setPermMatrix] = useState<Record<string, Record<string, boolean>>>({});
+  const [permKeys, setPermKeys] = useState<string[]>([]);
+  const [permSaving, setPermSaving] = useState(false);
+  const [permSaved, setPermSaved] = useState(false);
+
+  const loadPermissions = useCallback(async () => {
+    try {
+      const r = await api.get<{ permissions: Record<string, Record<string, boolean>>; keys: string[] }>("/auth/org/permissions");
+      setPermMatrix(r.permissions || {});
+      setPermKeys(r.keys || []);
+    } catch { /* defaults shown until loaded */ }
+  }, []);
+
+  useEffect(() => { if (tab === "permissions" && isAdmin) loadPermissions(); }, [tab, isAdmin, loadPermissions]);
+
+  const savePermissions = async () => {
+    setPermSaving(true);
+    setPermSaved(false);
+    try {
+      const { owner: _owner, ...rest } = permMatrix as Record<string, Record<string, boolean>>;
+      await api.put("/auth/org/permissions", { permissions: rest });
+      setPermSaved(true);
+      setTimeout(() => setPermSaved(false), 2500);
+    } catch (e) {
+      setError((e as Error).message || "Could not save permissions.");
+    } finally {
+      setPermSaving(false);
+    }
+  };
 
   const loadUsage = useCallback(() => {
     if (!isAdmin) return;
@@ -285,23 +327,40 @@ export default function TeamPage() {
           map[u.user_id] = { spend: u.spend_this_month || 0, budget: u.monthly_budget_usd || 0, over: !!u.over_budget };
         });
         setSpendByUser(map);
+        setOrgUsage({
+          org_budget_usd: r.org_budget_usd || 0,
+          allocated_usd: r.allocated_usd || 0,
+          unallocated_usd: r.unallocated_usd ?? null,
+          org_spend_usd: r.org_spend_usd || 0,
+        });
       })
       .catch(() => {});
   }, [isAdmin]);
 
   useEffect(() => { loadUsage(); }, [loadUsage, members.length]);
 
-  const saveBudget = async (uid: string) => {
+  const saveBudget = async (uid: string, value: number) => {
     setBudgetSaving(true);
+    setBudgetError("");
     try {
-      const val = Math.max(0, parseFloat(budgetValue) || 0);
-      await setUserBudget(uid, val);
-      setSpendByUser((prev) => ({ ...prev, [uid]: { spend: prev[uid]?.spend ?? 0, budget: val, over: val > 0 && (prev[uid]?.spend ?? 0) >= val } }));
+      await setUserBudget(uid, Math.max(0, value));
       setBudgetEditId(null);
-    } catch {
-      /* ignore — surfaced inline */
+      loadUsage();
+    } catch (e) {
+      setBudgetError((e as Error).message || "Could not save budget.");
     } finally {
       setBudgetSaving(false);
+    }
+  };
+
+  const saveOrgBudget = async () => {
+    setOrgBudgetSaving(true);
+    try {
+      await setOrgBudget(Math.max(0, parseFloat(orgBudgetValue) || 0));
+      setOrgBudgetEdit(false);
+      loadUsage();
+    } catch { /* surfaced via reload */ } finally {
+      setOrgBudgetSaving(false);
     }
   };
 
@@ -396,7 +455,9 @@ export default function TeamPage() {
       if (!orgData) { setMembers([]); setInvitations([]); return; }
 
       const [membersData, invData, brandingData, sessionsData] = await Promise.allSettled([
-        isAdmin ? api.get<Member[]>("/auth/users") : Promise.resolve([]),
+        // Admins get the full record (email, budget, last login); everyone else
+        // gets the public roster so analysts/viewers don't land on an empty page.
+        isAdmin ? api.get<Member[]>("/auth/users") : api.get<Member[]>("/auth/org/members"),
         isAdmin ? api.get<Invitation[]>("/auth/org/invitations") : Promise.resolve([]),
         api.get<{ company_name: string; logo_url: string; has_logo: boolean }>("/config/branding"),
         isAdmin ? getSessions() : Promise.resolve([]),
@@ -630,12 +691,51 @@ export default function TeamPage() {
             {/* Role distribution */}
             {members.length > 0 && <RoleBar members={members} />}
 
+            {/* Your access — gives analysts & viewers a useful, personalized
+                view instead of the (admin-only) management tools. */}
+            {!isAdmin && (
+              <div className="node-card !p-5 space-y-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Shield className="w-4 h-4 text-primary" />
+                  <h3 className="font-semibold text-sm">Your access</h3>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${ROLE_COLORS[perms.role] || ""}`}>
+                    {user?.role_label || perms.role}
+                  </span>
+                  <span className="text-xs text-muted-foreground ml-auto hidden sm:inline">Roles are managed by your owner &amp; admins.</span>
+                </div>
+                <Separator />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+                  {[
+                    { label: "Create & launch missions", on: perms.canCreateMission },
+                    { label: "Pause / kill missions", on: perms.canKillMission || perms.canPauseMission },
+                    { label: "Use the live terminal", on: perms.canUseTerminal },
+                    { label: "View harvested credentials", on: perms.canViewCredentials },
+                    { label: "Inject live guidance to agents", on: perms.canInjectMessage },
+                    { label: "View reports & findings", on: perms.canViewReports },
+                    { label: "Assign missions to teammates", on: perms.canAssignMission },
+                    { label: "Invite & manage members", on: perms.canInviteMembers },
+                  ].map((c) => (
+                    <div key={c.label} className="flex items-center gap-2 py-1.5">
+                      {c.on
+                        ? <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+                        : <XCircle className="w-4 h-4 text-muted-foreground/40 shrink-0" />}
+                      <span className={`text-xs ${c.on ? "text-foreground" : "text-muted-foreground/60"}`}>{c.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Need more access? Ask an admin to adjust your role under <span className="text-foreground font-medium">Roles &amp; Permissions</span>.
+                </p>
+              </div>
+            )}
+
             {/* Tab navigation */}
             <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit">
               {[
-                { id: "members" as Tab,     label: "Members",     icon: Users,     show: isAdmin },
-                { id: "invitations" as Tab,  label: "Invitations", icon: Mail,      show: isAdmin },
-                { id: "settings" as Tab,     label: "Settings",    icon: Settings2, show: isAdmin },
+                { id: "members" as Tab,     label: "Members",            icon: Users,     show: isAdmin },
+                { id: "invitations" as Tab,  label: "Invitations",        icon: Mail,      show: isAdmin },
+                { id: "permissions" as Tab,  label: "Roles & Permissions", icon: Shield,    show: isAdmin },
+                { id: "settings" as Tab,     label: "Settings",           icon: Settings2, show: isAdmin },
               ].filter((t) => t.show).map((t) => (
                 <button
                   key={t.id}
@@ -675,6 +775,40 @@ export default function TeamPage() {
                     </Button>
                   )}
                 </div>
+
+                {/* Org-wide budget + allocation summary */}
+                {isAdmin && (
+                  <div className="flex items-center gap-x-5 gap-y-2 flex-wrap px-4 py-3 bg-muted/20 border-b border-border text-xs">
+                    <div className="flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-primary" />
+                      <span className="font-semibold">Org budget</span>
+                    </div>
+                    {orgBudgetEdit ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-muted-foreground">$</span>
+                        <input autoFocus type="number" min="0" step="1" value={orgBudgetValue}
+                          onChange={(e) => setOrgBudgetValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") saveOrgBudget(); if (e.key === "Escape") setOrgBudgetEdit(false); }}
+                          placeholder="0 = unlimited"
+                          className="w-28 h-7 px-2 rounded-md bg-background border border-border text-xs" />
+                        <Button size="sm" className="h-7" onClick={saveOrgBudget} disabled={orgBudgetSaving}>{orgBudgetSaving ? "…" : "Save"}</Button>
+                        <button onClick={() => setOrgBudgetEdit(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-foreground">{orgUsage.org_budget_usd > 0 ? `$${orgUsage.org_budget_usd.toFixed(0)} / mo` : "No org limit"}</span>
+                        {isOwner && (
+                          <button onClick={() => { setOrgBudgetEdit(true); setOrgBudgetValue(String(orgUsage.org_budget_usd || 0)); }} className="text-[11px] text-primary hover:underline">edit</button>
+                        )}
+                      </div>
+                    )}
+                    <div className="ml-auto flex items-center gap-4 text-muted-foreground">
+                      <span>Allocated <b className="text-foreground font-mono">${orgUsage.allocated_usd.toFixed(2)}</b>{orgUsage.org_budget_usd > 0 && <span className="text-muted-foreground"> / ${orgUsage.org_budget_usd.toFixed(0)}</span>}</span>
+                      <span>Spent <b className={`font-mono ${orgUsage.org_budget_usd > 0 && orgUsage.org_spend_usd >= orgUsage.org_budget_usd ? "text-destructive" : "text-foreground"}`}>${orgUsage.org_spend_usd.toFixed(2)}</b></span>
+                    </div>
+                  </div>
+                )}
+
                 <div className="divide-y divide-border">
                   {filteredMembers.length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-10">
@@ -702,55 +836,89 @@ export default function TeamPage() {
                           ) : null}
                           {!m.is_active && <Badge variant="outline" className="text-[10px] text-destructive border-destructive/30 py-0">Inactive</Badge>}
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                        {m.email && <p className="text-xs text-muted-foreground truncate">{m.email}</p>}
                       </div>
 
-                      {/* Activity + last seen */}
-                      <div className="hidden md:flex flex-col items-end shrink-0 text-[10px] text-muted-foreground leading-tight">
-                        <span className="flex items-center gap-1" title="Missions created / assigned">
-                          <Target className="w-3 h-3" /> {act?.missions ?? 0}
-                          {act?.assigned ? <span className="opacity-60">+{act.assigned}</span> : null}
-                        </span>
-                        <span title="Last login">Login {formatRelative(m.last_login)}</span>
-                      </div>
+                      {/* Activity + last seen (admin view only — the public
+                          roster carries no sessions or login timestamps) */}
+                      {isAdmin && (
+                        <div className="hidden md:flex flex-col items-end shrink-0 text-[10px] text-muted-foreground leading-tight">
+                          <span className="flex items-center gap-1" title="Missions created / assigned">
+                            <Target className="w-3 h-3" /> {act?.missions ?? 0}
+                            {act?.assigned ? <span className="opacity-60">+{act.assigned}</span> : null}
+                          </span>
+                          <span title="Last login">Login {formatRelative(m.last_login)}</span>
+                        </div>
+                      )}
                       <div className="text-[10px] text-muted-foreground hidden lg:block shrink-0 w-20 text-right" title="Joined">
                         {formatDate(m.created_at)}
                       </div>
 
                       {/* Spend / monthly budget */}
-                      {isAdmin && (
-                        <div className="hidden lg:flex flex-col items-end shrink-0 w-28 leading-tight">
-                          {budgetEditId === m.id ? (
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-muted-foreground">$</span>
-                              <input
-                                autoFocus type="number" min="0" step="1" value={budgetValue}
-                                onChange={(e) => setBudgetValue(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === "Enter") saveBudget(m.id); if (e.key === "Escape") setBudgetEditId(null); }}
-                                className="w-16 h-6 px-1 rounded bg-muted border border-border text-xs"
-                                placeholder="0"
-                              />
-                              <button onClick={() => saveBudget(m.id)} className="text-success text-xs" title="Save">
-                                {budgetSaving ? "…" : "✓"}
-                              </button>
-                              <button onClick={() => setBudgetEditId(null)} className="text-muted-foreground text-xs" title="Cancel">✕</button>
-                            </div>
-                          ) : (
-                            <>
-                              <span className={`flex items-center gap-1 text-[10px] ${spendByUser[m.id]?.over ? "text-destructive font-semibold" : "text-muted-foreground"}`} title="Spent this month / monthly budget">
-                                <DollarSign className="w-3 h-3" />{(spendByUser[m.id]?.spend ?? 0).toFixed(2)}
-                                {(spendByUser[m.id]?.budget ?? 0) > 0 && <span className="opacity-60">/ {(spendByUser[m.id]?.budget ?? 0).toFixed(0)}</span>}
-                              </span>
-                              <button
-                                onClick={() => { setBudgetEditId(m.id); setBudgetValue(String(spendByUser[m.id]?.budget ?? 0)); }}
-                                className="text-[9px] text-primary hover:underline"
-                              >
-                                {(spendByUser[m.id]?.budget ?? 0) > 0 ? "edit limit" : "set limit"}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
+                      {isAdmin && (() => {
+                        const info = spendByUser[m.id] || { spend: 0, budget: 0, over: false };
+                        const pct = info.budget > 0 ? Math.min(100, (info.spend / info.budget) * 100) : 0;
+                        const summary = (
+                          <div className="hidden lg:flex flex-col items-end shrink-0 w-32 leading-tight">
+                            <span className={`flex items-center gap-1 text-[11px] font-mono ${info.over ? "text-destructive font-semibold" : "text-muted-foreground"}`}>
+                              <DollarSign className="w-3 h-3" />{info.spend.toFixed(2)}
+                              {info.budget > 0 ? <span className="opacity-60">/ {info.budget.toFixed(0)}</span> : <InfinityIcon className="w-3 h-3 opacity-50" />}
+                            </span>
+                            {info.budget > 0 && (
+                              <div className="w-full h-1 mt-1 rounded-full bg-muted overflow-hidden">
+                                <div className={`h-full ${info.over ? "bg-destructive" : pct > 80 ? "bg-warning" : "bg-success"}`} style={{ width: `${pct}%` }} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                        if (!perms.canManageBudgets) return summary;
+                        return (
+                          <Popover open={budgetEditId === m.id} onOpenChange={(o) => { if (o) { setBudgetEditId(m.id); setBudgetValue(String(info.budget || 0)); setBudgetError(""); } else setBudgetEditId(null); }}>
+                            <PopoverTrigger asChild>
+                              <button className="hidden lg:block rounded-lg hover:bg-muted/40 px-1 transition-colors" title="Edit monthly budget">{summary}</button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-72 p-4">
+                              <div className="space-y-3">
+                                <div>
+                                  <p className="text-sm font-semibold leading-tight">{m.full_name}</p>
+                                  <p className="text-xs text-muted-foreground">Monthly LLM budget</p>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">Spent this month</span>
+                                  <span className={`font-mono ${info.over ? "text-destructive font-semibold" : ""}`}>${info.spend.toFixed(2)}</span>
+                                </div>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                                  <input autoFocus type="number" min="0" step="1" value={budgetValue}
+                                    onChange={(e) => setBudgetValue(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") saveBudget(m.id, parseFloat(budgetValue) || 0); }}
+                                    placeholder="0 = unlimited"
+                                    className="w-full h-9 pl-6 pr-3 rounded-lg bg-muted border border-border text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {[0, 10, 25, 50, 100, 250].map((v) => (
+                                    <button key={v} onClick={() => setBudgetValue(String(v))} className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${(parseFloat(budgetValue) || 0) === v ? "bg-primary/15 border-primary/40 text-primary" : "border-border text-muted-foreground hover:bg-muted"}`}>
+                                      {v === 0 ? "Unlimited" : `$${v}`}
+                                    </button>
+                                  ))}
+                                </div>
+                                {orgUsage.org_budget_usd > 0 && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Up to <b className="text-foreground">${Math.max(0, orgUsage.org_budget_usd - (orgUsage.allocated_usd - (info.budget || 0))).toFixed(0)}</b> left to allocate from the org budget (${orgUsage.org_budget_usd.toFixed(0)}).
+                                  </p>
+                                )}
+                                {budgetError && <p className="text-[11px] text-destructive">{budgetError}</p>}
+                                <div className="flex items-center gap-2 pt-1">
+                                  <Button size="sm" className="flex-1 gap-1.5" onClick={() => saveBudget(m.id, parseFloat(budgetValue) || 0)} disabled={budgetSaving}>
+                                    {budgetSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => setBudgetEditId(null)}>Cancel</Button>
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        );
+                      })()}
 
                       {isAdmin && m.id !== user?.id && m.role !== "owner" ? (
                         roleChangeId === m.id ? (
@@ -846,6 +1014,58 @@ export default function TeamPage() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* ── Roles & Permissions tab ─────────────────────────────────── */}
+            {tab === "permissions" && isAdmin && (
+              <div className="node-card !p-5 space-y-5">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <h3 className="font-semibold text-sm flex items-center gap-2"><Shield className="w-4 h-4 text-primary" /> Roles &amp; Permissions</h3>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-xl">Toggle what each role can see and do. Owner always has full access. Changes apply org-wide and are enforced on the server.</p>
+                  </div>
+                  <Button onClick={savePermissions} disabled={permSaving} size="sm" className="gap-2 shrink-0">
+                    {permSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : permSaved ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Save className="w-3.5 h-3.5" />}
+                    {permSaved ? "Saved" : "Save permissions"}
+                  </Button>
+                </div>
+                <Separator />
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                        <th className="text-left py-2 pr-4">Permission</th>
+                        {["owner", "admin", "analyst", "viewer"].map((r) => <th key={r} className="px-3 py-2 capitalize">{r}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {permKeys.length === 0 && (
+                        <tr><td colSpan={5} className="text-center text-xs text-muted-foreground py-8">Loading permission matrix…</td></tr>
+                      )}
+                      {permKeys.map((key) => (
+                        <tr key={key} className="border-b border-border/40">
+                          <td className="py-2 pr-4 font-mono text-xs">{key.replace(/^can/, "")}</td>
+                          {["owner", "admin", "analyst", "viewer"].map((role) => {
+                            const locked = role === "owner";
+                            const checked = locked ? true : !!permMatrix[role]?.[key];
+                            return (
+                              <td key={role} className="text-center px-3 py-2">
+                                <input type="checkbox" checked={checked} disabled={locked}
+                                  onChange={(e) => setPermMatrix((prev) => ({ ...prev, [role]: { ...(prev[role] || {}), [key]: e.target.checked } }))}
+                                  className="w-4 h-4 accent-primary disabled:opacity-40" />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  These permissions were moved here from Settings. The matrix maps directly to what each teammate can do across the app.
+                </p>
               </div>
             )}
 

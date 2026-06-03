@@ -79,11 +79,11 @@ const STEPS: Step[] = [
     body: "Invite teammates and manage them here. See each member's monthly spend vs. their budget, and set per-person limits — once someone hits their cap they can't start new missions. Roles (owner / admin / analyst / viewer) control what each person can do.",
     route: "/team",
     target: "team",
-    tip: "Fine-tune exactly what each role can see and do in Settings → Roles & Permissions.",
+    tip: "Fine-tune exactly what each role can see and do in Team → Roles & Permissions.",
   },
   {
     title: "9. Settings",
-    body: "Configure LLM providers and models, model pricing, safety rules, Metasploit/Nmap, and the role permission matrix. You can also replay this tour anytime from here.",
+    body: "Configure LLM providers and models, model pricing, safety rules, and Metasploit/Nmap. You can also replay this tour — and the New Mission tutorial — anytime from here.",
     route: "/settings",
     target: "settings",
     tip: "Settings → LLM Provider is where you plug in your OpenRouter / Ollama / LM Studio model.",

@@ -25,7 +25,7 @@ from web.auth.models import (
     ROLE_HIERARCHY,
 )
 from web.auth.service import hash_password, verify_password, create_access_token
-from web.auth.dependencies import get_current_user, require_role
+from web.auth.dependencies import get_current_user, require_permission, require_role
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -220,6 +220,25 @@ async def list_users(current_user: dict = Depends(require_role("owner", "admin")
     return [UserResponse.from_row(r) for r in rows]
 
 
+@router.get("/org/members")
+async def list_org_members(current_user: dict = Depends(get_current_user)):
+    """Read-only team roster visible to **every** org member.
+
+    Unlike `/users` (owner/admin only) this exposes just the public-facing
+    fields — name, role and avatar — so analysts and viewers can see who is on
+    the team without leaking emails, budgets or login timestamps.
+    """
+    org_id = current_user.get("org_id")
+    if not org_id:
+        return []
+    rows = await _repo.list_by_org(org_id)
+    safe = ("id", "full_name", "role", "role_label", "avatar", "is_active", "created_at")
+    return [
+        {k: getattr(u, k) for k in safe}
+        for u in (UserResponse.from_row(r) for r in rows)
+    ]
+
+
 @router.patch("/users/{user_id}/role", response_model=UserResponse)
 async def update_user_role(
     user_id: str,
@@ -283,20 +302,63 @@ async def update_user_active(
 async def update_user_budget(
     user_id: str,
     body: BudgetUpdate,
-    current_user: dict = Depends(require_role("owner", "admin")),
+    current_user: dict = Depends(require_permission("canManageBudgets")),
 ):
-    """Set a member's monthly LLM spend cap in USD (0 = unlimited). owner/admin."""
+    """Set a member's monthly LLM spend cap in USD (0 = unlimited).
+
+    Gated by the `canManageBudgets` permission — an owner can revoke an admin's
+    ability to set budgets from Settings → Roles & Permissions. When the org has
+    a total budget, a non-owner cannot allocate per-user budgets whose sum would
+    exceed it (the owner can over-allocate by design)."""
     target = await _repo.get_by_id(user_id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found.")
-    if target.get("org_id") != current_user.get("org_id"):
+    org_id = current_user.get("org_id")
+    if target.get("org_id") != org_id:
         raise HTTPException(status_code=403, detail="This user belongs to a different organization.")
     # Admins may not alter an owner's budget; only another owner can.
     if target["role"] == "owner" and current_user["role"] != "owner":
         raise HTTPException(status_code=403, detail="Only an owner may change an owner's budget.")
-    await _repo.update_budget(user_id, body.monthly_budget_usd)
+
+    # Enforce the org total: allocations by non-owners can't exceed the org cap.
+    new_budget = float(body.monthly_budget_usd or 0)
+    if current_user["role"] != "owner" and org_id:
+        org = await _org_repo.get(org_id)
+        org_budget = float((org or {}).get("monthly_budget_usd") or 0)
+        if org_budget > 0:
+            others = await _repo.allocated_budget(org_id, exclude_user_id=user_id)
+            if others + new_budget > org_budget + 1e-9:
+                available = max(0.0, round(org_budget - others, 2))
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"This exceeds the organization's total budget (${org_budget:.2f}). "
+                        f"Only ${available:.2f} is left to allocate."
+                    ),
+                )
+    await _repo.update_budget(user_id, new_budget)
     row = await _repo.get_by_id(user_id)
     return UserResponse.from_row(row)
+
+
+class OrgBudgetUpdate(BaseModel):
+    monthly_budget_usd: float
+
+
+@router.patch("/org/budget", response_model=OrgResponse)
+async def update_org_budget(
+    body: OrgBudgetUpdate,
+    current_user: dict = Depends(require_role("owner")),
+):
+    """Set the organization-wide monthly spend cap (USD, 0 = unlimited). owner only."""
+    org_id = current_user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=400, detail="This account is not linked to an organization.")
+    if body.monthly_budget_usd < 0:
+        raise HTTPException(status_code=400, detail="Budget cannot be negative.")
+    await _org_repo.update_budget(org_id, body.monthly_budget_usd)
+    org = await _org_repo.get(org_id)
+    return OrgResponse.from_row(org)
 
 
 # ── Organizasyon ──────────────────────────────────────────────────────────────
