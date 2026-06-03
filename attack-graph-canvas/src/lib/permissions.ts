@@ -53,6 +53,7 @@ export interface Permissions {
   canViewTeam: boolean;           // admin+owner: tam, analyst+viewer: sadece üye listesi
   canInviteMembers: boolean;      // admin + owner
   canChangeRoles: boolean;        // admin (altını) + owner (hepsini)
+  canManageBudgets: boolean;      // kullanıcı bütçe limiti belirleme (owner kısıtlayabilir)
   canManageOrg: boolean;          // owner only
 
   // Hesap bilgileri
@@ -105,6 +106,7 @@ export function usePermissions(): Permissions {
     canViewTeam:       true,
     canInviteMembers:  can("canInviteMembers", isAdmin),
     canChangeRoles:    can("canChangeRoles", isAdmin),
+    canManageBudgets:  can("canManageBudgets", isAdmin),
     canManageOrg:      isOwner,
 
     role,

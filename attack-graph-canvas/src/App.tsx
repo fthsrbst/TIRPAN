@@ -178,6 +178,22 @@ function ScheduleTicker() {
   return null;
 }
 
+// Lets the New Mission tutorial be launched from anywhere (e.g. Settings):
+// routes to the page, flags it to auto-open, and pokes it if already mounted.
+function MissionTourLauncher() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const handler = () => {
+      try { sessionStorage.setItem("tirpan_open_mission_tour", "1"); } catch { /* ignore */ }
+      navigate("/missions/new");
+      window.dispatchEvent(new Event("tirpan-mission-tour-open"));
+    };
+    window.addEventListener("tirpan-start-mission-tour", handler);
+    return () => window.removeEventListener("tirpan-start-mission-tour", handler);
+  }, [navigate]);
+  return null;
+}
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -191,6 +207,7 @@ const App = () => (
           <ScheduleTicker />
           <CommandPalette />
           <OnboardingTour />
+          <MissionTourLauncher />
           <Routes>
             <Route path="/demo" element={<DemoEntry />} />
             <Route path="/login" element={<LoginPage />} />

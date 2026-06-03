@@ -1358,6 +1358,17 @@ class UserRepository:
             await db.commit()
             return db.total_changes > 0
 
+    async def allocated_budget(self, org_id: str, exclude_user_id: str | None = None) -> float:
+        """Sum of per-user monthly budgets in an org (optionally excluding one user)."""
+        sql = "SELECT COALESCE(SUM(monthly_budget_usd),0) AS s FROM users WHERE org_id=?"
+        params: list = [org_id]
+        if exclude_user_id:
+            sql += " AND id<>?"
+            params.append(exclude_user_id)
+        async with _connect(self._path) as db, db.execute(sql, params) as cur:
+            row = await cur.fetchone()
+        return round(float(row["s"] or 0), 6) if row else 0.0
+
 
 # ── UsageRepository ────────────────────────────────────────────────────────────
 
@@ -1463,6 +1474,15 @@ class UsageRepository:
         async with _connect(self._path) as db, db.execute(
             "SELECT SUM(cost_usd) AS c FROM llm_usage WHERE user_id=? AND created_at>=?",
             (user_id, since),
+        ) as cur:
+            row = await cur.fetchone()
+        return round(float(row["c"] or 0), 6) if row else 0.0
+
+    async def org_spend(self, org_id: str, since: float = 0.0) -> float:
+        """Total USD an org has spent since `since` (epoch seconds)."""
+        async with _connect(self._path) as db, db.execute(
+            "SELECT SUM(cost_usd) AS c FROM llm_usage WHERE org_id=? AND created_at>=?",
+            (org_id, since),
         ) as cur:
             row = await cur.fetchone()
         return round(float(row["c"] or 0), 6) if row else 0.0
@@ -1605,6 +1625,16 @@ class OrganizationRepository:
         async with _connect(self._path) as db:
             await db.execute(
                 f"UPDATE organizations SET {', '.join(fields)} WHERE id=?", params
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update_budget(self, org_id: str, monthly_budget_usd: float) -> bool:
+        """Set the org-wide monthly spend cap in USD (0 = unlimited)."""
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE organizations SET monthly_budget_usd=? WHERE id=?",
+                (max(0.0, float(monthly_budget_usd or 0)), org_id),
             )
             await db.commit()
             return db.total_changes > 0

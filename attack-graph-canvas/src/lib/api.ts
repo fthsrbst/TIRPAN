@@ -154,6 +154,14 @@ export const fetchOpenRouterPrices = () =>
 export const setUserBudget = (userId: string, monthly_budget_usd: number) =>
   isDemoMode() ? mockDelay({ ok: true }) : apiFetch<any>(`/api/v1/auth/users/${userId}/budget`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monthly_budget_usd }) });
 
+export const getMyUsage = () =>
+  isDemoMode()
+    ? mockDelay({ spend_this_month: 3.42, monthly_budget_usd: 10, remaining_usd: 6.58, over_budget: false, pct: 34.2, period: "month" })
+    : apiFetch<any>("/api/v1/usage/me");
+
+export const setOrgBudget = (monthly_budget_usd: number) =>
+  isDemoMode() ? mockDelay({ ok: true }) : apiFetch<any>("/api/v1/auth/org/budget", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monthly_budget_usd }) });
+
 export const getAudit = () =>
   isDemoMode() ? mockDelay({ logs: [] }) : apiFetch<any>("/api/v1/audit");
 

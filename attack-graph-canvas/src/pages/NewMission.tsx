@@ -53,8 +53,10 @@ import {
   CheckCircle2,
   BellRing,
   Repeat,
+  GraduationCap,
 } from "lucide-react";
 import { type Recurrence, nextOccurrence } from "./ScheduledScans";
+import NewMissionTutorial, { type TourCommand } from "@/components/onboarding/NewMissionTutorial";
 
 const PROFILE_ICONS: Record<string, typeof Target> = {
   Radio, Network, KeyRound, Globe, EyeOff, Zap, Users, Server, Database, Monitor, Wifi, Terminal,
@@ -291,6 +293,27 @@ const NewMission = () => {
   // ── Scan profile ────────────────────────────────
   const [activeProfile, setActiveProfile] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+
+  // ── Guided tutorial ─────────────────────────────
+  const [tourOpen, setTourOpen] = useState(false);
+  // The tutorial drives the page through this single control.
+  const applyTourCmd = useCallback((cmd: TourCommand) => {
+    if (cmd.step) setStep(cmd.step);
+    if (cmd.tab) setTab(cmd.tab as TabId);
+    if (typeof cmd.saveProfile === "boolean") setSaveProfileOpen(cmd.saveProfile);
+  }, []);
+  // Open when triggered from this page, or after being routed here from Settings.
+  useEffect(() => {
+    const openTour = () => setTourOpen(true);
+    try {
+      if (sessionStorage.getItem("tirpan_open_mission_tour") === "1") {
+        sessionStorage.removeItem("tirpan_open_mission_tour");
+        setTourOpen(true);
+      }
+    } catch { /* ignore */ }
+    window.addEventListener("tirpan-mission-tour-open", openTour);
+    return () => window.removeEventListener("tirpan-mission-tour-open", openTour);
+  }, []);
   const [customProfiles, setCustomProfiles] = useState<ScanProfileDef[]>(() => {
     try { return JSON.parse(localStorage.getItem("tirpan_custom_profiles") || "[]"); }
     catch { return []; }
@@ -1135,21 +1158,35 @@ const NewMission = () => {
         document.body
       )}
 
+      {/* Dynamic, step-by-step tutorial — drives this page via applyTourCmd */}
+      <NewMissionTutorial open={tourOpen} onClose={() => setTourOpen(false)} apply={applyTourCmd} />
+
       {step === 1 ? (
         /* ── Step 1: Profile Picker ────────────────────────────────── */
         <div className="h-full flex flex-col gap-5 py-1">
-          <div className="shrink-0">
-            <div className="flex items-center gap-2 mb-1">
-              <ScanSearch className="w-5 h-5 text-primary" />
-              <h2 className="font-display font-bold text-xl tracking-tight">Step 1 — Choose a Scan Profile</h2>
+          <div className="shrink-0 flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <ScanSearch className="w-5 h-5 text-primary" />
+                <h2 className="font-display font-bold text-xl tracking-tight">Step 1 — Choose a Scan Profile</h2>
+              </div>
+              <p className="text-sm text-muted-foreground pl-7">
+                Select a preset to auto-configure all settings, or choose Custom to configure manually.
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground pl-7">
-              Select a preset to auto-configure all settings, or choose Custom to configure manually.
-            </p>
+            <button
+              type="button"
+              onClick={() => setTourOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-border/50 transition-colors shrink-0"
+              title="How does New Mission work?"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              Tutorial
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto min-h-0">
-            <div className="grid grid-cols-4 gap-3 pb-3">
+            <div className="grid grid-cols-4 gap-3 pb-3" data-tour="mission-profiles">
               {[...SCAN_PROFILE_DEFS, ...customProfiles].map((p) => {
                 const Icon = PROFILE_ICONS[p.iconName];
                 const iconClass = PROFILE_ICON_COLORS[p.color] ?? PROFILE_ICON_COLORS["blue"];
@@ -1236,6 +1273,7 @@ const NewMission = () => {
                     setObjectives(""); setKnownTech(""); setScopeNotes("");
                     setStep(2);
                   }}
+                  data-tour="mission-custom"
                   className="flex-1 p-4 rounded-2xl border border-dashed border-border/60 bg-transparent hover:bg-muted/20 text-left transition-all flex items-center gap-4 group"
                 >
                   <div className="w-11 h-11 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 group-hover:bg-muted transition-colors">
@@ -1254,11 +1292,8 @@ const NewMission = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      const d = new Date(Date.now() + 3600 * 1000);
-                      d.setSeconds(0, 0);
-                      setScheduleDate(d.toISOString().slice(0, 16));
                       setSchedulePendingProfile(null);
-                      setScheduleOpen(true);
+                      _openSchedule();
                     }}
                     className="flex items-center gap-3 px-5 rounded-2xl border border-primary/25 bg-primary/5 hover:bg-primary/10 transition-colors shrink-0"
                   >
@@ -1298,10 +1333,19 @@ const NewMission = () => {
                 </div>
               ) : null;
             })()}
+            <button
+              type="button"
+              onClick={() => setTourOpen(true)}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-border/50 transition-colors shrink-0"
+              title="How does New Mission work?"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              Tutorial
+            </button>
           </div>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-1 mb-4 shrink-0 bg-card/60 backdrop-blur rounded-full p-1.5 border border-border/50 self-start">
+        <div className="flex items-center gap-1 mb-4 shrink-0 bg-card/60 backdrop-blur rounded-full p-1.5 border border-border/50 self-start" data-tour="mission-tabs">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -1315,7 +1359,7 @@ const NewMission = () => {
         </div>
 
         {/* Tab content */}
-        <div className="flex-1 overflow-y-auto node-card !p-6 mb-3 min-h-0">
+        <div className="flex-1 overflow-y-auto node-card !p-6 mb-3 min-h-0" data-tour="mission-tab-content">
           {/* ── TARGET ──────────────────────────────── */}
           {tab === "target" && (
             <div className="space-y-6">
@@ -2069,7 +2113,7 @@ const NewMission = () => {
 
         {/* Save as Profile panel */}
         {saveProfileOpen && (
-          <div className="shrink-0 node-card !p-4 mb-3 border-primary/20">
+          <div className="shrink-0 node-card !p-4 mb-3 border-primary/20" data-tour="mission-save-profile">
             <div className="flex items-center gap-2 mb-3">
               <FolderOpen className="w-4 h-4 text-primary" />
               <span className="font-display font-bold text-sm">Save as Profile</span>
@@ -2158,6 +2202,7 @@ const NewMission = () => {
               type="button"
               variant="outline"
               onClick={openScheduleFromForm}
+              data-tour="mission-schedule"
               className="gap-2 border-primary/40 bg-primary/8 hover:bg-primary/15 text-primary hover:border-primary/60 font-semibold"
             >
               <CalendarClock className="w-4 h-4" />
@@ -2171,6 +2216,7 @@ const NewMission = () => {
             <Button
               onClick={handleSubmit}
               disabled={saving}
+              data-tour="mission-launch"
               className="gap-2 px-6"
             >
               {saving ? (

@@ -40,6 +40,7 @@ import {
   Sparkles,
   Search,
   Plus,
+  GraduationCap,
 } from "lucide-react";
 // Eye kept for password toggle buttons
 import { useState, useEffect, useCallback } from "react";
@@ -58,8 +59,7 @@ type Tab =
   | "scan-profiles"
   | "agent-models"
   | "ml-models"
-  | "billing"
-  | "permissions";
+  | "billing";
 
 const tabs: { id: Tab; label: string; icon: typeof Cpu; adminOnly?: boolean }[] = [
   { id: "llm", label: "LLM Provider", icon: Cpu },
@@ -71,7 +71,6 @@ const tabs: { id: Tab; label: string; icon: typeof Cpu; adminOnly?: boolean }[] 
   { id: "agent-models", label: "Agent Models", icon: Brain },
   { id: "ml-models", label: "ML Models", icon: Cpu },
   { id: "billing", label: "Billing & Pricing", icon: DollarSign, adminOnly: true },
-  { id: "permissions", label: "Roles & Permissions", icon: Lock, adminOnly: true },
 ];
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -141,11 +140,6 @@ const SettingsPage = () => {
   const [pricingFetching, setPricingFetching] = useState(false);
   const [newModelName, setNewModelName] = useState("");
   const [pricingSearch, setPricingSearch] = useState("");
-
-  // ── Roles & permissions state ───────────────────────
-  const [permMatrix, setPermMatrix] = useState<Record<string, Record<string, boolean>>>({});
-  const [permKeys, setPermKeys] = useState<string[]>([]);
-  const [permSaving, setPermSaving] = useState(false);
 
   const flash = (type: "ok" | "err", text: string) => {
     setMsg({ type, text });
@@ -429,14 +423,6 @@ const SettingsPage = () => {
     setPricingFetching(false);
   }, []);
 
-  const loadPermissions = useCallback(async () => {
-    try {
-      const r = await api.get<{ permissions: Record<string, Record<string, boolean>>; keys: string[] }>("/auth/org/permissions");
-      setPermMatrix(r.permissions || {});
-      setPermKeys(r.keys || []);
-    } catch { /* ignore */ }
-  }, []);
-
   useEffect(() => {
     if (tab === "llm") loadLLM();
     if (tab === "safety") loadSafety();
@@ -445,8 +431,7 @@ const SettingsPage = () => {
     if (tab === "agent-models") loadAgentModels();
     if (tab === "ml-models") loadMlStatus();
     if (tab === "billing") loadPricing();
-    if (tab === "permissions") loadPermissions();
-  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus, loadPricing, loadPermissions]);
+  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus, loadPricing]);
 
   // ── Save handlers ───────────────────────────────────
 
@@ -627,6 +612,15 @@ const SettingsPage = () => {
             <Sparkles className="w-4 h-4" />
             Replay onboarding tour
           </button>
+          {perms.isAnalyst && (
+            <button
+              onClick={() => window.dispatchEvent(new Event("tirpan-start-mission-tour"))}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted transition-colors"
+            >
+              <GraduationCap className="w-4 h-4" />
+              New Mission tutorial
+            </button>
+          )}
           {isLoggedIn && (
             <>
               <Separator className="my-2" />
@@ -1549,45 +1543,6 @@ const SettingsPage = () => {
             );
           })()}
 
-          {tab === "permissions" && (
-            <div className="space-y-5">
-              <div>
-                <h3 className="font-display font-bold text-lg flex items-center gap-2"><Lock className="w-5 h-5" /> Roles &amp; Permissions</h3>
-                <p className="text-sm text-muted-foreground mt-1">Toggle what each role can see and do. Owner always has full access. Changes apply org-wide and are enforced on the server.</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                      <th className="text-left py-2 pr-4">Permission</th>
-                      {["owner", "admin", "analyst", "viewer"].map((r) => <th key={r} className="px-3 py-2 capitalize">{r}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {permKeys.map((key) => (
-                      <tr key={key} className="border-b border-border/40">
-                        <td className="py-2 pr-4 font-mono text-xs">{key.replace(/^can/, "")}</td>
-                        {["owner", "admin", "analyst", "viewer"].map((role) => {
-                          const locked = role === "owner";
-                          const checked = locked ? true : !!permMatrix[role]?.[key];
-                          return (
-                            <td key={role} className="text-center px-3 py-2">
-                              <input type="checkbox" checked={checked} disabled={locked}
-                                onChange={(e) => setPermMatrix((prev) => ({ ...prev, [role]: { ...(prev[role] || {}), [key]: e.target.checked } }))}
-                                className="w-4 h-4 accent-primary disabled:opacity-40" />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <Button onClick={async () => { setPermSaving(true); try { const { owner: _owner, ...rest } = permMatrix as Record<string, Record<string, boolean>>; await api.put("/auth/org/permissions", { permissions: rest }); flash("ok", "Permissions saved"); } catch (e) { flash("err", String(e)); } setPermSaving(false); }} disabled={permSaving} className="gap-2">
-                {permSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save permissions
-              </Button>
-            </div>
-          )}
         </div>
       </div>
       {modelPickerOpen && (

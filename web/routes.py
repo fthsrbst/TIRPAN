@@ -37,6 +37,7 @@ from database.repositories import (
     LootRepository,
     MissionContextRepository,
     NetworkGraphRepository,
+    OrganizationRepository,
     ScanResultRepository,
     SessionEventRepository,
     SessionRepository,
@@ -64,6 +65,7 @@ _network_graph_repo = NetworkGraphRepository()
 _mission_ctx_repo = MissionContextRepository()
 _usage_repo = UsageRepository()
 _user_repo = UserRepository()
+_org_repo = OrganizationRepository()
 
 
 def _month_start() -> float:
@@ -347,6 +349,22 @@ async def usage_summary(
     return summary
 
 
+@router.get("/usage/me")
+async def usage_me(current_user: dict = Depends(get_current_user)):
+    """The signed-in user's own spend vs. their personal monthly budget."""
+    since = _month_start()
+    spend = await _usage_repo.user_spend(current_user["id"], since=since)
+    budget = float(current_user.get("monthly_budget_usd") or 0)
+    return {
+        "spend_this_month": spend,
+        "monthly_budget_usd": budget,
+        "remaining_usd": round(budget - spend, 6) if budget > 0 else None,
+        "over_budget": budget > 0 and spend >= budget,
+        "pct": round(min(100.0, spend / budget * 100), 1) if budget > 0 else 0.0,
+        "period": "month",
+    }
+
+
 @router.get("/sessions/{sid}/usage")
 async def session_usage(sid: str, current_user: dict = Depends(get_current_user)):
     """Per-mission token + cost detail: totals + by-model + by-agent."""
@@ -379,7 +397,18 @@ async def usage_by_user(current_user: dict = Depends(require_role("owner", "admi
             "over_budget": budget > 0 and spend >= budget,
         })
     rows.sort(key=lambda r: r["spend_this_month"], reverse=True)
-    return {"users": rows, "period": "month"}
+    org = await _org_repo.get(org_id)
+    org_budget = float((org or {}).get("monthly_budget_usd") or 0)
+    allocated = round(sum(r["monthly_budget_usd"] for r in rows), 6)
+    org_spend = await _usage_repo.org_spend(org_id, since=since)
+    return {
+        "users": rows,
+        "period": "month",
+        "org_budget_usd": org_budget,
+        "allocated_usd": allocated,
+        "unallocated_usd": round(max(0.0, org_budget - allocated), 6) if org_budget > 0 else None,
+        "org_spend_usd": org_spend,
+    }
 
 
 @router.get("/config/pricing")
@@ -1449,11 +1478,13 @@ async def start_session(
 
     # Budget enforcement — block starting a new mission once the operator is over
     # their monthly LLM spend cap (running missions are allowed to finish). A
-    # soft warning is surfaced when spend crosses 80% of the cap.
+    # soft warning is surfaced when spend crosses 80% of the cap. The org-wide
+    # total cap (set by the owner) is enforced on top, for everyone.
     _budget_warning: str | None = None
+    _month0 = _month_start()
     _user_budget = float(current_user.get("monthly_budget_usd") or 0)
     if _user_budget > 0:
-        _spend = await _usage_repo.user_spend(current_user["id"], since=_month_start())
+        _spend = await _usage_repo.user_spend(current_user["id"], since=_month0)
         if _spend >= _user_budget:
             raise HTTPException(
                 status_code=402,
@@ -1466,6 +1497,24 @@ async def start_session(
             _budget_warning = (
                 f"Heads up: you have used ${_spend:.2f} of your ${_user_budget:.2f} monthly budget."
             )
+    _org_id = current_user.get("org_id")
+    if _org_id:
+        _org = await _org_repo.get(_org_id)
+        _org_budget = float((_org or {}).get("monthly_budget_usd") or 0)
+        if _org_budget > 0:
+            _org_spend = await _usage_repo.org_spend(_org_id, since=_month0)
+            if _org_spend >= _org_budget:
+                raise HTTPException(
+                    status_code=402,
+                    detail=(
+                        f"Organization budget exceeded (${_org_spend:.2f} / ${_org_budget:.2f}). "
+                        "The owner must raise the org-wide limit before new missions can start."
+                    ),
+                )
+            if not _budget_warning and _org_spend >= 0.8 * _org_budget:
+                _budget_warning = (
+                    f"Heads up: the organization has used ${_org_spend:.2f} of its ${_org_budget:.2f} monthly budget."
+                )
 
     # Resume from saved mission: load target + findings from that session
     resume_scan_results: list[dict] = []

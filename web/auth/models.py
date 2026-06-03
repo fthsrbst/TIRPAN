@@ -153,6 +153,7 @@ class OrgResponse(BaseModel):
     owner_id: str | None
     allowed_email_domain: str
     created_at: float
+    monthly_budget_usd: float = 0.0   # org-wide monthly spend cap (0 = unlimited)
 
     @classmethod
     def from_row(cls, row: dict) -> "OrgResponse":
@@ -164,6 +165,7 @@ class OrgResponse(BaseModel):
             owner_id=row.get("owner_id"),
             allowed_email_domain=row.get("allowed_email_domain", ""),
             created_at=row["created_at"],
+            monthly_budget_usd=float(row.get("monthly_budget_usd") or 0),
         )
 
 

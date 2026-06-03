@@ -26,6 +26,7 @@ PERMISSION_KEYS: list[str] = [
     "canViewReports",
     "canInviteMembers",
     "canChangeRoles",
+    "canManageBudgets",
 ]
 
 _ANALYST_DEFAULTS = {
@@ -40,6 +41,7 @@ _ANALYST_DEFAULTS = {
     "canViewReports": True,
     "canInviteMembers": False,
     "canChangeRoles": False,
+    "canManageBudgets": False,
 }
 
 DEFAULT_PERMISSIONS: dict[str, dict[str, bool]] = {
