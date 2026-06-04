@@ -2104,3 +2104,274 @@ class CoverageRepository:
                 (session_id, timestamp),
             )
             await db.commit()
+
+
+# ── TicketRepository ──────────────────────────────────────────────────────────
+
+class TicketRepository:
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        org_id: str,
+        title: str,
+        body: str,
+        created_by: str,
+        kind: str = "issue",
+        priority: str = "normal",
+        assigned_to: str = "",
+    ) -> dict:
+        now = _now()
+        tid = _uid()
+        async with _connect(self._path) as db:
+            await db.execute(
+                "INSERT INTO tickets(id, org_id, title, body, status, priority, kind, created_by, assigned_to, created_at, updated_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (tid, org_id, title, body, "open", priority, kind, created_by, assigned_to, now, now),
+            )
+            await db.commit()
+        return await self.get(tid)
+
+    async def get(self, ticket_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM tickets WHERE id=?", (ticket_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_for_org(
+        self,
+        org_id: str,
+        status: str | None = None,
+        kind: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        clauses = ["org_id=?"]
+        params: list = [org_id]
+        if status:
+            clauses.append("status=?")
+            params.append(status)
+        if kind:
+            clauses.append("kind=?")
+            params.append(kind)
+        params.append(limit)
+        where = " AND ".join(clauses)
+        async with _connect(self._path) as db, db.execute(
+            f"SELECT * FROM tickets WHERE {where} ORDER BY updated_at DESC LIMIT ?",
+            params,
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def update_status(self, ticket_id: str, status: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE tickets SET status=?, updated_at=? WHERE id=?",
+                (status, _now(), ticket_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def update(self, ticket_id: str, **fields) -> bool:
+        allowed = {"title", "body", "status", "priority", "assigned_to"}
+        cols = {k: v for k, v in fields.items() if k in allowed}
+        if not cols:
+            return False
+        cols["updated_at"] = _now()
+        set_clause = ", ".join(f"{k}=?" for k in cols)
+        async with _connect(self._path) as db:
+            await db.execute(
+                f"UPDATE tickets SET {set_clause} WHERE id=?",
+                (*cols.values(), ticket_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def delete(self, ticket_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute("DELETE FROM tickets WHERE id=?", (ticket_id,))
+            await db.commit()
+            return db.total_changes > 0
+
+    # ── Messages ──────────────────────────────────────────────────────────────
+
+    async def add_message(self, ticket_id: str, author_id: str, body: str) -> dict:
+        now = _now()
+        mid = _uid()
+        async with _connect(self._path) as db:
+            await db.execute(
+                "INSERT INTO ticket_messages(id, ticket_id, author_id, body, created_at) VALUES(?,?,?,?,?)",
+                (mid, ticket_id, author_id, body, now),
+            )
+            await db.execute(
+                "UPDATE tickets SET updated_at=? WHERE id=?", (now, ticket_id)
+            )
+            await db.commit()
+        return {"id": mid, "ticket_id": ticket_id, "author_id": author_id, "body": body, "created_at": now}
+
+    async def get_messages(self, ticket_id: str) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM ticket_messages WHERE ticket_id=? ORDER BY created_at ASC",
+            (ticket_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_message(self, message_id: str) -> dict | None:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM ticket_messages WHERE id=?", (message_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def delete_message(self, message_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute("DELETE FROM ticket_messages WHERE id=?", (message_id,))
+            await db.commit()
+            return db.total_changes > 0
+
+    async def get_participants(self, ticket_id: str) -> list[str]:
+        """All user ids involved in a ticket: creator, assignee, every message author."""
+        ids: set[str] = set()
+        ticket = await self.get(ticket_id)
+        if ticket:
+            if ticket.get("created_by"):
+                ids.add(ticket["created_by"])
+            if ticket.get("assigned_to"):
+                ids.add(ticket["assigned_to"])
+        async with _connect(self._path) as db, db.execute(
+            "SELECT DISTINCT author_id FROM ticket_messages WHERE ticket_id=?", (ticket_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        for r in rows:
+            if r["author_id"]:
+                ids.add(r["author_id"])
+        return list(ids)
+
+    # ── Read tracking ─────────────────────────────────────────────────────────
+
+    async def mark_read(self, ticket_id: str, user_id: str) -> None:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "INSERT INTO ticket_reads(ticket_id, user_id, read_at) VALUES(?,?,?) "
+                "ON CONFLICT(ticket_id, user_id) DO UPDATE SET read_at=excluded.read_at",
+                (ticket_id, user_id, _now()),
+            )
+            await db.commit()
+
+    async def unread_counts(self, user_id: str, org_id: str) -> dict[str, int]:
+        """For each ticket in the org, how many messages are newer than the user's
+        last read (and not authored by them). Returns {ticket_id: count}."""
+        async with _connect(self._path) as db, db.execute(
+            """
+            SELECT m.ticket_id AS tid, COUNT(*) AS cnt
+            FROM ticket_messages m
+            JOIN tickets t ON t.id = m.ticket_id
+            LEFT JOIN ticket_reads r ON r.ticket_id = m.ticket_id AND r.user_id = ?
+            WHERE t.org_id = ?
+              AND m.author_id != ?
+              AND m.created_at > COALESCE(r.read_at, 0)
+            GROUP BY m.ticket_id
+            """,
+            (user_id, org_id, user_id),
+        ) as cur:
+            rows = await cur.fetchall()
+        return {r["tid"]: r["cnt"] for r in rows}
+
+
+# ── NotificationRepository ────────────────────────────────────────────────────
+
+class NotificationRepository:
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def create(
+        self,
+        user_id: str,
+        title: str,
+        body: str = "",
+        type: str = "",
+        link: str = "",
+        ticket_id: str = "",
+        actor_id: str = "",
+        org_id: str = "",
+    ) -> dict:
+        now = _now()
+        nid = _uid()
+        async with _connect(self._path) as db:
+            await db.execute(
+                "INSERT INTO notifications(id, user_id, org_id, type, title, body, link, ticket_id, actor_id, is_read, created_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (nid, user_id, org_id, type, title, body, link, ticket_id, actor_id, 0, now),
+            )
+            await db.commit()
+        return {"id": nid, "user_id": user_id, "title": title, "body": body, "type": type,
+                "link": link, "ticket_id": ticket_id, "actor_id": actor_id, "is_read": 0, "created_at": now}
+
+    async def create_many(self, user_ids: list[str], **kwargs) -> int:
+        """Fan a single notification out to many recipients. Skips empty ids."""
+        recipients = [u for u in dict.fromkeys(user_ids) if u]
+        if not recipients:
+            return 0
+        now = _now()
+        rows = [
+            (_uid(), uid, kwargs.get("org_id", ""), kwargs.get("type", ""),
+             kwargs.get("title", ""), kwargs.get("body", ""), kwargs.get("link", ""),
+             kwargs.get("ticket_id", ""), kwargs.get("actor_id", ""), 0, now)
+            for uid in recipients
+        ]
+        async with _connect(self._path) as db:
+            await db.executemany(
+                "INSERT INTO notifications(id, user_id, org_id, type, title, body, link, ticket_id, actor_id, is_read, created_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+            await db.commit()
+        return len(rows)
+
+    async def list_for_user(self, user_id: str, limit: int = 50) -> list[dict]:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def unread_count(self, user_id: str) -> int:
+        async with _connect(self._path) as db, db.execute(
+            "SELECT COUNT(*) AS c FROM notifications WHERE user_id=? AND is_read=0", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        return row["c"] if row else 0
+
+    async def mark_read(self, notification_id: str, user_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?",
+                (notification_id, user_id),
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def mark_all_read(self, user_id: str) -> int:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE notifications SET is_read=1 WHERE user_id=? AND is_read=0", (user_id,)
+            )
+            await db.commit()
+            return db.total_changes
+
+    async def delete(self, notification_id: str, user_id: str) -> bool:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "DELETE FROM notifications WHERE id=? AND user_id=?", (notification_id, user_id)
+            )
+            await db.commit()
+            return db.total_changes > 0
+
+    async def clear_all(self, user_id: str) -> int:
+        async with _connect(self._path) as db:
+            await db.execute("DELETE FROM notifications WHERE user_id=?", (user_id,))
+            await db.commit()
+            return db.total_changes

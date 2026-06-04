@@ -28,6 +28,7 @@ import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import InvitePage from "./pages/InvitePage";
 import TeamPage from "./pages/TeamPage";
+import TicketsPage from "./pages/TicketsPage";
 import ProfilePage from "./pages/ProfilePage";
 import DemoEntry from "./pages/DemoEntry";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -215,6 +216,7 @@ const App = () => (
             <Route path="/invite/:token" element={<InvitePage />} />
             <Route path="/" element={<ProtectedRoute><Overview /></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
+            <Route path="/tickets" element={<ProtectedRoute><TicketsPage /></ProtectedRoute>} />
             <Route path="/missions" element={<ProtectedRoute><Missions /></ProtectedRoute>} />
             <Route path="/attack-graph" element={<ProtectedRoute><AttackGraphPage /></ProtectedRoute>} />
             <Route path="/expert-log" element={<ProtectedRoute><ExpertLogPage /></ProtectedRoute>} />

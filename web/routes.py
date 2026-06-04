@@ -37,10 +37,12 @@ from database.repositories import (
     LootRepository,
     MissionContextRepository,
     NetworkGraphRepository,
+    NotificationRepository,
     OrganizationRepository,
     ScanResultRepository,
     SessionEventRepository,
     SessionRepository,
+    TicketRepository,
     UsageRepository,
     UserRepository,
     VulnerabilityRepository,
@@ -66,6 +68,8 @@ _mission_ctx_repo = MissionContextRepository()
 _usage_repo = UsageRepository()
 _user_repo = UserRepository()
 _org_repo = OrganizationRepository()
+_ticket_repo = TicketRepository()
+_notif_repo = NotificationRepository()
 
 
 def _month_start() -> float:
@@ -1825,7 +1829,17 @@ async def start_session(
         from core.mission_context import MissionContext
 
         mission_scope = list(requested_targets)
-        if body.allowed_cidr and body.allowed_cidr not in mission_scope:
+        # `allowed_cidr` is a SAFETY boundary (the fence the engagement may never
+        # cross), NOT a list of things to scan. Auto-adding it to the scan scope
+        # made the brain sweep the whole subnet for a single-host target
+        # (e.g. target 192.168.1.7 → scanning all of 192.168.1.0/24). Only widen
+        # the scan scope to the broader range when the operator explicitly
+        # enabled lateral movement; otherwise stay on the requested target(s).
+        if (
+            body.allow_lateral_movement
+            and body.allowed_cidr
+            and body.allowed_cidr not in mission_scope
+        ):
             mission_scope.append(body.allowed_cidr)
 
         mission_ctx = MissionContext(
@@ -3438,3 +3452,377 @@ async def _run_ml_training():
             "error": str(exc),
         }
 
+
+# ── Tickets & Notifications ───────────────────────────────────────────────────
+
+def _role_level(role: str) -> int:
+    from web.auth.models import ROLE_HIERARCHY
+    return ROLE_HIERARCHY.get(role, 0)
+
+
+class TicketCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=10000)
+    kind: str = Field(default="issue")       # issue | announcement
+    priority: str = Field(default="normal")  # low | normal | high | critical
+    assigned_to: str = Field(default="")
+
+    @field_validator("kind")
+    @classmethod
+    def _valid_kind(cls, v: str) -> str:
+        if v not in ("issue", "announcement"):
+            raise ValueError("kind must be 'issue' or 'announcement'")
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def _valid_priority(cls, v: str) -> str:
+        if v not in ("low", "normal", "high", "critical"):
+            raise ValueError("invalid priority")
+        return v
+
+
+class TicketUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    body: str | None = Field(default=None, max_length=10000)
+    status: str | None = None   # open | in_progress | resolved | closed
+    priority: str | None = None
+    assigned_to: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _valid_status(cls, v):
+        if v is not None and v not in ("open", "in_progress", "resolved", "closed"):
+            raise ValueError("invalid status")
+        return v
+
+
+class TicketMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=10000)
+
+
+def _enrich_ticket(ticket: dict, members: dict[str, dict], unread: dict[str, int] | None = None) -> dict:
+    """Attach display names + unread count to a ticket row."""
+    t = dict(ticket)
+    creator = members.get(t.get("created_by", ""), {})
+    t["created_by_name"] = creator.get("full_name") or creator.get("email") or t.get("created_by", "")
+    t["created_by_avatar"] = creator.get("avatar") or ""
+    t["created_by_role"] = creator.get("role") or ""
+    assignee = members.get(t.get("assigned_to", ""), {})
+    t["assigned_to_name"] = assignee.get("full_name") or assignee.get("email") or ""
+    t["assigned_to_avatar"] = assignee.get("avatar") or ""
+    if unread is not None:
+        t["unread"] = unread.get(t["id"], 0)
+    return t
+
+
+def _enrich_message(msg: dict, members: dict[str, dict]) -> dict:
+    m = dict(msg)
+    author = members.get(m.get("author_id", ""), {})
+    m["author_name"] = author.get("full_name") or author.get("email") or m.get("author_id", "")
+    m["author_avatar"] = author.get("avatar") or ""
+    m["author_role"] = author.get("role") or ""
+    return m
+
+
+async def _org_members_map(org_id: str) -> dict[str, dict]:
+    members_list = await _user_repo.list_by_org(org_id) if org_id else []
+    return {m["id"]: m for m in members_list}
+
+
+def _ticket_link(ticket_id: str) -> str:
+    return f"/tickets?open={ticket_id}"
+
+
+@router.get("/tickets")
+async def list_tickets(
+    status: str | None = None,
+    kind: str | None = None,
+    scope: str | None = None,   # all | mine | assigned
+    current_user: dict = Depends(get_current_user),
+):
+    org_id = current_user.get("org_id") or ""
+    tickets = await _ticket_repo.list_for_org(org_id, status=status, kind=kind)
+    # scope filter
+    uid = current_user["id"]
+    if scope == "mine":
+        tickets = [t for t in tickets if t["created_by"] == uid]
+    elif scope == "assigned":
+        tickets = [t for t in tickets if t.get("assigned_to") == uid]
+    members = await _org_members_map(org_id)
+    unread = await _ticket_repo.unread_counts(uid, org_id)
+    return [_enrich_ticket(t, members, unread) for t in tickets]
+
+
+@router.post("/tickets", status_code=201)
+async def create_ticket(
+    body: TicketCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    org_id = current_user.get("org_id") or ""
+    uid = current_user["id"]
+    # announcements can only be created by admin/owner
+    if body.kind == "announcement" and _role_level(current_user["role"]) < _role_level("admin"):
+        raise HTTPException(status_code=403, detail="Duyuru oluşturmak için admin veya üzeri gerekli")
+
+    ticket = await _ticket_repo.create(
+        org_id=org_id,
+        title=body.title,
+        body=body.body,
+        created_by=uid,
+        kind=body.kind,
+        priority=body.priority,
+        assigned_to=body.assigned_to,
+    )
+    # Creator has implicitly "read" their own ticket.
+    await _ticket_repo.mark_read(ticket["id"], uid)
+
+    # ── Fan out notifications ──────────────────────────────────────────────────
+    members = await _org_members_map(org_id)
+    actor_name = current_user.get("full_name") or current_user.get("email") or "Bir kullanıcı"
+    if org_id:
+        if body.kind == "announcement":
+            # everyone in the org except the author
+            recipients = [m["id"] for m in members.values() if m["id"] != uid]
+            await _notif_repo.create_many(
+                recipients,
+                org_id=org_id, type="announcement", actor_id=uid, ticket_id=ticket["id"],
+                title=f"📣 Duyuru: {body.title}",
+                body=f"{actor_name} bir duyuru paylaştı",
+                link=_ticket_link(ticket["id"]),
+            )
+        else:
+            # new issue → notify admins/owners (the "üst roller") + explicit assignee
+            recipients = [
+                m["id"] for m in members.values()
+                if m["id"] != uid and _role_level(m["role"]) >= _role_level("admin")
+            ]
+            if body.assigned_to and body.assigned_to != uid:
+                recipients.append(body.assigned_to)
+            prio_tag = {"critical": "🔴 ", "high": "🟠 "}.get(body.priority, "")
+            await _notif_repo.create_many(
+                recipients,
+                org_id=org_id, type="ticket_new", actor_id=uid, ticket_id=ticket["id"],
+                title=f"{prio_tag}Yeni ticket: {body.title}",
+                body=f"{actor_name} bir sorun bildirdi",
+                link=_ticket_link(ticket["id"]),
+            )
+
+    return _enrich_ticket(ticket, members, {})
+
+
+@router.get("/tickets/{ticket_id}")
+async def get_ticket(
+    ticket_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    ticket = await _ticket_repo.get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket bulunamadı")
+    org_id = current_user.get("org_id") or ""
+    if ticket["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Erişim yetkisi yok")
+    members = await _org_members_map(org_id)
+    messages = await _ticket_repo.get_messages(ticket_id)
+    # Opening the ticket marks it read for this user.
+    await _ticket_repo.mark_read(ticket_id, current_user["id"])
+    result = _enrich_ticket(ticket, members, {})
+    result["messages"] = [_enrich_message(m, members) for m in messages]
+    participant_ids = await _ticket_repo.get_participants(ticket_id)
+    result["participants"] = [
+        {
+            "id": pid,
+            "name": members.get(pid, {}).get("full_name") or members.get(pid, {}).get("email") or pid,
+            "avatar": members.get(pid, {}).get("avatar") or "",
+            "role": members.get(pid, {}).get("role") or "",
+        }
+        for pid in participant_ids
+    ]
+    return result
+
+
+@router.patch("/tickets/{ticket_id}")
+async def update_ticket(
+    ticket_id: str,
+    body: TicketUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    ticket = await _ticket_repo.get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket bulunamadı")
+    org_id = current_user.get("org_id") or ""
+    if ticket["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Erişim yetkisi yok")
+    is_admin = _role_level(current_user["role"]) >= _role_level("admin")
+    is_creator = ticket["created_by"] == current_user["id"]
+    if not is_admin and not is_creator:
+        raise HTTPException(status_code=403, detail="Sadece admin veya ticket sahibi güncelleyebilir")
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    await _ticket_repo.update(ticket_id, **fields)
+    updated = await _ticket_repo.get(ticket_id)
+    members = await _org_members_map(org_id)
+
+    # Notify participants on status change / assignment.
+    actor_name = current_user.get("full_name") or current_user.get("email") or "Bir kullanıcı"
+    uid = current_user["id"]
+    if "status" in fields and fields["status"] != ticket["status"]:
+        status_label = {"open": "Açık", "in_progress": "Devam ediyor",
+                        "resolved": "Çözüldü", "closed": "Kapatıldı"}.get(fields["status"], fields["status"])
+        participants = [p for p in await _ticket_repo.get_participants(ticket_id) if p != uid]
+        await _notif_repo.create_many(
+            participants,
+            org_id=org_id, type="ticket_status", actor_id=uid, ticket_id=ticket_id,
+            title=f"Durum güncellendi: {updated['title']}",
+            body=f"{actor_name} durumu '{status_label}' yaptı",
+            link=_ticket_link(ticket_id),
+        )
+    if "assigned_to" in fields and fields["assigned_to"] and fields["assigned_to"] != uid:
+        await _notif_repo.create(
+            user_id=fields["assigned_to"],
+            org_id=org_id, type="ticket_assigned", actor_id=uid, ticket_id=ticket_id,
+            title=f"Sana atandı: {updated['title']}",
+            body=f"{actor_name} bu ticket'ı sana atadı",
+            link=_ticket_link(ticket_id),
+        )
+    return _enrich_ticket(updated, members, {})
+
+
+@router.delete("/tickets/{ticket_id}", status_code=204)
+async def delete_ticket(
+    ticket_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    ticket = await _ticket_repo.get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket bulunamadı")
+    org_id = current_user.get("org_id") or ""
+    if ticket["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Erişim yetkisi yok")
+    is_admin = _role_level(current_user["role"]) >= _role_level("admin")
+    is_creator = ticket["created_by"] == current_user["id"]
+    if not is_admin and not is_creator:
+        raise HTTPException(status_code=403, detail="Silmek için admin veya ticket sahibi olmalısın")
+    await _ticket_repo.delete(ticket_id)
+
+
+@router.get("/tickets/{ticket_id}/messages")
+async def list_ticket_messages(
+    ticket_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    ticket = await _ticket_repo.get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket bulunamadı")
+    org_id = current_user.get("org_id") or ""
+    if ticket["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Erişim yetkisi yok")
+    members = await _org_members_map(org_id)
+    messages = await _ticket_repo.get_messages(ticket_id)
+    await _ticket_repo.mark_read(ticket_id, current_user["id"])
+    return [_enrich_message(m, members) for m in messages]
+
+
+@router.post("/tickets/{ticket_id}/messages", status_code=201)
+async def add_ticket_message(
+    ticket_id: str,
+    body: TicketMessageCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    ticket = await _ticket_repo.get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket bulunamadı")
+    org_id = current_user.get("org_id") or ""
+    if ticket["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Erişim yetkisi yok")
+    if ticket["status"] == "closed":
+        raise HTTPException(status_code=400, detail="Kapalı ticket'a mesaj yazılamaz")
+
+    uid = current_user["id"]
+    # Capture participants BEFORE adding the message so the author isn't notified.
+    prior_participants = set(await _ticket_repo.get_participants(ticket_id))
+    msg = await _ticket_repo.add_message(ticket_id, uid, body.body)
+    await _ticket_repo.mark_read(ticket_id, uid)
+
+    members = await _org_members_map(org_id)
+    actor_name = current_user.get("full_name") or current_user.get("email") or "Bir kullanıcı"
+
+    # Recipients: existing participants + the creator, minus the author.
+    recipients = set(prior_participants)
+    recipients.add(ticket["created_by"])
+    if ticket.get("assigned_to"):
+        recipients.add(ticket["assigned_to"])
+    # For announcements, a reply should reach admins too so they see engagement.
+    recipients.discard(uid)
+    label = "duyuruya yanıt" if ticket["kind"] == "announcement" else "ticket'a yanıt"
+    await _notif_repo.create_many(
+        list(recipients),
+        org_id=org_id, type="ticket_reply", actor_id=uid, ticket_id=ticket_id,
+        title=f"💬 {ticket['title']}",
+        body=f"{actor_name} {label} yazdı: {body.body[:80]}",
+        link=_ticket_link(ticket_id),
+    )
+    return _enrich_message(msg, members)
+
+
+@router.delete("/tickets/{ticket_id}/messages/{message_id}", status_code=204)
+async def delete_ticket_message(
+    ticket_id: str,
+    message_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    ticket = await _ticket_repo.get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket bulunamadı")
+    org_id = current_user.get("org_id") or ""
+    if ticket["org_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Erişim yetkisi yok")
+    msg = await _ticket_repo.get_message(message_id)
+    if not msg or msg["ticket_id"] != ticket_id:
+        raise HTTPException(status_code=404, detail="Mesaj bulunamadı")
+    is_admin = _role_level(current_user["role"]) >= _role_level("admin")
+    is_author = msg["author_id"] == current_user["id"]
+    if not is_admin and not is_author:
+        raise HTTPException(status_code=403, detail="Sadece kendi mesajını veya admin silebilir")
+    await _ticket_repo.delete_message(message_id)
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+@router.get("/notifications")
+async def list_notifications(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    items = await _notif_repo.list_for_user(current_user["id"], limit=limit)
+    unread = await _notif_repo.unread_count(current_user["id"])
+    return {"items": items, "unread": unread}
+
+
+@router.post("/notifications/{notification_id}/read", status_code=204)
+async def mark_notification_read(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    await _notif_repo.mark_read(notification_id, current_user["id"])
+
+
+@router.post("/notifications/read-all", status_code=204)
+async def mark_all_notifications_read(
+    current_user: dict = Depends(get_current_user),
+):
+    await _notif_repo.mark_all_read(current_user["id"])
+
+
+@router.delete("/notifications/{notification_id}", status_code=204)
+async def delete_notification(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    await _notif_repo.delete(notification_id, current_user["id"])
+
+
+@router.delete("/notifications", status_code=204)
+async def clear_notifications(
+    current_user: dict = Depends(get_current_user),
+):
+    await _notif_repo.clear_all(current_user["id"])
