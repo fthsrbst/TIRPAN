@@ -77,7 +77,12 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     const err = await res.text().catch(() => "Unknown error");
     throw new Error(err);
   }
-  return res.json() as Promise<T>;
+  // 204 No Content (and other empty bodies) — nothing to parse.
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export function buildAuthWsUrl(path = "/ws"): string {
@@ -274,6 +279,70 @@ export const renameSession = (sid: string, name: string) =>
   isDemoMode()
     ? mockDelay({ ok: true })
     : apiFetch<any>(`/api/v1/sessions/${sid}/name`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+
+// ── Tickets ────────────────────────────────────────────────────────────────────
+
+export const getTickets = (status?: string, kind?: string, scope?: string) => {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (kind) params.set("kind", kind);
+  if (scope) params.set("scope", scope);
+  const qs = params.toString();
+  return apiFetch<any[]>(`/api/v1/tickets${qs ? `?${qs}` : ""}`);
+};
+
+export const getTicket = (id: string) =>
+  apiFetch<any>(`/api/v1/tickets/${id}`);
+
+export const createTicket = (body: {
+  title: string;
+  body?: string;
+  kind?: string;
+  priority?: string;
+  assigned_to?: string;
+}) =>
+  apiFetch<any>("/api/v1/tickets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+export const updateTicket = (id: string, fields: Record<string, string | null>) =>
+  apiFetch<any>(`/api/v1/tickets/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+
+export const deleteTicket = (id: string) =>
+  apiFetch<void>(`/api/v1/tickets/${id}`, { method: "DELETE" });
+
+export const addTicketMessage = (ticketId: string, body: string) =>
+  apiFetch<any>(`/api/v1/tickets/${ticketId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+
+export const deleteTicketMessage = (ticketId: string, messageId: string) =>
+  apiFetch<void>(`/api/v1/tickets/${ticketId}/messages/${messageId}`, { method: "DELETE" });
+
+// ── Notifications (server-side) ──────────────────────────────────────────────
+
+export const getNotifications = (limit = 50) =>
+  apiFetch<{ items: any[]; unread: number }>(`/api/v1/notifications?limit=${limit}`);
+
+export const markNotificationRead = (id: string) =>
+  apiFetch<void>(`/api/v1/notifications/${id}/read`, { method: "POST" });
+
+export const markAllNotificationsRead = () =>
+  apiFetch<void>(`/api/v1/notifications/read-all`, { method: "POST" });
+
+export const deleteNotification = (id: string) =>
+  apiFetch<void>(`/api/v1/notifications/${id}`, { method: "DELETE" });
+
+export const clearAllNotifications = () =>
+  apiFetch<void>(`/api/v1/notifications`, { method: "DELETE" });
 
 // ── Mock report HTML ───────────────────────────────────────────────────────────
 function buildMockReportHtml(sid: string): string {

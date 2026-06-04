@@ -309,10 +309,14 @@ class BrainAgent(BaseAgent):
             from database import db as _db
             self._ml_ttp_enabled = bool(await _db.get_setting("ml_inject_attack_path", True))
             self._ml_pred_enabled = bool(await _db.get_setting("ml_inject_exploit_pred", True))
-            # Spawn block threshold; 0 disables. Default 0.15 — anything below
-            # almost always wastes a turn (see test7 forensics).
+            # Spawn block threshold; 0 disables (the default). The ML exploit
+            # predictor is frequently under-trained and scores reliable, famous
+            # exploits near zero (e.g. vsftpd 2.3.4 backdoor → P=0.00), so a hard
+            # veto silently throws away real wins. We keep the score as an
+            # ADVISORY hint in the task tag instead. Operators who trust their
+            # trained model can raise this in Settings → ML Models.
             self._ml_min_spawn_prob = float(
-                await _db.get_setting("ml_min_spawn_probability", 0.15) or 0.15
+                await _db.get_setting("ml_min_spawn_probability", 0.0) or 0.0
             )
         except Exception:
             # Default to enabled — preserves pre-change behavior.
@@ -321,7 +325,7 @@ class BrainAgent(BaseAgent):
             if not hasattr(self, "_ml_pred_enabled"):
                 self._ml_pred_enabled = True
             if not hasattr(self, "_ml_min_spawn_prob"):
-                self._ml_min_spawn_prob = 0.15
+                self._ml_min_spawn_prob = 0.0
 
     async def process_result(self, tool_name: str, result: dict, action_dict: dict) -> None:
         """Handle meta-tool results."""
@@ -967,33 +971,44 @@ class BrainAgent(BaseAgent):
         if ml_pred > 0.0 and "[ml_success_prob=" not in (task_type or ""):
             task_type = f"{task_type} [ml_success_prob={ml_pred:.2f}]"
 
-        # ── ML threshold block ──────────────────────────────────────────────
-        # Reject spawns below the configured probability floor (default 0.15)
-        # — they almost always waste a turn. test7 spawned ~15 such agents
-        # despite the ML scoring loudly saying P=0.00 / 0.01 / 0.10.
-        # ml_pred==0 means "no score" — those are allowed through (fairness:
-        # we shouldn't block when we don't have an opinion).
+        # ── ML threshold block (advisory by default) ────────────────────────
+        # Reject spawns below the configured probability floor. DISABLED by
+        # default (floor 0.0) because the predictor under-scores reliable
+        # exploits; the score still rides along as an advisory tag. When an
+        # operator opts into a floor, we still NEVER veto a high-value exploit —
+        # one that ships a concrete MSF module, is high-severity, or already has
+        # working credentials — since those succeed regardless of the model's
+        # opinion. ml_pred==0 means "no score" and is always allowed through.
+        _floor = getattr(self, "_ml_min_spawn_prob", 0.0)
+        _opts = options or {}
+        _mod = str(_opts.get("module") or "")
+        _high_value = (
+            _mod.startswith(("exploit/", "auxiliary/"))
+            or float(_opts.get("cvss_score") or 0.0) >= 7.0
+            or "[has_cred=" in (task_type or "")
+        )
         if (
             agent_type == "exploit"
             and ml_pred > 0.0
-            and ml_pred < getattr(self, "_ml_min_spawn_prob", 0.15)
+            and ml_pred < _floor
+            and not _high_value
         ):
             self.emit_event("ml_spawn_blocked", {
                 "agent_type": agent_type,
                 "target": target,
                 "task_type": task_type,
                 "ml_pred": ml_pred,
-                "threshold": getattr(self, "_ml_min_spawn_prob", 0.15),
+                "threshold": _floor,
             })
             return {
                 "success": False,
                 "status": "blocked",
                 "reason": "ml_below_threshold",
                 "ml_pred": ml_pred,
-                "threshold": getattr(self, "_ml_min_spawn_prob", 0.15),
+                "threshold": _floor,
                 "error": (
                     f"ML pre-attack probability {ml_pred:.2f} is below the "
-                    f"current floor {getattr(self, '_ml_min_spawn_prob', 0.15):.2f}. "
+                    f"current floor {_floor:.2f}. "
                     f"This exploit is very unlikely to succeed; pick a different "
                     f"module/vector. Threshold is tunable in Settings → ML Models "
                     f"(ml_min_spawn_probability) or set it to 0 to disable."

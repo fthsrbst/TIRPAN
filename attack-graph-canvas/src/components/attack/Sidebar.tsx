@@ -1,57 +1,146 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation, NavLink } from "react-router-dom";
-import { Crosshair, Terminal, Settings, ListTodo, FileText, ScrollText, Users, User, CalendarClock, Bell, X, CheckCheck } from "lucide-react";
+import { useLocation, NavLink, useNavigate } from "react-router-dom";
+import { Crosshair, Terminal, Settings, ListTodo, FileText, ScrollText, Users, User, CalendarClock, Bell, X, CheckCheck, Ticket, Megaphone, MessageSquare, AlertCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/utils";
+import { isDemoMode } from "@/lib/demoMode";
+import {
+  getNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  deleteNotification,
+  clearAllNotifications,
+} from "@/lib/api";
 import { UserAvatar } from "./UserAvatar";
 
 const SCHED_KEY  = "tirpan_scheduled_missions";
 const NOTIF_KEY  = "tirpan_notifications";
 
-type Notif = { id: string; type: "approaching" | "launched" | "failed"; title: string; body: string; at: string; read: boolean };
+// Unified notification shape used by the bell. Sources: "local" (scheduled-scan
+// localStorage events) and "server" (team tickets/announcements via the API).
+type UINotif = {
+  id: string;
+  source: "local" | "server";
+  type: string;
+  title: string;
+  body: string;
+  ts: number;        // epoch seconds
+  read: boolean;
+  link?: string;     // server notifications can deep-link to a ticket
+};
 
 function useNotifications() {
-  const [notifs, setNotifs] = useState<Notif[]>([]);
-  const load = () => {
-    try { setNotifs(JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]")); } catch { setNotifs([]); }
+  const [local, setLocal] = useState<UINotif[]>([]);
+  const [server, setServer] = useState<UINotif[]>([]);
+
+  const loadLocal = () => {
+    try {
+      const arr = JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]");
+      setLocal(arr.map((n: any) => ({
+        id: n.id, source: "local" as const, type: n.type || "local",
+        title: n.title, body: n.body,
+        ts: n.at ? new Date(n.at).getTime() / 1000 : Date.now() / 1000,
+        read: !!n.read,
+      })));
+    } catch { setLocal([]); }
   };
+
+  const loadServer = async () => {
+    if (isDemoMode()) { setServer([]); return; }
+    try {
+      const res = await getNotifications(40);
+      setServer((res.items || []).map((n: any) => ({
+        id: n.id, source: "server" as const, type: n.type || "",
+        title: n.title, body: n.body, ts: n.created_at,
+        read: !!n.is_read, link: n.link,
+      })));
+    } catch { /* not logged in / offline — keep what we have */ }
+  };
+
   useEffect(() => {
-    load();
-    const t = setInterval(load, 15_000);
-    window.addEventListener("storage", load);
-    window.addEventListener("tirpan-notif", load);
-    return () => { clearInterval(t); window.removeEventListener("storage", load); window.removeEventListener("tirpan-notif", load); };
+    loadLocal();
+    loadServer();
+    const t = setInterval(() => { loadLocal(); loadServer(); }, 15_000);
+    window.addEventListener("storage", loadLocal);
+    window.addEventListener("tirpan-notif", loadLocal);
+    return () => { clearInterval(t); window.removeEventListener("storage", loadLocal); window.removeEventListener("tirpan-notif", loadLocal); };
   }, []);
-  const markAllRead = () => {
+
+  const notifs = [...server, ...local].sort((a, b) => b.ts - a.ts);
+
+  const markAllRead = async () => {
+    // local
     try {
-      const arr = JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]").map((n: Notif) => ({ ...n, read: true }));
+      const arr = JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]").map((n: any) => ({ ...n, read: true }));
       localStorage.setItem(NOTIF_KEY, JSON.stringify(arr));
-      setNotifs(arr);
     } catch { /* ignore */ }
+    setLocal(prev => prev.map(n => ({ ...n, read: true })));
+    setServer(prev => prev.map(n => ({ ...n, read: true })));
+    if (!isDemoMode()) { try { await markAllNotificationsRead(); } catch { /* ignore */ } }
   };
-  const dismiss = (id: string) => {
-    try {
-      const arr = JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]").filter((n: Notif) => n.id !== id);
-      localStorage.setItem(NOTIF_KEY, JSON.stringify(arr));
-      setNotifs(arr);
-    } catch { /* ignore */ }
+
+  const markOneRead = async (n: UINotif) => {
+    if (n.read) return;
+    if (n.source === "server") {
+      setServer(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+      if (!isDemoMode()) { try { await markNotificationRead(n.id); } catch { /* ignore */ } }
+    } else {
+      try {
+        const arr = JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]").map((x: any) => x.id === n.id ? { ...x, read: true } : x);
+        localStorage.setItem(NOTIF_KEY, JSON.stringify(arr));
+      } catch { /* ignore */ }
+      setLocal(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+    }
   };
-  const clearAll = () => {
+
+  const dismiss = async (n: UINotif) => {
+    if (n.source === "server") {
+      setServer(prev => prev.filter(x => x.id !== n.id));
+      if (!isDemoMode()) { try { await deleteNotification(n.id); } catch { /* ignore */ } }
+    } else {
+      try {
+        const arr = JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]").filter((x: any) => x.id !== n.id);
+        localStorage.setItem(NOTIF_KEY, JSON.stringify(arr));
+      } catch { /* ignore */ }
+      setLocal(prev => prev.filter(x => x.id !== n.id));
+    }
+  };
+
+  const clearAll = async () => {
     localStorage.removeItem(NOTIF_KEY);
-    setNotifs([]);
+    setLocal([]);
+    setServer([]);
+    if (!isDemoMode()) { try { await clearAllNotifications(); } catch { /* ignore */ } }
   };
-  return { notifs, unreadCount: notifs.filter(n => !n.read).length, markAllRead, dismiss, clearAll };
+
+  return { notifs, unreadCount: notifs.filter(n => !n.read).length, markAllRead, markOneRead, dismiss, clearAll };
+}
+
+function notifIcon(type: string) {
+  if (type === "announcement") return Megaphone;
+  if (type === "ticket_reply") return MessageSquare;
+  if (type === "ticket_new" || type === "ticket_assigned" || type === "ticket_status") return AlertCircle;
+  return Bell;
 }
 
 export const Sidebar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const perms = usePermissions();
   const { user } = useAuth();
   const [schedCount, setSchedCount] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
-  const { notifs, unreadCount, markAllRead, dismiss, clearAll } = useNotifications();
+  const { notifs, unreadCount, markAllRead, markOneRead, dismiss, clearAll } = useNotifications();
+
+  const handleNotifClick = (n: typeof notifs[number]) => {
+    markOneRead(n);
+    if (n.link) {
+      setBellOpen(false);
+      navigate(n.link);
+    }
+  };
 
   // Re-read the stored user (avatar/name) when the profile changes elsewhere.
   const [, forceAuth] = useState(0);
@@ -101,6 +190,7 @@ export const Sidebar = () => {
     { icon: ScrollText,    to: "/expert-log",        label: "Expert Log",       show: perms.canUseTerminal },
     { icon: FileText,      to: "/reports",           label: "Reports",          show: true },
     { icon: Users,         to: "/team",              label: "Team",             show: perms.canViewTeam },
+    { icon: Ticket,        to: "/tickets",           label: "Tickets",          show: true },
     { icon: Settings,      to: "/settings",          label: "Settings",         show: true },
   ].filter((i) => i.show);
 
@@ -164,7 +254,7 @@ export const Sidebar = () => {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => { setBellOpen(v => !v); if (!bellOpen) markAllRead(); }}
+                  onClick={() => setBellOpen(v => !v)}
                   className="relative w-11 h-11 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors"
                 >
                   <Bell className="w-5 h-5" />
@@ -214,23 +304,39 @@ export const Sidebar = () => {
                     </div>
                   ) : (
                     notifs.map(n => {
-                      const iconColor = n.type === "launched" ? "text-green-400" : n.type === "failed" ? "text-destructive" : "text-primary";
+                      const Icon = notifIcon(n.type);
+                      const iconColor =
+                        n.type === "announcement" ? "text-amber-400" :
+                        n.type === "ticket_reply" ? "text-sky-400" :
+                        n.type === "launched" ? "text-green-400" :
+                        n.type === "failed" ? "text-destructive" : "text-primary";
                       const bg = n.read ? "" : "bg-primary/5";
                       const timeAgo = (() => {
-                        const ms = Date.now() - new Date(n.at).getTime();
-                        if (ms < 60_000) return "just now";
-                        if (ms < 3_600_000) return `${Math.floor(ms/60_000)}m ago`;
-                        return `${Math.floor(ms/3_600_000)}h ago`;
+                        const ms = Date.now() - n.ts * 1000;
+                        if (ms < 60_000) return "az önce";
+                        if (ms < 3_600_000) return `${Math.floor(ms/60_000)} dk önce`;
+                        if (ms < 86_400_000) return `${Math.floor(ms/3_600_000)} sa önce`;
+                        return `${Math.floor(ms/86_400_000)} gün önce`;
                       })();
                       return (
-                        <div key={n.id} className={`flex items-start gap-3 px-4 py-3 border-b border-border/50 hover:bg-muted/50 transition-colors group ${bg}`}>
-                          <Bell className={`w-4 h-4 mt-0.5 shrink-0 ${iconColor}`} />
+                        <div
+                          key={`${n.source}-${n.id}`}
+                          onClick={() => handleNotifClick(n)}
+                          className={`flex items-start gap-3 px-4 py-3 border-b border-border/50 hover:bg-muted/50 transition-colors group ${bg} ${n.link ? "cursor-pointer" : ""}`}
+                        >
+                          <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${iconColor}`} />
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold leading-tight">{n.title}</p>
-                            <p className="text-[10px] text-muted-foreground truncate mt-0.5">{n.body}</p>
+                            <p className="text-xs font-semibold leading-tight flex items-center gap-1.5">
+                              {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                              <span className="truncate">{n.title}</span>
+                            </p>
+                            <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">{n.body}</p>
                             <p className="text-[9px] text-muted-foreground/60 mt-1 font-mono">{timeAgo}</p>
                           </div>
-                          <button onClick={() => dismiss(n.id)} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-muted-foreground hover:text-foreground shrink-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); dismiss(n); }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-muted-foreground hover:text-foreground shrink-0"
+                          >
                             <X className="w-3 h-3" />
                           </button>
                         </div>

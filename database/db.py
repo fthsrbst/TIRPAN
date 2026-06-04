@@ -849,6 +849,74 @@ async def init_db(db_path: Path | None = None) -> None:
             await db.commit()
             logger.info("DB migration v27 applied: llm_usage + budgets + onboarding + role permissions")
 
+        if version < 28:
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS tickets (
+                    id          TEXT PRIMARY KEY,
+                    org_id      TEXT NOT NULL DEFAULT '',
+                    title       TEXT NOT NULL,
+                    body        TEXT NOT NULL DEFAULT '',
+                    status      TEXT NOT NULL DEFAULT 'open',
+                    priority    TEXT NOT NULL DEFAULT 'normal',
+                    kind        TEXT NOT NULL DEFAULT 'issue',
+                    created_by  TEXT NOT NULL,
+                    assigned_to TEXT NOT NULL DEFAULT '',
+                    created_at  REAL NOT NULL,
+                    updated_at  REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_tickets_org    ON tickets(org_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status, org_id);
+
+                CREATE TABLE IF NOT EXISTS ticket_messages (
+                    id         TEXT PRIMARY KEY,
+                    ticket_id  TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                    author_id  TEXT NOT NULL,
+                    body       TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ticketmsg_ticket ON ticket_messages(ticket_id, created_at);
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (28, time.time(), "tickets + ticket_messages for team communication"),
+            )
+            await db.commit()
+            logger.info("DB migration v28 applied: tickets + ticket_messages")
+
+        if version < 29:
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id         TEXT PRIMARY KEY,
+                    user_id    TEXT NOT NULL,
+                    org_id     TEXT NOT NULL DEFAULT '',
+                    type       TEXT NOT NULL DEFAULT '',
+                    title      TEXT NOT NULL,
+                    body       TEXT NOT NULL DEFAULT '',
+                    link       TEXT NOT NULL DEFAULT '',
+                    ticket_id  TEXT NOT NULL DEFAULT '',
+                    actor_id   TEXT NOT NULL DEFAULT '',
+                    is_read    INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_notif_unread ON notifications(user_id, is_read);
+            """)
+            # Per-user last-read timestamp on a ticket → unread message badges.
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS ticket_reads (
+                    ticket_id  TEXT NOT NULL,
+                    user_id    TEXT NOT NULL,
+                    read_at    REAL NOT NULL,
+                    PRIMARY KEY (ticket_id, user_id)
+                );
+            """)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at, description) VALUES(?,?,?)",
+                (29, time.time(), "notifications + ticket_reads for team comms"),
+            )
+            await db.commit()
+            logger.info("DB migration v29 applied: notifications + ticket_reads")
+
     logger.info("Database ready: %s", path)
 
 
