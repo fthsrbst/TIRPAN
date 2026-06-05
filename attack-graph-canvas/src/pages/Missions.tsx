@@ -122,6 +122,21 @@ const Missions = () => {
     return { total: sessions.length, running, hosts, vulns, exploits, highRisk };
   }, [sessions, riskBand]);
 
+  const sparks = useMemo(() => {
+    const ordered = [...(sessions as any[])].sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0));
+    if (ordered.length < 2) return null;
+    let cH = 0, cV = 0, cE = 0, cHR = 0;
+    const mTrend: number[] = [], hTrend: number[] = [], vTrend: number[] = [], eTrend: number[] = [], hrTrend: number[] = [];
+    ordered.forEach((s: any, i: number) => {
+      cH += s.hosts_found || 0; cV += s.vulns_found || 0; cE += s.exploits_run || 0;
+      const band = riskBand(s);
+      if (band === "critical" || band === "high") cHR++;
+      mTrend.push(i + 1); hTrend.push(cH); vTrend.push(cV); eTrend.push(cE); hrTrend.push(cHR);
+    });
+    const tail = (a: number[]) => a.slice(-8);
+    return { missions: tail(mTrend), hosts: tail(hTrend), vulns: tail(vTrend), exploits: tail(eTrend), highRisk: tail(hrTrend) };
+  }, [sessions, riskBand]);
+
   const filterChips: FilterChipModel[] = useMemo(() => {
     const chips: FilterChipModel[] = [];
     statusSet.forEach((st) => {
@@ -195,12 +210,12 @@ const Missions = () => {
         )}
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
-          <StatCard icon={Target} label="Missions" value={stats.total} accent="primary" />
+          <StatCard icon={Target} label="Missions" value={stats.total} accent="primary" spark={sparks?.missions} />
           <StatCard icon={Activity} label="Running" value={stats.running} accent="success" />
-          <StatCard icon={Server} label="Hosts" value={stats.hosts} accent="accent" />
-          <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" />
-          <StatCard icon={Play} label="Exploits" value={stats.exploits} accent="primary" />
-          <StatCard icon={AlertTriangle} label="High risk" value={stats.highRisk} accent="destructive" />
+          <StatCard icon={Server} label="Hosts" value={stats.hosts} accent="accent" spark={sparks?.hosts} />
+          <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" spark={sparks?.vulns} />
+          <StatCard icon={Play} label="Exploits" value={stats.exploits} accent="primary" spark={sparks?.exploits} />
+          <StatCard icon={AlertTriangle} label="High risk" value={stats.highRisk} accent="destructive" spark={sparks?.highRisk} />
         </div>
 
         <div className="flex flex-1 min-h-0 gap-4">

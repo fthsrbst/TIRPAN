@@ -9,7 +9,9 @@ import shutil
 from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 
 logger = logging.getLogger(__name__)
-NIKTO_TIMEOUT = 300
+# 150s default (nikto self-limits via -maxtime): finds the bulk of issues on a
+# legacy host without monopolising the webapp agent's wall-clock budget.
+NIKTO_TIMEOUT = 150
 
 
 class NiktoTool(BaseTool):
@@ -44,8 +46,12 @@ class NiktoTool(BaseTool):
         if not shutil.which("nikto"):
             return {"success": False, "error": "nikto not found — install with: apt install nikto"}
 
+        # NOTE: do NOT pass `-Format txt` without `-output <file>` — nikto 2.5.x
+        # aborts with "Output file format specified without a name", which the old
+        # code swallowed as an empty (but successful) scan. nikto prints its
+        # findings to stdout by default, which _parse_nikto_output reads directly.
         cmd = [
-            "nikto", "-h", url, "-nointeractive", "-Format", "txt",
+            "nikto", "-h", url, "-nointeractive",
             f"-maxtime={timeout}s",
         ]
         if tuning:
@@ -58,14 +64,31 @@ class NiktoTool(BaseTool):
                 stderr=asyncio.subprocess.PIPE,
                 cwd="/tmp",
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            # nikto self-limits to -maxtime=<timeout>s, then needs a few seconds
+            # to print its summary and exit. The outer guard MUST exceed maxtime
+            # or it kills nikto mid-flush (race → spurious "nikto timeout" with no
+            # findings). Give it a buffer beyond nikto's own cap.
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout + 20)
         except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except Exception:
+                pass
             return {"success": False, "error": "nikto timeout"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
         output = stdout.decode(errors="replace")
+        err_text = stderr.decode(errors="replace")
         findings = self._parse_nikto_output(output, url)
+
+        # nikto exits non-zero on the benign maxtime cap, so only treat it as a
+        # failure when it produced no usable output at all — that means a real
+        # tool/CLI error (bad flag, missing target) rather than a clean target.
+        rc = proc.returncode
+        if not findings and len(output.strip().splitlines()) <= 2 and rc not in (0, None):
+            return {"success": False,
+                    "error": f"nikto error (rc={rc}): {(err_text or output).strip()[:300]}"}
 
         # Save raw output artifact
         if session_id and output:

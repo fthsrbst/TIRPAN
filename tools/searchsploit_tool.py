@@ -177,9 +177,14 @@ class SearchSploitTool(BaseTool):
     # ------------------------------------------------------------------
 
     async def _run_searchsploit(self, query: str) -> dict:
-        """Run searchsploit -j <query> and return the JSON output."""
+        """Run searchsploit -j <terms...> and return the JSON output."""
+        # Installed searchsploit builds vary: the Homebrew/BSD-getopt one REJECTS
+        # the long `--json` ("illegal option -- -") and only accepts the short
+        # `-j`. Use `-j`, and pass each term separately (searchsploit ANDs
+        # space-separated terms) so "vsftpd 2.3.4" matches like on the CLI.
+        terms = [t for t in query.split() if t]
         proc = await asyncio.create_subprocess_exec(
-            "searchsploit", "--json", query,
+            "searchsploit", "-j", *terms,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -193,7 +198,17 @@ class SearchSploitTool(BaseTool):
         raw = stdout.decode(errors="replace").strip()
         if not raw:
             return {"RESULTS_EXPLOIT": [], "RESULTS_SHELLCODE": []}
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except Exception:
+            # Tolerate leading non-JSON noise (banners/usage) — locate the object.
+            start = raw.find("{")
+            if start != -1:
+                try:
+                    return json.loads(raw[start:])
+                except Exception:
+                    pass
+            return {"RESULTS_EXPLOIT": [], "RESULTS_SHELLCODE": []}
 
     @staticmethod
     def _read_exploit_header(path: str) -> tuple[str, float | None]:

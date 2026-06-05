@@ -782,7 +782,7 @@ class PromptBuilder:
             policy_lines = ["POLICY FLAGS (hard limits — do not violate):"]
             policy_lines.append(f"  allow_exploitation      : {'YES' if m.allow_exploitation else 'NO  <- do not call metasploit_run'}")
             policy_lines.append(f"  allow_post_exploitation : {'YES  <- ssh_exec audit is permitted' if m.allow_post_exploitation else 'NO  <- skip step-5 commands (shell_exec/ssh_exec audit) — but STILL attempt every UNEXECUTED CVE via metasploit_run before generate_report'}")
-            policy_lines.append(f"  allow_lateral_movement  : {'YES  <- after fully exploiting the TARGET host(s), you may discover & pivot to other in-scope hosts' if m.allow_lateral_movement else 'NO  <- stay on the explicit TARGET host(s) ONLY. Do NOT host-sweep or scan other IPs, even ones inside the allowed CIDR (that CIDR is a safety fence, not a scan list).'}")
+            policy_lines.append(f"  allow_lateral_movement  : {'YES  <- ONLY AFTER fully exploiting the TARGET host(s): discover & pivot to other hosts FROM the compromised foothold (internal enumeration via the shell). Do NOT pre-emptively ping-sweep or service-scan the allowed CIDR from outside — that CIDR is a safety fence, not a scan list. Only the explicit TARGET(s) are scan targets.' if m.allow_lateral_movement else 'NO  <- stay on the explicit TARGET host(s) ONLY. Do NOT host-sweep or scan other IPs, even ones inside the allowed CIDR (that CIDR is a safety fence, not a scan list).'}")
             policy_lines.append(f"  allow_docker_escape     : {'YES' if m.allow_docker_escape else 'NO'}")
             policy_lines.append(f"  allow_browser_recon     : {'YES' if m.allow_browser_recon else 'NO'}")
             lines.extend(policy_lines)

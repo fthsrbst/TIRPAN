@@ -553,33 +553,101 @@ export const Timeline = ({
 
           {popup === "insights" && (
             <PopupPanel title="Quick Insights" icon={Lightbulb} onClose={() => setPopup(null)}>
-              <div className="text-[11px] text-muted-foreground space-y-1">
-                <p>Real-time attack path analytics.</p>
-                <p>Events captured: {events.length}</p>
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Missions", value: stats.missions, icon: Target },
+                    { label: "Active", value: stats.running, icon: Radio },
+                    { label: "Findings", value: stats.findings, icon: Bug },
+                    { label: "Hosts", value: stats.hosts, icon: Server },
+                    { label: "Exploits", value: stats.exploits, icon: Zap },
+                    { label: "Done", value: stats.done, icon: CheckCircle2 },
+                  ].map(({ label, value, icon: Icon }) => (
+                    <div key={label} className="flex flex-col items-center justify-center gap-1 p-2 rounded-xl bg-muted/30">
+                      <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="font-display font-bold text-xl leading-none">{value}</span>
+                      <span className="text-[9px] text-muted-foreground uppercase tracking-wider">{label}</span>
+                    </div>
+                  ))}
+                </div>
+                {events.length > 0 && (
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-bold mb-1.5">Recent Events</div>
+                    <div className="space-y-1.5">
+                      {[...events].reverse().slice(0, 3).map((ev: TimelineEvent, i: number) => (
+                        <div key={i} className="text-[10px] flex items-start gap-2 border-l-2 border-accent/40 pl-2">
+                          <span className="text-muted-foreground shrink-0 font-mono">{ev.time}</span>
+                          <span className="text-foreground">{ev.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {events.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground italic text-center py-1">No events yet. Start a mission to see activity.</p>
+                )}
               </div>
             </PopupPanel>
           )}
           {popup === "alerts" && (
             <PopupPanel title="Alerts" icon={Bell} onClose={() => setPopup(null)}>
               <div className="space-y-2">
-                {events.slice(-6).map((ev: TimelineEvent, i: number) => (
-                  <div key={i} className="text-[11px] border-l-2 border-border pl-2">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <span>{ev.time}</span>
-                      <span className="uppercase text-[9px] tracking-wider">{ev.type}</span>
+                {events.slice(-6).reverse().map((ev: TimelineEvent, i: number) => {
+                  const severityColor =
+                    ev.type === "exploit" ? "border-destructive/60" :
+                    ev.type === "vuln" ? "border-warning/60" :
+                    ev.type === "shell" ? "border-accent/60" : "border-border";
+                  return (
+                    <div key={i} className={`text-[11px] border-l-2 ${severityColor} pl-2`}>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <span className="font-mono">{ev.time}</span>
+                        <span className={`uppercase text-[9px] tracking-wider px-1.5 py-0.5 rounded-full ${
+                          ev.type === "exploit" ? "bg-destructive/10 text-destructive" :
+                          ev.type === "vuln" ? "bg-warning/10 text-warning" :
+                          "bg-muted text-muted-foreground"
+                        }`}>{ev.type}</span>
+                      </div>
+                      <div className="text-foreground font-medium mt-0.5">{ev.label}</div>
+                      {ev.detail && <div className="text-muted-foreground text-[10px] mt-0.5 truncate">{ev.detail}</div>}
                     </div>
-                    <div className="text-foreground font-medium">{ev.label}</div>
-                    <div className="text-muted-foreground">{ev.detail}</div>
-                  </div>
-                ))}
-                {!events.length && <p className="text-muted-foreground text-[11px] italic">No alerts yet.</p>}
+                  );
+                })}
+                {!events.length && <p className="text-muted-foreground text-[11px] italic text-center py-2">No alerts yet.</p>}
               </div>
             </PopupPanel>
           )}
           {popup === "settings" && (
-            <PopupPanel title="Mission Settings" icon={SlidersHorizontal} onClose={() => setPopup(null)}>
-              <div className="text-[11px] text-muted-foreground space-y-1">
-                <p>Adjust scan speed, scope, and notification preferences.</p>
+            <PopupPanel title="Quick Actions" icon={SlidersHorizontal} onClose={() => setPopup(null)}>
+              <div className="space-y-3">
+                <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-bold">Navigate To</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { label: "Settings", icon: SlidersHorizontal, to: "/settings" },
+                    { label: "Terminal", icon: Terminal, to: "/terminal" },
+                    { label: "Missions", icon: ListTodo, to: "/missions" },
+                    { label: "Scheduled", icon: CalendarClock, to: "/scheduled-scans" },
+                    { label: "Findings", icon: Activity, to: "/findings" },
+                    { label: "Hosts", icon: Server, to: "/hosts" },
+                  ] as const).map(({ label, icon: Icon, to }) => (
+                    <button
+                      key={label}
+                      onClick={() => { navigate(to); setPopup(null); }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/40 hover:bg-muted text-xs transition-colors text-left"
+                    >
+                      <Icon className="w-3.5 h-3.5 text-accent shrink-0" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="pt-1 border-t border-border/50">
+                  <button
+                    onClick={() => { navigate("/settings"); setPopup(null); }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition-colors"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    Open Full Settings
+                  </button>
+                </div>
               </div>
             </PopupPanel>
           )}

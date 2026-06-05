@@ -159,6 +159,15 @@ class BrainAgent(BaseAgent):
         base_kwargs.setdefault("agent_type", "brain")
         super().__init__(**base_kwargs)
 
+        # The brain has the largest prompts (full mission state) and is the
+        # orchestrator — if its reason() call is killed the ENTIRE mission dies
+        # (test11: it scanned 26 ports, then 3 consecutive reasoning timeouts
+        # aborted the run with 0 exploits). Give it the most generous wall-clock
+        # budget, always above the LLM provider's HTTP timeout.
+        self._reason_timeout_s = max(
+            self._reason_timeout_s, self._effective_llm_timeout() + 90.0
+        )
+
         self.ctx = mission_context
         self.bus = message_bus
         self._agent_ctor_kwargs = agent_constructor_kwargs or {}
@@ -1427,7 +1436,12 @@ class BrainAgent(BaseAgent):
         """
         # cred_attack runs in the background and is allowed to run long (brute is
         # slow by nature); the wall-clock here is just a runaway backstop.
-        _defaults = {"scanner": 240, "exploit": 360, "cred_attack": 900}
+        # webapp gets a larger budget than the generic 300s: it chains several
+        # web tools (whatweb→nikto→nuclei→ffuf), and with one slow tool able to
+        # take ~150s, a 300s budget made the agent time out mid-chain (test12:
+        # both webapp agents failed at 300s, eating ~600s and starving the
+        # exploitation phase).
+        _defaults = {"scanner": 240, "exploit": 360, "cred_attack": 900, "webapp": 480}
         base = _defaults.get(agent_type, 300)
         try:
             from database import db as _db
@@ -1904,6 +1918,26 @@ class BrainAgent(BaseAgent):
                 return nested.get(key)
         return default
 
+    @staticmethod
+    def _bare_host(value: str) -> str:
+        """Reduce a URL or host:port to a bare host/IP.
+
+        Web agents report findings with host_ip set to their URL target
+        (e.g. "http://192.168.1.36:80"), which never matches the attack-graph
+        host node keyed by the bare IP ("192.168.1.36") — so the graph showed
+        "0 vulns" even with 16 recorded. Normalising here re-associates them.
+        """
+        s = (value or "").strip()
+        if not s:
+            return s
+        if "://" in s:
+            s = s.split("://", 1)[1]
+        s = s.split("/", 1)[0]          # drop any path
+        # Strip a trailing :port for IPv4/hostnames (leave bare IPv6 alone).
+        if s.count(":") == 1:
+            s = s.split(":", 1)[0]
+        return s
+
     async def _db_persist_finding(self, payload: dict, finding_type: str) -> None:
         """Persist scan/vuln findings to DB tables in real-time during v2 agent runs."""
         if not self.session_id:
@@ -1947,7 +1981,7 @@ class BrainAgent(BaseAgent):
                         "cvss_score": float(self._finding_value(payload, "cvss_score", "cvss", "score", default=0.0) or 0.0),
                         "exploit_path": str(self._finding_value(payload, "exploit_path", "module", default="") or ""),
                         "service": str(self._finding_value(payload, "service", default="") or ""),
-                        "host_ip": str(self._finding_value(payload, "host_ip", "ip", "host", default="") or ""),
+                        "host_ip": self._bare_host(str(self._finding_value(payload, "host_ip", "ip", "host", default="") or "")),
                     },
                 )
 
@@ -2174,7 +2208,7 @@ class BrainAgent(BaseAgent):
         if finding_type in ("vulnerability", "vuln", "cve"):
             await self.ctx.add_vulnerability(VulnInfo(
                 title=str(self._finding_value(payload, "title", "name", "description", default="Potential vulnerability") or "Potential vulnerability"),
-                host_ip=str(self._finding_value(payload, "host_ip", "ip", "host", default="") or ""),
+                host_ip=self._bare_host(str(self._finding_value(payload, "host_ip", "ip", "host", default="") or "")),
                 port=int(self._finding_value(payload, "port", default=0) or 0),
                 service=str(self._finding_value(payload, "service", default="") or ""),
                 cve_id=str(self._finding_value(payload, "cve_id", "cve", default="") or ""),
@@ -2187,13 +2221,20 @@ class BrainAgent(BaseAgent):
         if finding_type in ("session", "session_opened", "shell_opened"):
             session_raw = self._finding_value(payload, "session_id", "msf_session_id", default="")
             session_id = str(session_raw) if session_raw not in (None, "") else str(uuid.uuid4())
+            host_ip = str(self._finding_value(payload, "host_ip", "ip", "host", default=self.ctx.target) or self.ctx.target)
             await self.ctx.add_session(SessionInfo(
                 session_id=session_id,
-                host_ip=str(self._finding_value(payload, "host_ip", "ip", "host", default=self.ctx.target) or self.ctx.target),
+                host_ip=host_ip,
                 session_type=str(self._finding_value(payload, "session_type", default="shell") or "shell"),
                 privilege_level=int(self._finding_value(payload, "privilege_level", default=0) or 0),
                 username=str(self._finding_value(payload, "username", default="") or ""),
             ))
+            # A confirmed shell PROVES a vulnerability. Record it as a CVSS-scored
+            # vulnerability so it appears in the vuln count, the UI, and the report
+            # — previously a win only produced an exploit_results row and was never
+            # counted as a finding (test10: vsftpd + Samba owned the box yet
+            # vulns_found stayed at the 3 *failed* UnrealIRCd candidate rows).
+            await self._record_confirmed_vuln_from_session(payload, host_ip)
             return
 
         if finding_type in ("credential", "credential_found"):
@@ -2259,7 +2300,75 @@ class BrainAgent(BaseAgent):
                 success=success,
                 error=str(self._finding_value(payload, "error", default="") or ""),
             )
+            # A successful exploit_attempt with no separate session finding still
+            # proves a vulnerability — record it (with CVSS) so direct-RCE wins are
+            # counted too, not just shell-yielding ones.
+            if success and module:
+                await self._record_confirmed_vuln_from_session(payload, host_ip, got_shell=False)
             return
+
+    async def _record_confirmed_vuln_from_session(
+        self, payload: dict, host_ip: str, got_shell: bool = True
+    ) -> None:
+        """Persist a vulnerability CONFIRMED by successful exploitation, with CVSS.
+
+        Writes to MissionContext (drives the vulns_found counter + attack graph)
+        AND the vulnerabilities DB table (drives the UI list + report), and emits a
+        live finding event. De-duped per (host, cve-or-module) so retries / repeat
+        session findings don't inflate the count. Score comes from core.cve_map:
+        module → CVE → curated CVSS, with a critical default for a confirmed shell so
+        a real win is never recorded as CVSS 0.0.
+        """
+        try:
+            from core.cve_map import vuln_from_exploit
+        except Exception as _e:
+            logger.debug("cve_map import failed: %s", _e)
+            return
+
+        module = str(self._finding_value(payload, "module", "exploit", "exploit_path", default="") or "")
+        try:
+            port = int(self._finding_value(payload, "port", "target_port", default=0) or 0)
+        except (TypeError, ValueError):
+            port = 0
+        service = str(self._finding_value(payload, "service", default="") or "")
+        cve = str(self._finding_value(payload, "cve_id", "cve", default="") or "")
+
+        vuln = vuln_from_exploit(
+            module=module, host_ip=host_ip, port=port,
+            service=service, cve=cve, got_shell=got_shell,
+        )
+
+        dedup = f"{host_ip}|{vuln.get('cve_id') or module or ('shell' if got_shell else 'rce')}"
+        keys = getattr(self, "_confirmed_vuln_keys", None)
+        if keys is None:
+            keys = set()
+            self._confirmed_vuln_keys = keys
+        if dedup in keys:
+            return
+        keys.add(dedup)
+
+        try:
+            await self.ctx.add_vulnerability(VulnInfo(
+                title=vuln["title"],
+                host_ip=host_ip,
+                port=port,
+                service=service,
+                cve_id=vuln.get("cve_id", ""),
+                cvss=float(vuln.get("cvss_score", 0.0)),
+                exploit_path=module,
+                description=vuln.get("description", ""),
+            ))
+        except Exception as _e:
+            logger.debug("confirmed-vuln ctx add failed: %s", _e)
+
+        try:
+            self.emit_event("finding", dict(vuln))
+        except Exception:
+            pass
+        try:
+            await self._db_persist_finding(vuln, "vulnerability")
+        except Exception as _e:
+            logger.debug("confirmed-vuln persist failed: %s", _e)
 
     # ── ask_operator ──────────────────────────────────────────────────────────
 
@@ -2997,6 +3106,22 @@ class BrainAgent(BaseAgent):
             f"(msf={msf_sid}, ephemeral={ephemeral})",
         )
 
+        # Persist the foothold so it survives in the DB (UI shell panel, reports,
+        # session recovery). The table used to stay empty even after the box was
+        # owned because registration was in-memory only.
+        if self.session_id:
+            try:
+                from database.repositories import ShellSessionRepository
+                await ShellSessionRepository().save(
+                    session_id=self.session_id,
+                    shell_key=shell_key,
+                    host_ip=host_ip,
+                    shell_type=session_type or "shell",
+                    notes=f"module={module}" + (" ephemeral" if ephemeral else ""),
+                )
+            except Exception as _e:
+                logger.debug("shell_sessions persist failed: %s", _e)
+
         # If the shell is ephemeral, push a hint into Brain's memory so the next
         # iteration sees "don't spawn post_exploit — use the post_commands
         # output you already have." This prevents the test7 failure where
@@ -3026,6 +3151,15 @@ class BrainAgent(BaseAgent):
                 "reason": reason,
             })
             dbg.info(self.agent_id, f"Shell closed: {shell_key} ({reason})")
+            if self.session_id:
+                try:
+                    from database.repositories import ShellSessionRepository
+                    status = "lost" if "lost" in (reason or "").lower() else "closed"
+                    asyncio.ensure_future(
+                        ShellSessionRepository().mark_closed(shell_key, status)
+                    )
+                except Exception as _e:
+                    logger.debug("shell_sessions close failed: %s", _e)
         self._active_shells.pop(shell_key, None)
 
     async def _pick_live_shell_for_target(self, target: str) -> dict | None:
@@ -3338,7 +3472,65 @@ class BrainAgent(BaseAgent):
     async def handle_terminal_action(self, action_dict: dict) -> bool:
         """mission_done (or legacy 'done') signals the end of the Brain loop."""
         tool = action_dict.get("action") or action_dict.get("tool", "")
-        return tool in ("mission_done", "done") or self._mission_done
+        is_done = tool in ("mission_done", "done") or self._mission_done
+        if not is_done:
+            return False
+
+        # GUARD: block PREMATURE completion. test12 declared mission_done right
+        # after enumeration — 16 vulns identified but ZERO exploits attempted, no
+        # shell. The operator's whole goal is exploitation, so refuse to "finish"
+        # while exploitation is enabled, nothing has been exploited yet, and open
+        # services exist. Nudge the brain into the exploitation phase instead.
+        if self._block_premature_done():
+            self._mission_done = False  # undo any flag set during action handling
+            self._mission_done_block_count = getattr(self, "_mission_done_block_count", 0) + 1
+            self.memory.add_user(
+                "[SYSTEM] mission_done BLOCKED — exploitation IS enabled but you have "
+                "attempted ZERO exploits, and you have discovered open, exploitable "
+                "services. Enumeration is NOT the goal; exploitation is. Do NOT call "
+                "mission_done yet. Spawn exploit agents (agent_type='exploit') NOW "
+                "and run metasploit_run for EVERY applicable CVE on the discovered "
+                "services — e.g. ftp/vsftpd_234_backdoor, samba/usermap_script, the "
+                "ingreslock/bindshell on 1524, distccd (CVE-2004-2687), unrealircd "
+                "backdoor on 6667, java-rmi 1099, tomcat 8180 default creds, "
+                "postgres/mysql weak-or-blank creds. Only call mission_done AFTER "
+                "every applicable CVE has been ATTEMPTED on every host."
+            )
+            self.emit_event("mission_done_blocked", {
+                "reason": "no_exploit_attempted",
+                "attempt": self._mission_done_block_count,
+            })
+            return False  # not terminal — keep working
+        return True
+
+    def _block_premature_done(self) -> bool:
+        """True when mission_done should be refused because the brain hasn't tried
+        exploiting yet, despite exploitation being enabled and services existing."""
+        if not getattr(self.ctx, "allow_exploitation", False):
+            return False
+        # Safety valve: never stall forever — allow completion after a few blocks
+        # in case the model genuinely cannot proceed.
+        if getattr(self, "_mission_done_block_count", 0) >= 3:
+            return False
+        # Already attempted at least one exploit? Then completion is legitimate.
+        try:
+            exp_n = sum(
+                1 for e in self.ctx.attack_graph.edges
+                if getattr(e, "edge_type", "") == "exploit_attempt"
+            )
+        except Exception:
+            exp_n = 0
+        if exp_n > 0:
+            return False
+        # Block only if there is at least one open service to exploit.
+        try:
+            for h in self.ctx.hosts.values():
+                for p in getattr(h, "ports", []) or []:
+                    if (getattr(p, "state", "") or "").lower() == "open":
+                        return True
+        except Exception:
+            pass
+        return False
 
     # ── on_run_end ────────────────────────────────────────────────────────────
 

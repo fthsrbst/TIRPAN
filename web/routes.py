@@ -1828,19 +1828,19 @@ async def start_session(
         from core.message_bus import AgentMessageBus
         from core.mission_context import MissionContext
 
+        # Scan scope = exactly what the operator targeted. `allowed_cidr` is a
+        # SAFETY boundary (the fence the engagement may never cross), NOT a list of
+        # things to scan, so it is NEVER added to the scan scope. Auto-adding it
+        # made the brain ping-sweep + service-scan the whole subnet for a single
+        # host target (test10: target 192.168.1.7 → swept 192.168.1.0/24, hitting
+        # the operator's router/Mac/Windows box, none of which were targets).
+        #
+        # Lateral movement still works when enabled: per the brain prompt the agent
+        # discovers and pivots to other in-scope hosts *from the compromised
+        # foothold* (internal enumeration), rather than pre-emptively sweeping the
+        # safety CIDR from outside. To actively scan a whole subnet, the operator
+        # puts the CIDR in the target field (it then lands in requested_targets).
         mission_scope = list(requested_targets)
-        # `allowed_cidr` is a SAFETY boundary (the fence the engagement may never
-        # cross), NOT a list of things to scan. Auto-adding it to the scan scope
-        # made the brain sweep the whole subnet for a single-host target
-        # (e.g. target 192.168.1.7 → scanning all of 192.168.1.0/24). Only widen
-        # the scan scope to the broader range when the operator explicitly
-        # enabled lateral movement; otherwise stay on the requested target(s).
-        if (
-            body.allow_lateral_movement
-            and body.allowed_cidr
-            and body.allowed_cidr not in mission_scope
-        ):
-            mission_scope.append(body.allowed_cidr)
 
         mission_ctx = MissionContext(
             mission_id=session_id,

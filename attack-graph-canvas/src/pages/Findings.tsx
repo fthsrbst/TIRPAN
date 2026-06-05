@@ -264,6 +264,21 @@ const Findings = () => {
     return counts;
   }, [sessionScoped]);
 
+  const sparks = useMemo(() => {
+    const ordered = [...(sessions as any[])].sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0));
+    if (ordered.length < 2) return null;
+    let cV = 0, cCrit = 0;
+    const vTrend: number[] = [], critTrend: number[] = [], avgTrend: number[] = [];
+    ordered.forEach((s: any) => {
+      cV += s.vulns_found || 0;
+      const isCrit = (s.vulns_found || 0) > 5 && (s.exploits_run || 0) > 0;
+      if (isCrit) cCrit++;
+      vTrend.push(cV); critTrend.push(cCrit); avgTrend.push(s.vulns_found || 0);
+    });
+    const tail = (a: number[]) => a.slice(-8);
+    return { vulns: tail(vTrend), critical: tail(critTrend), perSession: tail(avgTrend) };
+  }, [sessions]);
+
   const mlCount = useMemo(() => sessionScoped.filter((f: any) => f._cls?.source === "ml").length, [sessionScoped]);
 
   const total = sessionScoped.length;
@@ -323,6 +338,7 @@ const Findings = () => {
             value={total}
             accent="primary"
             sublabel={scopeLabel}
+            spark={sparks?.vulns}
           />
           <StatCard
             icon={ShieldAlert}
@@ -331,6 +347,7 @@ const Findings = () => {
             accent="destructive"
             progress={pct(stats.CRITICAL || 0)}
             sublabel={`${pct(stats.CRITICAL || 0)}% of findings`}
+            spark={sparks?.critical}
           />
           <StatCard
             icon={AlertTriangle}
@@ -355,6 +372,7 @@ const Findings = () => {
             accent="violet"
             progress={pct(mlCount)}
             sublabel={`${pct(mlCount)}% auto-tagged`}
+            spark={sparks?.perSession}
           />
         </div>
 

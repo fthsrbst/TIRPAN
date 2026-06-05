@@ -907,6 +907,66 @@ class LootRepository:
         return row[0] if row else 0
 
 
+class ShellSessionRepository:
+    """Persist interactive shell/session footholds won during exploitation.
+
+    The brain tracks live shells in-memory (BrainAgent._active_shells) but the
+    shell_sessions table was never written, so footholds were invisible to the
+    DB-backed UI, reports, and session recovery (the whole table sat empty even
+    after the box was owned). This repo closes that gap.
+    """
+
+    def __init__(self, db_path: Path | str | None = None):
+        self._path = db_path or DB_PATH
+
+    async def save(
+        self,
+        session_id: str,
+        shell_key: str,
+        host_ip: str,
+        shell_type: str = "bash",
+        username: str = "",
+        privilege_lvl: int = 0,
+        notes: str = "",
+    ) -> dict:
+        now = _now()
+        # shell_key is the stable identity (msf-<id> or shell-<uuid>) so repeated
+        # registrations of the same foothold upsert instead of duplicating.
+        async with _connect(self._path) as db:
+            await db.execute(
+                """INSERT INTO shell_sessions
+                   (id, session_id, host_ip, shell_type, status, username,
+                    privilege_lvl, opened_at, closed_at, notes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     status='active', host_ip=excluded.host_ip,
+                     shell_type=excluded.shell_type, notes=excluded.notes""",
+                (shell_key, session_id, host_ip, shell_type, "active",
+                 username, int(privilege_lvl), now, None, notes),
+            )
+            await db.commit()
+        return {"id": shell_key, "session_id": session_id, "host_ip": host_ip,
+                "status": "active", "opened_at": now}
+
+    async def mark_closed(self, shell_key: str, status: str = "closed") -> None:
+        async with _connect(self._path) as db:
+            await db.execute(
+                "UPDATE shell_sessions SET status=?, closed_at=? WHERE id=?",
+                (status, _now(), shell_key),
+            )
+            await db.commit()
+
+    async def get_for_session(self, session_id: str, active_only: bool = False) -> list[dict]:
+        query = "SELECT * FROM shell_sessions WHERE session_id=?"
+        params: tuple = (session_id,)
+        if active_only:
+            query += " AND status='active'"
+        query += " ORDER BY opened_at ASC"
+        async with _connect(self._path) as db, db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+
 class NetworkGraphRepository:
     """Persist attack graph nodes and edges (mirrors MissionContext.attack_graph)."""
 
