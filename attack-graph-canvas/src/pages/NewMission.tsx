@@ -57,6 +57,7 @@ import {
 } from "lucide-react";
 import { type Recurrence, nextOccurrence } from "./ScheduledScans";
 import NewMissionTutorial, { type TourCommand } from "@/components/onboarding/NewMissionTutorial";
+import ModelPicker from "@/components/attack/ModelPicker";
 
 const PROFILE_ICONS: Record<string, typeof Target> = {
   Radio, Network, KeyRound, Globe, EyeOff, Zap, Users, Server, Database, Monitor, Wifi, Terminal,
@@ -381,6 +382,16 @@ const NewMission = () => {
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
 
+  // ── Model picker modal (shared by per-agent + global model selectors) ──
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelPickerOnSelect, setModelPickerOnSelect] = useState<((model: string, provider: string) => void) | null>(null);
+  const [modelPickerFilter, setModelPickerFilter] = useState<string[] | null>(null);
+  const openModelPickerFor = (onSelect: (model: string, provider: string) => void, filter?: string[]) => {
+    setModelPickerOnSelect(() => onSelect);
+    setModelPickerFilter(filter || null);
+    setModelPickerOpen(true);
+  };
+
   // ── Schedule state ───────────────────────────────
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [schedulePendingProfile, setSchedulePendingProfile] = useState<string | null>(null);
@@ -483,6 +494,22 @@ const NewMission = () => {
     staleTime: 30000,
   });
 
+  // Cloud-provider model lists — fetched from the same endpoints Settings uses,
+  // so a configured API key surfaces its models in a dropdown (no manual typing).
+  const { data: orModelsData } = useQuery<{ models: string[] }>({
+    queryKey: ["openrouter-models"],
+    queryFn: () => api.get("/openrouter/models"),
+    staleTime: 60000,
+    retry: false,
+  });
+
+  const { data: ocgModelsData } = useQuery<{ models: string[] }>({
+    queryKey: ["opencode-go-models"],
+    queryFn: () => api.get("/opencode-go/models"),
+    staleTime: 60000,
+    retry: false,
+  });
+
   useEffect(() => {
     if (toolsData?.tools && !Object.keys(toolPermissions).length) {
       const perms: Record<string, boolean> = {};
@@ -498,17 +525,15 @@ const NewMission = () => {
     return MODES.find((m) => m.id === mode)?.desc || "";
   }, [mode]);
 
-  // Collect all available models grouped by provider
-  const availableModels = useMemo(() => {
-    const entries: { provider: string; model: string; label: string }[] = [];
-    if (ollamaStatus?.online) {
-      (ollamaStatus.models || []).forEach((m) => entries.push({ provider: "ollama", model: m, label: `Ollama: ${m}` }));
-    }
-    if (lmstudioStatus?.online) {
-      (lmstudioStatus.models || []).forEach((m) => entries.push({ provider: "lmstudio", model: m, label: `LM Studio: ${m}` }));
-    }
-    return entries;
-  }, [ollamaStatus, lmstudioStatus]);
+  // Providers + their fetched model lists feed the ModelPicker modal (same UX
+  // as Settings → LLM). Cloud providers are populated from their /models
+  // endpoints so the operator picks from a list instead of typing a name.
+  const pickerProviders = useMemo(() => [
+    { key: "ollama", label: "Ollama", models: ollamaStatus?.models || [], online: !!ollamaStatus?.online },
+    { key: "lmstudio", label: "LM Studio", models: lmstudioStatus?.models || [], online: !!lmstudioStatus?.online },
+    { key: "openrouter", label: "OpenRouter", models: orModelsData?.models || [], online: (orModelsData?.models?.length || 0) > 0 },
+    { key: "opencode_go", label: "OpenCode Go", models: ocgModelsData?.models || [], online: (ocgModelsData?.models?.length || 0) > 0 },
+  ], [ollamaStatus, lmstudioStatus, orModelsData, ocgModelsData]);
 
   // ── Helpers ─────────────────────────────────────
   const addTargetRow = () => setAdditionalTargets((p) => [...p, ""]);
@@ -1160,6 +1185,16 @@ const NewMission = () => {
 
       {/* Dynamic, step-by-step tutorial — drives this page via applyTourCmd */}
       <NewMissionTutorial open={tourOpen} onClose={() => setTourOpen(false)} apply={applyTourCmd} />
+
+      {/* Model picker — searchable, provider-grouped (mirrors Settings → LLM) */}
+      {modelPickerOpen && (
+        <ModelPicker
+          isOpen={modelPickerOpen}
+          onClose={() => setModelPickerOpen(false)}
+          providers={pickerProviders.filter((p) => !modelPickerFilter || modelPickerFilter.includes(p.key))}
+          onSelect={(m, p) => { modelPickerOnSelect?.(m, p); setModelPickerOpen(false); }}
+        />
+      )}
 
       {step === 1 ? (
         /* ── Step 1: Profile Picker ────────────────────────────────── */
@@ -1970,34 +2005,17 @@ const NewMission = () => {
                             <SelectItem value="opencode_go">OpenCode Go</SelectItem>
                           </SelectContent>
                         </Select>
-                        {availableModels.length > 0 ? (
-                          <Select
-                            value={am.model || ""}
-                            onValueChange={(v) => setAgentModel(at, "model", v)}
-                          >
-                            <SelectTrigger className="h-8 text-xs flex-1">
-                              <SelectValue placeholder="Select model…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableModels
-                                .filter((m) => !am.provider || m.provider === am.provider)
-                                .map((m) => (
-                                  <SelectItem key={`${m.provider}:${m.model}`} value={m.model}>
-                                    <span className="font-mono">{m.model}</span>
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            value={am.model || ""}
-                            onChange={(e) => setAgentModel(at, "model", e.target.value)}
-                            placeholder="e.g. llama3:8b"
-                            className="h-8 text-xs flex-1"
-                            autoComplete="off"
-                            name={`tirpan-agent-model-${at}`}
-                          />
-                        )}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 text-xs flex-1 justify-start font-normal"
+                          onClick={() => openModelPickerFor(
+                            (m, p) => setAgentModels((prev) => ({ ...prev, [at]: { provider: p, model: m } })),
+                            am.provider ? [am.provider] : undefined,
+                          )}
+                        >
+                          <span className="truncate">{am.model || "Select model…"}</span>
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"
@@ -2065,30 +2083,17 @@ const NewMission = () => {
                 </div>
                 <div>
                   {fieldLabel("Global Model", "Default model for this mission")}
-                  {availableModels.filter((m) => !provider || m.provider === provider).length > 0 ? (
-                    <Select value={model} onValueChange={setModel}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select model…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableModels
-                          .filter((m) => !provider || m.provider === provider)
-                          .map((m) => (
-                            <SelectItem key={`${m.provider}:${m.model}`} value={m.model}>
-                              <span className="font-mono text-xs">{m.model}</span>
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      value={model}
-                      onChange={(e) => setModel(e.target.value)}
-                      placeholder="e.g. gpt-4-turbo"
-                      autoComplete="off"
-                      name="tirpan-global-model"
-                    />
-                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-start font-normal"
+                    onClick={() => openModelPickerFor(
+                      (m, p) => { setProvider(p); setModel(m); },
+                      provider ? [provider] : undefined,
+                    )}
+                  >
+                    <span className="truncate">{model || "Select model…"}</span>
+                  </Button>
                 </div>
               </div>
 

@@ -285,7 +285,16 @@ interface Props {
 }
 
 export const AgentHistoryPanel = ({ open, onClose }: Props) => {
-  const [filter, setFilter] = useState<Filter>("all");
+  // Multi-select filter: empty set = "All" (combine reasoning + tool_call, etc.)
+  const [filters, setFilters] = useState<Set<Filter>>(() => new Set());
+  const toggleFilter = (key: Filter) => {
+    setFilters((prev) => {
+      if (key === "all") return new Set();
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -307,7 +316,7 @@ export const AgentHistoryPanel = ({ open, onClose }: Props) => {
   });
 
   const allEvents: AgentEvent[] = (eventsData as any)?.events || (Array.isArray(eventsData) ? eventsData : []);
-  const filtered = filter === "all" ? allEvents : allEvents.filter((e) => e.event_type === filter);
+  const filtered = filters.size === 0 ? allEvents : allEvents.filter((e) => filters.has(e.event_type as Filter));
 
   // Auto-scroll on new events
   useEffect(() => {
@@ -357,9 +366,9 @@ export const AgentHistoryPanel = ({ open, onClose }: Props) => {
           {FILTER_TYPES.map((f) => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => toggleFilter(f)}
               className={`shrink-0 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest transition-colors ${
-                filter === f
+                (f === "all" ? filters.size === 0 : filters.has(f))
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               }`}

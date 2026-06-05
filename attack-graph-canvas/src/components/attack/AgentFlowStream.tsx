@@ -422,7 +422,17 @@ interface Props {
 }
 
 export const AgentFlowStream = ({ sessionId, session, className = "" }: Props) => {
-  const [filterKey, setFilterKey] = useState<FilterKey>("all");
+  // Multi-select: an empty set means "All". Selecting several keys (e.g.
+  // reasoning + tool_call) shows the union of those event types.
+  const [filterKeys, setFilterKeys] = useState<Set<FilterKey>>(() => new Set());
+  const toggleFilter = (key: FilterKey) => {
+    setFilterKeys((prev) => {
+      if (key === "all") return new Set();
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
   const [search, setSearch] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [expandedAll, setExpandedAll] = useState(false);
@@ -507,14 +517,14 @@ export const AgentFlowStream = ({ sessionId, session, className = "" }: Props) =
   }, [allEvents]);
 
   const filtered = useMemo(() => {
-    const f = FILTERS.find((x) => x.key === filterKey)!;
+    const active = FILTERS.filter((x) => x.key !== "all" && filterKeys.has(x.key));
     const q = search.trim().toLowerCase();
     return allEvents.filter((e) => {
-      if (!f.match(e.event_type)) return false;
+      if (active.length > 0 && !active.some((f) => f.match(e.event_type))) return false;
       if (!q) return true;
       return (e.event_type + " " + asStr(e.data, false)).toLowerCase().includes(q);
     });
-  }, [allEvents, filterKey, search]);
+  }, [allEvents, filterKeys, search]);
 
   // Auto-scroll to newest as events / tokens stream in.
   useEffect(() => {
@@ -559,7 +569,7 @@ export const AgentFlowStream = ({ sessionId, session, className = "" }: Props) =
     [filtered],
   );
 
-  const recomputeKey = `${filtered.length}:${expandedAll}:${filterKey}:${search}:${liveTokens.length > 0 ? "t" : ""}`;
+  const recomputeKey = `${filtered.length}:${expandedAll}:${[...filterKeys].sort().join(",")}:${search}:${liveTokens.length > 0 ? "t" : ""}`;
 
   return (
     <div className={`node-card !p-0 flex flex-col h-full min-h-0 overflow-hidden ${className}`}>
@@ -611,12 +621,12 @@ export const AgentFlowStream = ({ sessionId, session, className = "" }: Props) =
         {/* Filter chips */}
         <div className="flex gap-1 overflow-x-auto no-scrollbar">
           {FILTERS.map((f) => {
-            const active = filterKey === f.key;
+            const active = f.key === "all" ? filterKeys.size === 0 : filterKeys.has(f.key);
             const n = counts[f.key] ?? 0;
             return (
               <button
                 key={f.key}
-                onClick={() => setFilterKey(f.key)}
+                onClick={() => toggleFilter(f.key)}
                 className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all ${active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
               >
                 {f.label}{n > 0 && <span className="ml-1 opacity-60">{n}</span>}
@@ -643,8 +653,8 @@ export const AgentFlowStream = ({ sessionId, session, className = "" }: Props) =
           ) : filtered.length === 0 && !liveTokens ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground py-12 text-center">
               <Search className="w-10 h-10 opacity-20" />
-              <div className="text-sm font-mono">{search || filterKey !== "all" ? "No matching events" : "No events yet"}</div>
-              {running && !search && filterKey === "all" && <div className="text-[11px] animate-pulse">Waiting for agent activity…</div>}
+              <div className="text-sm font-mono">{search || filterKeys.size > 0 ? "No matching events" : "No events yet"}</div>
+              {running && !search && filterKeys.size === 0 && <div className="text-[11px] animate-pulse">Waiting for agent activity…</div>}
             </div>
           ) : (
             <>

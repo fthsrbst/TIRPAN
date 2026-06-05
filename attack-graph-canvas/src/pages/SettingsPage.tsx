@@ -141,6 +141,16 @@ const SettingsPage = () => {
   const [newModelName, setNewModelName] = useState("");
   const [pricingSearch, setPricingSearch] = useState("");
 
+  // ── Saved credentials state (reusable credential store) ──────────────
+  const [creds, setCreds] = useState<any[]>([]);
+  const [credSaving, setCredSaving] = useState(false);
+  const [credForm, setCredForm] = useState({ name: "", cred_type: "ssh", host_pattern: "*", username: "", password: "", domain: "", community: "" });
+
+  // ── Scan profiles state ──────────────────────────────────────────────
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: "", description: "", mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000" });
+
   const flash = (type: "ok" | "err", text: string) => {
     setMsg({ type, text });
     setTimeout(() => setMsg(null), 3500);
@@ -423,15 +433,71 @@ const SettingsPage = () => {
     setPricingFetching(false);
   }, []);
 
+  // ── Saved credentials handlers ──────────────────────────────────────
+  const loadCreds = useCallback(async () => {
+    try { const r = await api.get<any[]>("/credentials"); setCreds(Array.isArray(r) ? r : []); } catch { /* ignore */ }
+  }, []);
+
+  const saveCred = async () => {
+    if (!credForm.name.trim()) { flash("err", "Credential name is required"); return; }
+    setCredSaving(true);
+    try {
+      const data: Record<string, string> = {};
+      (["username", "password", "domain", "community"] as const).forEach((k) => {
+        if (credForm[k].trim()) data[k] = credForm[k].trim();
+      });
+      await api.post("/credentials", {
+        name: credForm.name.trim(),
+        cred_type: credForm.cred_type,
+        host_pattern: credForm.host_pattern.trim() || "*",
+        data,
+      });
+      flash("ok", "Credential saved");
+      setCredForm({ name: "", cred_type: "ssh", host_pattern: "*", username: "", password: "", domain: "", community: "" });
+      loadCreds();
+    } catch (e: unknown) { flash("err", String(e)); }
+    setCredSaving(false);
+  };
+
+  const deleteCred = async (id: string) => {
+    try { await api.delete(`/credentials/${id}`); loadCreds(); flash("ok", "Credential deleted"); }
+    catch (e: unknown) { flash("err", String(e)); }
+  };
+
+  // ── Scan profiles handlers ──────────────────────────────────────────
+  const loadProfiles = useCallback(async () => {
+    try { const r = await api.get<any[]>("/scan-profiles"); setProfiles(Array.isArray(r) ? r : []); } catch { /* ignore */ }
+  }, []);
+
+  const saveProfile = async () => {
+    if (!profileForm.name.trim()) { flash("err", "Profile name is required"); return; }
+    setProfileSaving(true);
+    try {
+      const { name, description, ...config } = profileForm;
+      await api.post("/scan-profiles", { name: name.trim(), description: description.trim(), config });
+      flash("ok", "Scan profile saved");
+      setProfileForm({ name: "", description: "", mode: "scan_only", speedProfile: "normal", scanType: "syn", portRange: "top1000" });
+      loadProfiles();
+    } catch (e: unknown) { flash("err", String(e)); }
+    setProfileSaving(false);
+  };
+
+  const deleteProfile = async (id: string) => {
+    try { await api.delete(`/scan-profiles/${id}`); loadProfiles(); flash("ok", "Profile deleted"); }
+    catch (e: unknown) { flash("err", String(e)); }
+  };
+
   useEffect(() => {
     if (tab === "llm") loadLLM();
     if (tab === "safety") loadSafety();
     if (tab === "msf") loadMsf();
     if (tab === "nmap") loadNmap();
+    if (tab === "credentials") loadCreds();
+    if (tab === "scan-profiles") loadProfiles();
     if (tab === "agent-models") loadAgentModels();
     if (tab === "ml-models") loadMlStatus();
     if (tab === "billing") loadPricing();
-  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus, loadPricing]);
+  }, [tab, loadLLM, loadSafety, loadMsf, loadNmap, loadBranding, loadAgentModels, loadMlStatus, loadPricing, loadCreds, loadProfiles]);
 
   // ── Save handlers ───────────────────────────────────
 
@@ -1039,17 +1105,89 @@ const SettingsPage = () => {
           {/* ── CREDENTIALS ──────────────────────────── */}
           {tab === "credentials" && (
             <div className="space-y-6">
-              <Section title="Credentials">
+              <Section title="Saved Credentials">
                 <p className="text-sm text-muted-foreground mb-4">
-                  Manage credentials for SSH, SMB, SNMP, and other protocols.
-                  Expert mode exposes more detailed controls.
+                  Reusable credentials (SSH, SMB, SNMP, database, web) that missions can attach to
+                  authenticate against targets. Secrets are encrypted before storage and never
+                  returned in plaintext.
                 </p>
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <Lock className="w-12 h-12 mb-3 opacity-30" />
-                  <p className="text-sm">Manage credentials in Expert mode</p>
-                  <a href="/" className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
-                    Expert Mode →
-                  </a>
+
+                {/* Existing credentials */}
+                <div className="space-y-2 mb-5">
+                  {creds.length === 0 ? (
+                    <div className="text-xs text-muted-foreground italic py-3">No saved credentials yet.</div>
+                  ) : creds.map((c) => (
+                    <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-muted/20">
+                      <div className="w-8 h-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0">
+                        <Key className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{c.name}</div>
+                        <div className="text-[11px] text-muted-foreground font-mono truncate">
+                          {c.cred_type} · {c.host_pattern || "*"}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => deleteCred(c.id)} className="text-muted-foreground hover:text-destructive shrink-0">
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add credential */}
+                <div className="rounded-xl border border-border/50 p-4 space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Add credential</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Name</Label>
+                      <Input value={credForm.name} onChange={(e) => setCredForm({ ...credForm, name: e.target.value })} placeholder="prod-ssh" className="mt-1" autoComplete="off" />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Type</Label>
+                      <Select value={credForm.cred_type} onValueChange={(v) => setCredForm({ ...credForm, cred_type: v })}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ssh">SSH</SelectItem>
+                          <SelectItem value="smb">SMB</SelectItem>
+                          <SelectItem value="snmp">SNMP</SelectItem>
+                          <SelectItem value="database">Database</SelectItem>
+                          <SelectItem value="web">Web</SelectItem>
+                          <SelectItem value="api">API</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Host pattern</Label>
+                      <Input value={credForm.host_pattern} onChange={(e) => setCredForm({ ...credForm, host_pattern: e.target.value })} placeholder="* or 10.0.0.0/24" className="mt-1" autoComplete="off" />
+                    </div>
+                    {credForm.cred_type === "snmp" ? (
+                      <div>
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Community</Label>
+                        <Input value={credForm.community} onChange={(e) => setCredForm({ ...credForm, community: e.target.value })} placeholder="public" className="mt-1" autoComplete="off" />
+                      </div>
+                    ) : (
+                      <div>
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Username</Label>
+                        <Input value={credForm.username} onChange={(e) => setCredForm({ ...credForm, username: e.target.value })} placeholder="root" className="mt-1" autoComplete="off" />
+                      </div>
+                    )}
+                    {credForm.cred_type !== "snmp" && (
+                      <div>
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Password / Secret</Label>
+                        <Input type="password" value={credForm.password} onChange={(e) => setCredForm({ ...credForm, password: e.target.value })} placeholder="••••••••" className="mt-1" autoComplete="new-password" name="tirpan-cred-pw" />
+                      </div>
+                    )}
+                    {credForm.cred_type === "smb" && (
+                      <div>
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Domain</Label>
+                        <Input value={credForm.domain} onChange={(e) => setCredForm({ ...credForm, domain: e.target.value })} placeholder="CORP" className="mt-1" autoComplete="off" />
+                      </div>
+                    )}
+                  </div>
+                  <Button onClick={saveCred} disabled={credSaving} size="sm" className="gap-2">
+                    {credSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Add Credential
+                  </Button>
                 </div>
               </Section>
 
@@ -1132,16 +1270,90 @@ const SettingsPage = () => {
           {/* ── SCAN PROFILES ─────────────────────────── */}
           {tab === "scan-profiles" && (
             <div className="space-y-6">
-              <Section title="Scan profiles">
+              <Section title="Scan Profiles">
                 <p className="text-sm text-muted-foreground mb-4">
-                  Create reusable scan templates. Expert mode offers more options.
+                  Reusable scan templates that pre-configure a mission's mode, speed, scan type and
+                  port range. Saved profiles are available when launching a New Mission.
                 </p>
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <Sliders className="w-12 h-12 mb-3 opacity-30" />
-                  <p className="text-sm">Manage profiles in Expert mode</p>
-                  <a href="/" className="mt-3 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
-                    Expert Mode →
-                  </a>
+
+                {/* Existing profiles */}
+                <div className="space-y-2 mb-5">
+                  {profiles.length === 0 ? (
+                    <div className="text-xs text-muted-foreground italic py-3">No saved scan profiles yet.</div>
+                  ) : profiles.map((p) => (
+                    <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-muted/20">
+                      <div className="w-8 h-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0">
+                        <Sliders className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{p.name}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">
+                          {p.description || `${p.config?.mode || "scan_only"} · ${p.config?.speedProfile || p.config?.speed_profile || "normal"} · ${p.config?.portRange || p.config?.port_range || ""}`}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => deleteProfile(p.id)} className="text-muted-foreground hover:text-destructive shrink-0">
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add profile */}
+                <div className="rounded-xl border border-border/50 p-4 space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Add profile</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Name</Label>
+                      <Input value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} placeholder="Quick web scan" className="mt-1" autoComplete="off" />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Description</Label>
+                      <Input value={profileForm.description} onChange={(e) => setProfileForm({ ...profileForm, description: e.target.value })} placeholder="Optional" className="mt-1" autoComplete="off" />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Mode</Label>
+                      <Select value={profileForm.mode} onValueChange={(v) => setProfileForm({ ...profileForm, mode: v })}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="scan_only">Scan Only</SelectItem>
+                          <SelectItem value="ask_before_exploit">Ask Before Exploit</SelectItem>
+                          <SelectItem value="full_auto">Full Auto</SelectItem>
+                          <SelectItem value="v2_auto">Multi-Agent</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Speed</Label>
+                      <Select value={profileForm.speedProfile} onValueChange={(v) => setProfileForm({ ...profileForm, speedProfile: v })}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="stealth">Stealth</SelectItem>
+                          <SelectItem value="normal">Normal</SelectItem>
+                          <SelectItem value="fast">Fast</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Scan type</Label>
+                      <Select value={profileForm.scanType} onValueChange={(v) => setProfileForm({ ...profileForm, scanType: v })}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="syn">SYN</SelectItem>
+                          <SelectItem value="connect">Connect</SelectItem>
+                          <SelectItem value="udp">UDP</SelectItem>
+                          <SelectItem value="full">Full</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Port range</Label>
+                      <Input value={profileForm.portRange} onChange={(e) => setProfileForm({ ...profileForm, portRange: e.target.value })} placeholder="top1000 or 1-65535" className="mt-1" autoComplete="off" />
+                    </div>
+                  </div>
+                  <Button onClick={saveProfile} disabled={profileSaving} size="sm" className="gap-2">
+                    {profileSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Add Profile
+                  </Button>
                 </div>
               </Section>
             </div>
