@@ -619,6 +619,43 @@ async def set_setting(key: str, body: dict):
     return {"ok": True}
 
 
+# ── Host labels (operator-assigned host names) ──────────────────────────────────
+# Hosts live inside per-session scan_results JSON, so a friendly name can't be
+# attached to a single row. Instead we keep an ip → name map in app_settings,
+# matching how the UI de-duplicates discovered hosts by IP.
+_HOST_LABELS_KEY = "host_labels"
+
+
+class HostLabelUpdate(BaseModel):
+    ip: str
+    name: str = ""
+
+
+async def _read_host_labels() -> dict:
+    labels = await database.get_setting(_HOST_LABELS_KEY, {})
+    return labels if isinstance(labels, dict) else {}
+
+
+@router.get("/host-labels")
+async def get_host_labels():
+    return {"labels": await _read_host_labels()}
+
+
+@router.put("/host-labels")
+async def set_host_label(body: HostLabelUpdate):
+    ip = (body.ip or "").strip()
+    if not ip:
+        raise HTTPException(400, "ip is required")
+    labels = await _read_host_labels()
+    name = (body.name or "").strip()[:120]
+    if name:
+        labels[ip] = name
+    else:
+        labels.pop(ip, None)
+    await database.set_setting(_HOST_LABELS_KEY, labels)
+    return {"ok": True, "labels": labels}
+
+
 class BrandingConfigRequest(BaseModel):
     company_name: str = ""
 

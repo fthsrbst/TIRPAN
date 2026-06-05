@@ -6,8 +6,8 @@ import { StatCard } from "@/components/attack/StatCard";
 import { ExportMenu } from "@/components/attack/ExportMenu";
 import { EmptyState } from "@/components/attack/EmptyState";
 import { exportCSV, exportJSON } from "@/lib/exportData";
-import { toggleInSet } from "@/lib/utils";
-import { useQuery } from "@tanstack/react-query";
+import { toggleInSet, api } from "@/lib/utils";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSessions, getSession } from "@/lib/api";
 import { useSessionContext } from "@/lib/SessionContext";
 import { Server, Globe, Network, Bug, Pencil, Check, X, Wifi, GitBranch, AlertCircle, Copy } from "lucide-react";
@@ -26,8 +26,15 @@ const Hosts = () => {
   const [hostName, setHostName] = useState("");
   const { selectedSessionId, selectedSession, setSelectedSessionId } = useSessionContext();
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const { data: sessions = [] } = useQuery({ queryKey: ["sessions"], queryFn: getSessions, refetchInterval: 10000 });
+
+  // Operator-assigned host names (ip → name), persisted server-side in app_settings.
+  const { data: hostLabelsData } = useQuery({
+    queryKey: ["host-labels"],
+    queryFn: () => api.get<{ labels: Record<string, string> }>("/host-labels"),
+  });
 
   const effectiveSid = selectedSessionId || (selectedSid !== "all" ? selectedSid : null);
   // No explicit session picked → aggregate hosts across every session.
@@ -76,8 +83,9 @@ const Hosts = () => {
         byIp.set(ip, h);
       }
     }
-    return Array.from(byIp.values());
-  }, [isAggregate, aggregateSessions, selectedSession, sessionDetails, selectedSessionId]);
+    const labels = hostLabelsData?.labels || {};
+    return Array.from(byIp.values()).map((h) => ({ ...h, customName: labels[h.ip || ""] || "" }));
+  }, [isAggregate, aggregateSessions, selectedSession, sessionDetails, selectedSessionId, hostLabelsData]);
 
   const scopeLabel = selectedSessionId
     ? (selectedSession?.target || "current session")
@@ -116,6 +124,7 @@ const Hosts = () => {
       const matchesSearch =
         !q ||
         (h.ip || "").toLowerCase().includes(q) ||
+        (h.customName || "").toLowerCase().includes(q) ||
         (h.hostname || "").toLowerCase().includes(q) ||
         (h.os || "").toLowerCase().includes(q) ||
         (h.ports || []).some((p: any) => (p.service || "").toLowerCase().includes(q));
@@ -206,15 +215,24 @@ const Hosts = () => {
       setEditingName(false);
     } else {
       setSelectedHost(host);
-      setHostName(host.hostname || host.ip || "");
+      setHostName(host.customName || host.hostname || host.ip || "");
       setEditingName(false);
     }
   };
 
-  const saveHostName = () => {
-    if (selectedHost) {
-      selectedHost.hostname = hostName || selectedHost.ip;
+  const saveHostName = async () => {
+    if (!selectedHost) return;
+    const ip = selectedHost.ip || "";
+    if (!ip) { toast.error("Host has no IP to label"); return; }
+    const name = hostName.trim();
+    try {
+      await api.put("/host-labels", { ip, name });
+      setSelectedHost((h: any) => (h ? { ...h, customName: name } : h));
       setEditingName(false);
+      qc.invalidateQueries({ queryKey: ["host-labels"] });
+      toast.success(name ? "Host name saved" : "Host name cleared");
+    } catch {
+      toast.error("Could not save host name");
     }
   };
 
@@ -334,7 +352,7 @@ const Hosts = () => {
               }
             />
           </div>
-          <div className="node-card !p-0 overflow-hidden flex-1 min-h-0">
+          <div className="node-card !p-0 overflow-auto flex-1 min-h-0">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground sticky top-0 z-10">
                 <tr>
@@ -360,7 +378,7 @@ const Hosts = () => {
                   const isSelected = selectedHost?.ip === h.ip;
                   return (
                     <tr key={h.ip || idx} onClick={() => handleSelectHost(h)} className={`border-t border-border/50 hover:bg-muted/30 transition-colors cursor-pointer ${isSelected ? "bg-primary/5 ring-1 ring-primary/30" : ""}`}>
-                      <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center"><Server className="w-4 h-4" /></div><span className="font-medium">{h.hostname || "Unknown"}</span></div></td>
+                      <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center"><Server className="w-4 h-4" /></div><span className="font-medium">{h.customName || h.hostname || "Unknown"}</span></div></td>
                       <td className="px-3 py-4 font-mono text-xs text-muted-foreground">{h.ip}</td>
                       <td className="px-3 py-4 text-xs">{h.os || "Unknown"}</td>
                       <td className="px-3 py-4"><div className="flex flex-wrap gap-1">{open.slice(0,4).map((p:any)=>(<span key={p.number} className="px-2 py-0.5 rounded-full bg-muted text-[10px]">{p.number}/{p.protocol} {p.service}</span>))}{open.length>4&&<span className="px-2 py-0.5 rounded-full bg-muted text-[10px]">+{open.length-4}</span>}</div></td>
@@ -393,8 +411,8 @@ const Hosts = () => {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <div className="font-display font-bold text-sm">{selectedHost.hostname || selectedHost.ip || "Unknown"}</div>
-                    <button onClick={() => { setHostName(selectedHost.hostname || selectedHost.ip || ""); setEditingName(true); }} className="text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
+                    <div className="font-display font-bold text-sm">{selectedHost.customName || selectedHost.hostname || selectedHost.ip || "Unknown"}</div>
+                    <button onClick={() => { setHostName(selectedHost.customName || selectedHost.hostname || selectedHost.ip || ""); setEditingName(true); }} className="text-muted-foreground hover:text-foreground"><Pencil className="w-3.5 h-3.5" /></button>
                   </div>
                 )}
                 <div className="text-[11px] font-mono text-muted-foreground">{selectedHost.ip}</div>

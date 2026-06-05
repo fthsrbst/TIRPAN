@@ -385,7 +385,17 @@ interface Props {
 }
 
 export const AgentChatPanel = ({ open, onClose }: Props) => {
-  const [filter, setFilter] = useState<FilterKey>("all");
+  // Multi-select filter: empty set = "All". Lets the operator combine event
+  // types (e.g. reasoning + tool_call) instead of one-at-a-time.
+  const [filters, setFilters] = useState<Set<FilterKey>>(() => new Set());
+  const toggleFilter = (key: FilterKey) => {
+    setFilters((prev) => {
+      if (key === "all") return new Set();
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -423,7 +433,7 @@ export const AgentChatPanel = ({ open, onClose }: Props) => {
     event_type: e.event_type || e.type || "event",
     data: e.data ?? (e.content != null ? { message: e.content } : {}),
   }));
-  const filtered = filter === "all" ? allEvents : allEvents.filter((e) => e.event_type === filter);
+  const filtered = filters.size === 0 ? allEvents : allEvents.filter((e) => filters.has(e.event_type as FilterKey));
 
   useEffect(() => {
     if (autoScroll && bottomRef.current) {
@@ -473,11 +483,11 @@ export const AgentChatPanel = ({ open, onClose }: Props) => {
       <div className="flex gap-1 shrink-0 overflow-x-auto no-scrollbar px-0.5">
         {FILTER_TYPES.map((f) => {
           const count = f.key === "all" ? allEvents.length : allEvents.filter((e) => e.event_type === f.key).length;
-          const isActive = filter === f.key;
+          const isActive = f.key === "all" ? filters.size === 0 : filters.has(f.key);
           return (
             <button
               key={f.key}
-              onClick={() => setFilter(f.key)}
+              onClick={() => toggleFilter(f.key)}
               className={`shrink-0 px-2 py-1 rounded-full text-[9px] font-bold uppercase tracking-wide transition-all ${
                 isActive
                   ? "bg-primary text-primary-foreground shadow-sm"
