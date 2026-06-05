@@ -86,11 +86,16 @@ export const StatCard = ({
   active,
 }: StatCardProps) => {
   const Tag: any = onClick ? "button" : "div";
+  // min-h-[8.5rem] = 136px keeps every KPI card the SAME height regardless of which
+  // optional bits it renders. It must fit the tallest current variant (sublabel OR
+  // spark OR progress, at most two together — e.g. spark+progress on Success Rate,
+  // sublabel+progress on My Budget). Don't put all three on one card without bumping
+  // this value, or that grid row would grow taller than the others.
   return (
     <Tag
       onClick={onClick}
       title={hint}
-      className={`node-card !p-4 relative overflow-hidden text-left w-full transition-all ${
+      className={`node-card !p-4 relative overflow-hidden text-left w-full flex flex-col h-full min-h-[8.5rem] transition-all ${
         onClick ? "cursor-pointer hover:shadow-[var(--shadow-elevated)] hover:-translate-y-0.5" : ""
       } ${active ? "ring-2 ring-inset ring-primary" : ""}`}
     >
@@ -102,7 +107,10 @@ export const StatCard = ({
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 truncate">
             {label}
           </div>
-          <div className={`font-display font-bold text-3xl leading-none ${VALUE_TEXT[accent]}`}>
+          <div
+            title={typeof value === "string" ? value : undefined}
+            className={`font-display font-bold text-3xl leading-none truncate ${VALUE_TEXT[accent]}`}
+          >
             {value}
           </div>
           {sublabel && (

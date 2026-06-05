@@ -69,10 +69,16 @@ class GobusterTool(BaseTool):
         timeout = int(params.get("timeout", _DEFAULT_TIMEOUT))
 
         if mode == "dir":
+            from tools._wordlist import resolve_wordlist
             url = params.get("url")
             if not url:
                 return {"success": False, "error": "mode=dir requires 'url'"}
-            wordlist = params.get("wordlist", _WORDLIST_DIR)
+            # Fall back to the repo-bundled wordlist when the configured/default
+            # one is absent (the Kali default path is missing on macOS/other hosts).
+            wordlist = resolve_wordlist(params.get("wordlist", _WORDLIST_DIR))
+            if not wordlist:
+                return {"success": False,
+                        "error": "gobuster: no usable wordlist (set 'wordlist' or add data/wordlists/common.txt)"}
             extensions = params.get("extensions", "")
             status_codes = params.get("status_codes", "200,204,301,302,307,401,403")
             follow_redirect = bool(params.get("follow_redirect", False))
@@ -84,6 +90,10 @@ class GobusterTool(BaseTool):
                 "-t", str(threads),
                 "--no-error",
                 "-s", status_codes,
+                # gobuster v3 ships a default status-codes-blacklist (404) and
+                # ERRORS OUT when both -s (whitelist) and -b (blacklist) are set.
+                # Clear the blacklist so the whitelist takes effect.
+                "-b", "",
             ]
             if extensions:
                 cmd += ["-x", extensions]
@@ -137,6 +147,13 @@ class GobusterTool(BaseTool):
         err    = stderr.decode(errors="replace")
         parsed = self._parse_output(output, mode)
 
+        # Surface a genuine tool error (missing wordlist, bad target, unknown
+        # flag) instead of an empty-but-successful scan that reads as "nothing
+        # there". gobuster exits non-zero and writes the reason to stderr.
+        if not parsed and proc.returncode not in (0, None) and err.strip():
+            return {"success": False,
+                    "error": f"gobuster error (rc={proc.returncode}): {err.strip()[:300]}"}
+
         return {
             "success": True,
             "output": {
@@ -155,11 +172,18 @@ class GobusterTool(BaseTool):
             if not line or line.startswith("=") or line.startswith("["):
                 continue
             if mode == "dir":
-                # "/.git/config           (Status: 200) [Size: 92]"
-                m = re.match(r"(/\S*)\s+\(Status:\s*(\d+)\)(?:\s+\[Size:\s*(\d+)\])?", line)
+                # gobuster v3.8 prints the path WITHOUT a leading slash and with a
+                # trailing redirect annotation, e.g.:
+                #   "test            (Status: 301) [Size: 314] [--> .../test/]"
+                #   "index.php       (Status: 200) [Size: 891]"
+                # Older builds used "/path (Status: 200) [Size: 92]". Accept both.
+                m = re.match(r"(/?\S+)\s+\(Status:\s*(\d+)\)(?:\s+\[Size:\s*(\d+)\])?", line)
                 if m:
+                    path = m.group(1)
+                    if not path.startswith("/"):
+                        path = "/" + path
                     results.append({
-                        "path":   m.group(1),
+                        "path":   path,
                         "status": int(m.group(2)),
                         "size":   int(m.group(3)) if m.group(3) else None,
                     })

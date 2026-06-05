@@ -29,6 +29,23 @@ def _make_proc(stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0):
     proc = AsyncMock()
     proc.returncode = returncode
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    # Streaming interface (for tools that read stdout incrementally, e.g. nuclei):
+    # hand back the full payload once, then EOF (b""), so chunked-read loops end.
+    proc.wait = AsyncMock(return_value=returncode)
+    proc.kill = MagicMock()
+    _out_chunks = [stdout, b""]
+
+    async def _read_stdout(_n: int = -1) -> bytes:
+        return _out_chunks.pop(0) if _out_chunks else b""
+
+    async def _read_stderr(_n: int = -1) -> bytes:
+        return stderr
+
+    proc.stdout = MagicMock()
+    proc.stdout.read = _read_stdout
+    proc.stdout.readline = _read_stdout
+    proc.stderr = MagicMock()
+    proc.stderr.read = _read_stderr
     return proc
 
 

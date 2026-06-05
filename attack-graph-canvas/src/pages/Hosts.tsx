@@ -96,6 +96,19 @@ const Hosts = () => {
   }, [hosts]);
   const hpct = (n: number) => (hostStats.total ? Math.round((n / hostStats.total) * 100) : 0);
 
+  const sparks = useMemo(() => {
+    const ordered = [...(sessions as any[])].sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0));
+    if (ordered.length < 2) return null;
+    let cH = 0, cV = 0;
+    const hTrend: number[] = [], vTrend: number[] = [], upTrend: number[] = [];
+    ordered.forEach((s: any) => {
+      cH += s.hosts_found || 0; cV += s.vulns_found || 0;
+      hTrend.push(cH); vTrend.push(cV); upTrend.push(s.hosts_found || 0);
+    });
+    const tail = (a: number[]) => a.slice(-8);
+    return { hosts: tail(hTrend), withVulns: tail(vTrend), ports: tail(upTrend) };
+  }, [sessions]);
+
   const filtered = useMemo(() => {
     const minP = minOpenPorts === "" ? null : Number(minOpenPorts);
     return hosts.filter((h: any) => {
@@ -216,6 +229,7 @@ const Hosts = () => {
               value={hostStats.total}
               accent="primary"
               sublabel={scopeLabel}
+              spark={sparks?.hosts}
             />
             <StatCard
               icon={Wifi}
@@ -231,6 +245,7 @@ const Hosts = () => {
               value={hostStats.openPorts}
               accent="accent"
               sublabel="across all hosts"
+              spark={sparks?.ports}
             />
             <StatCard
               icon={Bug}
@@ -239,6 +254,7 @@ const Hosts = () => {
               accent="destructive"
               progress={hpct(hostStats.withVulns)}
               sublabel={`${hpct(hostStats.withVulns)}% affected`}
+              spark={sparks?.withVulns}
             />
           </div>
           <div className="node-card !p-3">

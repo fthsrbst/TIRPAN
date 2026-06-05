@@ -19,7 +19,10 @@ class OpenCodeGoConfig(BaseSettings):
     api_key: str = Field(default="", alias="OPENCODE_GO_API_KEY")
     model: str = Field(default="deepseek-r1", alias="OPENCODE_GO_MODEL")
     base_url: str = Field(default="https://opencode.ai/zen/go/v1", alias="OPENCODE_GO_BASE_URL")
-    timeout: float = Field(default=120.0)
+    # deepseek-r1 / v4-pro are chain-of-thought models — a single call on a large
+    # post-scan prompt routinely needs >120s. The old 120s ceiling made the brain
+    # abort mid-mission (test11). Give reasoning calls real headroom.
+    timeout: float = Field(default=240.0, alias="OPENCODE_GO_TIMEOUT")
 
 
 class LMStudioConfig(BaseSettings):
@@ -129,11 +132,18 @@ SPEED_PROFILES: dict[str, SpeedProfile] = {
     ),
     "aggressive": SpeedProfile(
         nmap_timing="-T5",
-        nmap_extra=["--min-rate", "5000"],
+        # -T5 alone caps --max-retries at 2, so a single dropped SYN/probe = a
+        # permanently MISSED port; and --min-rate 5000 floods a single host over
+        # WiFi, *causing* those drops. The result is a different open-port count
+        # on every run (test10: 15 ports recorded vs ~30 actually open on
+        # Metasploitable 2). Keep -T5's speed but make discovery deterministic:
+        # more retries to recover dropped probes, a gentler send rate to avoid
+        # self-inflicted congestion.
+        nmap_extra=["--min-rate", "1500", "--max-retries", "5"],
         max_parallel_hosts=0,
         inter_request_delay_ms=0,
         exploit_timeout_seconds=90,
-        description="Maximum speed. Use only on lab / CTF targets.",
+        description="Maximum speed (lab/CTF). Tuned for reliable port discovery.",
     ),
 }
 

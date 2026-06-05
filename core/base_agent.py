@@ -205,8 +205,17 @@ class BaseAgent(ABC):
         self._iteration: int = 0
 
         # Wall-clock cap on a single reason() call (see constants above).
-        # Subclasses may override _reason_timeout_s after super().__init__().
-        self._reason_timeout_s: float = _DEFAULT_REASON_TIMEOUT_S
+        # CRITICAL: this MUST exceed the LLM provider's own HTTP timeout, or we
+        # abort calls that are still legitimately in flight. test11 died exactly
+        # this way: reasoning timeout was 90s but the provider HTTP timeout is
+        # 120s, so the brain killed every post-scan reasoning call (deepseek-v4-pro
+        # is a slow chain-of-thought model) at 90s, hit 3 consecutive timeouts,
+        # and aborted the whole mission with 0 exploits. Derive the budget from
+        # the configured provider timeout + a buffer so a slow-but-valid call can
+        # complete. Subclasses may still raise _reason_timeout_s further.
+        self._reason_timeout_s: float = max(
+            _DEFAULT_REASON_TIMEOUT_S, self._effective_llm_timeout() + 45.0
+        )
         self._consecutive_reason_timeouts: int = 0
 
         # Pause / resume
@@ -226,6 +235,25 @@ class BaseAgent(ABC):
         self._findings: list[dict] = []
 
         self._log = logging.getLogger(f"tirpan.agent.{agent_type}")
+
+    @staticmethod
+    def _effective_llm_timeout() -> float:
+        """The active LLM provider's per-call HTTP timeout (seconds).
+
+        Used to size the reason() wall-clock budget so it never preempts a call
+        the HTTP client itself would still be waiting on.
+        """
+        try:
+            from config import settings
+            prov = (getattr(settings.llm, "provider", "") or "").lower()
+            by_provider = {
+                "opencode_go": getattr(settings.opencode_go, "timeout", 120.0),
+                "ollama":      getattr(settings.ollama, "timeout", 120.0),
+                "lmstudio":    getattr(settings.lmstudio, "timeout", 120.0),
+            }
+            return float(by_provider.get(prov, 120.0))
+        except Exception:
+            return 120.0
 
     # ── Public properties ─────────────────────────────────────────────────────
 

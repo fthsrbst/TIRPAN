@@ -51,8 +51,14 @@ class FfufTool(BaseTool):
         )
 
     async def execute(self, params: dict) -> dict:
+        from tools._wordlist import resolve_wordlist
         url = params.get("url", "").rstrip("/")
-        wordlist = params.get("wordlist", DEFAULT_WORDLIST)
+        # Fall back to the repo-bundled wordlist when the configured/default one
+        # is absent (the Kali default path does not exist on macOS/other hosts).
+        wordlist = resolve_wordlist(params.get("wordlist", DEFAULT_WORDLIST))
+        if not wordlist:
+            return {"success": False,
+                    "error": "ffuf: no usable wordlist (set 'wordlist' or add data/wordlists/common.txt)"}
         extensions = params.get("extensions", ".php,.txt,.html,.bak")
         timeout = int(params.get("timeout", FFUF_TIMEOUT))
         filter_codes = params.get("filter_codes", "404,403")
@@ -136,15 +142,36 @@ class FfufTool(BaseTool):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+        # ffuf `-json -s` streams ONE JSON object PER LINE to stdout (JSONL), not a
+        # single {"results":[...]} document (that's the -o file format). The old
+        # json.loads(whole_output) therefore always raised and yielded zero hits
+        # even when ffuf found real paths. Parse both shapes.
+        raw = stdout.decode(errors="replace")
+        results = []
         try:
-            data = json.loads(stdout.decode(errors="replace"))
+            data = json.loads(raw)
+            rows = data.get("results", []) if isinstance(data, dict) else []
             results = [
                 {"url": r.get("url", ""), "status": r.get("status", 0),
                  "length": r.get("length", 0), "words": r.get("words", 0)}
-                for r in data.get("results", [])
+                for r in rows
             ]
         except Exception:
             results = []
+        if not results:
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line or line[0] != "{":
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if "url" in r or "status" in r:
+                    results.append({
+                        "url": r.get("url", ""), "status": r.get("status", 0),
+                        "length": r.get("length", 0), "words": r.get("words", 0),
+                    })
 
         total_results = len(results)
         circuit_meta: dict[str, object] = {"activated": False}

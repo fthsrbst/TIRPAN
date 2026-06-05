@@ -10,7 +10,10 @@ import shutil
 from tools.base_tool import BaseTool, ToolHealthStatus, ToolMetadata
 
 logger = logging.getLogger(__name__)
-NUCLEI_TIMEOUT = 300
+# 150s default: nuclei streams findings as it goes (partial results are kept on
+# the cap), so a tighter budget still surfaces the high-severity hits without
+# letting one tool consume the whole webapp-agent wall-clock.
+NUCLEI_TIMEOUT = 150
 
 
 class NucleiTool(BaseTool):
@@ -46,22 +49,79 @@ class NucleiTool(BaseTool):
         if not shutil.which("nuclei"):
             return {"success": False, "error": "nuclei not found — install from https://nuclei.projectdiscovery.io"}
 
-        cmd = ["nuclei", "-u", url, "-severity", severity, "-json", "-silent", "-nc"]
-        if templates:
-            cmd += ["-t", templates]
+        # nuclei v3 renamed -json → -jsonl (the old -json errors with "flag
+        # provided but not defined"). Try the modern flag first and fall back to
+        # the legacy one so the wrapper works across versions. The old code's bare
+        # -json silently produced zero findings on v3.
+        extra = ["-t", templates] if templates else []
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            return {"success": False, "error": "nuclei timeout"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        async def _run(json_flag: str):
+            # Stream JSONL findings as nuclei emits them and stop at the deadline,
+            # KEEPING whatever was found so far. A full template run takes minutes;
+            # the old communicate()+wait_for discarded all partial output on
+            # timeout, so a bounded agent run always saw zero findings.
+            cmd = ["nuclei", "-u", url, "-severity", severity, json_flag, "-silent", "-nc", "-duc", *extra]
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except Exception as e:  # pragma: no cover
+                return "ERR", "", str(e)
 
+            buf = bytearray()
+
+            async def _drain():
+                # Chunked read (NOT readline): nuclei JSONL lines can exceed
+                # asyncio's 64 KB readline limit and raise LimitOverrunError.
+                while True:
+                    chunk = await proc.stdout.read(65536)
+                    if not chunk:
+                        break
+                    buf.extend(chunk)
+
+            partial = False
+            try:
+                await asyncio.wait_for(_drain(), timeout=timeout)
+                await asyncio.wait_for(proc.wait(), timeout=5)
+                rc = proc.returncode
+            except asyncio.TimeoutError:
+                partial = True
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                rc = None  # partial-but-usable
+            try:
+                err_bytes = await asyncio.wait_for(proc.stderr.read(), timeout=3)
+                err = err_bytes.decode(errors="replace")
+            except Exception:
+                err = ""
+            out = buf.decode(errors="replace")
+            # No findings AND no time spent streaming → a hard failure worth
+            # reporting (bad flag, missing templates). Partial timeouts are fine.
+            if partial and not out.strip():
+                rc = "TIMEOUT_EMPTY"
+            return rc, out, err
+
+        rc, out, err = await _run("-jsonl")
+        if rc == "TIMEOUT_EMPTY":
+            return {"success": False, "error": "nuclei timeout (no findings before cap)"}
+        if (not out.strip()) and ("not defined" in err.lower() or "not defined" in out.lower()):
+            rc, out, err = await _run("-json")  # legacy nuclei (<v3)
+            if rc == "TIMEOUT_EMPTY":
+                return {"success": False, "error": "nuclei timeout (no findings before cap)"}
+
+        # Surface genuine tool errors (e.g. missing templates) instead of
+        # reporting an empty-but-successful scan.
+        if not out.strip() and rc not in (0, None):
+            hint = ""
+            if "no templates" in err.lower():
+                hint = " — run `nuclei -update-templates` to install the template set"
+            return {"success": False, "error": f"nuclei error (rc={rc}): {err.strip()[:300]}{hint}"}
+
+        stdout = out.encode()  # downstream loop decodes again
         findings = []
         for line in stdout.decode(errors="replace").splitlines():
             line = line.strip()

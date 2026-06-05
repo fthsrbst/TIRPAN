@@ -118,47 +118,98 @@ export default function NewMissionTutorial({
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [cardSize, setCardSize] = useState({ w: 380, h: 240 });
+  // While the page is actively scrolling (incl. our own scroll-into-view), the
+  // spotlight must track the target frame-for-frame with NO transition, or it
+  // visibly lags behind ("swims"). When idle, we re-enable a transition so the
+  // box and card SLIDE smoothly from one step's target to the next — the nice bit.
+  const [scrolling, setScrolling] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+  const scrollIdle = useRef<number | null>(null);
 
   // Reset to the first step every time the tour opens.
   useEffect(() => { if (open) setIndex(0); }, [open]);
 
-  // Locate (and scroll into view) the current step's spotlight target.
-  const locate = useCallback(() => {
+  // Resolve the current step's spotlight target element.
+  const currentTarget = useCallback((): HTMLElement | null => {
     const step = STEPS[index];
-    if (!step?.target) { setRect(null); return; }
-    const el = document.querySelector(`[data-tour="${step.target}"]`) as HTMLElement | null;
-    if (!el) { setRect(null); return; }
-    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* ignore */ }
-    const r = el.getBoundingClientRect();
-    setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    if (!step?.target) return null;
+    return document.querySelector(`[data-tour="${step.target}"]`) as HTMLElement | null;
   }, [index]);
 
-  // Apply the page state this step needs, then measure once it has rendered.
+  // Flag a scroll in progress so the slide transition is suppressed until motion
+  // stops (then re-enabled ~140ms after the last scroll tick).
+  const beginScroll = useCallback(() => {
+    setScrolling(true);
+    if (scrollIdle.current) window.clearTimeout(scrollIdle.current);
+    scrollIdle.current = window.setTimeout(() => setScrolling(false), 140);
+  }, []);
+
+  // Any real scroll/resize (user-driven or our programmatic scroll-into-view)
+  // switches the spotlight to snap-tracking so it stays glued instead of chasing.
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener("scroll", beginScroll, true);
+    window.addEventListener("resize", beginScroll, true);
+    return () => {
+      window.removeEventListener("scroll", beginScroll, true);
+      window.removeEventListener("resize", beginScroll, true);
+      if (scrollIdle.current) window.clearTimeout(scrollIdle.current);
+    };
+  }, [open, beginScroll]);
+
+  // Apply the page state this step needs; once its target has rendered, bring it
+  // into view (only when off-screen) and keep the spotlight glued to it via a
+  // requestAnimationFrame loop. Reading live geometry every frame means the box
+  // tracks 1:1 while anything scrolls; when idle the CSS transition makes it glide
+  // to the next step's target. The equality guard skips renders while still.
   useEffect(() => {
     if (!open) return;
     const step = STEPS[index];
-    if (step?.apply) apply(step.apply);
-    const t = window.setTimeout(locate, 320);
-    return () => window.clearTimeout(t);
-  }, [open, index, apply, locate]);
+    if (step?.apply) applyRef.current(step.apply);
 
-  useEffect(() => {
-    if (!open) return;
-    const onMove = () => locate();
-    window.addEventListener("resize", onMove);
-    window.addEventListener("scroll", onMove, true);
-    return () => {
-      window.removeEventListener("resize", onMove);
-      window.removeEventListener("scroll", onMove, true);
+    let raf = 0;
+    let placed = false;
+    const loop = () => {
+      const el = currentTarget();
+      if (!el) {
+        setRect((p) => (p === null ? p : null));
+      } else {
+        if (!placed) {
+          placed = true;
+          const r0 = el.getBoundingClientRect();
+          // Only scroll when the target isn't already fully on screen — keeps the
+          // five same-element form-tab steps from jumping the page around.
+          if (r0.top < 8 || r0.bottom > window.innerHeight - 8) {
+            beginScroll();
+            try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* ignore */ }
+          }
+        }
+        const r = el.getBoundingClientRect();
+        setRect((prev) =>
+          prev && prev.top === r.top && prev.left === r.left && prev.width === r.width && prev.height === r.height
+            ? prev
+            : { top: r.top, left: r.left, width: r.width, height: r.height },
+        );
+      }
+      raf = requestAnimationFrame(loop);
     };
-  }, [open, locate]);
 
+    // Let the view switch (tab change / profile↔form) render before we look for
+    // the freshly-mounted target; the loop then scrolls to it the first frame it
+    // exists, so a slow-rendering tab still gets centered correctly.
+    const t = window.setTimeout(() => { raf = requestAnimationFrame(loop); }, 200);
+    return () => { window.clearTimeout(t); if (raf) cancelAnimationFrame(raf); };
+  }, [open, index, currentTarget, beginScroll]);
+
+  // Card height depends on the step's text, so re-measure per step (not per frame —
+  // the rAF loop above updates `rect` constantly, which must not retrigger this).
   useLayoutEffect(() => {
     if (!open || !cardRef.current) return;
     const r = cardRef.current.getBoundingClientRect();
-    setCardSize({ w: r.width, h: r.height });
-  }, [open, index, rect]);
+    setCardSize((prev) => (prev.w === r.width && prev.h === r.height ? prev : { w: r.width, h: r.height }));
+  }, [open, index]);
 
   const go = useCallback((delta: number) => {
     setIndex((i) => Math.min(STEPS.length - 1, Math.max(0, i + delta)));
@@ -214,7 +265,7 @@ export default function NewMissionTutorial({
       {/* Layer 2 — dim + spotlight (visual only). */}
       {rect ? (
         <div
-          className="absolute rounded-xl pointer-events-none transition-all duration-300"
+          className="absolute rounded-xl pointer-events-none"
           style={{
             top: rect.top - pad,
             left: rect.left - pad,
@@ -223,6 +274,9 @@ export default function NewMissionTutorial({
             boxShadow: "0 0 0 9999px rgba(0,0,0,0.66)",
             outline: "2px solid hsl(var(--primary))",
             outlineOffset: "2px",
+            transition: scrolling
+              ? "none"
+              : "top 320ms cubic-bezier(0.4,0,0.2,1), left 320ms cubic-bezier(0.4,0,0.2,1), width 320ms cubic-bezier(0.4,0,0.2,1), height 320ms cubic-bezier(0.4,0,0.2,1)",
           }}
         />
       ) : (
@@ -233,7 +287,13 @@ export default function NewMissionTutorial({
       <div
         ref={cardRef}
         className="absolute w-[380px] max-w-[92vw] rounded-xl border border-border bg-card shadow-2xl p-5 animate-in fade-in zoom-in-95 duration-200"
-        style={{ top: cardTop, left: cardLeft }}
+        style={{
+          top: cardTop,
+          left: cardLeft,
+          transition: scrolling
+            ? "none"
+            : "top 320ms cubic-bezier(0.4,0,0.2,1), left 320ms cubic-bezier(0.4,0,0.2,1)",
+        }}
       >
         <div className="flex items-center gap-2 mb-2">
           <span className="w-7 h-7 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0">

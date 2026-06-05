@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, NavLink, useNavigate } from "react-router-dom";
-import { Crosshair, Terminal, Settings, ListTodo, FileText, ScrollText, Users, User, CalendarClock, Bell, X, CheckCheck, Ticket, Megaphone, MessageSquare, AlertCircle } from "lucide-react";
+import { Crosshair, Terminal, Settings, ListTodo, FileText, ScrollText, Users, User, CalendarClock, Bell, X, CheckCheck, Ticket, Megaphone, MessageSquare, AlertCircle, LogOut } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePermissions } from "@/lib/permissions";
 import { useAuth } from "@/lib/utils";
@@ -128,7 +128,9 @@ export const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const perms = usePermissions();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const [schedCount, setSchedCount] = useState(0);
   const [bellOpen, setBellOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
@@ -158,6 +160,15 @@ export const Sidebar = () => {
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (bellRef.current && !bellRef.current.contains(e.target as Node)) setBellOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -349,12 +360,13 @@ export const Sidebar = () => {
           </div>
 
           {/* Profile button */}
-          <div className="pt-2">
+          <div className="pt-2 relative" ref={profileRef}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <NavLink
-                  to="/profile"
+                <button
+                  onClick={() => setProfileOpen((v) => !v)}
                   className="block rounded-full hover:opacity-90 transition-opacity focus:outline-none"
+                  aria-label="Profile menu"
                 >
                   {user ? (
                     <UserAvatar name={user.full_name} avatar={user.avatar} role={user.role} size={44} ring />
@@ -363,13 +375,38 @@ export const Sidebar = () => {
                       <User className="w-4 h-4" />
                     </span>
                   )}
-                </NavLink>
+                </button>
               </TooltipTrigger>
               <TooltipContent side="right" sideOffset={10}>
                 <p className="text-xs font-medium">{user?.full_name || "Profile"}</p>
                 <p className="text-[10px] text-muted-foreground">{user?.email}</p>
               </TooltipContent>
             </Tooltip>
+
+            {profileOpen && (
+              <div className="absolute left-14 bottom-0 w-48 z-50 rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
+                <div className="px-3 py-2.5 border-b border-border/50">
+                  <p className="text-xs font-semibold truncate">{user?.full_name || "User"}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{user?.email}</p>
+                </div>
+                <div className="p-1">
+                  <button
+                    onClick={() => { setProfileOpen(false); navigate("/profile"); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-muted transition-colors text-left"
+                  >
+                    <User className="w-4 h-4 text-muted-foreground" />
+                    Profile
+                  </button>
+                  <button
+                    onClick={() => { setProfileOpen(false); logout(); navigate("/login"); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-destructive/10 text-destructive transition-colors text-left"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </TooltipProvider>
       </aside>

@@ -137,6 +137,30 @@ const Reports = () => {
     };
   }, [sessions]);
 
+  const sparks = useMemo(() => {
+    const ordered = [...(sessions as any[])].sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0));
+    if (ordered.length < 2) return null;
+    let cCount = 0, cCompleted = 0, cHosts = 0, cVulns = 0, cExploits = 0, cCritical = 0;
+    const count: number[] = [], completed: number[] = [], hosts: number[] = [];
+    const vulns: number[] = [], exploits: number[] = [], critical: number[] = [];
+    ordered.forEach((s: any) => {
+      cCount += 1;
+      if ((s.status || "") === "done") cCompleted += 1;
+      cHosts += s.hosts_found || 0;
+      cVulns += s.vulns_found || 0;
+      cExploits += s.exploits_run || 0;
+      if (severityFromScore(s.vulns_found || 0, s.exploits_run || 0).label === "Critical") cCritical += 1;
+      count.push(cCount);
+      completed.push(cCompleted);
+      hosts.push(cHosts);
+      vulns.push(cVulns);
+      exploits.push(cExploits);
+      critical.push(cCritical);
+    });
+    const tail = (a: number[]) => a.slice(-8);
+    return { count: tail(count), completed: tail(completed), hosts: tail(hosts), vulns: tail(vulns), exploits: tail(exploits), critical: tail(critical) };
+  }, [sessions]);
+
   const handleDownloadHtml = () => {
     if (!reportHtml || !effectiveSid) return;
     const blob = new Blob([reportHtml], { type: "text/html" });
@@ -177,12 +201,12 @@ const Reports = () => {
       <div className="flex flex-col h-full gap-4 min-h-0">
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
-          <StatCard icon={FileText} label="Reports" value={stats.count} accent="primary" sublabel={`${filtered.length} shown`} />
-          <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} accent="success" />
-          <StatCard icon={Target} label="Hosts" value={stats.hosts} accent="accent" sublabel="discovered" />
-          <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" />
-          <StatCard icon={Activity} label="Exploits" value={stats.exploits} accent="primary" sublabel="executed" />
-          <StatCard icon={ShieldAlert} label="Critical" value={stats.critical} accent="destructive" sublabel="reports" />
+          <StatCard icon={FileText} label="Reports" value={stats.count} accent="primary" sublabel={`${filtered.length} shown`} spark={sparks?.count} />
+          <StatCard icon={CheckCircle2} label="Completed" value={stats.completed} accent="success" spark={sparks?.completed} />
+          <StatCard icon={Target} label="Hosts" value={stats.hosts} accent="accent" sublabel="discovered" spark={sparks?.hosts} />
+          <StatCard icon={Bug} label="Vulnerabilities" value={stats.vulns} accent="warning" spark={sparks?.vulns} />
+          <StatCard icon={Activity} label="Exploits" value={stats.exploits} accent="primary" sublabel="executed" spark={sparks?.exploits} />
+          <StatCard icon={ShieldAlert} label="Critical" value={stats.critical} accent="destructive" sublabel="reports" spark={sparks?.critical} />
         </div>
 
         <div className="flex flex-1 min-h-0 gap-4">
