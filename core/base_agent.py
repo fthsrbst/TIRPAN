@@ -242,16 +242,27 @@ class BaseAgent(ABC):
 
         Used to size the reason() wall-clock budget so it never preempts a call
         the HTTP client itself would still be waiting on.
+
+        CRITICAL: we take the MAX across every configured provider, NOT just
+        settings.llm.provider. The runtime-active provider is loaded from
+        app_settings ("active_provider") and per-agent model overrides — it
+        routinely differs from the env default. e.g. env LLM_PROVIDER="ollama"
+        (120s) while the brain actually runs on "opencode_go" (240s, a slow
+        chain-of-thought model). Reading only the env provider under-sized the
+        budget to 210s < the 240s HTTP timeout, so a slow-but-valid post-scan
+        reasoning call got killed mid-flight; 3 in a row aborted the whole
+        mission with 0 exploits (test11/test15: empty findings). Taking the max
+        can only ever raise the budget, never shrink a working path.
         """
         try:
             from config import settings
-            prov = (getattr(settings.llm, "provider", "") or "").lower()
-            by_provider = {
-                "opencode_go": getattr(settings.opencode_go, "timeout", 120.0),
-                "ollama":      getattr(settings.ollama, "timeout", 120.0),
-                "lmstudio":    getattr(settings.lmstudio, "timeout", 120.0),
-            }
-            return float(by_provider.get(prov, 120.0))
+            timeouts = [
+                getattr(settings.opencode_go, "timeout", 120.0),
+                getattr(settings.ollama, "timeout", 120.0),
+                getattr(settings.lmstudio, "timeout", 120.0),
+            ]
+            valid = [float(t) for t in timeouts if t]
+            return max(valid) if valid else 120.0
         except Exception:
             return 120.0
 

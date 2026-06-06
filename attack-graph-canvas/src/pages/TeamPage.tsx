@@ -342,8 +342,19 @@ export default function TeamPage() {
   const saveBudget = async (uid: string, value: number) => {
     setBudgetSaving(true);
     setBudgetError("");
+    const newBudget = Math.max(0, value);
+    if (orgUsage.org_budget_usd > 0) {
+      const currentBudget = spendByUser[uid]?.budget || 0;
+      const othersAllocated = orgUsage.allocated_usd - currentBudget;
+      if (othersAllocated + newBudget > orgUsage.org_budget_usd + 0.001) {
+        const available = Math.max(0, orgUsage.org_budget_usd - othersAllocated);
+        setBudgetError(`Exceeds org budget. Only $${available.toFixed(2)} left to allocate.`);
+        setBudgetSaving(false);
+        return;
+      }
+    }
     try {
-      await setUserBudget(uid, Math.max(0, value));
+      await setUserBudget(uid, newBudget);
       setBudgetEditId(null);
       loadUsage();
     } catch (e) {

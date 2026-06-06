@@ -298,14 +298,32 @@ class PentestAgent(BaseAgent):
 
         self._ctx.hosts_pending_port_scan.clear()
         self._ctx.hosts_pending_exploit_search.clear()
+
+        for summary in self._ctx.scan_results:
+            parts = summary.split(":", 1)
+            if len(parts) >= 2:
+                ip = parts[0]
+                rest = parts[1]
+                port_and_service = rest.split(" ", 1)
+                port = port_and_service[0] if port_and_service else ""
+                service_version = port_and_service[1] if len(port_and_service) > 1 else ""
+                svc_parts = service_version.split(" ", 1)
+                service = svc_parts[0] if svc_parts else ""
+                version = svc_parts[1] if len(svc_parts) > 1 else ""
+                entry = f"{ip}:{port}:{service}:{version}"
+                if entry not in self._ctx.services_searched:
+                    self._ctx.hosts_pending_exploit_search.append(entry)
+                    self._ctx.services_searched.add(entry)
+
         self._ctx.attack_phase = attack_phase
         self._ctx.iteration = source_iteration or 0
         logger.info(
-            "Context seeded: %d hosts, %d ports, %d vulns, %d exploits → phase=%s (from iter %s)",
+            "Context seeded: %d hosts, %d ports, %d vulns, %d exploits, %d pending exploit search → phase=%s (from iter %s)",
             len(self._ctx.discovered_hosts),
             len(self._ctx.scan_results),
             len(self._ctx.vulnerabilities),
             len(self._ctx.exploit_results),
+            len(self._ctx.hosts_pending_exploit_search),
             attack_phase,
             source_iteration,
         )
