@@ -86,10 +86,12 @@ const STATUS_META: Record<StatusKind, { Icon: typeof Bot; cls: string; chip: str
 
 // ── Lightweight markdown renderer ──────────────────────────────────────────────
 function renderInline(text: string): React.ReactNode[] {
-  const parts = text.split(/(`[^`\n]+`|\*\*[^*]+\*\*|\*[^*\n]+\*)/);
+  const parts = text.split(/(`[^`\n]+`|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*\n]+\*)/);
   return parts.map((p, i) => {
     if (p.startsWith("`") && p.endsWith("`") && p.length > 2)
       return <code key={i} className="bg-black/40 px-1 py-0.5 rounded text-[10px] font-mono text-primary/90 break-all">{p.slice(1, -1)}</code>;
+    if (p.startsWith("***") && p.endsWith("***") && p.length > 6)
+      return <strong key={i} className="font-bold italic text-foreground">{p.slice(3, -3)}</strong>;
     if (p.startsWith("**") && p.endsWith("**") && p.length > 4)
       return <strong key={i} className="font-bold text-foreground">{p.slice(2, -2)}</strong>;
     if (p.startsWith("*") && p.endsWith("*") && p.length > 2)
@@ -99,11 +101,11 @@ function renderInline(text: string): React.ReactNode[] {
 }
 
 function MarkdownMsg({ text }: { text: string }) {
-  const segments = text.split(/(```[\w]*\n[\s\S]*?```|```[\w]*\n?[\s\S]*?```)/);
+  const segments = text.split(/(```[\w]*\n[\s\S]*?```)/);
   return (
     <div className="space-y-1 text-[12px] leading-relaxed text-foreground/90 break-words">
       {segments.map((seg, si) => {
-        const cbMatch = seg.match(/^```([\w]*)\n?([\s\S]*)```$/);
+        const cbMatch = seg.match(/^```([\w]*)\n([\s\S]*)```$/);
         if (cbMatch) {
           return (
             <pre key={si} className="bg-black/50 rounded-lg p-3 overflow-x-auto text-[11px] font-mono text-green-400/90 my-2 border border-white/5 whitespace-pre-wrap">

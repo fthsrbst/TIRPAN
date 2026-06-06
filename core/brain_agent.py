@@ -670,6 +670,15 @@ class BrainAgent(BaseAgent):
         task_type = params.get("task_type", "")
         options = dict(params.get("options", {}) or {})
 
+        # Auto-advance phase based on agent type being spawned
+        current_phase = getattr(self.ctx, "phase", "")
+        if agent_type == "scanner" and current_phase in ("", "recon", "OSINT"):
+            self.ctx.phase = "scanning"
+        elif agent_type == "exploit" and current_phase in ("", "recon", "OSINT", "scanning"):
+            self.ctx.phase = "exploitation"
+        elif agent_type == "post_exploit" and current_phase not in ("post_exploitation", "done"):
+            self.ctx.phase = "post_exploitation"
+
         # Multi-target guard: LLM sometimes sends "ip1 ip2" or "ip1,ip2" as a single target.
         # Split and spawn one agent per IP — except for scanner agents which can scan multiple
         # targets natively, and CIDR ranges (which contain "/").
@@ -3454,6 +3463,40 @@ class BrainAgent(BaseAgent):
             f"active agents: {fg} · iterations with no new finding: {self._idle_iterations}"
             + (f" (~{idle_min:.0f} min)" if idle_min >= 1 else ""),
         ]
+
+        # Phase-mismatch nudge: if we have open ports but haven't started exploitation
+        open_port_count = 0
+        for h in self.ctx.hosts.values():
+            for p in getattr(h, "ports", []) or []:
+                if (getattr(p, "state", "") or "").lower() == "open":
+                    open_port_count += 1
+
+        exploit_n = sum(
+            1 for e in self.ctx.attack_graph.edges
+            if getattr(e, "edge_type", "") == "exploit_attempt"
+        )
+
+        current_phase = getattr(self.ctx, "phase", "")
+        if open_port_count > 0 and exploit_n == 0 and self.ctx.allow_exploitation:
+            if current_phase not in ("exploitation", "post_exploitation"):
+                lines.append(
+                    f"- ⚠️ PHASE MISMATCH: You have discovered {open_port_count} open port(s) "
+                    f"across {len(self.ctx.hosts)} host(s) but attempted ZERO exploits. "
+                    f"You are in phase '{current_phase}' — call set_phase('exploitation') "
+                    f"and spawn exploit agents (agent_type='exploit') NOW. "
+                    f"Enumeration is NOT the goal; exploitation is."
+                )
+            else:
+                lines.append(
+                    f"- ⚠️ ZERO exploit attempts despite {open_port_count} open port(s). "
+                    f"Spawn exploit agents immediately — every open service is an attack vector."
+                )
+        elif open_port_count > 0 and exploit_n > 0 and exploit_n < open_port_count:
+            lines.append(
+                f"- Exploit progress: {exploit_n}/{open_port_count} services attempted. "
+                f"Spawn more exploit agents for remaining services."
+            )
+
         if fg == 0 and self._idle_iterations >= 3:
             if idle_min >= self._idle_backstop_minutes:
                 lines.append(
@@ -3508,9 +3551,9 @@ class BrainAgent(BaseAgent):
         exploiting yet, despite exploitation being enabled and services existing."""
         if not getattr(self.ctx, "allow_exploitation", False):
             return False
-        # Safety valve: never stall forever — allow completion after a few blocks
-        # in case the model genuinely cannot proceed.
-        if getattr(self, "_mission_done_block_count", 0) >= 3:
+        # Safety valve: allow completion after many blocks, but only if the
+        # brain has genuinely tried and failed (not just ignored exploitation).
+        if getattr(self, "_mission_done_block_count", 0) >= 10:
             return False
         # Already attempted at least one exploit? Then completion is legitimate.
         try:

@@ -593,6 +593,10 @@ def _apply_llm_setting_live(key: str, value) -> None:
         settings.llm.cloud_model = val
     elif key == "opencode_go_model":
         settings.opencode_go.model = val
+    elif key == "opencode_go_api_key":
+        settings.opencode_go.api_key = val
+    elif key == "openrouter_api_key":
+        settings.llm.api_key = val
     elif key == "ollama_model":
         settings.ollama.model = val
     elif key == "ollama_base_url":
@@ -1986,6 +1990,7 @@ async def list_sessions(current_user: dict = Depends(get_current_user)):
     sessions = await _session_repo.list_for_user(
         user_id=current_user["id"],
         role=current_user["role"],
+        org_id=current_user.get("org_id"),
     )
     # Enrich with assigned_to_name for admin/owner
     if current_user["role"] in ("owner", "admin"):
@@ -2311,8 +2316,8 @@ async def pause_session(sid: str):
 
 
 @router.post("/sessions/{sid}/resume")
-async def resume_session(sid: str):
-    """Resume a paused agent."""
+async def resume_session(sid: str, current_user: dict = Depends(require_min_role("analyst"))):
+    """Resume a paused or stopped agent."""
     from web import session_manager
 
     session = await _session_repo.get(sid)
@@ -2328,7 +2333,103 @@ async def resume_session(sid: str):
             "event": "resumed",
             "data": {},
         })
-    return {"ok": ok}
+        return {"ok": True}
+
+    _status = session.get("status", "")
+    if _status in ("stopped", "error", "done"):
+        from core.agent import PentestAgent
+        from core.safety import SafetyGuard
+        from models.session import Session
+        from models.mission import MissionBrief as _MissionBrief
+
+        session_obj = Session(
+            id=sid,
+            target=session["target"],
+            mode=session["mode"],
+            status=_status,
+            created_at=session.get("created_at", 0.0),
+            updated_at=session.get("updated_at", 0.0),
+        )
+
+        try:
+            from web.app_state import tool_registry as registry
+        except ImportError:
+            from core.tool_registry import ToolRegistry
+            registry = ToolRegistry()
+
+        _session_mode = session["mode"]
+        _allow_exploit = _session_mode in ("full_auto", "ask_before_exploit")
+        _resume_mission = _MissionBrief(
+            allow_exploitation=_allow_exploit,
+            allow_post_exploitation=_allow_exploit,
+        )
+
+        import json as _json_safety
+        _raw_cfg = session.get("safety_cfg_json") or "{}"
+        try:
+            _saved = _json_safety.loads(_raw_cfg) if _raw_cfg and _raw_cfg != "{}" else {}
+        except Exception:
+            _saved = {}
+        _target = session["target"]
+        if _saved:
+            _safety_cfg = SafetyConfig(**_saved)
+            _safety_cfg.allow_exploit = _allow_exploit
+        else:
+            _safety_cfg = SafetyConfig(
+                allowed_cidr=_target,
+                allow_exploit=_allow_exploit,
+            )
+        _never_scan = await database.list_never_scan()
+        guard = SafetyGuard(_safety_cfg, never_scan_entries=[r["value"] for r in _never_scan])
+        progress_cb = session_manager.make_progress_callback(sid)
+
+        scan_results = await _scan_repo.get_for_session(sid)
+        vulns = await _vuln_repo.get_for_session(sid)
+        exploit_results = await _exploit_repo.get_for_session(sid)
+        events = await _event_repo.get_for_session(sid)
+
+        attack_phase = "EXPLOITATION"
+        for ev in reversed(events):
+            if ev["event_type"] == "reasoning" and ev["data"].get("attack_phase"):
+                attack_phase = ev["data"]["attack_phase"]
+                break
+
+        new_agent = PentestAgent(
+            session=session_obj,
+            target=session["target"],
+            mode=session["mode"],
+            registry=registry,
+            safety=guard,
+            progress_callback=progress_cb,
+            audit_repo=_audit_repo,
+            mission=_resume_mission,
+        )
+        new_agent.seed_context_from_findings(
+            scan_results,
+            vulns,
+            attack_phase=attack_phase,
+            exploit_results_from_db=exploit_results or None,
+            events_up_to=events or None,
+        )
+
+        session_manager.clear_buffer(sid)
+        await registry.run_health_checks()
+
+        task = asyncio.create_task(
+            _run_agent_task(sid, new_agent, _session_repo, _audit_repo)
+        )
+        session_manager.register(sid, task, guard, new_agent)
+
+        await _session_repo.update_status(sid, "running")
+        await session_manager.broadcast(sid, {
+            "type": "session_event",
+            "session_id": sid,
+            "event": "resumed",
+            "data": {"from_stopped": True},
+        })
+        return {"ok": True, "from_stopped": True}
+
+    return {"ok": False}
 
 
 @router.post("/sessions/{sid}/rollback/{iteration}")

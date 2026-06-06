@@ -435,7 +435,7 @@ class MissionContext:
         self.mission_brief = None
 
         # Progress
-        self.phase: str = "OSINT"
+        self.phase: str = "recon"
         self.completed_tasks: list[str] = []
         self.active_agents: dict[str, AgentStatus] = {}
 

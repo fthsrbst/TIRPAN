@@ -110,20 +110,31 @@ class SessionRepository:
         user_id: str,
         role: str,
         limit: int = 50,
+        org_id: str | None = None,
     ) -> list[dict]:
         """
         Role-based session listing:
-        - owner / admin : tüm session'lar
+        - owner / admin : aynı org'daki kullanıcıların session'ları
         - analyst       : kendi oluşturduğu veya kendine atananlar
         - viewer        : kendine atanan session'lar (assigned_to = user_id)
         """
         async with _connect(self._path) as db:
             if role in ("owner", "admin"):
-                async with db.execute(
-                    "SELECT * FROM pentest_sessions ORDER BY created_at DESC LIMIT ?",
-                    (limit,),
-                ) as cur:
-                    rows = await cur.fetchall()
+                if org_id:
+                    async with db.execute(
+                        """SELECT s.* FROM pentest_sessions s
+                           LEFT JOIN users u ON s.created_by = u.id
+                           WHERE u.org_id = ? OR s.created_by IS NULL
+                           ORDER BY s.created_at DESC LIMIT ?""",
+                        (org_id, limit),
+                    ) as cur:
+                        rows = await cur.fetchall()
+                else:
+                    async with db.execute(
+                        "SELECT * FROM pentest_sessions ORDER BY created_at DESC LIMIT ?",
+                        (limit,),
+                    ) as cur:
+                        rows = await cur.fetchall()
             elif role == "analyst":
                 async with db.execute(
                     """SELECT * FROM pentest_sessions
