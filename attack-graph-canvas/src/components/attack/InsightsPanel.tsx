@@ -114,7 +114,7 @@ export const InsightsPanel = ({ data, details, sessionId }: InsightsPanelProps) 
 
   const insights = [
     { label: "Open Attack Paths", value: String(data.openAttackPaths), delta: data.openAttackPaths > 0 ? `${data.openAttackPaths} active` : "None" },
-    { label: "Critical Findings", value: String(data.criticalFindings), delta: data.criticalFindings > 0 ? "High severity" : "Clean" },
+    { label: "Critical Findings", value: String(data.criticalFindings), delta: data.highFindings > 0 ? `+${data.highFindings} high` : data.criticalFindings > 0 ? "CVSS 9.0+" : "Clean" },
     { label: "Compromised Hosts", value: String(data.compromisedHosts), delta: `${data.totalHosts} total` },
   ];
 
@@ -141,8 +141,12 @@ export const InsightsPanel = ({ data, details, sessionId }: InsightsPanelProps) 
           <span className="text-[9px] font-bold tracking-widest text-muted-foreground">VULNERABILITIES</span>
           <div className="flex items-baseline gap-1">
             <span className={`font-display font-bold text-2xl leading-none ${data.totalVulns > 0 ? "text-destructive" : "text-foreground"}`}>{data.totalVulns}</span>
-            {data.criticalFindings > 0 && (
-              <span className="text-[9px] font-mono text-destructive/70">{data.criticalFindings} critical</span>
+            {(data.criticalFindings > 0 || data.highFindings > 0) && (
+              <span className="text-[9px] font-mono">
+                {data.criticalFindings > 0 && <span className="text-destructive/70">{data.criticalFindings} critical</span>}
+                {data.criticalFindings > 0 && data.highFindings > 0 && <span className="text-muted-foreground"> · </span>}
+                {data.highFindings > 0 && <span className="text-warning/80">{data.highFindings} high</span>}
+              </span>
             )}
           </div>
         </div>

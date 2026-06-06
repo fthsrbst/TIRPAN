@@ -51,7 +51,8 @@ const AgentFlow = () => {
     return [...raw].sort((a, b) => (b.cvss_score || 0) - (a.cvss_score || 0));
   }, [sessionData]);
 
-  const criticalCount = vulns.filter((v) => (v.cvss_score || 0) >= 7).length;
+  // CVSS standard: CRITICAL = 9.0+ (matches reporting/cvss.py and the report PDF)
+  const criticalCount = vulns.filter((v) => (v.cvss_score || 0) >= 9).length;
   const visibleVulns = vulnsExpanded ? vulns : vulns.slice(0, 5);
 
   return (
