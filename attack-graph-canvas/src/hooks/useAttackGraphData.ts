@@ -64,6 +64,7 @@ export interface InsightData {
   riskTrend: number[];
   openAttackPaths: number;
   criticalFindings: number;
+  highFindings: number;
   compromisedHosts: number;
   totalHosts: number;
   totalVulns: number;
@@ -797,7 +798,13 @@ function buildBundle(session: any, selectedHost?: string | null): SessionGraphBu
   const riskLabel = riskScore >= 90 ? "Critical" : riskScore >= 70 ? "High" : riskScore >= 40 ? "Medium" : riskScore > 0 ? "Low" : "—";
   const cvssTimeline = vulns.slice().sort((a: any, b: any) => (a.created_at || 0) - (b.created_at || 0)).map((v: any) => Math.round((v.cvss_score || 0) * 10));
   const riskTrend = cvssTimeline.length >= 2 ? cvssTimeline.slice(-8) : [0, 0, 0, riskScore / 4, riskScore / 2, riskScore * 0.75, riskScore * 0.9, riskScore];
-  const criticalFindings = vulns.filter((v: any) => v.cvss_score >= 7.0).length;
+  // CVSS standard severity buckets so dashboard counts match the PDF/HTML report
+  // (reporting/cvss.py): CRITICAL = 9.0-10.0, HIGH = 7.0-8.9. The old code counted
+  // cvss>=7 as "critical", which merged HIGH into CRITICAL and disagreed with the
+  // report (test16: dashboard said ~8-14 "critical", report said 3). Keep them
+  // separate and aligned.
+  const criticalFindings = vulns.filter((v: any) => (v.cvss_score || 0) >= 9.0).length;
+  const highFindings = vulns.filter((v: any) => (v.cvss_score || 0) >= 7.0 && (v.cvss_score || 0) < 9.0).length;
   const compromisedHosts = new Set(exploits.filter((e: any) => e.success).map((e: any) => e.host_ip)).size;
   const successfulExploits = exploits.filter((e: any) => e.success).length;
   const openAttackPaths = new Set(exploits.filter((e: any) => e.session_opened).map((e: any) => e.host_ip)).size || (hasScanData ? 1 : 0);
@@ -815,7 +822,7 @@ function buildBundle(session: any, selectedHost?: string | null): SessionGraphBu
   const pathTrendRaw = exploits.filter((e: any) => e.success && e.created_at).sort((a: any, b: any) => a.created_at - b.created_at).map((_e: any, i: number, arr: any[]) => Math.round(((i + 1) / arr.length) * riskScore));
   const pathTrend = pathTrendRaw.length >= 2 ? pathTrendRaw.slice(-10) : [0, 5, 10, 15, 20, 30, 40, riskScore * 0.5, riskScore * 0.75, riskScore];
 
-  const insights: InsightData = { riskScore, riskLabel: riskLabel as InsightData["riskLabel"], riskTrend, openAttackPaths, criticalFindings, compromisedHosts, totalHosts: allHosts.length, totalVulns: vulns.length, successfulExploits, attackVectors, pathTrend };
+  const insights: InsightData = { riskScore, riskLabel: riskLabel as InsightData["riskLabel"], riskTrend, openAttackPaths, criticalFindings, highFindings, compromisedHosts, totalHosts: allHosts.length, totalVulns: vulns.length, successfulExploits, attackVectors, pathTrend };
 
   const sessionStart = session.created_at || 0;
   const elapsed = sessionStart ? Math.round(Date.now() / 1000 - sessionStart) : 0;
@@ -936,7 +943,7 @@ const DEMO: SessionGraphBundle = {
   },
   insights: {
     riskScore: 92, riskLabel: "Critical", riskTrend: [60, 65, 70, 68, 75, 80, 85, 92],
-    openAttackPaths: 2, criticalFindings: 9, compromisedHosts: 4, totalHosts: 5, totalVulns: 14,
+    openAttackPaths: 2, criticalFindings: 3, highFindings: 6, compromisedHosts: 4, totalHosts: 5, totalVulns: 14,
     successfulExploits: 7,
     attackVectors: [
       { label: "Web Exploitation", pct: 42 },

@@ -2107,16 +2107,29 @@ class BrainAgent(BaseAgent):
                     if (getattr(p, "state", "") or "").lower() == "open":
                         ports_n += 1
             vulns_n = len(getattr(self.ctx, "vulnerabilities", []) or [])
-            # exploits_run counts attempts (successful + failed); record_exploit_attempt
-            # appends to attack_graph edges, so fall back to len() of exploit edges
-            # if no explicit list is kept.
+            # exploits_run counts attempts (successful + failed). The CANONICAL
+            # store is the exploit_results table: the brain persists every
+            # attempt there via ExploitResultRepository.save(), but it does NOT
+            # append to ctx.exploit_results and record_exploit_attempt is not
+            # always reached, so the old edge-only count read 0 even after real
+            # shells were opened (test16: 3 confirmed exploits — vsftpd backdoor,
+            # samba usermap, java_rmi — yet the card showed "0 exploits"). Count
+            # the persisted rows and take the max with any exploit_attempt edges
+            # so neither recording path can under-count.
             try:
-                exp_n = sum(
+                edge_n = sum(
                     1 for e in self.ctx.attack_graph.edges
                     if getattr(e, "edge_type", "") == "exploit_attempt"
                 )
             except Exception:
-                exp_n = 0
+                edge_n = 0
+            try:
+                from database.repositories import ExploitResultRepository
+                _persisted = await ExploitResultRepository().get_for_session(self.session_id)
+                db_n = len(_persisted)
+            except Exception:
+                db_n = 0
+            exp_n = max(edge_n, db_n)
             await _sess_repo.update_stats(
                 session_id=self.session_id,
                 hosts_found=hosts_n,
